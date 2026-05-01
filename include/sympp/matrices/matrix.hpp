@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <tuple>
 
 #include <sympp/core/api.hpp>
 #include <sympp/fwd.hpp>
@@ -64,6 +65,21 @@ public:
     [[nodiscard]] bool equals(const Matrix& other) const;
     // Frobenius norm: sqrt(Σ |aᵢⱼ|²).
     [[nodiscard]] Expr norm_frobenius() const;
+
+    // Reduced row echelon form. Returns (rref, pivot_columns).
+    // Each pivot is normalized to 1; entries above and below each pivot
+    // are zeroed; pivot_columns is sorted ascending.
+    [[nodiscard]] std::pair<Matrix, std::vector<std::size_t>> rref() const;
+    // Number of linearly independent rows = number of pivots.
+    [[nodiscard]] std::size_t rank() const;
+    // Basis of the null space (kernel) — list of column-vector solutions
+    // to A·x = 0. Empty when A has full column rank.
+    [[nodiscard]] std::vector<Matrix> nullspace() const;
+    // Basis of the column space (range) — selected columns of A
+    // corresponding to pivot positions.
+    [[nodiscard]] std::vector<Matrix> columnspace() const;
+    // Basis of the row space — non-zero rows of rref().
+    [[nodiscard]] std::vector<Matrix> rowspace() const;
 
     // Apply a unary transform to every element.
     template <typename F>

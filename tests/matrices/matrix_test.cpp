@@ -363,3 +363,64 @@ TEST_CASE("matrix: wronskian of {sin(x), cos(x)} = -1",
     auto w = wronskian({sin(x), cos(x)}, x);
     REQUIRE(oracle.equivalent(w->str(), "-1"));
 }
+
+// ----- rref / rank / null / column / row spaces -----------------------------
+
+TEST_CASE("matrix: rref of identity is identity", "[9][matrix][rref]") {
+    auto I = Matrix::identity(3);
+    auto [r, pivots] = I.rref();
+    REQUIRE(pivots.size() == 3);
+    REQUIRE(r.equals(I));
+}
+
+TEST_CASE("matrix: rref of rank-2 3x3", "[9][matrix][rref]") {
+    Matrix m = {{integer(1), integer(2), integer(3)},
+                {integer(2), integer(4), integer(6)},
+                {integer(0), integer(0), integer(1)}};
+    // Row 2 is 2 * row 1. Rank should be 2.
+    auto [r, pivots] = m.rref();
+    REQUIRE(pivots.size() == 2);
+    REQUIRE(pivots[0] == 0);
+    REQUIRE(pivots[1] == 2);
+}
+
+TEST_CASE("matrix: rank reflects row dependence", "[9][matrix][rank]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(2), integer(4)}};
+    REQUIRE(m.rank() == 1);
+    Matrix n = {{integer(1), integer(0)}, {integer(0), integer(1)}};
+    REQUIRE(n.rank() == 2);
+}
+
+TEST_CASE("matrix: nullspace of rank-deficient 2x2", "[9][matrix][nullspace]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(2), integer(4)}};
+    auto ns = m.nullspace();
+    REQUIRE(ns.size() == 1);
+    // Verify A · v = 0 for the basis vector.
+    auto Av = m * ns[0];
+    REQUIRE(Av.at(0, 0) == S::Zero());
+    REQUIRE(Av.at(1, 0) == S::Zero());
+}
+
+TEST_CASE("matrix: nullspace of full-rank is empty",
+          "[9][matrix][nullspace]") {
+    auto I = Matrix::identity(3);
+    auto ns = I.nullspace();
+    REQUIRE(ns.empty());
+}
+
+TEST_CASE("matrix: columnspace of rank-2 3x3 has 2 vectors",
+          "[9][matrix][columnspace]") {
+    Matrix m = {{integer(1), integer(2), integer(3)},
+                {integer(2), integer(4), integer(7)},
+                {integer(0), integer(0), integer(1)}};
+    auto cs = m.columnspace();
+    REQUIRE(cs.size() == 2);
+    REQUIRE(cs[0].at(0, 0) == integer(1));  // first pivot column
+}
+
+TEST_CASE("matrix: rowspace of rank-1 has 1 vector",
+          "[9][matrix][rowspace]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(2), integer(4)}};
+    auto rs = m.rowspace();
+    REQUIRE(rs.size() == 1);
+}

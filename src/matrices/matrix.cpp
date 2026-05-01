@@ -16,6 +16,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
 
@@ -236,6 +237,108 @@ Matrix Matrix::conjugate_transpose() const {
         }
     }
     return out;
+}
+
+// ----- rref / rank / nullspace / columnspace / rowspace ---------------------
+
+std::pair<Matrix, std::vector<std::size_t>> Matrix::rref() const {
+    Matrix m = *this;  // working copy
+    std::vector<std::size_t> pivots;
+    std::size_t r = 0;  // current row
+    for (std::size_t c = 0; c < cols_ && r < rows_; ++c) {
+        // Find a pivot row >= r whose entry at column c is nonzero.
+        std::size_t pivot_row = rows_;
+        for (std::size_t i = r; i < rows_; ++i) {
+            // simplify here folds e.g. (a-a) to 0 so the test is robust.
+            Expr v = simplify(m.at(i, c));
+            if (!(v == S::Zero())) {
+                pivot_row = i;
+                break;
+            }
+        }
+        if (pivot_row == rows_) continue;  // no pivot in this column
+        // Swap pivot_row and r.
+        if (pivot_row != r) {
+            for (std::size_t j = 0; j < cols_; ++j) {
+                Expr tmp = m.at(r, j);
+                m.set(r, j, m.at(pivot_row, j));
+                m.set(pivot_row, j, tmp);
+            }
+        }
+        // Scale row r so the pivot becomes 1.
+        Expr pivot = m.at(r, c);
+        for (std::size_t j = 0; j < cols_; ++j) {
+            m.set(r, j, simplify(m.at(r, j) / pivot));
+        }
+        // Eliminate this column in every other row.
+        for (std::size_t i = 0; i < rows_; ++i) {
+            if (i == r) continue;
+            Expr factor = m.at(i, c);
+            if (factor == S::Zero()) continue;
+            for (std::size_t j = 0; j < cols_; ++j) {
+                Expr v = m.at(i, j) - factor * m.at(r, j);
+                m.set(i, j, simplify(v));
+            }
+        }
+        pivots.push_back(c);
+        ++r;
+    }
+    return {m, pivots};
+}
+
+std::size_t Matrix::rank() const {
+    return rref().second.size();
+}
+
+std::vector<Matrix> Matrix::nullspace() const {
+    auto [r, pivots] = rref();
+    // Free columns are those not in pivots.
+    std::vector<std::size_t> free_cols;
+    {
+        std::size_t pi = 0;
+        for (std::size_t c = 0; c < cols_; ++c) {
+            if (pi < pivots.size() && pivots[pi] == c) ++pi;
+            else free_cols.push_back(c);
+        }
+    }
+    std::vector<Matrix> basis;
+    basis.reserve(free_cols.size());
+    for (std::size_t free : free_cols) {
+        // Construct a vector with x_free = 1, other free vars = 0,
+        // pivot vars = -r[i, free].
+        Matrix v(cols_, 1);
+        for (std::size_t i = 0; i < cols_; ++i) v.set(i, 0, S::Zero());
+        v.set(free, 0, S::One());
+        for (std::size_t pi = 0; pi < pivots.size(); ++pi) {
+            v.set(pivots[pi], 0, mul(S::NegativeOne(), r.at(pi, free)));
+        }
+        basis.push_back(std::move(v));
+    }
+    return basis;
+}
+
+std::vector<Matrix> Matrix::columnspace() const {
+    auto [_, pivots] = rref();
+    std::vector<Matrix> basis;
+    basis.reserve(pivots.size());
+    for (std::size_t c : pivots) {
+        Matrix v(rows_, 1);
+        for (std::size_t i = 0; i < rows_; ++i) v.set(i, 0, at(i, c));
+        basis.push_back(std::move(v));
+    }
+    return basis;
+}
+
+std::vector<Matrix> Matrix::rowspace() const {
+    auto [r, pivots] = rref();
+    std::vector<Matrix> basis;
+    basis.reserve(pivots.size());
+    for (std::size_t i = 0; i < pivots.size(); ++i) {
+        Matrix row_vec(1, cols_);
+        for (std::size_t j = 0; j < cols_; ++j) row_vec.set(0, j, r.at(i, j));
+        basis.push_back(std::move(row_vec));
+    }
+    return basis;
 }
 
 Expr Matrix::norm_frobenius() const {
