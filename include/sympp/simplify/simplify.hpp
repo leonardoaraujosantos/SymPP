@@ -65,6 +65,22 @@ namespace sympp {
 // Reference: sympy/simplify/sqrtdenest.py::sqrtdenest
 [[nodiscard]] SYMPP_EXPORT Expr sqrtdenest(const Expr& e);
 
+// combsimp(expr) — simplify combinatorial expressions. Minimal coverage:
+//   * factorial(n + k) / factorial(n) → (n+k)*(n+k-1)*...*(n+1) for small
+//     non-negative integer k (the "falling product").
+//   * gamma(n + 1) / gamma(n) → n (analogous, via gamma's recurrence).
+//
+// Reference: sympy/simplify/combsimp.py
+[[nodiscard]] SYMPP_EXPORT Expr combsimp(const Expr& e);
+
+// gammasimp(expr) — apply gamma function identities. Minimal subset:
+//   * gamma(n + 1) → n * gamma(n) for non-negative integer offsets
+//   * gamma(1) → 1
+// Combined with combsimp covers the common factorial/gamma manipulations.
+//
+// Reference: sympy/simplify/gammasimp.py
+[[nodiscard]] SYMPP_EXPORT Expr gammasimp(const Expr& e);
+
 // trigsimp(expr) — apply trigonometric identities (Pythagorean, ratio,
 // reciprocal). Minimal Fu-style subset:
 //   * sin²(x) + cos²(x) → 1   (with shared coefficient: a*sin²(x) + a*cos²(x) → a)

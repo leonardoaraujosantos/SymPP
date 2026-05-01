@@ -303,3 +303,64 @@ TEST_CASE("sqrtdenest: leaves non-denestable alone",
     auto out = sqrtdenest(e);
     REQUIRE(oracle.equivalent(out->str(), "sqrt(1 + sqrt(2))"));
 }
+
+#include <sympp/functions/combinatorial.hpp>
+
+// ----- combsimp / gammasimp --------------------------------------------------
+
+TEST_CASE("combsimp: factorial(n+1)/factorial(n) → n+1",
+          "[5][combsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = factorial(n + integer(1)) * pow(factorial(n), integer(-1));
+    auto out = combsimp(e);
+    REQUIRE(oracle.equivalent(out->str(), "n + 1"));
+}
+
+TEST_CASE("combsimp: factorial(n+2)/factorial(n) → (n+1)*(n+2)",
+          "[5][combsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = factorial(n + integer(2)) * pow(factorial(n), integer(-1));
+    auto out = combsimp(e);
+    REQUIRE(oracle.equivalent(out->str(), "(n+1)*(n+2)"));
+}
+
+TEST_CASE("combsimp: factorial(n)/factorial(n-1) → n",
+          "[5][combsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = factorial(n) * pow(factorial(n - integer(1)), integer(-1));
+    auto out = combsimp(e);
+    REQUIRE(oracle.equivalent(out->str(), "n"));
+}
+
+TEST_CASE("combsimp: leaves unrelated factorials alone",
+          "[5][combsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto m = symbol("m");
+    // factorial(n) / factorial(m) — non-integer difference, leave alone
+    auto e = factorial(n) * pow(factorial(m), integer(-1));
+    auto out = combsimp(e);
+    REQUIRE(oracle.equivalent(out->str(),
+                              "factorial(n)/factorial(m)"));
+}
+
+TEST_CASE("gammasimp: gamma(n+1)/gamma(n) → n",
+          "[5][gammasimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = gamma(n + integer(1)) * pow(gamma(n), integer(-1));
+    auto out = gammasimp(e);
+    REQUIRE(oracle.equivalent(out->str(), "n"));
+}
+
+TEST_CASE("gammasimp: gamma(n+3)/gamma(n) → n*(n+1)*(n+2)",
+          "[5][gammasimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = gamma(n + integer(3)) * pow(gamma(n), integer(-1));
+    auto out = gammasimp(e);
+    REQUIRE(oracle.equivalent(out->str(), "n*(n+1)*(n+2)"));
+}

@@ -20,6 +20,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
@@ -457,5 +458,130 @@ namespace {
 Expr sqrtdenest(const Expr& e) {
     return apply_recursive(e, sqrtdenest_node);
 }
+
+// ----- combsimp / gammasimp --------------------------------------------------
+
+namespace {
+
+[[nodiscard]] std::optional<Expr> as_factorial_arg(const Expr& e) {
+    if (!e || e->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*e);
+    if (f.function_id() != FunctionId::Factorial) return std::nullopt;
+    return e->args()[0];
+}
+
+[[nodiscard]] std::optional<Expr> as_gamma_arg(const Expr& e) {
+    if (!e || e->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*e);
+    if (f.function_id() != FunctionId::Gamma) return std::nullopt;
+    return e->args()[0];
+}
+
+// Returns the falling product (a)(a-1)(a-2)...(a-k+1) — k factors total.
+[[nodiscard]] Expr falling_factorial(const Expr& a, long k) {
+    if (k <= 0) return S::One();
+    Expr current = a;
+    Expr product = current;
+    for (long i = 1; i < k; ++i) {
+        current = current - integer(static_cast<long>(1));
+        product = product * current;
+    }
+    return product;
+}
+
+// Generic ratio simplifier: given a Mul with positive and negative factors
+// of `func(arg)`, pair them up where (pos.arg - neg.arg) is a small non-
+// negative integer k, replacing the pair with the falling product
+// (pos.arg)*(pos.arg-1)*...*(neg.arg+1).
+[[nodiscard]] Expr simplify_func_ratio(
+    const Expr& e,
+    std::optional<Expr> (*matcher)(const Expr&)) {
+    if (e->type_id() != TypeId::Mul) return e;
+
+    std::vector<Expr> pos_args;          // arg of positive func() factors
+    std::vector<Expr> neg_args;          // arg of (func())^-1 factors
+    std::vector<Expr> rest;
+    for (const auto& f : e->args()) {
+        if (auto a = matcher(f); a) {
+            pos_args.push_back(*a);
+            continue;
+        }
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()) {
+            if (auto a = matcher(f->args()[0]); a) {
+                neg_args.push_back(*a);
+                continue;
+            }
+        }
+        rest.push_back(f);
+    }
+
+    // Pair up by integer-difference matching.
+    std::vector<bool> pos_used(pos_args.size(), false);
+    std::vector<bool> neg_used(neg_args.size(), false);
+    std::vector<Expr> pairings;
+    for (std::size_t i = 0; i < pos_args.size(); ++i) {
+        for (std::size_t j = 0; j < neg_args.size(); ++j) {
+            if (neg_used[j]) continue;
+            // diff = pos_args[i] - neg_args[j]; if it's a small positive
+            // integer k, factorial cancels into a falling product of k terms.
+            Expr diff = simplify(pos_args[i] - neg_args[j]);
+            if (diff->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*diff);
+                if (z.fits_long()) {
+                    long k = z.to_long();
+                    if (k >= 0 && k <= 50) {
+                        // For factorial(a)/factorial(b), product is
+                        //   a*(a-1)*...*(b+1)  → falling_factorial(a, a-b)
+                        // For gamma(a)/gamma(b), product is
+                        //   (a-1)*(a-2)*...*b  → falling_factorial(a-1, a-b)
+                        // Both are k = a - b terms.
+                        Expr top = (matcher == as_factorial_arg)
+                                       ? pos_args[i]
+                                       : (pos_args[i] - integer(1));
+                        pairings.push_back(falling_factorial(top, k));
+                        pos_used[i] = true;
+                        neg_used[j] = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    bool any_paired = std::any_of(pos_used.begin(), pos_used.end(),
+                                  [](bool b) { return b; });
+    if (!any_paired) return e;
+
+    // Reassemble.
+    std::vector<Expr> out = std::move(rest);
+    for (auto& p : pairings) out.push_back(std::move(p));
+    auto rebuild_func = [matcher](const Expr& arg) -> Expr {
+        // matcher == as_factorial_arg → factorial; as_gamma_arg → gamma.
+        if (matcher == as_factorial_arg) return factorial(arg);
+        return gamma(arg);
+    };
+    for (std::size_t i = 0; i < pos_args.size(); ++i) {
+        if (!pos_used[i]) out.push_back(rebuild_func(pos_args[i]));
+    }
+    for (std::size_t j = 0; j < neg_args.size(); ++j) {
+        if (!neg_used[j]) out.push_back(pow(rebuild_func(neg_args[j]),
+                                            integer(-1)));
+    }
+    return mul(std::move(out));
+}
+
+[[nodiscard]] Expr combsimp_node(const Expr& e) {
+    return simplify_func_ratio(e, as_factorial_arg);
+}
+
+[[nodiscard]] Expr gammasimp_node(const Expr& e) {
+    return simplify_func_ratio(e, as_gamma_arg);
+}
+
+}  // namespace
+
+Expr combsimp(const Expr& e) { return apply_recursive(e, combsimp_node); }
+Expr gammasimp(const Expr& e) { return apply_recursive(e, gammasimp_node); }
 
 }  // namespace sympp
