@@ -40,6 +40,7 @@ target_sources(sympp
         functions/combinatorial.cpp
         functions/exponential.cpp
         functions/hyperbolic.cpp
+        functions/hypergeometric.cpp
         functions/integers.cpp
         functions/miscellaneous.cpp
         functions/special.cpp
@@ -56,6 +57,7 @@ target_sources(sympp
         polys/poly.cpp
         polys/rootof.cpp
         sets/sets.cpp
+        simplify/hyperexpand.cpp
         simplify/simplify.cpp
         solvers/solve.cpp
 )
@@ -108,6 +110,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/hypergeometric.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/integers.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/miscellaneous.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/special.hpp
@@ -118,13 +121,19 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/ode/dsolve.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/assumptions.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matlab/matlab.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/ode.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/parsing.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/pde.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/solvers.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/parsing/parser.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/physics/units.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/printing/printing.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/rootof.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/sets/sets.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/simplify/hyperexpand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/simplify.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/solvers/solve.hpp
 )

@@ -82,6 +82,10 @@ enum class FunctionId : std::uint16_t {
     Zeta,
     DiracDelta,
     Heaviside,
+
+    // -- Hypergeometric ----------------------------------------------------
+    Hyper = 1100,
+    MeijerG,
 };
 
 }  // namespace sympp

@@ -54,6 +54,11 @@
 #include <sympp/fwd.hpp>
 #include <sympp/integrals/integrate.hpp>
 #include <sympp/integrals/transforms.hpp>
+#include <sympp/matlab/assumptions.hpp>
+#include <sympp/matlab/ode.hpp>
+#include <sympp/matlab/parsing.hpp>
+#include <sympp/matlab/pde.hpp>
+#include <sympp/matlab/solvers.hpp>
 #include <sympp/ode/dsolve.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/printing/printing.hpp>
@@ -81,13 +86,9 @@ template <typename... Names>
     return std::make_tuple(symbol(first), symbol(second), symbol(rest)...);
 }
 
-// sym(name) / sym(value) — single symbolic
-[[nodiscard]] inline Expr sym(std::string_view name) {
-    return symbol(name);
-}
-[[nodiscard]] inline Expr sym(long value) {
-    return integer(value);
-}
+// sym(name) / sym(value) overloads live in matlab/parsing.hpp — a
+// bare identifier becomes a Symbol, an expression string is parsed,
+// and an integer literal becomes an Integer.
 
 // ---------------------------------------------------------------------------
 // Variable-precision arithmetic
@@ -168,14 +169,9 @@ template <typename... Names>
     return sympp::solve(eq, var);
 }
 
-// dsolve(eq, y, yp, x) — first-order ODE. MATLAB writes
-// `dsolve(diff(y) + y == exp(x), y)`; our calling convention takes
-// the equation in the form yp + y - exp(x) plus the y/yp/x symbols
-// (we don't yet have an unevaluated Derivative form).
-[[nodiscard]] inline Expr dsolve(const Expr& eq, const Expr& y,
-                                    const Expr& yp, const Expr& x) {
-    return dsolve_first_order(eq, y, yp, x);
-}
+// dsolve(...) overloads live in matlab/ode.hpp — first-order,
+// second-order with auto-classification, IVP variants, and the
+// linear-system overload dsolve(A, x).
 
 // ---------------------------------------------------------------------------
 // Transforms

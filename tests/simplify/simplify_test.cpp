@@ -231,6 +231,118 @@ TEST_CASE("trigsimp: only sin² (no cos² counterpart) stays",
     REQUIRE(oracle.equivalent(s->str(), "sin(x)**2 + 1"));
 }
 
+// ----- trigsimp: Fu-style double-angle rules --------------------------------
+
+TEST_CASE("trigsimp: cos²(x) - sin²(x) → cos(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(cos(x), integer(2)) - pow(sin(x), integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "cos(2*x)"));
+}
+
+TEST_CASE("trigsimp: 1 - 2*sin²(x) → cos(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(1) - integer(2) * pow(sin(x), integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "cos(2*x)"));
+}
+
+TEST_CASE("trigsimp: 2*cos²(x) - 1 → cos(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(2) * pow(cos(x), integer(2)) - integer(1);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "cos(2*x)"));
+}
+
+TEST_CASE("trigsimp: 2*sin(x)*cos(x) → sin(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(2) * sin(x) * cos(x);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "sin(2*x)"));
+}
+
+TEST_CASE("trigsimp: k*sin(x)*cos(x) collapses to (k/2)*sin(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto k = symbol("k");
+    auto e = k * sin(x) * cos(x);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "k*sin(2*x)/2"));
+}
+
+TEST_CASE("trigsimp: 4*sin(x)*cos(x) → 2*sin(2*x)",
+          "[5][trigsimp][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(4) * sin(x) * cos(x);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "2*sin(2*x)"));
+}
+
+// ----- expand_trig ----------------------------------------------------------
+
+TEST_CASE("expand_trig: sin(a + b) → sin(a)*cos(b) + cos(a)*sin(b)",
+          "[5][expand_trig][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto e = sin(a + b);
+    auto s = expand_trig(e);
+    REQUIRE(oracle.equivalent(s->str(),
+                              "sin(a)*cos(b) + cos(a)*sin(b)"));
+}
+
+TEST_CASE("expand_trig: cos(a + b) → cos(a)*cos(b) - sin(a)*sin(b)",
+          "[5][expand_trig][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto e = cos(a + b);
+    auto s = expand_trig(e);
+    REQUIRE(oracle.equivalent(s->str(),
+                              "cos(a)*cos(b) - sin(a)*sin(b)"));
+}
+
+TEST_CASE("expand_trig: sin(a + b + c) recursively expands",
+          "[5][expand_trig][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto c = symbol("c");
+    auto e = sin(a + b + c);
+    auto s = expand_trig(e);
+    // Verify equivalence by oracle (the canonical form has many shapes).
+    REQUIRE(oracle.equivalent(s->str(), "sin(a + b + c)"));
+}
+
+// ----- fu orchestrator ------------------------------------------------------
+
+TEST_CASE("fu: picks the smaller form between identity and trigsimp",
+          "[5][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // sin² + cos² = 1 — trigsimp wins.
+    auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
+    REQUIRE(oracle.equivalent(fu(e)->str(), "1"));
+}
+
+TEST_CASE("fu: leaves non-trig expression alone",
+          "[5][fu][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) + integer(1);
+    REQUIRE(oracle.equivalent(fu(e)->str(), "x**2 + 1"));
+}
+
 // ----- radsimp ---------------------------------------------------------------
 
 TEST_CASE("radsimp: 1/sqrt(2) → sqrt(2)/2", "[5][radsimp][oracle]") {

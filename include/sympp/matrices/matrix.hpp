@@ -102,6 +102,35 @@ public:
     // current expression domain.
     [[nodiscard]] std::pair<Matrix, Matrix> diagonalize() const;
 
+    // Jordan canonical form: returns (P, J) such that A = P · J · P⁻¹.
+    // J is block-diagonal with one Jordan block per generalized
+    // eigenvector chain. Each block J_λ for an n×n chain looks like
+    //   [[λ, 1, 0, ..., 0],
+    //    [0, λ, 1, ..., 0],
+    //    ...,
+    //    [0, 0, ..., 0, λ]]
+    //
+    // Currently supports chains of length up to 2 — i.e. cases where
+    // (A − λI)² annihilates the algebraic eigenspace of every defective
+    // eigenvalue. This covers the textbook 2×2 / 3×3 defective inputs
+    // and all simple-pair-of-blocks cases. Longer chains throw
+    // `std::runtime_error("jordan_form: chains of length > 2 not yet
+    // supported")`.
+    //
+    // Reference: sympy/matrices/eigen.py::jordan_form
+    [[nodiscard]] std::pair<Matrix, Matrix> jordan_form() const;
+
+    // Matrix exponential exp(A · t) for a symbolic / numeric t.
+    // Computed via Jordan form: exp(A·t) = P · exp(J·t) · P⁻¹ where
+    // for an n×n Jordan block J_λ
+    //   exp(J_λ · t) = exp(λ t) · [[1, t, t²/2!, ..., t^(n−1)/(n−1)!],
+    //                                [0, 1, t,    ..., t^(n−2)/(n−2)!],
+    //                                ...].
+    // Inherits the chain-length-2 limitation from jordan_form().
+    //
+    // Reference: sympy/matrices/dense.py::exp
+    [[nodiscard]] Matrix exp(const Expr& t) const;
+
     // LU decomposition (Doolittle form): A = L · U with L unit-diagonal
     // lower triangular and U upper triangular. Throws if a zero pivot is
     // encountered (call rref() first if you need pivoting).

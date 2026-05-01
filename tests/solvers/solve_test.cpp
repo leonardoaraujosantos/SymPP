@@ -155,6 +155,91 @@ TEST_CASE("solveset: filters via domain",
     REQUIRE(fs->elements()[0] == integer(2));
 }
 
+// ----- solveset: _invert chain (transcendental) -----------------------------
+
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+
+TEST_CASE("solveset: log(x) = 2 → {exp(2)}",
+          "[10][solveset][invert][oracle]") {
+    auto x = symbol("x");
+    auto eq = log(x) - integer(2);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 1);
+    auto& oracle = sympp::testing::Oracle::instance();
+    REQUIRE(oracle.equivalent(fs->elements()[0]->str(), "exp(2)"));
+}
+
+TEST_CASE("solveset: exp(x) = 5 → {log(5)}",
+          "[10][solveset][invert][oracle]") {
+    auto x = symbol("x");
+    auto eq = exp(x) - integer(5);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 1);
+    auto& oracle = sympp::testing::Oracle::instance();
+    REQUIRE(oracle.equivalent(fs->elements()[0]->str(), "log(5)"));
+}
+
+TEST_CASE("solveset: sinh(x) = 3 → {asinh(3)}",
+          "[10][solveset][invert][oracle]") {
+    auto x = symbol("x");
+    auto eq = sinh(x) - integer(3);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 1);
+    auto& oracle = sympp::testing::Oracle::instance();
+    REQUIRE(oracle.equivalent(fs->elements()[0]->str(), "asinh(3)"));
+}
+
+TEST_CASE("solveset: cosh(x) = 5 → {acosh(5), -acosh(5)}",
+          "[10][solveset][invert]") {
+    auto x = symbol("x");
+    auto eq = cosh(x) - integer(5);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 2);
+}
+
+TEST_CASE("solveset: |x| = 3 → {3, -3}",
+          "[10][solveset][invert]") {
+    auto x = symbol("x");
+    auto eq = abs(x) - integer(3);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 2);
+}
+
+TEST_CASE("solveset: sin(x) = 1/2 → ImageSet over ℤ",
+          "[10][solveset][invert]") {
+    auto x = symbol("x");
+    auto eq = sin(x) - rational(1, 2);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
+TEST_CASE("solveset: cos(x) = 1/2 → Union of two ImageSets",
+          "[10][solveset][invert]") {
+    auto x = symbol("x");
+    auto eq = cos(x) - rational(1, 2);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::Union);
+}
+
+TEST_CASE("solveset: tan(x) = 1 → ImageSet over ℤ",
+          "[10][solveset][invert]") {
+    auto x = symbol("x");
+    auto eq = tan(x) - integer(1);
+    auto s = solveset(eq, x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
 // ----- nsolve ----------------------------------------------------------------
 
 TEST_CASE("nsolve: x^3 - 2 ≈ 1.2599",

@@ -23,6 +23,7 @@
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/functions/hypergeometric.hpp>
 #include <sympp/integrals/integrate.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -35,6 +36,86 @@ namespace {
 // Generate a fresh free constant __C{i}.
 [[nodiscard]] Expr fresh_constant(int& counter) {
     return symbol("__C" + std::to_string(counter++));
+}
+
+// Combine exp(a) · exp(b) → exp(a + b) and similarly across all Mul nodes
+// in `e`. SymPP represents exp as a Function (not Pow(E, …)), so the Mul
+// canonical form doesn't merge them by base — variation-of-parameters
+// integrands need explicit folding to keep integrate() out of dead-end
+// recursions. Recurses into Add / Mul / Pow but stops at Function
+// boundaries (we don't rewrite arguments of named functions).
+[[nodiscard]] inline bool is_exp_call(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return false;
+    const auto& fn = static_cast<const Function&>(*e);
+    return fn.function_id() == FunctionId::Exp;
+}
+
+[[nodiscard]] Expr combine_exp_factors(const Expr& e) {
+    if (!e) return e;
+    auto args = e->args();
+    if (args.empty()) return e;
+    Expr current;
+    switch (e->type_id()) {
+        case TypeId::Add: {
+            std::vector<Expr> rebuilt;
+            rebuilt.reserve(args.size());
+            for (const auto& a : args) rebuilt.push_back(combine_exp_factors(a));
+            current = add(rebuilt);
+            break;
+        }
+        case TypeId::Mul: {
+            std::vector<Expr> rebuilt;
+            rebuilt.reserve(args.size());
+            for (const auto& a : args) rebuilt.push_back(combine_exp_factors(a));
+            current = mul(rebuilt);
+            break;
+        }
+        case TypeId::Pow: {
+            Expr base = combine_exp_factors(args[0]);
+            Expr expn = combine_exp_factors(args[1]);
+            // Pow(exp(a), n) → exp(n·a).
+            if (is_exp_call(base)) {
+                return exp(expn * base->args()[0]);
+            }
+            // Pow(Mul(c, exp(a), …), n) with integer n → distribute exp factors
+            // and let the outer Mul recombine. Safe only for integer n
+            // because we don't know branch behavior of e.g. (−1)^(1/2).
+            if (base->type_id() == TypeId::Mul
+                && expn->type_id() == TypeId::Integer) {
+                std::vector<Expr> dist;
+                for (const auto& f : base->args()) {
+                    if (is_exp_call(f)) {
+                        dist.push_back(exp(expn * f->args()[0]));
+                    } else {
+                        dist.push_back(pow(f, expn));
+                    }
+                }
+                return combine_exp_factors(mul(dist));
+            }
+            return pow(base, expn);
+        }
+        default:
+            return e;
+    }
+    if (current->type_id() != TypeId::Mul) return current;
+    Expr exp_arg_sum = S::Zero();
+    std::vector<Expr> non_exp;
+    bool found = false;
+    for (const auto& f : current->args()) {
+        if (is_exp_call(f)) {
+            exp_arg_sum = exp_arg_sum + f->args()[0];
+            found = true;
+        } else {
+            non_exp.push_back(f);
+        }
+    }
+    if (!found) return current;
+    if (!(exp_arg_sum == S::Zero())) {
+        non_exp.push_back(exp(exp_arg_sum));
+    }
+    if (non_exp.empty()) return S::One();
+    if (non_exp.size() == 1) return non_exp[0];
+    return mul(non_exp);
 }
 
 // Try to express the equation `lhs_int(y) = rhs_in_x + C` as an explicit
@@ -436,6 +517,92 @@ Expr dsolve_cauchy_euler(const std::vector<Expr>& coeffs, const Expr& x) {
 }
 
 // ---------------------------------------------------------------------------
+// Variation of parameters for second-order linear constant-coefficient ODEs:
+//   a₂ y'' + a₁ y' + a₀ y = g(x).
+//
+// Build the homogeneous basis y₁, y₂ from the characteristic-poly roots,
+// compute Wronskian W = y₁·y₂' − y₁'·y₂, then
+//   y_p = -y₁·∫(y₂·g/(a₂·W) dx) + y₂·∫(y₁·g/(a₂·W) dx).
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Build the y₁, y₂ basis directly from the order-2 characteristic-poly
+// roots. (We can't reuse dsolve_constant_coeff's output because it
+// returns y_h with the constants baked in, but we want the bare basis
+// functions.)
+[[nodiscard]] std::pair<Expr, Expr>
+order2_basis(const std::vector<Expr>& coeffs, const Expr& x) {
+    auto r_sym = symbol("__r");
+    Poly char_poly(std::vector<Expr>(coeffs.begin(), coeffs.end()), r_sym);
+    auto roots = char_poly.roots();
+    if (roots.size() != 2) {
+        throw std::runtime_error(
+            "variation_of_parameters: characteristic poly needs two roots");
+    }
+    if (roots[0] == roots[1]) {
+        Expr y1 = exp(roots[0] * x);
+        Expr y2 = x * exp(roots[0] * x);
+        return {y1, y2};
+    }
+    return {exp(roots[0] * x), exp(roots[1] * x)};
+}
+
+[[nodiscard]] Expr variation_of_parameters_const_coeff(
+    const std::vector<Expr>& coeffs, const Expr& g, const Expr& x) {
+    if (coeffs.size() != 3) {
+        throw std::invalid_argument(
+            "variation_of_parameters: order-2 only (coeffs.size() == 3)");
+    }
+    const Expr& a2 = coeffs[2];
+    auto [y1, y2] = order2_basis(coeffs, x);
+    Expr y1p = simplify(diff(y1, x));
+    Expr y2p = simplify(diff(y2, x));
+    // Combine exp(a)·exp(b) → exp(a+b) at every step so the integrand
+    // fed to integrate() stays in a closed-form-friendly shape.
+    Expr W = combine_exp_factors(simplify(y1 * y2p - y1p * y2));
+    Expr int1 = combine_exp_factors(simplify(-y2 * g / (a2 * W)));
+    Expr int2 = combine_exp_factors(simplify(y1 * g / (a2 * W)));
+    Expr u1_int = integrate(int1, x);
+    Expr u2_int = integrate(int2, x);
+    Expr y_p = combine_exp_factors(simplify(y1 * u1_int + y2 * u2_int));
+    Expr y_h = dsolve_constant_coeff(coeffs, x);
+    return simplify(y_h + y_p);
+}
+
+}  // namespace
+
+Expr dsolve_constant_coeff_nonhomogeneous(const std::vector<Expr>& coeffs,
+                                              const Expr& rhs, const Expr& x) {
+    if (rhs == S::Zero()) return dsolve_constant_coeff(coeffs, x);
+    if (coeffs.size() != 3) {
+        // Variation of parameters generalizes to order n via the
+        // Wronskian-of-basis formula but is only implemented for n=2 here.
+        throw std::invalid_argument(
+            "dsolve_constant_coeff_nonhomogeneous: order 2 supported");
+    }
+    return variation_of_parameters_const_coeff(coeffs, rhs, x);
+}
+
+Expr dsolve_cauchy_euler_nonhomogeneous(const std::vector<Expr>& coeffs,
+                                            const Expr& rhs, const Expr& x) {
+    if (rhs == S::Zero()) return dsolve_cauchy_euler(coeffs, x);
+    if (coeffs.size() != 3) {
+        throw std::invalid_argument(
+            "dsolve_cauchy_euler_nonhomogeneous: order 2 supported");
+    }
+    // Substitute x = e^t: a₂·x²·y'' + a₁·x·y' + a₀·y = g(x) becomes
+    // a₂·(D² − D)·u + a₁·D·u + a₀·u = g(e^t)  where D = d/dt, u(t) = y(e^t).
+    auto t = symbol("__t");
+    Expr a0 = coeffs[0], a1 = coeffs[1], a2 = coeffs[2];
+    // Constant-coefficient equivalent: u'' coefficient = a₂; u' = a₁ − a₂; u = a₀.
+    std::vector<Expr> tcoeffs = {a0, a1 - a2, a2};
+    Expr g_t = subs(rhs, x, exp(t));
+    Expr u_t = dsolve_constant_coeff_nonhomogeneous(tcoeffs, g_t, t);
+    return simplify(subs(u_t, t, log(x)));
+}
+
+// ---------------------------------------------------------------------------
 // Linear ODE system: y' = A · y for n×n constant matrix A.
 //   Diagonalize A = P D P⁻¹. Solution: y(t) = P · diag(exp(λᵢ t)) · P⁻¹ · y₀
 //   General: y(t) = Σᵢ Cᵢ vᵢ exp(λᵢ t) where vᵢ are eigenvectors.
@@ -445,23 +612,22 @@ Matrix dsolve_system(const Matrix& A, const Expr& x) {
     if (!A.is_square()) {
         throw std::invalid_argument("dsolve_system: A must be square");
     }
-    auto evs = A.eigenvects();
-    int cnt = 0;
     const std::size_t n = A.rows();
-    std::vector<Expr> sol_components(n, S::Zero());
-    for (const auto& ev_pair : evs) {
-        const Expr& lambda = ev_pair.first;
-        for (const auto& vec : ev_pair.second) {
-            Expr C = fresh_constant(cnt);
-            Expr factor = mul(C, exp(mul(lambda, x)));
-            for (std::size_t i = 0; i < n; ++i) {
-                sol_components[i] = add(sol_components[i],
-                                         mul(factor, vec.at(i, 0)));
-            }
-        }
+    // y(t) = exp(A·t) · c where c is a column of free constants. Going
+    // through the matrix exponential covers both diagonalizable and
+    // defective A — the latter via Jordan form, which contributes the
+    // t·exp(λt), t²/2!·exp(λt), ... terms attached to repeated roots.
+    Matrix expAt = A.exp(x);
+    int cnt = 0;
+    Matrix c(n, 1);
+    for (std::size_t i = 0; i < n; ++i) {
+        c.set(i, 0, fresh_constant(cnt));
     }
+    Matrix prod = expAt * c;
     Matrix out(n, 1);
-    for (std::size_t i = 0; i < n; ++i) out.set(i, 0, simplify(sol_components[i]));
+    for (std::size_t i = 0; i < n; ++i) {
+        out.set(i, 0, simplify(prod.at(i, 0)));
+    }
     return out;
 }
 
@@ -602,9 +768,9 @@ Expr dsolve_lie_autonomous(const Expr& eq, const Expr& y, const Expr& yp,
 // the standard form by extracting polynomial coefficients in x.
 // ---------------------------------------------------------------------------
 
-Expr hyper(const Expr& a, const Expr& b, const Expr& c, const Expr& z) {
-    return function_symbol("hyper")(std::vector<Expr>{a, b, c, z});
-}
+// `hyper(a, b, c, z)` factory now lives in src/functions/hypergeometric.cpp
+// (proper Hyper Function class with auto-eval). This file just calls
+// the public factory.
 
 Expr dsolve_hypergeometric(const std::vector<Expr>& coeffs_y_ypp,
                             const Expr& x) {

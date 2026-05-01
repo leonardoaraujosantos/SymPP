@@ -29,6 +29,10 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -114,29 +118,149 @@ namespace {
     return image_set(n, image, integers());
 }
 
-}  // namespace
+// Split `expr` (treated as expr = 0) into (var-dependent terms, var-free
+// terms) over an Add node. For non-Add input, var-dep = expr and free = 0.
+[[nodiscard]] std::pair<Expr, Expr>
+split_var_free(const Expr& expr, const Expr& var) {
+    if (expr->type_id() == TypeId::Add) {
+        std::vector<Expr> dep, free_terms;
+        for (const auto& t : expr->args()) {
+            if (has(t, var)) dep.push_back(t);
+            else free_terms.push_back(t);
+        }
+        Expr d = dep.empty() ? Expr{S::Zero()}
+                              : (dep.size() == 1 ? dep[0] : add(dep));
+        Expr f = free_terms.empty() ? Expr{S::Zero()}
+                                       : (free_terms.size() == 1
+                                              ? free_terms[0]
+                                              : add(free_terms));
+        return {d, f};
+    }
+    if (has(expr, var)) return {expr, Expr{S::Zero()}};
+    return {Expr{S::Zero()}, expr};
+}
 
-SetPtr solveset(const Expr& expr, const Expr& var, const SetPtr& domain) {
-    // Trig pattern: emit ImageSet for the full periodic solution.
+// _invert(expr, var) — peel a known function from expr = 0 to reduce to
+// either a polynomial / direct equation in `var`, or to an ImageSet for
+// the periodic-trig case. Returns nullopt when no head is recognized.
+//
+// Handles:
+//   log(g) = c     → g = exp(c)
+//   exp(g) = c     → g = log(c)
+//   sin(g) = c, cos(g) = c, tan(g) = c → ImageSet over ℤ when g == var
+//   sinh(g)=c, tanh(g)=c → g = asinh(c) / atanh(c)
+//   cosh(g) = c    → g = ±acosh(c)
+//   |g| = c        → g = ±c
+//
+// For non-trivial g, recurses with solveset(g - target, var). For the
+// periodic cases we currently only emit ImageSet when g == var; nested
+// linear g would require parametric ImageSet substitution which is
+// deferred-deep.
+[[nodiscard]] std::optional<SetPtr> invert_solveset(const Expr& expr,
+                                                       const Expr& var,
+                                                       const SetPtr& domain);
+
+// Forward declaration so invert_solveset can recurse via solveset.
+SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
+
+[[nodiscard]] std::optional<SetPtr> invert_solveset(const Expr& expr,
+                                                       const Expr& var,
+                                                       const SetPtr& domain) {
+    auto [var_dep, free] = split_var_free(expr, var);
+    if (var_dep == var || var_dep == S::Zero()) return std::nullopt;
+    if (var_dep->type_id() != TypeId::Function) return std::nullopt;
+    if (var_dep->args().size() != 1) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*var_dep);
+    const Expr& g = var_dep->args()[0];
+    Expr c = -free;  // var_dep = c
+    auto fid = fn.function_id();
+
+    auto recurse_or_finite = [&](const Expr& target) -> SetPtr {
+        if (g == var) return finite_set({target});
+        return solveset_impl(g - target, var, domain);
+    };
+
+    auto n = symbol("__n");
+    switch (fid) {
+        case FunctionId::Log:
+            return recurse_or_finite(exp(c));
+        case FunctionId::Exp:
+            return recurse_or_finite(log(c));
+        case FunctionId::Sinh:
+            return recurse_or_finite(asinh(c));
+        case FunctionId::Tanh:
+            return recurse_or_finite(atanh(c));
+        case FunctionId::Cosh: {
+            Expr p = acosh(c);
+            if (g == var) return finite_set({p, -p});
+            return set_union(solveset_impl(g - p, var, domain),
+                              solveset_impl(g + p, var, domain));
+        }
+        case FunctionId::Abs: {
+            if (g == var) return finite_set({c, -c});
+            return set_union(solveset_impl(g - c, var, domain),
+                              solveset_impl(g + c, var, domain));
+        }
+        case FunctionId::Sin: {
+            // sin(g) = c → g ∈ {(-1)^n · asin(c) + n·π : n ∈ ℤ}.
+            // Only emit ImageSet when g is var directly; nested g
+            // would need parametric back-substitution.
+            if (g == var) {
+                Expr image = pow(integer(-1), n) * asin(c) + n * S::Pi();
+                return image_set(n, image, integers());
+            }
+            return std::nullopt;
+        }
+        case FunctionId::Cos: {
+            // cos(g) = c → g ∈ {±acos(c) + 2nπ : n ∈ ℤ}. Union of two
+            // ImageSets.
+            if (g == var) {
+                auto pos = image_set(n, acos(c) + integer(2) * n * S::Pi(),
+                                       integers());
+                auto neg = image_set(n, -acos(c) + integer(2) * n * S::Pi(),
+                                       integers());
+                return set_union(pos, neg);
+            }
+            return std::nullopt;
+        }
+        case FunctionId::Tan: {
+            if (g == var) {
+                Expr image = atan(c) + n * S::Pi();
+                return image_set(n, image, integers());
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+// Internal solveset that can be reentered from the inverter.
+SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain) {
     if (auto trig = trig_solveset(expr, var); trig) {
-        // Filter against domain (only when domain is something other
-        // than reals — the periodic solution is real-valued).
         if (domain->kind() == SetKind::Reals) return *trig;
         return set_intersection(*trig, domain);
     }
+    if (auto inv = invert_solveset(expr, var, domain); inv) {
+        if (domain->kind() == SetKind::Reals) return *inv;
+        return set_intersection(*inv, domain);
+    }
     auto roots = solve(expr, var);
     if (roots.empty()) return empty_set();
-    // Filter against the domain when membership is decidable.
     std::vector<Expr> kept;
     kept.reserve(roots.size());
     for (auto& r : roots) {
         auto m = domain->contains(r);
-        // Keep when membership is true OR unknown (be inclusive on
-        // symbolic results).
         if (m == std::optional<bool>{false}) continue;
         kept.push_back(std::move(r));
     }
     return finite_set(std::move(kept));
+}
+
+}  // namespace
+
+SetPtr solveset(const Expr& expr, const Expr& var, const SetPtr& domain) {
+    return solveset_impl(expr, var, domain);
 }
 
 // ----- nsolve --------------------------------------------------------------

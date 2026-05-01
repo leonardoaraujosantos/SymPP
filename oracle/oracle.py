@@ -167,6 +167,14 @@ def handle(req):
         v = sympy.Symbol(req["var"])
         return {"ok": True, "result": _to_str(sympy.discriminant(e, v))}
 
+    # --- Hypergeometric ---
+    if op == "hyperexpand":
+        # Run sympy.hyperexpand on the input. Returns the rewritten form
+        # as a string. Use this to cross-validate SymPP's hyperexpand
+        # against SymPy's reference implementation.
+        e = _sympify(req["expr"])
+        return {"ok": True, "result": _to_str(sympy.hyperexpand(e))}
+
     if op == "evalf_is_zero":
         # High-precision numeric check that |expr| < 10**(-tol). Useful when
         # symbolic simplification of nested radicals can't prove zero but the

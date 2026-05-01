@@ -13,14 +13,16 @@
 //   6. gammasimp       (gamma(n+1)/gamma(n) → n)
 //   7. radsimp         (rationalize binomial radical denominators)
 //   8. sqrtdenest      (Borodin denesting on perfect-square discriminants)
-//   9. re-canonicalize (final pass)
+//   9. hyperexpand     (recognize closed-form hypergeometric values)
+//  10. re-canonicalize (final pass)
 //
 // Each step is also exposed as a free function so callers can invoke
 // just the rule they want without paying for the others.
 //
-// Deferred-deep: hyperexpand (hypergeometric expansion) — this is the
-// blocker for Meijer-G-driven integration as well; treated as one
-// research-level subsystem to land jointly. See docs/04-roadmap.md.
+// Partial: hyperexpand currently covers ₀F₀ → exp, ₁F₀ → (1−z)^(−a) (at
+// construction time), ₁F₁(1; 2; z) → (eᶻ−1)/z, ₂F₁(1, 1; 2; z) → −log(1−z)/z,
+// and parameter cancellation. Full Slater-theorem coverage and Meijer-G
+// expansion are deferred-deep — see docs/04-roadmap.md.
 //
 // Reference: sympy/simplify/simplify.py::simplify and the supporting
 // per-rule files in sympy/simplify/.
@@ -121,23 +123,53 @@ struct CSEResult {
 // Reference: sympy/simplify/simplify.py::nsimplify
 [[nodiscard]] SYMPP_EXPORT Expr nsimplify(const Expr& e, int dps = 15);
 
-// trigsimp(expr) — Pythagorean-identity reduction over Add.
+// trigsimp(expr) — Pythagorean-identity reduction + double-angle collapse.
 //
 // At each Add node, group sin²/cos² terms by their argument and
-// rewrite as
+// apply, in order:
 //
-//     a·sin²(x) + b·cos²(x)  →  b + (a − b)·sin²(x)
+//   * sin² + cos² = 1                    a·sin²(x) + a·cos²(x) → a
+//   * cos² − sin² = cos(2x)              k·cos²(x) − k·sin²(x) → k·cos(2x)
+//   * 1 − 2·sin² = cos(2x)               c + (−2c)·sin²(x)     → c·cos(2x)
+//   * 2·cos² − 1 = cos(2x)               (2c)·cos²(x) + (−c)   → c·cos(2x)
 //
-// which collapses to `b` when a == b (the canonical
-// sin² + cos² = 1 case). Walks the tree recursively so embedded
-// occurrences inside Mul / Pow / Function arguments get reduced too.
+// At each Mul node, collapse the double-angle product:
 //
-// Not yet shipped: full Fu rule table (double-angle, half-angle,
-// sum-to-product, cot/sec/csc reciprocal rewrites). The single
-// Pythagorean rule covers the most common simplification need; the
+//   * 2·sin(x)·cos(x) = sin(2x)          k·sin(x)·cos(x)       → (k/2)·sin(2x)
+//
+// Walks the tree recursively so embedded occurrences inside Mul /
+// Pow / Function arguments get reduced too.
+//
+// Not yet shipped: full Fu rule table (TR8 product-to-sum,
+// TR9 sum-to-product, half-angle, cot/sec/csc reciprocal). The
+// shipped rules cover the cases most simplification chains hit; the
 // rest is deferred-deep.
 //
-// Reference: sympy/simplify/trigsimp.py, sympy/simplify/fu.py
+// Reference: sympy/simplify/trigsimp.py, sympy/simplify/fu.py (TR5–TR11)
 [[nodiscard]] SYMPP_EXPORT Expr trigsimp(const Expr& e);
+
+// expand_trig(expr) — angle-addition expansion (the inverse direction
+// of trigsimp's collapse). At each sin / cos call whose argument is
+// an Add a + b + ... apply
+//
+//     sin(a + b) → sin(a)·cos(b) + cos(a)·sin(b)
+//     cos(a + b) → cos(a)·cos(b) − sin(a)·sin(b)
+//
+// then recurse on the resulting subterms. Tan is rewritten via
+// sin/cos before expansion. Used when downstream simplification
+// benefits from atomized arguments (e.g. canceling against a
+// sum-to-product target).
+//
+// Reference: sympy/simplify/fu.py::TR10
+[[nodiscard]] SYMPP_EXPORT Expr expand_trig(const Expr& e);
+
+// fu(expr) — Fu-style trig orchestrator: try several rewrite chains
+// and return the form with the smallest leaf count. Currently
+// competes between identity (no rewrite), trigsimp (collapse), and
+// expand_trig + trigsimp (expand-then-collapse, helpful when the
+// input has nested angle sums).
+//
+// Reference: sympy/simplify/fu.py::fu
+[[nodiscard]] SYMPP_EXPORT Expr fu(const Expr& e);
 
 }  // namespace sympp

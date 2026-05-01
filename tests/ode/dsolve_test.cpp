@@ -4,6 +4,7 @@
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/expand.hpp>
+#include <sympp/functions/hypergeometric.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/operators.hpp>
@@ -190,6 +191,55 @@ TEST_CASE("dsolve_cauchy_euler: x²y'' - x y' + y = 0",
     REQUIRE(resp.raw.at("result").get<bool>());
 }
 
+// ----- Variation of parameters (nonhomogeneous 2nd-order) ------------------
+
+TEST_CASE("dsolve_constant_coeff_nonhomogeneous: y'' - 3y' + 2y = x",
+          "[11][dsolve][constcoeff][varparams][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // Coeffs [2, -3, 1] → roots r = 1, 2 (clean reals); RHS = x.
+    auto sol = dsolve_constant_coeff_nonhomogeneous(
+        {integer(2), integer(-3), integer(1)}, x, x);
+    auto yp_val = diff(sol, x);
+    auto ypp_val = diff(yp_val, x);
+    auto residual = simplify(
+        ypp_val - integer(3) * yp_val + integer(2) * sol - x);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", simplify(subs(residual,
+                                  x, rational(7, 5)))->str()},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("dsolve_constant_coeff_nonhomogeneous: y'' - y = e^x",
+          "[11][dsolve][constcoeff][varparams][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // y'' - y = e^x  → particular solution from variation of parameters.
+    auto sol = dsolve_constant_coeff_nonhomogeneous(
+        {integer(-1), integer(0), integer(1)}, exp(x), x);
+    auto yp_val = diff(sol, x);
+    auto ypp_val = diff(yp_val, x);
+    auto residual = simplify(ypp_val - sol - exp(x));
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", simplify(subs(residual,
+                                  x, rational(3, 7)))->str()},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("dsolve_constant_coeff_nonhomogeneous: zero RHS reduces to homogeneous",
+          "[11][dsolve][constcoeff][varparams]") {
+    auto x = symbol("x");
+    auto sol_h = dsolve_constant_coeff(
+        {integer(1), integer(0), integer(1)}, x);
+    auto sol_n = dsolve_constant_coeff_nonhomogeneous(
+        {integer(1), integer(0), integer(1)}, S::Zero(), x);
+    REQUIRE(sol_h == sol_n);
+}
+
 // ----- ODE systems -----------------------------------------------------------
 
 TEST_CASE("dsolve_system: diagonal A → independent exponentials",
@@ -209,6 +259,25 @@ TEST_CASE("dsolve_system: 2x2 satisfies y' = A·y",
     Matrix A = {{integer(2), integer(0)}, {integer(0), integer(3)}};
     auto sol = dsolve_system(A, x);
     // Compute y' and A·y, verify equal.
+    Matrix yp(2, 1);
+    yp.set(0, 0, diff(sol.at(0, 0), x));
+    yp.set(1, 0, diff(sol.at(1, 0), x));
+    auto Ay = A * sol;
+    for (std::size_t i = 0; i < 2; ++i) {
+        Expr d = simplify(yp.at(i, 0) - Ay.at(i, 0));
+        REQUIRE(oracle.equivalent(d->str(), "0"));
+    }
+}
+
+TEST_CASE("dsolve_system: defective A=[[1,1],[0,1]] satisfies y' = A·y",
+          "[11][dsolve][system][jordan][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // Defective: single eigenvalue 1 with geometric multiplicity 1. The
+    // old eigenvect-only solver missed the t·exp(t) component; the
+    // Jordan path adds it.
+    Matrix A = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto sol = dsolve_system(A, x);
     Matrix yp(2, 1);
     yp.set(0, 0, diff(sol.at(0, 0), x));
     yp.set(1, 0, diff(sol.at(1, 0), x));

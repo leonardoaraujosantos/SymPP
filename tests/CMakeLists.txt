@@ -26,6 +26,7 @@ target_sources(sympp_tests
         functions/combinatorial_test.cpp
         functions/exponential_test.cpp
         functions/hyperbolic_test.cpp
+        functions/hypergeometric_test.cpp
         functions/integers_test.cpp
         functions/inverse_trig_test.cpp
         functions/miscellaneous_test.cpp
@@ -34,6 +35,11 @@ target_sources(sympp_tests
         integrals/integrate_test.cpp
         integrals/transforms_test.cpp
         matlab/matlab_test.cpp
+        matlab/matlab_assumptions_test.cpp
+        matlab/matlab_ode_test.cpp
+        matlab/matlab_parsing_test.cpp
+        matlab/matlab_pde_test.cpp
+        matlab/matlab_solvers_test.cpp
         matrices/matrix_test.cpp
         ode/dsolve_test.cpp
         parsing/parser_test.cpp

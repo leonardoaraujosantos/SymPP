@@ -502,6 +502,82 @@ TEST_CASE("matrix: diagonalize throws on defective matrix",
     REQUIRE_THROWS_AS(def.diagonalize(), std::invalid_argument);
 }
 
+// ----- Jordan form ----------------------------------------------------------
+
+TEST_CASE("matrix: jordan_form on diagonalizable A yields diagonal J",
+          "[9][matrix][jordan]") {
+    Matrix m = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+    auto [P, J] = m.jordan_form();
+    // J should be diagonal with the same eigenvalues, super-diagonal zero.
+    REQUIRE(simplify(J.at(0, 1)) == S::Zero());
+    REQUIRE(simplify(J.at(1, 0)) == S::Zero());
+}
+
+TEST_CASE("matrix: jordan_form on defective [[1,1],[0,1]] gives Jordan block",
+          "[9][matrix][jordan]") {
+    Matrix def = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto [P, J] = def.jordan_form();
+    // J is the 2×2 Jordan block: [[1, 1], [0, 1]].
+    REQUIRE(simplify(J.at(0, 0)) == integer(1));
+    REQUIRE(simplify(J.at(0, 1)) == integer(1));
+    REQUIRE(simplify(J.at(1, 0)) == S::Zero());
+    REQUIRE(simplify(J.at(1, 1)) == integer(1));
+    // Reconstruct: A = P·J·P⁻¹.
+    auto recon = P * J * P.inverse();
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 2; ++j) {
+            REQUIRE(simplify(recon.at(i, j) - def.at(i, j)) == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: jordan_form on [[2,1],[0,2]] gives block at λ=2",
+          "[9][matrix][jordan]") {
+    Matrix def = {{integer(2), integer(1)}, {integer(0), integer(2)}};
+    auto [P, J] = def.jordan_form();
+    REQUIRE(simplify(J.at(0, 0)) == integer(2));
+    REQUIRE(simplify(J.at(0, 1)) == integer(1));
+    REQUIRE(simplify(J.at(1, 0)) == S::Zero());
+    REQUIRE(simplify(J.at(1, 1)) == integer(2));
+}
+
+// ----- Matrix exponential ---------------------------------------------------
+
+#include <sympp/functions/exponential.hpp>
+
+TEST_CASE("matrix: exp(diag(2,3) · t) yields diag(exp(2t), exp(3t))",
+          "[9][matrix][exp]") {
+    Matrix d = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+    auto t = symbol("t");
+    auto E = d.exp(t);
+    REQUIRE(simplify(E.at(0, 0) - exp(integer(2) * t)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 1) - exp(integer(3) * t)) == S::Zero());
+    REQUIRE(simplify(E.at(0, 1)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 0)) == S::Zero());
+}
+
+TEST_CASE("matrix: exp([[1,1],[0,1]] · t) is exp(t)·[[1,t],[0,1]]",
+          "[9][matrix][exp]") {
+    Matrix def = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto t = symbol("t");
+    auto E = def.exp(t);
+    REQUIRE(simplify(E.at(0, 0) - exp(t)) == S::Zero());
+    REQUIRE(simplify(E.at(0, 1) - t * exp(t)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 0)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 1) - exp(t)) == S::Zero());
+}
+
+TEST_CASE("matrix: exp(0·I) = I",
+          "[9][matrix][exp]") {
+    Matrix z = {{integer(0), integer(0)}, {integer(0), integer(0)}};
+    auto t = symbol("t");
+    auto E = z.exp(t);
+    REQUIRE(simplify(E.at(0, 0) - integer(1)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 1) - integer(1)) == S::Zero());
+    REQUIRE(simplify(E.at(0, 1)) == S::Zero());
+    REQUIRE(simplify(E.at(1, 0)) == S::Zero());
+}
+
 // ----- LU / QR / Cholesky --------------------------------------------------
 
 TEST_CASE("matrix: LU of 2x2", "[9][matrix][lu]") {

@@ -83,6 +83,84 @@ First public-readiness release. 13 of 15 phases shipped, parser landed,
     `ilaplace`/`fourier`/`ifourier`/`ztrans`/`iztrans`), `solve`/
     `dsolve`, the algebra wrappers, and print/codegen wrappers
     (`pretty`, `latex`, `ccode`, `fortran`, `matlabFunction`).
+  * MATLAB facade extension — split into `matlab/parsing.hpp`,
+    `matlab/assumptions.hpp`, `matlab/solvers.hpp`,
+    `matlab/ode.hpp`, `matlab/pde.hpp` (all re-exported from the
+    `matlab/matlab.hpp` umbrella):
+    - `str2sym(s)` and `sym(string_view)` — string inputs containing
+      operators / parens / whitespace are routed through the parser
+      (a bare identifier still becomes a single Symbol).
+    - `assume` / `assumeAlso` / `assumptions` / `clearAssumptions`
+      / `refresh` — process-wide assumption registry on top of
+      SymPP's immutable Symbols. `assume(x, "positive")` registers
+      under `x`'s printed name; `x = refresh(x)` returns a fresh
+      Symbol carrying the registered mask.
+    - `linsolve(A, b)`, `solve({eqs}, {vars})` (routes to
+      `nonlinsolve` for 2×2, `nonlinsolve_groebner` for n ≥ 3),
+      `nsolve(eq, var, x0, dps=15)`, `vpasolve(eq, var, x0, dps=32)`.
+    - `dsolve(eq, y, yp, x)` (first-order classifier),
+      `dsolve(eq, y, yp, ypp, x)` (second-order with auto-classify
+      to constant-coefficient or Cauchy-Euler via partial diff,
+      falls through to an unevaluated `Dsolve(...)` marker for
+      non-linear inputs), `dsolve_ivp` companions, `dsolve(A, x)`
+      for linear systems.
+    - `pdsolve(a, b, c, x, y)`, `pdsolve_variable`, `pdsolve_heat`,
+      `pdsolve_wave`.
+
+### SymPy parity — Category A deltas
+
+- **Phase 5 — Fu trig rule extension** (`simplify/simplify.hpp`):
+  `trigsimp` now also collapses `cos²(x) − sin²(x) → cos(2x)`,
+  `2·sin(x)·cos(x) → sin(2x)`, and the constant-mixed forms
+  `1 − 2·sin²(x)` / `2·cos²(x) − 1 → cos(2x)`. Picks Pythagorean
+  vs. double-angle by leaf count. New `expand_trig` (angle-addition
+  expansion: `sin(a+b)`, `cos(a+b)`, `tan(a+b)`) and `fu` orchestrator
+  (competes between identity, `trigsimp`, and `trigsimp ∘ expand_trig`,
+  returning the form with the smallest leaf count).
+- **Phase 10 — solveset `_invert` chain** (`solvers/solve.cpp`):
+  `solveset` now peels recognized function heads from the LHS before
+  falling through to the polynomial solver — covering `log`, `exp`,
+  `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh`, `abs`. Periodic-trig
+  cases emit `ImageSet` over ℤ; multi-valued inverses (`acosh`, `abs`)
+  emit `FiniteSet` of both branches. Removes the transcendental-equation
+  cliff for the common single-head shapes.
+- **Phase 11 — Variation of parameters** (`ode/dsolve.hpp`): new
+  entry points `dsolve_constant_coeff_nonhomogeneous(coeffs, rhs, x)`
+  and `dsolve_cauchy_euler_nonhomogeneous(coeffs, rhs, x)` for
+  second-order linear ODEs with non-zero RHS. Uses Wronskian-based
+  variation of parameters: y_p = -y₁·∫(y₂·g/(a₂·W)) + y₂·∫(y₁·g/(a₂·W)).
+  Wired into `matlab::dsolve(eq, y, yp, ypp, x)` — non-zero RHS now
+  routes automatically. Also adds an `exp(a)·exp(b) → exp(a+b)` /
+  `exp(a)^n → exp(n·a)` folding helper (internal to `dsolve.cpp`)
+  to keep the variation-of-parameters integrand in a closed-form-friendly
+  shape.
+- **Phase 9 — Jordan canonical form + matrix exponential**
+  (`matrices/matrix.hpp`): new `Matrix::jordan_form()` returning
+  `(P, J)` such that `A = P·J·P⁻¹`, and `Matrix::exp(t)` returning
+  `exp(A·t)` via `P · exp(J·t) · P⁻¹` with closed-form Jordan-block
+  exponential. Currently supports chains of length up to 2 (the
+  textbook 2×2 defective shape and combinations thereof). Updated
+  `dsolve_system(A, x)` to use `A.exp(x)` so defective A is handled
+  automatically — the previous eigenvect-only path silently dropped
+  `t·exp(λt)` components.
+- **Phase 5 — Hypergeometric / Meijer-G infrastructure**
+  (`functions/hypergeometric.hpp`, `simplify/hyperexpand.hpp`):
+  * `Hyper` and `MeijerG` are now proper `Function` subclasses with
+    stable `FunctionId` tags (`Hyper`, `MeijerG`), `rebuild`/`str`/
+    `diff_arg` overrides, and Pochhammer-style structural accessors
+    (`p`, `q`, `ap`, `bq`, `z`). Replaces the old opaque
+    `function_symbol("hyper")` placeholder.
+  * Variadic factory `hyper(ap, bq, z)` with auto-evaluation:
+    `z == 0 → 1`, parameter cancellation, `₀F₀(z) → exp(z)`,
+    `₁F₀(a; ; z) → (1 − z)^(−a)`. The 4-arg overload `hyper(a, b, c, z)`
+    routes to the same factory for the ₂F₁ Gauss case.
+  * `meijerg(an, ap_rest, bm, bq_rest, z)` factory builds the opaque
+    `MeijerG` node. Full Slater-theorem expansion is deferred-deep.
+  * `hyperexpand(e)` walks the tree and rewrites recognized closed
+    forms: `₁F₁(1; 2; z) → (eᶻ − 1)/z`, `₂F₁(1, 1; 2; z) → −log(1−z)/z`.
+    Cancellation-driven identities (e.g. `₂F₁(a, b; b; z) → (1−z)^(−a)`)
+    fall out of the factory's auto-eval.
+  * `simplify(e)` chain extended to call `hyperexpand` after `sqrtdenest`.
 
 ### Build / packaging
 

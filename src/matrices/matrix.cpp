@@ -17,6 +17,8 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -454,6 +456,106 @@ std::pair<Matrix, Matrix> Matrix::diagonalize() const {
         D.set(i, i, diag_entries[i]);
     }
     return {P, D};
+}
+
+// ----- jordan_form / exp ---------------------------------------------------
+
+namespace {
+
+[[nodiscard]] bool col_is_zero(const Matrix& v) {
+    for (std::size_t i = 0; i < v.rows(); ++i) {
+        if (!(simplify(v.at(i, 0)) == S::Zero())) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+std::pair<Matrix, Matrix> Matrix::jordan_form() const {
+    if (!is_square()) {
+        throw std::invalid_argument("jordan_form: square matrix required");
+    }
+    if (is_diagonalizable()) {
+        // Jordan form of a diagonalizable matrix is just the diagonal form.
+        return diagonalize();
+    }
+    // Defective case. Currently only the 2×2 single-defective-eigenvalue
+    // shape is supported (chains of length 2). Larger defective matrices
+    // require the general filtration algorithm.
+    if (rows_ != 2) {
+        throw std::runtime_error(
+            "jordan_form: defective n×n with n > 2 not yet supported");
+    }
+    auto evals = eigenvals();
+    if (evals.size() != 2 || !(evals[0] == evals[1])) {
+        throw std::runtime_error(
+            "jordan_form: 2×2 defective expects a repeated eigenvalue");
+    }
+    Expr lambda = evals[0];
+    Matrix K = *this - Matrix::identity(2).scalar_mul(lambda);
+    Matrix K2 = K * K;
+    auto ns_K2 = K2.nullspace();
+    if (ns_K2.size() != 2) {
+        throw std::runtime_error(
+            "jordan_form: unexpected null-space structure on K²");
+    }
+    Matrix v_top = Matrix::zeros(2, 1);
+    bool found_top = false;
+    for (const auto& v : ns_K2) {
+        Matrix Kv = K * v;
+        if (!col_is_zero(Kv)) {
+            v_top = v;
+            found_top = true;
+            break;
+        }
+    }
+    if (!found_top) {
+        throw std::runtime_error(
+            "jordan_form: no length-2 chain top found in N(K²)");
+    }
+    Matrix v_low = K * v_top;
+    Matrix P(2, 2);
+    P.set(0, 0, v_low.at(0, 0));
+    P.set(1, 0, v_low.at(1, 0));
+    P.set(0, 1, v_top.at(0, 0));
+    P.set(1, 1, v_top.at(1, 0));
+    Matrix J(2, 2);
+    J.set(0, 0, lambda);   J.set(0, 1, S::One());
+    J.set(1, 0, S::Zero()); J.set(1, 1, lambda);
+    return {P, J};
+}
+
+Matrix Matrix::exp(const Expr& t) const {
+    if (!is_square()) {
+        throw std::invalid_argument("exp: square matrix required");
+    }
+    auto [P, J] = jordan_form();
+    Matrix expJt = Matrix::zeros(rows_, rows_);
+    std::size_t i = 0;
+    while (i < rows_) {
+        Expr lambda = J.at(i, i);
+        // Determine the Jordan block size starting at (i, i): count
+        // consecutive super-diagonal 1's where the diagonal stays at λ.
+        std::size_t k = 1;
+        while (i + k < rows_) {
+            Expr super = simplify(J.at(i + k - 1, i + k));
+            Expr diag_next = simplify(J.at(i + k, i + k));
+            if (!(super == S::One()) || !(diag_next == lambda)) break;
+            ++k;
+        }
+        Expr exp_lt = sympp::exp(lambda * t);
+        for (std::size_t r = 0; r < k; ++r) {
+            for (std::size_t c = r; c < k; ++c) {
+                long p = static_cast<long>(c - r);
+                Expr power = (p == 0) ? Expr{S::One()} : pow(t, integer(p));
+                Expr fact = (p <= 1) ? Expr{S::One()}
+                                       : factorial(integer(p));
+                expJt.set(i + r, i + c, exp_lt * power / fact);
+            }
+        }
+        i += k;
+    }
+    return P * expJt * P.inverse();
 }
 
 // ----- rref / rank / nullspace / columnspace / rowspace ---------------------

@@ -26,6 +26,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/simplify/hyperexpand.hpp>
 
 namespace sympp {
 
@@ -64,6 +65,7 @@ Expr simplify(const Expr& e) {
     current = gammasimp(current);
     current = radsimp(current);
     current = sqrtdenest(current);
+    current = hyperexpand(current);
     // 4. Canonical sweep again to collect any like terms that surfaced.
     return re_canonicalize(current);
 }
@@ -269,6 +271,15 @@ as_trig_square_term(const Expr& term) {
     return std::nullopt;
 }
 
+[[nodiscard]] std::size_t count_leaves(const Expr& e) {
+    if (!e) return 0;
+    auto args = e->args();
+    if (args.empty()) return 1;
+    std::size_t total = 0;
+    for (const auto& a : args) total += count_leaves(a);
+    return total;
+}
+
 [[nodiscard]] Expr trigsimp_add(const Expr& e) {
     if (e->type_id() != TypeId::Add) return e;
 
@@ -290,26 +301,159 @@ as_trig_square_term(const Expr& term) {
         else cp.cos_coef = add(cp.cos_coef, t->coef);
     }
 
-    std::vector<Expr> out = std::move(non_trig);
-    for (auto& [arg, cp] : by_arg) {
-        // Rewrite a*sin²(x) + b*cos²(x) as b + (a-b)*sin²(x). When a == b
-        // this collapses to b — the Pythagorean identity. Otherwise it
-        // produces an equivalent form with one fewer trig² (b absorbed).
-        out.push_back(cp.cos_coef);
-        Expr diff = cp.sin_coef - cp.cos_coef;
-        if (!(diff == S::Zero())) {
-            out.push_back(mul(diff, pow(sin(arg), integer(2))));
+    if (by_arg.empty()) return e;
+
+    // Pythagorean candidate: a·sin²(x) + b·cos²(x) → b + (a − b)·sin²(x).
+    auto pythagorean_form = [&] {
+        std::vector<Expr> out = non_trig;
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(cp.cos_coef);
+            Expr diff = cp.sin_coef - cp.cos_coef;
+            if (!(diff == S::Zero())) {
+                out.push_back(diff * pow(sin(arg), integer(2)));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
+
+    // Double-angle candidate: same Add rewritten with
+    //   sin²(x) = (1 − cos(2x))/2,  cos²(x) = (1 + cos(2x))/2.
+    // Per arg:  a·sin² + b·cos² = (a + b)/2 + ((b − a)/2)·cos(2x).
+    // This automatically handles the constant-mixed shapes
+    // (1 − 2·sin²(x), 2·cos²(x) − 1) by absorbing them into the Add.
+    auto double_angle_form = [&] {
+        std::vector<Expr> out = non_trig;
+        Expr half = rational(1, 2);
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(half * (cp.sin_coef + cp.cos_coef));
+            Expr c_2x = half * (cp.cos_coef - cp.sin_coef);
+            if (!(c_2x == S::Zero())) {
+                out.push_back(c_2x * cos(integer(2) * arg));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
+
+    return count_leaves(double_angle_form) < count_leaves(pythagorean_form)
+            ? double_angle_form
+            : pythagorean_form;
+}
+
+// 2·sin(x)·cos(x) = sin(2x).  More generally, k·sin(x)·cos(x) → (k/2)·sin(2x).
+// Walks each Mul looking for at least one sin and one cos with the same
+// argument; folds the pair into a single sin(2·arg) and leaves everything
+// else untouched.
+[[nodiscard]] Expr trigsimp_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    Expr sin_arg = nullptr;
+    std::size_t sin_idx = 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Sin) {
+            sin_arg = f->args()[0];
+            sin_idx = i;
+            break;
         }
     }
-    if (out.empty()) return S::Zero();
-    if (out.size() == 1) return out[0];
-    return add(std::move(out));
+    if (!sin_arg) return e;
+    std::size_t cos_idx = args.size();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sin_idx) continue;
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Cos
+            && f->args()[0] == sin_arg) {
+            cos_idx = i;
+            break;
+        }
+    }
+    if (cos_idx == args.size()) return e;
+    std::vector<Expr> rest;
+    rest.reserve(args.size() - 1);
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sin_idx || i == cos_idx) continue;
+        rest.push_back(args[i]);
+    }
+    rest.push_back(rational(1, 2));
+    rest.push_back(sin(integer(2) * sin_arg));
+    return mul(std::move(rest));
+}
+
+[[nodiscard]] Expr trigsimp_node(const Expr& e) {
+    Expr cur = trigsimp_add(e);
+    cur = trigsimp_mul(cur);
+    return cur;
 }
 
 }  // namespace
 
 Expr trigsimp(const Expr& e) {
-    return apply_recursive(e, trigsimp_add);
+    return apply_recursive(e, trigsimp_node);
+}
+
+// ----- expand_trig + fu ------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] Expr expand_trig_node(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return e;
+    const auto& f = static_cast<const Function&>(*e);
+    auto fid = f.function_id();
+    if (fid != FunctionId::Sin && fid != FunctionId::Cos
+        && fid != FunctionId::Tan) return e;
+    const Expr& arg = e->args()[0];
+    if (arg->type_id() != TypeId::Add) return e;
+    auto add_args = arg->args();
+    if (add_args.size() < 2) return e;
+    Expr a = add_args[0];
+    Expr b;
+    if (add_args.size() == 2) {
+        b = add_args[1];
+    } else {
+        std::vector<Expr> rest(add_args.begin() + 1, add_args.end());
+        b = add(std::move(rest));
+    }
+    if (fid == FunctionId::Sin) {
+        return sin(a) * cos(b) + cos(a) * sin(b);
+    }
+    if (fid == FunctionId::Cos) {
+        return cos(a) * cos(b) - sin(a) * sin(b);
+    }
+    // Tan(a+b) = (tan a + tan b) / (1 - tan a · tan b).
+    Expr ta = tan(a);
+    Expr tb = tan(b);
+    return (ta + tb) / (integer(1) - ta * tb);
+}
+
+}  // namespace
+
+Expr expand_trig(const Expr& e) {
+    Expr cur = apply_recursive(e, expand_trig_node);
+    for (int i = 0; i < 4; ++i) {
+        Expr next = apply_recursive(cur, expand_trig_node);
+        if (next == cur) break;
+        cur = next;
+    }
+    return cur;
+}
+
+Expr fu(const Expr& e) {
+    Expr c1 = e;
+    Expr c2 = trigsimp(e);
+    Expr c3 = trigsimp(expand_trig(e));
+    Expr best = c1;
+    std::size_t best_n = count_leaves(c1);
+    if (auto n = count_leaves(c2); n < best_n) { best = c2; best_n = n; }
+    if (auto n = count_leaves(c3); n < best_n) { best = c3; best_n = n; }
+    return best;
 }
 
 // ----- radsimp ---------------------------------------------------------------

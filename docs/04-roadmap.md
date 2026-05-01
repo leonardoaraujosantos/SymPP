@@ -293,6 +293,19 @@ wrappers over the SymPP API. Variadic `syms`, `sym(name)`/
 `factor`/`limit`, `pretty`/`latex`/`ccode`/`fortran`/
 `matlabFunction`. Header-only.
 
+**Facade extension** (split into `matlab/parsing.hpp`,
+`matlab/assumptions.hpp`, `matlab/solvers.hpp`, `matlab/ode.hpp`,
+`matlab/pde.hpp` under the umbrella `matlab/matlab.hpp`):
+`str2sym` / parser-routed `sym(string_view)`; `assume` /
+`assumeAlso` / `assumptions` / `clearAssumptions` / `refresh` on
+top of a process-wide assumption registry (Symbols stay
+immutable; `refresh(x)` rebinds with the registered mask);
+`linsolve`, multi-equation `solve({eqs}, {vars})`, `nsolve` /
+`vpasolve`; first-order and auto-classified second-order
+`dsolve` overloads (constant-coefficient / Cauchy-Euler), IVP
+companions, `dsolve(A, x)` for linear systems; `pdsolve` family
+for first-order linear and heat / wave equations.
+
 The first plan dropped the facade as "renaming wrapper without
 real value". Reverted: the variadic `syms` and the `Int`-vs-`int`
 keyword adapter are real wrappers, and the namespace-shadowing
@@ -327,21 +340,27 @@ parity deltas, not bug fixes.
 | 4  | Multivariate Poly + Wang factorization                | 3 wk | Medium |
 | 4  | Berlekamp-Zassenhaus + Hensel lifting               | 2 wk | Medium |
 | 4  | Full polynomial domain tower (ℤ_p, ℚ_alg, ℂ)        | 2 wk | Low |
-| 5  | hyperexpand + hypergeometric function infrastructure | 4 wk | High (unblocks Phase 7+8) |
+| 5  | Fu trig rule table (subset)                          | ✅ shipped — Pythagorean / double-angle / cos²−sin² / 2sin·cos collapses + `expand_trig` + `fu` orchestrator (TR8 product-to-sum, half-angle still deferred) |
+| 5  | hyperexpand + hypergeometric function infrastructure | partial ✅ — `Hyper` and `MeijerG` proper Function classes, variadic factories with auto-eval (`₀F₀ → exp`, `₁F₀ → (1−z)^(−a)`, parameter cancellation), `hyperexpand` rewrites `₁F₁(1; 2; z)` and `₂F₁(1, 1; 2; z)`, integrated into `simplify` chain. Full Slater-theorem expansion + Meijer-G evaluation still deferred-deep. |
 | 6  | Full Gruntz limit algorithm                          | 2 wk | High |
 | 7  | Full Risch transcendental integration                | 4 wk | Medium |
 | 7  | Meijer G-function integration method                 | 3 wk | High (with hyperexpand) |
 | 9  | Symbolic SVD                                         | 2 wk | Medium |
-| 9  | Jordan canonical form                                | 2 wk | Medium |
+| 9  | Jordan canonical form                                | ✅ shipped — chains of length ≤ 2 (covers textbook defective inputs) + `Matrix::exp(t)` via Jordan; defective `dsolve_system` fixed. Longer chains still deferred. |
 | 9  | Sparse Matrix variant                                | 2 wk | Low |
 | 10 | F4 / F5 Gröbner algorithms                           | 3 wk | Low |
-| 10 | General transcendental solveset                      | 2 wk | Medium |
+| 10 | General transcendental solveset                      | ✅ shipped — `_invert` chain peels log / exp / sin / cos / tan / sinh / cosh / tanh / abs from the LHS; emits `ImageSet` over ℤ for periodic trig and `FiniteSet` for finite-branch inverses |
+| 11 | Variation of parameters (2nd-order nonhomogeneous)   | ✅ shipped — Wronskian-based; `dsolve_constant_coeff_nonhomogeneous` + `dsolve_cauchy_euler_nonhomogeneous`, wired through `matlab::dsolve` |
 | 11 | Full Lie symmetry classifier                         | 3 wk | Low |
 | 11 | Pantelides BLT + Tarjan SCC for high-index DAEs      | 2 wk | Low |
 | 13 | lambdify (LLVM ORC integration)                      | 3 wk | High (huge user value) |
 | 13 | Full 2D pretty-print layout                          | 1 wk | Medium |
 
-**Total category A**: roughly 42 developer-weeks of focused work.
+**Total category A**: roughly 42 developer-weeks of focused work,
+of which 5 items are now shipped or partial (subset of Fu rules,
+transcendental solveset via `_invert`, variation of parameters, Jordan
++ matrix exponential, hypergeometric infrastructure with closed-form
+rewrites — together approximately 10–12 weeks of effort).
 
 ### Category B: Remaining original phases (15, 16)
 

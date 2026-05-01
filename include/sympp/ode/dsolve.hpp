@@ -93,11 +93,9 @@ namespace sympp {
     const std::vector<Expr>& coeffs_y_ypp,  // [c0_of_y, c1_of_yp, c2_of_ypp]
     const Expr& x);
 
-// hyper(a, b, c, z) — Gauss hypergeometric ₂F₁(a, b; c; z) as an
-// opaque function symbol. The full power series implementation
-// (hyperexpand) lands in a separate Phase 5 follow-up.
-[[nodiscard]] SYMPP_EXPORT Expr hyper(const Expr& a, const Expr& b,
-                                        const Expr& c, const Expr& z);
+// `hyper(a, b, c, z)` is now a proper Hyper Function class — see
+// `sympp/functions/hypergeometric.hpp` for the variadic factory and
+// `sympp/simplify/hyperexpand.hpp` for the rewrite engine.
 
 // --- Higher-order ---
 // Returns y(x) general solution Σ Cᵢ exp(rᵢ x) (with x^k multipliers for
@@ -109,6 +107,27 @@ namespace sympp {
 // Cauchy-Euler: coeffs[n] x^n y^(n) + ... + coeffs[0] y = 0.
 [[nodiscard]] SYMPP_EXPORT Expr dsolve_cauchy_euler(
     const std::vector<Expr>& coeffs, const Expr& x);
+
+// Nonhomogeneous second-order linear constant-coefficient ODE:
+//   a₂·y'' + a₁·y' + a₀·y = g(x)
+// where coeffs = [a₀, a₁, a₂] (constants in x). Returns the general
+// solution y_h + y_p where the particular y_p is built via
+// variation of parameters:
+//   y_p = -y₁·∫(y₂·g / (a₂·W)) dx  +  y₂·∫(y₁·g / (a₂·W)) dx
+// with y₁, y₂ the homogeneous basis and W = y₁·y₂' − y₁'·y₂. When
+// the integrals fail to evaluate to a closed form they are left
+// symbolic — the result is still mathematically correct, just not
+// elementary.
+//
+// Reference: sympy/solvers/ode/nonhomogeneous.py
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_constant_coeff_nonhomogeneous(
+    const std::vector<Expr>& coeffs, const Expr& rhs, const Expr& x);
+
+// Same idea for Cauchy-Euler: coeffs[k]·x^k·y^(k) on the LHS, g(x)
+// on the RHS.  Reduces to constant-coefficient via x = e^t, applies
+// variation of parameters there, then back-substitutes.
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_cauchy_euler_nonhomogeneous(
+    const std::vector<Expr>& coeffs, const Expr& rhs, const Expr& x);
 
 // --- Systems ---
 // y' = A · y. Returns a column vector (Matrix n×1) representing the
