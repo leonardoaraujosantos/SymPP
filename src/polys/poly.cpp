@@ -267,6 +267,37 @@ Poly gcd(const Poly& a, const Poly& b) {
     return p.monic();
 }
 
+namespace {
+[[nodiscard]] bool poly_is_one(const Poly& p) {
+    return p.coeffs().size() == 1 && p.coeffs()[0] == S::One();
+}
+}  // namespace
+
+SqfList sqf_list(const Poly& f) {
+    if (f.is_zero()) return SqfList{S::Zero(), {}};
+    // Pull out the leading coefficient as content; work on the monic primitive.
+    Expr content = f.leading_coeff();
+    Poly p = f.monic();
+    if (p.degree() == 0) return SqfList{content, {}};
+
+    Poly fprime = p.diff();
+    Poly c = gcd(p, fprime);  // monic
+    Poly w = p / c;
+    Poly y = fprime / c;
+
+    std::vector<std::pair<Poly, std::size_t>> factors;
+    std::size_t i = 1;
+    while (!poly_is_one(w)) {
+        Poly z = y - w.diff();
+        Poly g = gcd(w, z);
+        if (!poly_is_one(g)) factors.emplace_back(g, i);
+        w = w / g;
+        y = z / g;
+        ++i;
+    }
+    return SqfList{content, std::move(factors)};
+}
+
 std::vector<Expr> Poly::roots() const {
     if (degree() == 0) return {};
     if (degree() == 1) {

@@ -82,4 +82,18 @@ private:
 // Reference: sympy/polys/euclidtools.py::dup_gcd
 [[nodiscard]] SYMPP_EXPORT Poly gcd(const Poly& a, const Poly& b);
 
+// Square-free factorization via Yun's algorithm.
+//
+// Returns (content, [(factor_i, multiplicity_i), ...]) such that
+//   f = content * Π factor_i^multiplicity_i
+// where each factor_i is monic and square-free, and any two distinct
+// factor_i are coprime. The trivial factor 1 is omitted.
+//
+// Reference: sympy/polys/sqfreetools.py::dup_sqf_list
+struct SqfList {
+    Expr content;
+    std::vector<std::pair<Poly, std::size_t>> factors;
+};
+[[nodiscard]] SYMPP_EXPORT SqfList sqf_list(const Poly& f);
+
 }  // namespace sympp

@@ -4,6 +4,8 @@
 //   sympy/polys/tests/test_polytools.py — Poly.degree, .coeffs, .as_expr
 //   roots: sympy/polys/polyroots.py
 
+#include <algorithm>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/core/integer.hpp>
@@ -283,6 +285,77 @@ TEST_CASE("Poly: gcd with zero", "[4][poly][gcd]") {
     REQUIRE(g2.leading_coeff() == S::One());
     REQUIRE(g1.coeffs()[0] == integer(2));
     REQUIRE(g2.coeffs()[0] == integer(2));
+}
+
+// ----- Square-free factorization (Yun) ---------------------------------------
+
+TEST_CASE("Poly: sqf_list of (x+1)^2", "[4][poly][sqf][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x^2 + 2x + 1 = (x + 1)^2
+    Poly f(pow(x, integer(2)) + integer(2) * x + integer(1), x);
+    auto sl = sqf_list(f);
+    REQUIRE(sl.factors.size() == 1);
+    REQUIRE(sl.factors[0].second == 2);
+    REQUIRE(oracle.equivalent(sl.factors[0].first.as_expr()->str(), "x + 1"));
+    REQUIRE(oracle.equivalent(sl.content->str(), "1"));
+}
+
+TEST_CASE("Poly: sqf_list strips content from 2(x+1)^2", "[4][poly][sqf][oracle]") {
+    auto x = symbol("x");
+    // 2x^2 + 4x + 2 = 2 (x+1)^2
+    Poly f(integer(2) * pow(x, integer(2)) + integer(4) * x + integer(2), x);
+    auto sl = sqf_list(f);
+    REQUIRE(sl.content == integer(2));
+    REQUIRE(sl.factors.size() == 1);
+    REQUIRE(sl.factors[0].second == 2);
+}
+
+TEST_CASE("Poly: sqf_list of square-free polynomial", "[4][poly][sqf]") {
+    auto x = symbol("x");
+    // x^2 - 1 = (x-1)(x+1) — both multiplicity 1, so reported as one factor
+    // x^2 - 1 (the whole thing since it's square-free).
+    Poly f(pow(x, integer(2)) - integer(1), x);
+    auto sl = sqf_list(f);
+    REQUIRE(sl.factors.size() == 1);
+    REQUIRE(sl.factors[0].second == 1);
+    // The factor is the whole polynomial (already square-free).
+    REQUIRE(sl.factors[0].first.degree() == 2);
+}
+
+TEST_CASE("Poly: sqf_list of (x-1)^3 (x+2)^2", "[4][poly][sqf][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // Build (x-1)^3 (x+2)^2 by expanding: ... or just construct via Poly mul.
+    Poly a(x - integer(1), x);
+    Poly b(x + integer(2), x);
+    Poly f = a * a * a * b * b;
+    auto sl = sqf_list(f);
+    REQUIRE(sl.factors.size() == 2);
+    // Sort by multiplicity to get a deterministic order.
+    auto factors = sl.factors;
+    std::sort(factors.begin(), factors.end(),
+              [](auto& l, auto& r) { return l.second < r.second; });
+    REQUIRE(factors[0].second == 2);
+    REQUIRE(factors[1].second == 3);
+    REQUIRE(oracle.equivalent(factors[0].first.as_expr()->str(), "x + 2"));
+    REQUIRE(oracle.equivalent(factors[1].first.as_expr()->str(), "x - 1"));
+}
+
+TEST_CASE("Poly: sqf_list of zero", "[4][poly][sqf]") {
+    auto x = symbol("x");
+    Poly z(std::vector<Expr>{S::Zero()}, x);
+    auto sl = sqf_list(z);
+    REQUIRE(sl.factors.empty());
+    REQUIRE(sl.content == S::Zero());
+}
+
+TEST_CASE("Poly: sqf_list of constant", "[4][poly][sqf]") {
+    auto x = symbol("x");
+    Poly c(std::vector<Expr>{integer(7)}, x);
+    auto sl = sqf_list(c);
+    REQUIRE(sl.factors.empty());
+    REQUIRE(sl.content == integer(7));
 }
 
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
