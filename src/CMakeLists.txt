@@ -32,6 +32,7 @@ target_sources(sympp
         calculus/limit.cpp
         calculus/order.cpp
         calculus/series.cpp
+        calculus/summation.cpp
         functions/combinatorial.cpp
         functions/exponential.cpp
         functions/hyperbolic.cpp
@@ -88,6 +89,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/limit.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/order.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/series.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/summation.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp

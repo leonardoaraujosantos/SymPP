@@ -144,3 +144,73 @@ TEST_CASE("Order: with explicit point prints (var, point)", "[6][order]") {
     auto o = order(pow(x - integer(1), integer(2)), x, integer(1));
     REQUIRE(o->str() == "O((x - 1)**2, (x, 1))");
 }
+
+#include <sympp/calculus/summation.hpp>
+
+// ----- summation -------------------------------------------------------------
+
+TEST_CASE("summation: Σ k from 1 to n → n(n+1)/2", "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto s = summation(k, k, integer(1), n);
+    REQUIRE(oracle.equivalent(s->str(), "n*(n+1)/2"));
+}
+
+TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto s = summation(pow(k, integer(2)), k, integer(1), n);
+    REQUIRE(oracle.equivalent(s->str(), "n*(n+1)*(2*n+1)/6"));
+}
+
+TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto s = summation(pow(k, integer(3)), k, integer(1), n);
+    REQUIRE(oracle.equivalent(s->str(), "(n*(n+1)/2)**2"));
+}
+
+TEST_CASE("summation: constant Σ c from 1 to n → c*n",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto c = symbol("c");
+    auto s = summation(c, k, integer(1), n);
+    REQUIRE(oracle.equivalent(s->str(), "c*n"));
+}
+
+TEST_CASE("summation: Σ (3k + 2) from 1 to n → 3n(n+1)/2 + 2n (linearity)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto e = integer(3) * k + integer(2);
+    auto s = summation(e, k, integer(1), n);
+    REQUIRE(oracle.equivalent(s->str(), "3*n*(n+1)/2 + 2*n"));
+}
+
+TEST_CASE("summation: geometric Σ 2^k from 0 to n → 2^(n+1) - 1",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto e = pow(integer(2), k);
+    auto s = summation(e, k, integer(0), n);
+    REQUIRE(oracle.equivalent(s->str(), "2**(n+1) - 1"));
+}
+
+TEST_CASE("summation: Σ from a to b uses telescoping",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto s = summation(k, k, a, b);
+    REQUIRE(oracle.equivalent(s->str(), "(b - a + 1)*(a + b)/2"));
+}
