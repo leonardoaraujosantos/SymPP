@@ -304,3 +304,35 @@ TEST_CASE("integrate: ∫x²*exp(x) dx (recursive parts)",
     auto r = integrate(e, x);
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
+
+// ----- manualintegrate orchestrator ------------------------------------------
+
+TEST_CASE("manualintegrate: returns Some on tractable integrand",
+          "[7][manualintegrate][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * sin(x);
+    auto r = manualintegrate(e, x);
+    REQUIRE(r.has_value());
+    REQUIRE(oracle.equivalent((*r)->str(), "-x*cos(x) + sin(x)"));
+}
+
+TEST_CASE("manualintegrate: returns None on intractable integrand",
+          "[7][manualintegrate]") {
+    auto x = symbol("x");
+    // exp(x²) has no elementary antiderivative — and we don't have erf
+    // recognition in the integral table.
+    auto e = exp(pow(x, integer(2)));
+    auto r = manualintegrate(e, x);
+    REQUIRE(!r.has_value());
+}
+
+TEST_CASE("manualintegrate: chain reaches log(x) via parts",
+          "[7][manualintegrate][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = log(x);
+    auto r = manualintegrate(e, x);
+    REQUIRE(r.has_value());
+    REQUIRE(oracle.equivalent((*r)->str(), "x*log(x) - x"));
+}

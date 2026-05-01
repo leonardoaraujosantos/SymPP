@@ -417,4 +417,25 @@ Expr integrate(const Expr& expr, const Expr& var,
     return subs(antider, var, upper) - subs(antider, var, lower);
 }
 
+std::optional<Expr> manualintegrate(const Expr& expr, const Expr& var) {
+    Expr result = integrate(expr, var);
+    // Detect the Integral(_, _) marker integrate() emits on failure.
+    if (result->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*result);
+        if (fn.name() == "Integral") return std::nullopt;
+    }
+    // Failure can also be wrapped — Mul(c, Integral(...)). Walk one
+    // level: if any args are Integral markers, treat as failure.
+    if (result->type_id() == TypeId::Mul
+        || result->type_id() == TypeId::Add) {
+        for (const auto& a : result->args()) {
+            if (a->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*a);
+                if (fn.name() == "Integral") return std::nullopt;
+            }
+        }
+    }
+    return result;
+}
+
 }  // namespace sympp
