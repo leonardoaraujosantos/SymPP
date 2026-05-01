@@ -20,6 +20,7 @@
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/expand.hpp>
+#include <sympp/simplify/simplify.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
@@ -178,6 +179,13 @@ namespace {
     return std::nullopt;
 }
 
+// Heurisch — u-substitution recognition for non-linear inner arguments.
+// Detects the chain-rule-reverse pattern c·g'(x)·f(g(x)) where f is one
+// of {sin, cos, exp, 1/u}, and emits c·F(g(x)) where F is the
+// antiderivative of f. Catches standard textbook integrals like
+// ∫2x·exp(x²) → exp(x²) that the table-based path can't recognize.
+[[nodiscard]] std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -227,6 +235,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_rational(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
         return *r;
     }
@@ -243,6 +254,115 @@ namespace {
     if (!e || e->type_id() != TypeId::Function) return false;
     const auto& fn = static_cast<const Function&>(*e);
     return fn.name() == "Integral";
+}
+
+// Try to interpret expr as c * g'(x) * f(g(x)) for some non-trivial
+// inner expression g(x) and outer pattern f ∈ {sin, cos, exp, log,
+// reciprocal}. Strategy:
+//   1. Scan the expression for candidate inner forms — function args
+//      and Pow bases that depend on var.
+//   2. For each candidate g, compute g' and divide expr by g'. Simplify.
+//   3. Check that the quotient is independent of var aside from the g
+//      occurrences themselves — i.e. it depends on var only through g.
+//      Operationally: substitute g → fresh symbol u in the quotient
+//      and verify the result is var-free.
+//   4. If the quotient as a function of u admits a closed-form
+//      antiderivative (try_integrate against the fresh symbol u via the
+//      table), substitute back and return.
+std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
+    // Collect candidate inner expressions.
+    std::vector<Expr> candidates;
+    auto add_candidate = [&](const Expr& cand) {
+        if (!cand || !depends_on(cand, var)) return;
+        if (cand == var) return;  // linear-sub already handled
+        for (const auto& c : candidates) if (c == cand) return;
+        candidates.push_back(cand);
+    };
+    auto walk = [&](auto&& self, const Expr& e) -> void {
+        if (!e) return;
+        if (e->type_id() == TypeId::Function) {
+            for (const auto& a : e->args()) {
+                add_candidate(a);
+                self(self, a);
+            }
+        }
+        if (e->type_id() == TypeId::Pow) {
+            add_candidate(e->args()[0]);
+            self(self, e->args()[0]);
+            self(self, e->args()[1]);
+        }
+        if (e->type_id() == TypeId::Add || e->type_id() == TypeId::Mul) {
+            for (const auto& a : e->args()) self(self, a);
+        }
+    };
+    walk(walk, expr);
+
+    // Sort candidates by descending node count — try larger / outer
+    // candidates first.
+    auto node_count = [](const Expr& e) {
+        int n = 0;
+        auto rec = [&](auto&& self, const Expr& x) -> void {
+            if (!x) return;
+            ++n;
+            for (const auto& a : x->args()) self(self, a);
+        };
+        rec(rec, e);
+        return n;
+    };
+    std::sort(candidates.begin(), candidates.end(),
+              [&](const Expr& a, const Expr& b) {
+                  return node_count(a) > node_count(b);
+              });
+
+    auto u = symbol("__heurisch_u");
+    for (const auto& g : candidates) {
+        Expr gp = simplify(diff(g, var));
+        if (gp == S::Zero()) continue;
+        // q = expr / g'. Substitute g → u first so the symbolic structure
+        // collapses (e.g. exp(x²) → exp(u)). Apply expand_power_base so
+        // patterns like (2x)^(-1) split into 2^(-1) * x^(-1), letting
+        // canonical Mul base collection cancel x * x^(-1) cleanly.
+        Expr q = expr / gp;
+        Expr q_sub = subs(q, g, u);
+        q_sub = simplify(expand_power_base(q_sub));
+        if (depends_on(q_sub, var)) continue;
+        // Try to integrate q_sub against u via the table only — calling
+        // the full integrate() here would loop back into try_heurisch.
+        // Linearity over Add is handled inline; the rest is integrate_term.
+        std::optional<Expr> integrated_opt;
+        if (q_sub->type_id() == TypeId::Add) {
+            std::vector<Expr> parts;
+            parts.reserve(q_sub->args().size());
+            bool ok = true;
+            for (const auto& term : q_sub->args()) {
+                auto sub_int = integrate_term(term, u);
+                if (!sub_int) { ok = false; break; }
+                parts.push_back(*sub_int);
+            }
+            if (ok) integrated_opt = add(std::move(parts));
+        } else {
+            integrated_opt = integrate_term(q_sub, u);
+        }
+        if (!integrated_opt) continue;
+        Expr integrated = *integrated_opt;
+        if (is_integral_marker(integrated)) continue;
+        // Walk the result to ensure it didn't smuggle an Integral marker.
+        bool has_marker = false;
+        auto rec_check = [&](auto&& self, const Expr& e) -> void {
+            if (!e) return;
+            if (is_integral_marker(e)) { has_marker = true; return; }
+            for (const auto& a : e->args()) {
+                if (has_marker) return;
+                self(self, a);
+            }
+        };
+        rec_check(rec_check, integrated);
+        if (has_marker) continue;
+        // Substitute u back to g.
+        Expr result = subs(integrated, u, g);
+        return simplify(result);
+    }
+    return std::nullopt;
 }
 
 std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) {

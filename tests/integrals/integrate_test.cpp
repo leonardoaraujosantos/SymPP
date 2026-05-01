@@ -336,3 +336,50 @@ TEST_CASE("manualintegrate: chain reaches log(x) via parts",
     REQUIRE(r.has_value());
     REQUIRE(oracle.equivalent((*r)->str(), "x*log(x) - x"));
 }
+
+// ----- Heurisch (chain-rule-reverse u-substitution) --------------------------
+
+TEST_CASE("integrate: ∫2x*exp(x²) dx = exp(x²) (heurisch)",
+          "[7][integrate][heurisch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(2) * x * exp(pow(x, integer(2)));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "exp(x**2)"));
+}
+
+TEST_CASE("integrate: ∫x*exp(x²) dx = exp(x²)/2 (heurisch with constant)",
+          "[7][integrate][heurisch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * exp(pow(x, integer(2)));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "exp(x**2)/2"));
+}
+
+TEST_CASE("integrate: ∫cos(x²)*2x dx = sin(x²)",
+          "[7][integrate][heurisch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = cos(pow(x, integer(2))) * integer(2) * x;
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "sin(x**2)"));
+}
+
+TEST_CASE("integrate: ∫sin(x³)*3x² dx = -cos(x³)",
+          "[7][integrate][heurisch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(pow(x, integer(3))) * integer(3) * pow(x, integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "-cos(x**3)"));
+}
+
+TEST_CASE("integrate: ∫(2x)/(x²+1) dx = log(x²+1) (logarithmic derivative)",
+          "[7][integrate][heurisch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (integer(2) * x) / (pow(x, integer(2)) + integer(1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
