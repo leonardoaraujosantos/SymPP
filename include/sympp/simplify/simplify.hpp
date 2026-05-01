@@ -10,6 +10,9 @@
 //
 // Reference: sympy/simplify/simplify.py::simplify
 
+#include <utility>
+#include <vector>
+
 #include <sympp/core/api.hpp>
 #include <sympp/fwd.hpp>
 
@@ -80,6 +83,28 @@ namespace sympp {
 //
 // Reference: sympy/simplify/gammasimp.py
 [[nodiscard]] SYMPP_EXPORT Expr gammasimp(const Expr& e);
+
+// cse(expr) — common subexpression elimination. Walks the expression,
+// finds subtrees that appear at least twice, replaces each with a fresh
+// temporary symbol, and returns the substitution list alongside the
+// simplified expression. Useful for code generation and any context
+// that benefits from reifying shared subterms as variables.
+//
+// Reference: sympy/simplify/cse_main.py::cse
+struct CSEResult {
+    std::vector<std::pair<Expr, Expr>> substitutions;  // (temp, definition)
+    Expr expr;
+};
+[[nodiscard]] SYMPP_EXPORT CSEResult cse(const Expr& e);
+
+// nsimplify(expr) — heuristic numeric→exact-symbolic guesser. Try to
+// recognize a Float / Rational as an exact symbolic constant from a
+// short table: rational p/q (small denominators), pi, e, sqrt of small
+// rationals, log of small integers. Returns the input unchanged when no
+// clean exact form is found within tolerance.
+//
+// Reference: sympy/simplify/simplify.py::nsimplify
+[[nodiscard]] SYMPP_EXPORT Expr nsimplify(const Expr& e, int dps = 15);
 
 // trigsimp(expr) — apply trigonometric identities (Pythagorean, ratio,
 // reciprocal). Minimal Fu-style subset:

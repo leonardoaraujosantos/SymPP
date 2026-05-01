@@ -9,6 +9,7 @@
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -363,4 +364,76 @@ TEST_CASE("gammasimp: gamma(n+3)/gamma(n) → n*(n+1)*(n+2)",
     auto e = gamma(n + integer(3)) * pow(gamma(n), integer(-1));
     auto out = gammasimp(e);
     REQUIRE(oracle.equivalent(out->str(), "n*(n+1)*(n+2)"));
+}
+
+#include <sympp/core/float.hpp>
+
+// ----- cse -------------------------------------------------------------------
+
+TEST_CASE("cse: extracts shared subtree", "[5][cse]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // (x+y)^2 + (x+y)^3 — Add canonical form leaves Pow children intact,
+    // so (x+y) is preserved as a shared subtree of two Pow nodes.
+    auto shared = x + y;
+    auto e = pow(shared, integer(2)) + pow(shared, integer(3));
+    auto r = cse(e);
+    REQUIRE(r.substitutions.size() == 1);
+    REQUIRE(r.substitutions[0].second == shared);
+}
+
+TEST_CASE("cse: leaves no-shared expression alone", "[5][cse]") {
+    auto x = symbol("x");
+    auto e = x + integer(1);
+    auto r = cse(e);
+    REQUIRE(r.substitutions.empty());
+    REQUIRE(r.expr == e);
+}
+
+TEST_CASE("cse: extracts multiple shared subtrees", "[5][cse]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // (x+y)^2 + 2*(x+y) + (x*y) + (x*y)^3
+    // (x+y) appears twice, (x*y) appears twice.
+    auto a = x + y;
+    auto b = x * y;
+    auto e = pow(a, integer(2)) + integer(2) * a + b + pow(b, integer(3));
+    auto r = cse(e);
+    REQUIRE(r.substitutions.size() == 2);
+}
+
+// ----- nsimplify -------------------------------------------------------------
+
+TEST_CASE("nsimplify: 0.5 → 1/2", "[5][nsimplify]") {
+    auto e = evalf(rational(1, 2), 15);
+    auto r = nsimplify(e);
+    REQUIRE(r == rational(1, 2));
+}
+
+TEST_CASE("nsimplify: pi numeric → pi", "[5][nsimplify]") {
+    auto e = evalf(S::Pi(), 15);
+    auto r = nsimplify(e);
+    REQUIRE(r == S::Pi());
+}
+
+TEST_CASE("nsimplify: pi/4 numeric → pi/4", "[5][nsimplify]") {
+    auto e = evalf(S::Pi() / integer(4), 15);
+    auto r = nsimplify(e);
+    REQUIRE(r == S::Pi() / integer(4));
+}
+
+TEST_CASE("nsimplify: sqrt(2) numeric → sqrt(2)", "[5][nsimplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto e = evalf(sqrt(integer(2)), 15);
+    auto r = nsimplify(e);
+    REQUIRE(oracle.equivalent(r->str(), "sqrt(2)"));
+}
+
+TEST_CASE("nsimplify: junk irrational stays put", "[5][nsimplify]") {
+    // 1.4142135 is close to sqrt(2). 1.123456789 is not in our table.
+    auto e = make<Float>("1.123456789", 15);
+    auto r = nsimplify(e);
+    // Should fall through. Same Float (or close enough — exact equality
+    // not guaranteed across factories, but no rational/sqrt match found).
+    REQUIRE(r->type_id() == TypeId::Float);
 }

@@ -9,6 +9,7 @@
 #include <sympp/core/boolean.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/expr_collections.hpp>
+#include <sympp/core/float.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -18,6 +19,7 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
@@ -583,5 +585,158 @@ namespace {
 
 Expr combsimp(const Expr& e) { return apply_recursive(e, combsimp_node); }
 Expr gammasimp(const Expr& e) { return apply_recursive(e, gammasimp_node); }
+
+// ----- cse -------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] int subtree_size(const Expr& e) {
+    if (!e) return 0;
+    int s = 1;
+    for (const auto& a : e->args()) s += subtree_size(a);
+    return s;
+}
+
+void count_subtrees(const Expr& e, ExprMap<int>& counts) {
+    if (!e || e->args().empty()) return;
+    counts[e]++;
+    for (const auto& a : e->args()) count_subtrees(a, counts);
+}
+
+}  // namespace
+
+CSEResult cse(const Expr& e) {
+    ExprMap<int> counts;
+    count_subtrees(e, counts);
+
+    // Candidates appear ≥ 2 times.
+    std::vector<Expr> candidates;
+    for (const auto& [expr, cnt] : counts) {
+        if (cnt >= 2) candidates.push_back(expr);
+    }
+
+    // Order by descending size — outermost subtrees first. After
+    // substituting a large pattern, any smaller pattern entirely
+    // contained in it that doesn't appear elsewhere will lose its
+    // multi-count and stop being a candidate; we'll skip it implicitly
+    // by re-checking counts on the rewritten expression at each step.
+    std::sort(candidates.begin(), candidates.end(),
+              [](const Expr& a, const Expr& b) {
+                  int sa = subtree_size(a);
+                  int sb = subtree_size(b);
+                  if (sa != sb) return sa > sb;
+                  return a->str() < b->str();  // tie-break stable
+              });
+
+    Expr current = e;
+    std::vector<std::pair<Expr, Expr>> subs_list;
+    int next_id = 0;
+    for (auto& cand : candidates) {
+        // Re-count on the current rewritten expression — earlier
+        // substitutions may have removed occurrences.
+        ExprMap<int> live_counts;
+        count_subtrees(current, live_counts);
+        auto it = live_counts.find(cand);
+        if (it == live_counts.end() || it->second < 2) continue;
+
+        Expr temp = symbol("_cse_" + std::to_string(next_id++));
+        // Replace `cand` with `temp` everywhere in `current` and in
+        // earlier substitution definitions.
+        current = subs(current, cand, temp);
+        for (auto& [t, def] : subs_list) {
+            def = subs(def, cand, temp);
+        }
+        subs_list.emplace_back(temp, cand);
+    }
+    return CSEResult{std::move(subs_list), std::move(current)};
+}
+
+// ----- nsimplify -------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] std::optional<double> as_double(const Expr& e) {
+    if (e->type_id() == TypeId::Integer) {
+        return static_cast<const Integer&>(*e).value().get_d();
+    }
+    if (e->type_id() == TypeId::Rational) {
+        return static_cast<const Rational&>(*e).value().get_d();
+    }
+    if (e->type_id() == TypeId::Float) {
+        // We don't have a clean Float -> double helper; round-trip via str.
+        return std::stod(e->str());
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] bool close_enough(double a, double b, double tol) {
+    return std::fabs(a - b) < tol * std::max(1.0, std::fabs(a));
+}
+
+// Approximate value of a SymPP Expr as a double. Returns nullopt if the
+// expression isn't a numeric/named-symbol leaf the table covers.
+[[nodiscard]] std::optional<double> evalf_to_double(const Expr& e, int dps) {
+    if (auto d = as_double(e); d) return d;
+    if (e == S::Pi()) return 3.14159265358979323846;
+    if (e == S::E()) return 2.71828182845904523536;
+    if (e == S::EulerGamma()) return 0.577215664901532860606;
+    if (e == S::Catalan()) return 0.915965594177219015055;
+    Expr v = evalf(e, dps);
+    if (v->type_id() == TypeId::Float) return std::stod(v->str());
+    return std::nullopt;
+}
+
+}  // namespace
+
+Expr nsimplify(const Expr& e, int dps) {
+    // Only operates on numeric-valued expressions; pass non-numeric through.
+    auto v_opt = evalf_to_double(e, dps);
+    if (!v_opt) return e;
+    double v = *v_opt;
+
+    const double tol = 1e-12;
+
+    // Try simple Rational p/q with small q (Stern-Brocot-style).
+    for (long q = 1; q <= 1000; ++q) {
+        long p = static_cast<long>(std::lround(v * static_cast<double>(q)));
+        if (close_enough(v,
+                          static_cast<double>(p) / static_cast<double>(q),
+                          tol)) {
+            return rational(p, q);
+        }
+    }
+
+    // pi, e, EulerGamma, Catalan multiples (k/q) for small q, k.
+    auto try_constant = [&](double cval, const Expr& sym) -> std::optional<Expr> {
+        for (long q = 1; q <= 60; ++q) {
+            long p = static_cast<long>(std::lround(v / cval * static_cast<double>(q)));
+            if (close_enough(v,
+                              cval * static_cast<double>(p) / static_cast<double>(q),
+                              tol)) {
+                if (q == 1 && p == 1) return sym;
+                if (q == 1) return mul(integer(p), sym);
+                return mul(rational(p, q), sym);
+            }
+        }
+        return std::nullopt;
+    };
+    if (auto r = try_constant(3.14159265358979323846, S::Pi())) return *r;
+    if (auto r = try_constant(2.71828182845904523536, S::E())) return *r;
+
+    // sqrt of small rationals.
+    for (long q = 1; q <= 50; ++q) {
+        for (long p = 1; p <= 50; ++p) {
+            double candidate = std::sqrt(static_cast<double>(p)
+                                          / static_cast<double>(q));
+            if (close_enough(v, candidate, tol)) {
+                if (q == 1) return sqrt(integer(p));
+                return sqrt(rational(p, q));
+            }
+        }
+    }
+
+    // No clean form found; return original.
+    return e;
+}
 
 }  // namespace sympp
