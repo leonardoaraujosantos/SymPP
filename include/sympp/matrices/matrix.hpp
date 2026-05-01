@@ -102,6 +102,22 @@ public:
     // current expression domain.
     [[nodiscard]] std::pair<Matrix, Matrix> diagonalize() const;
 
+    // LU decomposition (Doolittle form): A = L · U with L unit-diagonal
+    // lower triangular and U upper triangular. Throws if a zero pivot is
+    // encountered (call rref() first if you need pivoting).
+    [[nodiscard]] std::pair<Matrix, Matrix> lu() const;
+
+    // QR decomposition via classical Gram-Schmidt on the columns of A.
+    // Returns (Q, R) with Q having orthonormal columns and R upper
+    // triangular such that A = Q · R. Requires A to have linearly
+    // independent columns.
+    [[nodiscard]] std::pair<Matrix, Matrix> qr() const;
+
+    // Cholesky decomposition for symmetric positive-definite A.
+    // Returns lower-triangular L such that A = L · Lᵀ. Throws when A
+    // is not symmetric or a non-positive pivot is encountered.
+    [[nodiscard]] Matrix cholesky() const;
+
     // Apply a unary transform to every element.
     template <typename F>
     [[nodiscard]] Matrix map(F&& fn) const {

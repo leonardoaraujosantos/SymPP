@@ -242,6 +242,126 @@ Matrix Matrix::conjugate_transpose() const {
     return out;
 }
 
+// ----- LU / QR / Cholesky ---------------------------------------------------
+
+std::pair<Matrix, Matrix> Matrix::lu() const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: LU requires square matrix");
+    }
+    const std::size_t n = rows_;
+    Matrix L = Matrix::identity(n);
+    Matrix U = *this;
+    for (std::size_t k = 0; k < n; ++k) {
+        Expr pivot = simplify(U.at(k, k));
+        if (pivot == S::Zero()) {
+            throw std::invalid_argument(
+                "Matrix: LU encountered zero pivot — needs row pivoting");
+        }
+        for (std::size_t i = k + 1; i < n; ++i) {
+            Expr factor = simplify(U.at(i, k) / pivot);
+            L.set(i, k, factor);
+            for (std::size_t j = k; j < n; ++j) {
+                Expr v = simplify(U.at(i, j) - factor * U.at(k, j));
+                U.set(i, j, v);
+            }
+        }
+    }
+    return {L, U};
+}
+
+std::pair<Matrix, Matrix> Matrix::qr() const {
+    // Classical Gram-Schmidt on columns. For symbolic matrices we use
+    // norm = sqrt(sum of squares) without conjugation (assume real
+    // entries); use conjugate_transpose() afterwards if you need the
+    // complex variant.
+    const std::size_t m = rows_;
+    const std::size_t n = cols_;
+    if (m < n) {
+        throw std::invalid_argument(
+            "Matrix: QR requires at least as many rows as columns");
+    }
+
+    // Extract columns as vectors.
+    std::vector<std::vector<Expr>> a(n, std::vector<Expr>(m));
+    for (std::size_t j = 0; j < n; ++j) {
+        for (std::size_t i = 0; i < m; ++i) a[j][i] = at(i, j);
+    }
+
+    auto dot = [&](const std::vector<Expr>& u,
+                   const std::vector<Expr>& v) -> Expr {
+        Expr s = S::Zero();
+        for (std::size_t i = 0; i < m; ++i) s = add(s, mul(u[i], v[i]));
+        return simplify(s);
+    };
+
+    std::vector<std::vector<Expr>> q(n, std::vector<Expr>(m));
+    Matrix R = Matrix::zeros(n, n);
+
+    for (std::size_t j = 0; j < n; ++j) {
+        std::vector<Expr> v = a[j];
+        for (std::size_t i = 0; i < j; ++i) {
+            Expr proj_coef = dot(q[i], a[j]);
+            R.set(i, j, proj_coef);
+            for (std::size_t k = 0; k < m; ++k) {
+                v[k] = simplify(v[k] - proj_coef * q[i][k]);
+            }
+        }
+        Expr norm_sq = dot(v, v);
+        Expr norm = simplify(sqrt(norm_sq));
+        if (norm == S::Zero()) {
+            throw std::invalid_argument(
+                "Matrix: QR found a linearly dependent column");
+        }
+        R.set(j, j, norm);
+        for (std::size_t k = 0; k < m; ++k) {
+            q[j][k] = simplify(v[k] / norm);
+        }
+    }
+
+    Matrix Q(m, n);
+    for (std::size_t j = 0; j < n; ++j) {
+        for (std::size_t i = 0; i < m; ++i) Q.set(i, j, q[j][i]);
+    }
+    return {Q, R};
+}
+
+Matrix Matrix::cholesky() const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: Cholesky requires square matrix");
+    }
+    const std::size_t n = rows_;
+    // Verify symmetry.
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = i + 1; j < n; ++j) {
+            Expr diff = simplify(at(i, j) - at(j, i));
+            if (!(diff == S::Zero())) {
+                throw std::invalid_argument(
+                    "Matrix: Cholesky requires symmetric matrix");
+            }
+        }
+    }
+    Matrix L = Matrix::zeros(n, n);
+    for (std::size_t i = 0; i < n; ++i) {
+        // Diagonal: L[i,i] = sqrt(A[i,i] - Σ_{k<i} L[i,k]²).
+        Expr sum_sq = S::Zero();
+        for (std::size_t k = 0; k < i; ++k) {
+            sum_sq = add(sum_sq, pow(L.at(i, k), integer(2)));
+        }
+        Expr diag_arg = simplify(at(i, i) - sum_sq);
+        L.set(i, i, sqrt(diag_arg));
+        // Below-diagonal: L[j,i] = (A[j,i] - Σ_{k<i} L[j,k]·L[i,k]) / L[i,i].
+        for (std::size_t j = i + 1; j < n; ++j) {
+            Expr s = S::Zero();
+            for (std::size_t k = 0; k < i; ++k) {
+                s = add(s, mul(L.at(j, k), L.at(i, k)));
+            }
+            Expr v = simplify((at(j, i) - s) / L.at(i, i));
+            L.set(j, i, v);
+        }
+    }
+    return L;
+}
+
 // ----- charpoly / eigenvals / eigenvects / diagonalize ----------------------
 
 Expr Matrix::charpoly(const Expr& lambda_var) const {

@@ -501,3 +501,82 @@ TEST_CASE("matrix: diagonalize throws on defective matrix",
     Matrix def = {{integer(1), integer(1)}, {integer(0), integer(1)}};
     REQUIRE_THROWS_AS(def.diagonalize(), std::invalid_argument);
 }
+
+// ----- LU / QR / Cholesky --------------------------------------------------
+
+TEST_CASE("matrix: LU of 2x2", "[9][matrix][lu]") {
+    Matrix m = {{integer(4), integer(3)}, {integer(6), integer(3)}};
+    auto [L, U] = m.lu();
+    // L should be unit-diagonal lower triangular.
+    REQUIRE(L.at(0, 0) == integer(1));
+    REQUIRE(L.at(1, 1) == integer(1));
+    REQUIRE(L.at(0, 1) == S::Zero());
+    // Reconstruction: L · U = A.
+    auto rec = L * U;
+    REQUIRE(rec.equals(m));
+}
+
+TEST_CASE("matrix: LU of 3x3", "[9][matrix][lu]") {
+    Matrix m = {{integer(2), integer(1), integer(1)},
+                {integer(4), integer(3), integer(3)},
+                {integer(8), integer(7), integer(9)}};
+    auto [L, U] = m.lu();
+    auto rec = L * U;
+    REQUIRE(rec.equals(m));
+}
+
+TEST_CASE("matrix: QR of 2x2 reconstructs", "[9][matrix][qr]") {
+    Matrix m = {{integer(1), integer(0)}, {integer(0), integer(1)}};
+    auto [Q, R] = m.qr();
+    auto rec = Q * R;
+    // Identity in, identity out (up to simplification of sqrt(1)→1).
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 2; ++j) {
+            Expr d = simplify(rec.at(i, j) - m.at(i, j));
+            REQUIRE(d == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: QR of [[1,1],[0,1]]", "[9][matrix][qr]") {
+    Matrix m = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto [Q, R] = m.qr();
+    auto rec = Q * R;
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 2; ++j) {
+            Expr d = simplify(rec.at(i, j) - m.at(i, j));
+            REQUIRE(d == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: Cholesky of identity", "[9][matrix][cholesky]") {
+    auto I = Matrix::identity(3);
+    auto L = I.cholesky();
+    // Identity is its own Cholesky factor.
+    for (std::size_t i = 0; i < 3; ++i) {
+        for (std::size_t j = 0; j < 3; ++j) {
+            Expr d = simplify(L.at(i, j) - I.at(i, j));
+            REQUIRE(d == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: Cholesky of SPD reconstructs A = L·Lᵀ",
+          "[9][matrix][cholesky]") {
+    Matrix m = {{integer(4), integer(2)}, {integer(2), integer(2)}};
+    auto L = m.cholesky();
+    auto rec = L * L.transpose();
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 2; ++j) {
+            Expr d = simplify(rec.at(i, j) - m.at(i, j));
+            REQUIRE(d == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: Cholesky throws on asymmetric matrix",
+          "[9][matrix][cholesky]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    REQUIRE_THROWS_AS(m.cholesky(), std::invalid_argument);
+}
