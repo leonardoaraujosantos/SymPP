@@ -248,3 +248,59 @@ TEST_CASE("integrate: ∫sin²(2x+1) dx — affine inside reduction",
     REQUIRE(resp.ok);
     REQUIRE(resp.raw.at("result").get<bool>());
 }
+
+// ----- Integration by parts --------------------------------------------------
+
+TEST_CASE("integrate: ∫log(x) dx = x*log(x) - x",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = log(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "x*log(x) - x"));
+}
+
+TEST_CASE("integrate: ∫log(2x+1) dx",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = log(integer(2) * x + integer(1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*exp(x) dx = (x-1)*exp(x)",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * exp(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*sin(x) dx = -x*cos(x) + sin(x)",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * sin(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "-x*cos(x) + sin(x)"));
+}
+
+TEST_CASE("integrate: ∫x*cos(2x+1) dx (parts with affine)",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * cos(integer(2) * x + integer(1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x²*exp(x) dx (recursive parts)",
+          "[7][integrate][parts][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) * exp(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}

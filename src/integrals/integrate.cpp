@@ -18,6 +18,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
@@ -177,6 +178,14 @@ namespace {
     return std::nullopt;
 }
 
+// Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
+//   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
+//   * Mul where one factor is a single sin/cos/exp of affine and the
+//     remaining factor depends on var (typically a polynomial):
+//     u = remaining; dv = target dx. Recurses on ∫v du via integrate.
+[[nodiscard]] std::optional<Expr> try_integration_by_parts(
+    const Expr& expr, const Expr& var);
+
 // Trig identity rewrites:
 //   sin²(u) → (1 - cos(2u))/2
 //   cos²(u) → (1 + cos(2u))/2
@@ -218,6 +227,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_rational(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
+        return *r;
+    }
 
     // Outside the closed-form table — return an unevaluated marker. Use an
     // UndefinedFunction named "Integral" so callers can detect it.
@@ -225,6 +237,65 @@ Expr integrate(const Expr& expr, const Expr& var) {
 }
 
 namespace {
+
+// Detect the public `Integral(_, _)` failure marker.
+[[nodiscard]] bool is_integral_marker(const Expr& e) {
+    if (!e || e->type_id() != TypeId::Function) return false;
+    const auto& fn = static_cast<const Function&>(*e);
+    return fn.name() == "Integral";
+}
+
+std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) {
+    // Standalone log(affine).
+    if (expr->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*expr);
+        if (fn.function_id() == FunctionId::Log && fn.args().size() == 1) {
+            auto aff = as_affine(fn.args()[0], var);
+            if (aff && !(aff->first == S::Zero())) {
+                const Expr& inner = fn.args()[0];
+                const Expr& a = aff->first;
+                const Expr& b = aff->second;
+                // ∫log(ax+b) dx = x*log(ax+b) + (b/a)*log(ax+b) - x
+                return var * log(inner) + (b / a) * log(inner) - var;
+            }
+        }
+    }
+
+    // Mul with one factor being sin/cos/exp(affine) and the rest forming
+    // a non-trivial u that depends on var.
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    Expr target;
+    std::vector<Expr> rest_factors;
+    for (const auto& f : expr->args()) {
+        if (!target && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.args().size() == 1 && depends_on(f, var)) {
+                auto aff = as_affine(fn.args()[0], var);
+                if (aff && !(aff->first == S::Zero())
+                    && (fn.function_id() == FunctionId::Exp
+                        || fn.function_id() == FunctionId::Sin
+                        || fn.function_id() == FunctionId::Cos)) {
+                    target = f;
+                    continue;
+                }
+            }
+        }
+        rest_factors.push_back(f);
+    }
+    if (!target) return std::nullopt;
+
+    Expr u = mul(rest_factors);
+    if (!depends_on(u, var)) return std::nullopt;
+
+    Expr v = integrate(target, var);
+    if (is_integral_marker(v)) return std::nullopt;
+
+    Expr du = diff(u, var);
+    Expr remaining = integrate(v * du, var);
+    if (is_integral_marker(remaining)) return std::nullopt;
+
+    return u * v - remaining;
+}
 
 std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
     // sin²(u) → (1 - cos(2u))/2 ; cos²(u) → (1 + cos(2u))/2
