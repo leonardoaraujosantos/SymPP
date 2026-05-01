@@ -11,6 +11,7 @@
 #include <mpfr.h>
 
 #include <sympp/core/integer.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/rational.hpp>
 
@@ -254,6 +255,11 @@ Expr evalf(const Expr& e, int dps) {
             auto out = make<Float>(static_cast<mpfr_srcptr>(tmp), dps);
             mpfr_clear(tmp);
             return out;
+        }
+        case TypeId::RootOf: {
+            const auto& r = static_cast<const RootOf&>(*e);
+            if (auto v = r.try_evalf(dps)) return *v;
+            return e;
         }
         default:
             // Non-numeric — identity. Phase 1f will recurse into Add/Mul/Pow.

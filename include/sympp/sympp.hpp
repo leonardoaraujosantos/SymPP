@@ -45,6 +45,7 @@
 #include <sympp/integrals/transforms.hpp>
 #include <sympp/matrices/matrix.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/simplify/simplify.hpp>
 #include <sympp/solvers/solve.hpp>
 #include <sympp/fwd.hpp>

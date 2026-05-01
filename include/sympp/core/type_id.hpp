@@ -49,6 +49,7 @@ enum class TypeId : std::uint16_t {
     Product,
     Limit,
     Order,
+    RootOf,        // RootOf(poly, var, k) — k-th root of poly
 
     // -- Containers / control flow --
     Piecewise = 100,

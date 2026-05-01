@@ -16,6 +16,8 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/polys/rootof.hpp>
+#include <sympp/core/float.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -799,6 +801,95 @@ TEST_CASE("discriminant: cubic with double root vanishes",
     auto e = discriminant(pow(x, integer(3)) - integer(4) * pow(x, integer(2))
                           + integer(5) * x - integer(2), x);
     REQUIRE(oracle.equivalent(e->str(), "0"));
+}
+
+// ----- RootOf ----------------------------------------------------------------
+
+TEST_CASE("RootOf: construction and printing", "[4][rootof]") {
+    auto x = symbol("x");
+    auto p = pow(x, integer(5)) - x - integer(1);
+    auto r = root_of(p, x, 0);
+    auto s = r->str();
+    REQUIRE(s.starts_with("CRootOf("));
+    REQUIRE(s.ends_with(", 0)"));
+}
+
+TEST_CASE("RootOf: equality and hash-cons", "[4][rootof]") {
+    auto x = symbol("x");
+    auto p = pow(x, integer(3)) + x + integer(1);
+    auto r1 = root_of(p, x, 0);
+    auto r2 = root_of(p, x, 0);
+    REQUIRE(r1 == r2);
+    REQUIRE(r1.get() == r2.get());  // hash-cons identity
+}
+
+TEST_CASE("RootOf: distinct indices not equal", "[4][rootof]") {
+    auto x = symbol("x");
+    auto p = pow(x, integer(3)) + x + integer(1);
+    auto r0 = root_of(p, x, 0);
+    auto r1 = root_of(p, x, 1);
+    REQUIRE(r0 != r1);
+}
+
+TEST_CASE("RootOf: evalf of x^2 - 2 root 0 ≈ -sqrt(2)",
+          "[4][rootof][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pow(x, integer(2)) - integer(2);
+    auto r = root_of(p, x, 0);
+    auto v = evalf(r, 25);
+    // Real roots in ascending order: -sqrt(2), +sqrt(2). Index 0 = -sqrt(2).
+    auto resp = oracle.send({{"op", "evalf"}, {"expr", "-sqrt(2)"}, {"prec", 25}});
+    REQUIRE(resp.ok);
+    // Compare evalf strings — both should agree to ~25 digits.
+    REQUIRE(oracle.equivalent(v->str() + " - ("
+                              + resp.raw.at("result").get<std::string>() + ")",
+                              "0"));
+}
+
+TEST_CASE("RootOf: evalf x^3 - 2 (real cube root of 2)",
+          "[4][rootof][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pow(x, integer(3)) - integer(2);
+    auto r = root_of(p, x, 0);  // unique real root: 2^(1/3)
+    auto v = evalf(r, 20);
+    // Numerical compare to high precision: should be ≈ 1.2599210498948732...
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 2**(1/3)"},
+                             {"prec", 30}, {"tol", 18}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("RootOf: evalf irreducible quintic x^5 - x - 1",
+          "[4][rootof][oracle]") {
+    auto x = symbol("x");
+    // Bring factor to attention: famous irreducible quintic with one real
+    // root ~1.1673... — Abel-Ruffini case; closed-form impossible.
+    auto p = pow(x, integer(5)) - x - integer(1);
+    auto r = root_of(p, x, 0);
+    auto v = evalf(r, 15);
+    // Substitute back: poly evaluated at v should be near zero.
+    // We can't easily plug v into Poly::eval here without numeric eval of
+    // the resulting Add — but we can compare to the known value 1.1673...
+    auto& oracle = Oracle::instance();
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 1.1673039782614187"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("RootOf: evalf out-of-range index returns self",
+          "[4][rootof]") {
+    auto x = symbol("x");
+    // x^2 + 1 — no real roots. RootOf(_, _, 0) should not evalf.
+    auto p = pow(x, integer(2)) + integer(1);
+    auto r = root_of(p, x, 0);
+    auto v = evalf(r, 15);
+    // Should return RootOf unchanged (no real roots).
+    REQUIRE(v == r);
 }
 
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
