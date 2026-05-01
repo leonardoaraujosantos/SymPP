@@ -35,6 +35,7 @@ target_sources(sympp_tests
         integrals/transforms_test.cpp
         matrices/matrix_test.cpp
         ode/dsolve_test.cpp
+        physics/units_test.cpp
         oracle/oracle_smoke_test.cpp
         polys/poly_test.cpp
         sets/sets_test.cpp
