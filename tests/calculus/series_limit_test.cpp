@@ -362,3 +362,58 @@ TEST_CASE("euler_lagrange: pendulum → -sin(y) - y''",
     auto el = euler_lagrange(L, y, yp, ypp, x);
     REQUIRE(oracle.equivalent(el->str(), "-sin(y) - ypp"));
 }
+
+#include <sympp/calculus/asymptotes.hpp>
+
+// ----- vertical_asymptotes / inflection_points -------------------------------
+
+TEST_CASE("vertical_asymptotes: 1/(x-2) at x=2",
+          "[6][asymptote][oracle]") {
+    auto x = symbol("x");
+    auto f = pow(x - integer(2), integer(-1));
+    auto va = vertical_asymptotes(f, x);
+    REQUIRE(va.size() == 1);
+    REQUIRE(va[0] == integer(2));
+}
+
+TEST_CASE("vertical_asymptotes: x/(x²-1) at ±1",
+          "[6][asymptote][oracle]") {
+    auto x = symbol("x");
+    auto f = x / (pow(x, integer(2)) - integer(1));
+    auto va = vertical_asymptotes(f, x);
+    REQUIRE(va.size() == 2);
+}
+
+TEST_CASE("vertical_asymptotes: removable singularity is excluded",
+          "[6][asymptote]") {
+    auto x = symbol("x");
+    // (x²-1)/(x-1) — numerator and denominator share (x-1). After cancel
+    // the simplified form is x+1, which has no denominator.
+    auto f = (pow(x, integer(2)) - integer(1)) / (x - integer(1));
+    auto va = vertical_asymptotes(f, x);
+    REQUIRE(va.empty());
+}
+
+TEST_CASE("inflection_points: x³ at 0 (f''(x) = 6x = 0)",
+          "[6][inflection]") {
+    auto x = symbol("x");
+    auto f = pow(x, integer(3));
+    auto ip = inflection_points(f, x);
+    REQUIRE(ip.size() == 1);
+    REQUIRE(ip[0] == S::Zero());
+}
+
+TEST_CASE("inflection_points: x⁴ - 6x² at ±1 (f'' = 12x² - 12 = 0)",
+          "[6][inflection]") {
+    auto x = symbol("x");
+    auto f = pow(x, integer(4)) - integer(6) * pow(x, integer(2));
+    auto ip = inflection_points(f, x);
+    REQUIRE(ip.size() == 2);
+    bool has_pos = false, has_neg = false;
+    for (auto& p : ip) {
+        if (p == integer(1)) has_pos = true;
+        if (p == integer(-1)) has_neg = true;
+    }
+    REQUIRE(has_pos);
+    REQUIRE(has_neg);
+}

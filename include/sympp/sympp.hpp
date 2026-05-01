@@ -31,6 +31,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/calculus/asymptotes.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/calculus/euler_lagrange.hpp>
 #include <sympp/calculus/extrema.hpp>
