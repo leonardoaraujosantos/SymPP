@@ -4,6 +4,76 @@ This file is the source of truth for what SymPP has shipped, what's
 deferred (and *honestly why*), and the forward path to SymPy feature
 parity.
 
+---
+
+## 📍 You are here — next-session pickup
+
+**Current position**: **v0.5 release-candidate.** 14 of 15 phases
+shipped at minimal-viable scope; Phase 16 partial; 5 Category-A
+deep-deferred items already closed. Everyday CAS workflow coverage
+≈ 65 %, composite SymPy parity ≈ 50 %. Critical path forward: parallelizable.
+
+**Just landed** (most recent first; commit hashes on `main`):
+
+| Commit | What |
+|---|---|
+| `92b603c` | Roadmap restructured: Category D added (Phases 25–39, 15 SymPy modules), multi-metric parity assessment, version-tag milestones |
+| `abe5653` | Docs sync: README "What's in the box" + roadmap top table refreshed to match shipped code |
+| `76bcce3` | Platform-independent canonical Add/Mul order (string-first sort + FNV-1a string hash) — fixes Linux gcc/clang test failures |
+| `d3640f5` | CI: dropped macOS matrix; added `<cmath>` include + fixed `::write` warn-unused-result |
+| `540ec90` | CI: added `<optional>` includes for libstdc++; collapsed duplicated branches in `dsolve.cpp` |
+| `23244cc` | **Big feature commit** — MATLAB facade extension (5 sub-headers); Fu trig rules; solveset `_invert` chain; variation of parameters; Jordan form + `Matrix::exp(t)`; hypergeometric infrastructure (`Hyper`, `MeijerG`, `hyperexpand` subset); SymPy cross-validation oracle op |
+
+**Recommended next pickup** (pick one — they're independent):
+
+1. **Finish Phase 16 to ship v0.5 tag** · ~5 wk · **highest priority**
+   - Outstanding: v1.0 tag, doxygen site, benchmark suite vs
+     SymEngine, vcpkg + Conan recipes.
+   - This is the *only* strictly-sequenced work; everything else
+     parallelizes once Phase 16 is done.
+   - See [Phase 16 — Hardening & v1.0](#phase-16--hardening--v10--) below.
+
+2. **Cat-A: Infinity singletons → Gruntz limit algorithm** · ~3 wk
+   - Adds `Infinity` / `NegativeInfinity` / `ComplexInfinity` / `NaN`
+     to the singleton tier (Phase 1 deferred-deep), then implements
+     the Gruntz algorithm for limits at infinity (Phase 6 deferred-deep).
+   - Unblocks `horizontal_asymptotes` and ∞/∞, 0·∞, ∞–∞ indeterminate
+     forms — currently L'Hôpital only handles 0/0.
+   - High everyday-coverage payoff: ~65 % → ~75 %.
+
+3. **Cat-A: Full hyperexpand (Slater theorem) + Meijer-G expansion** · ~7 wk
+   - Builds on the `Hyper` / `MeijerG` Function classes already shipped.
+   - Unblocks Phase 7's full Meijer-G integration method and Phase 8's
+     general-case algebraic-input transforms.
+   - Highest *algorithmic-depth* lift in Cat A.
+
+4. **Cat-A: lambdify via LLVM ORC** · ~3 wk
+   - JIT-compile `Expr` to native function for numerical evaluation.
+   - Heaviest user-facing payoff if SymPP is being used in
+     hot-path numerical code (matlab_llvm consumer wants this).
+
+**Where to find what's deferred** (jump targets in this file):
+
+- Phase 16 status: §[Phase 16](#phase-16--hardening--v10--)
+- Category A table (deep-deferreds): §[Category A](#category-a-close-the-deep-deferreds-in-shipped-phases)
+- Category C (Phases 17–24, beyond MATLAB scope): §[Category C](#category-c-new-phases-beyond-matlab-scope-sympy-parity)
+- Category D (Phases 25–39, SymPy modules outside original plan): §[Category D](#category-d-sympy-modules-outside-the-original-024-plan)
+- Critical-path diagram: §[Critical path](#critical-path)
+- Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
+
+**Test surface to maintain**: 962 cases / 1872 assertions (307
+oracle-validated against SymPy 1.14). Run:
+
+```bash
+./build/tests/sympp_tests              # full suite
+./build/tests/sympp_tests "[oracle]"   # SymPy cross-validated subset
+```
+
+**Open `CHANGELOG.md` `[0.5.0] — Unreleased`** is the running list of
+what to mention in the v0.5 release notes when Phase 16 lands.
+
+---
+
 ## Status snapshot
 
 ```
