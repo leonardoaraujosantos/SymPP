@@ -7,14 +7,17 @@
 #include <utility>
 #include <vector>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
 #include "canonical_order.hpp"
+#include "expr_map.hpp"
 
 namespace sympp {
 
@@ -35,6 +38,24 @@ void flatten_into(const Expr& e, std::vector<Expr>& out) {
 }
 
 constexpr std::size_t kMulHashSeed = 0xCAFE'BABE'5678'ABCDULL;
+
+// Decompose `e` into (base, exponent) for Mul base collection.
+//   x       -> (x, 1)
+//   x**2    -> (x, 2)
+//   x**y    -> (x, y)
+//   y**(-1) -> (y, -1)
+struct BaseExp {
+    Expr base;
+    Expr exp;
+};
+
+[[nodiscard]] BaseExp as_base_exp(const Expr& e) {
+    if (e->type_id() == TypeId::Pow) {
+        const auto& p = static_cast<const Pow&>(*e);
+        return {p.base(), p.exp()};
+    }
+    return {e, S::One()};
+}
 
 }  // namespace
 
@@ -75,7 +96,7 @@ std::string Mul::str() const {
             }
         }
         std::string s = a->str();
-        // Wrap Add and Pow-with-binary-op subexpressions in parens for readability.
+        // Wrap Add subexpressions in parens for readability.
         if (a->type_id() == TypeId::Add) {
             s = "(" + s + ")";
         }
@@ -98,8 +119,8 @@ Expr mul(std::vector<Expr> args) {
 
     // ---- Step 2: combine numerics, short-circuit zero ----
     Expr running_prod;
-    std::vector<Expr> rest;
-    rest.reserve(flat.size());
+    std::vector<Expr> non_numeric;
+    non_numeric.reserve(flat.size());
 
     for (auto& a : flat) {
         if (is_number(a)) {
@@ -114,22 +135,50 @@ Expr mul(std::vector<Expr> args) {
                 if (combined) {
                     running_prod = *combined;
                 } else {
-                    rest.push_back(std::move(a));
+                    non_numeric.push_back(std::move(a));
                 }
             }
         } else {
-            rest.push_back(std::move(a));
+            non_numeric.push_back(std::move(a));
         }
     }
 
-    // ---- Step 3: drop one factor, sort ----
+    // ---- Step 3: base collection — group same base, sum exponents ----
+    detail::ExprMap<Expr> base_to_exp;
+    std::vector<Expr> base_order;
+    base_order.reserve(non_numeric.size());
+
+    for (auto& a : non_numeric) {
+        auto be = as_base_exp(a);
+        auto it = base_to_exp.find(be.base);
+        if (it == base_to_exp.end()) {
+            base_to_exp.emplace(be.base, be.exp);
+            base_order.push_back(be.base);
+        } else {
+            // Sum the exponents — uses add() which canonicalizes.
+            it->second = add(it->second, be.exp);
+        }
+    }
+
+    // ---- Step 4: rebuild non-numeric args from the collected dict ----
+    std::vector<Expr> rest;
+    rest.reserve(base_order.size());
+    for (const auto& base : base_order) {
+        const auto& exp = base_to_exp.at(base);
+        // pow() handles its own auto-eval (exp == 0 → 1, exp == 1 → base, etc.)
+        auto p = pow(base, exp);
+        if (p == S::One()) continue;  // x^0 dropped
+        rest.push_back(std::move(p));
+    }
+
+    // ---- Step 5: drop one factor, sort ----
     std::sort(rest.begin(), rest.end(), detail::canonical_less);
 
     if (running_prod && static_cast<const Number&>(*running_prod).is_one()) {
         running_prod.reset();
     }
 
-    // ---- Step 4: assemble — number first per SymPy display convention ----
+    // ---- Step 6: assemble — number first per SymPy display convention ----
     std::vector<Expr> out;
     out.reserve(rest.size() + 1);
     if (running_prod) out.push_back(std::move(running_prod));

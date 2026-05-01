@@ -8,6 +8,8 @@ target_sources(sympp
     PRIVATE
         core/add.cpp
         core/basic.cpp
+        core/expand.cpp
+        core/expr_cache.cpp
         core/float.cpp
         core/integer.cpp
         core/mul.cpp
@@ -17,6 +19,7 @@ target_sources(sympp
         core/rational.cpp
         core/singletons.cpp
         core/symbol.cpp
+        core/traversal.cpp
 )
 
 target_sources(sympp
@@ -29,6 +32,9 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/add.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/api.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/expand.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_cache.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_collections.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/float.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/integer.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/mul.hpp
@@ -40,6 +46,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/rational.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/singletons.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/symbol.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/traversal.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
 )
 

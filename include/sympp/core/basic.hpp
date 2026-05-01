@@ -65,10 +65,26 @@ protected:
     return !a.equals(b);
 }
 
-// Factory helper. In Phase 1 this routes through the hash-cons cache.
+// Forward-declaration to break the include cycle between basic.hpp and
+// expr_cache.hpp. The implementation lives in expr_cache.cpp.
+class ExprCache;
+
+namespace detail {
+SYMPP_EXPORT Expr intern_through_cache(Expr candidate);
+}
+
+// Factory helper — every newly-constructed node is interned through the
+// global ExprCache so structurally-equal subtrees share one shared_ptr.
+//
+// On a cache hit, `candidate` is deallocated immediately when this function
+// returns; the returned shared_ptr aliases the cached object. The
+// static_pointer_cast is safe because structural equality requires
+// matching type_id, which in turn requires matching dynamic type.
 template <typename T, typename... Args>
 [[nodiscard]] std::shared_ptr<const T> make(Args&&... args) {
-    return std::make_shared<const T>(std::forward<Args>(args)...);
+    Expr candidate = std::make_shared<const T>(std::forward<Args>(args)...);
+    Expr interned = detail::intern_through_cache(std::move(candidate));
+    return std::static_pointer_cast<const T>(std::move(interned));
 }
 
 }  // namespace sympp

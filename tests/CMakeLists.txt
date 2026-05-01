@@ -8,11 +8,15 @@ target_sources(sympp_tests
         oracle/oracle.hpp
         oracle/oracle.cpp
         core/arithmetic_test.cpp
+        core/collection_test.cpp
+        core/expand_test.cpp
+        core/expr_cache_test.cpp
         core/float_test.cpp
         core/integer_test.cpp
         core/rational_test.cpp
         core/singletons_test.cpp
         core/symbol_test.cpp
+        core/traversal_test.cpp
         oracle/oracle_smoke_test.cpp
 )
 

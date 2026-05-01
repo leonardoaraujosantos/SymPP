@@ -5,6 +5,9 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/expand.hpp>
+#include <sympp/core/expr_cache.hpp>
+#include <sympp/core/expr_collections.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -16,6 +19,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/fwd.hpp>
 #include <sympp/version.hpp>

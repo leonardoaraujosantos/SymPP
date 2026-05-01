@@ -1,8 +1,19 @@
 #include <sympp/core/basic.hpp>
 
 #include <span>
+#include <utility>
+
+#include <sympp/core/expr_cache.hpp>
 
 namespace sympp {
+
+namespace detail {
+
+Expr intern_through_cache(Expr candidate) {
+    return ExprCache::instance().intern(std::move(candidate));
+}
+
+}  // namespace detail
 
 bool Basic::equals(const Basic& other) const noexcept {
     if (this == &other) return true;
