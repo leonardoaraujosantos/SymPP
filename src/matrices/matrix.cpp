@@ -8,6 +8,9 @@
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/expand.hpp>
+#include <sympp/core/symbol.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
@@ -237,6 +240,100 @@ Matrix Matrix::conjugate_transpose() const {
         }
     }
     return out;
+}
+
+// ----- charpoly / eigenvals / eigenvects / diagonalize ----------------------
+
+Expr Matrix::charpoly(const Expr& lambda_var) const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: charpoly requires square matrix");
+    }
+    Matrix lambda_I = Matrix::identity(rows_).scalar_mul(lambda_var);
+    return (lambda_I - *this).det();
+}
+
+std::vector<Expr> Matrix::eigenvals() const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: eigenvals requires square matrix");
+    }
+    auto lam = symbol("__eigval_lambda");
+    Expr cp = charpoly(lam);
+    Poly p(expand(cp), lam);
+    return p.roots();
+}
+
+std::vector<std::pair<Expr, std::vector<Matrix>>>
+Matrix::eigenvects() const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: eigenvects requires square matrix");
+    }
+    std::vector<std::pair<Expr, std::vector<Matrix>>> result;
+    auto vals = eigenvals();
+
+    // Group identical eigenvalues — algebraic multiplicity matters for
+    // detecting diagonalizability later.
+    std::vector<std::pair<Expr, std::size_t>> grouped;
+    for (const auto& v : vals) {
+        bool merged = false;
+        for (auto& [val, count] : grouped) {
+            if (val == v) {
+                ++count;
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) grouped.emplace_back(v, 1);
+    }
+
+    for (auto& pair : grouped) {
+        const Expr& val = pair.first;
+        Matrix M(rows_, cols_);
+        for (std::size_t i = 0; i < rows_; ++i) {
+            for (std::size_t j = 0; j < cols_; ++j) {
+                Expr entry = (i == j) ? (at(i, j) - val) : at(i, j);
+                M.set(i, j, simplify(entry));
+            }
+        }
+        auto basis = M.nullspace();
+        result.emplace_back(val, std::move(basis));
+    }
+    return result;
+}
+
+bool Matrix::is_diagonalizable() const {
+    if (!is_square()) return false;
+    auto evs = eigenvects();
+    std::size_t total = 0;
+    for (const auto& pair : evs) total += pair.second.size();
+    return total == rows_;
+}
+
+std::pair<Matrix, Matrix> Matrix::diagonalize() const {
+    auto evs = eigenvects();
+    std::vector<Matrix> cols;
+    std::vector<Expr> diag_entries;
+    for (const auto& pair : evs) {
+        const Expr& val = pair.first;
+        for (const auto& v : pair.second) {
+            cols.push_back(v);
+            diag_entries.push_back(val);
+        }
+    }
+    if (cols.size() != rows_) {
+        throw std::invalid_argument(
+            "Matrix: not diagonalizable in current expression domain");
+    }
+    Matrix P(rows_, rows_);
+    for (std::size_t j = 0; j < cols.size(); ++j) {
+        for (std::size_t i = 0; i < rows_; ++i) {
+            P.set(i, j, cols[j].at(i, 0));
+        }
+    }
+    Matrix D = Matrix::zeros(rows_, rows_);
+    for (std::size_t i = 0; i < rows_; ++i) {
+        D.set(i, i, diag_entries[i]);
+    }
+    return {P, D};
 }
 
 // ----- rref / rank / nullspace / columnspace / rowspace ---------------------

@@ -81,6 +81,27 @@ public:
     // Basis of the row space — non-zero rows of rref().
     [[nodiscard]] std::vector<Matrix> rowspace() const;
 
+    // Characteristic polynomial: det(λ·I - A) as an Expr in `lambda_var`.
+    [[nodiscard]] Expr charpoly(const Expr& lambda_var) const;
+
+    // Eigenvalues found via charpoly + Poly::roots. Returns the multiset
+    // (each root repeated by its algebraic multiplicity) when roots() finds
+    // them; degree-5+ irreducible parts contribute lazy CRootOf entries.
+    [[nodiscard]] std::vector<Expr> eigenvals() const;
+
+    // Eigenvectors. Returns a list of (eigenvalue, basis_of_eigenspace)
+    // pairs. Each basis is a list of column-vector Matrices.
+    [[nodiscard]] std::vector<std::pair<Expr, std::vector<Matrix>>>
+    eigenvects() const;
+
+    // True when sum of geometric multiplicities equals n.
+    [[nodiscard]] bool is_diagonalizable() const;
+
+    // Returns (P, D) such that A = P · D · P^(-1) and D is diagonal.
+    // Throws std::invalid_argument when A is not diagonalizable in the
+    // current expression domain.
+    [[nodiscard]] std::pair<Matrix, Matrix> diagonalize() const;
+
     // Apply a unary transform to every element.
     template <typename F>
     [[nodiscard]] Matrix map(F&& fn) const {

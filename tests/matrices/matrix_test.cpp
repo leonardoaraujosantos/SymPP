@@ -11,10 +11,12 @@
 
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/matrices/matrix.hpp>
+#include <sympp/simplify/simplify.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -423,4 +425,79 @@ TEST_CASE("matrix: rowspace of rank-1 has 1 vector",
     Matrix m = {{integer(1), integer(2)}, {integer(2), integer(4)}};
     auto rs = m.rowspace();
     REQUIRE(rs.size() == 1);
+}
+
+// ----- charpoly / eigenvals / eigenvects / diagonalize ----------------------
+
+TEST_CASE("matrix: charpoly of [[2,0],[0,3]] = (λ-2)(λ-3)",
+          "[9][matrix][charpoly][oracle]") {
+    auto& oracle = Oracle::instance();
+    Matrix m = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+    auto lam = symbol("lam");
+    auto cp = m.charpoly(lam);
+    REQUIRE(oracle.equivalent(cp->str(), "(lam - 2)*(lam - 3)"));
+}
+
+TEST_CASE("matrix: eigenvals of diagonal [[2, 5]] = {2, 5}",
+          "[9][matrix][eigenvals]") {
+    Matrix m = {{integer(2), integer(0)}, {integer(0), integer(5)}};
+    auto vals = m.eigenvals();
+    REQUIRE(vals.size() == 2);
+}
+
+TEST_CASE("matrix: eigenvals of [[1, 1], [0, 1]] is {1, 1}",
+          "[9][matrix][eigenvals]") {
+    // Defective — single eigenvalue 1 with algebraic multiplicity 2.
+    Matrix m = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto vals = m.eigenvals();
+    REQUIRE(vals.size() == 2);
+    REQUIRE(vals[0] == integer(1));
+    REQUIRE(vals[1] == integer(1));
+}
+
+TEST_CASE("matrix: eigenvects of [[2,0],[0,3]] gives e1, e2",
+          "[9][matrix][eigenvects]") {
+    Matrix m = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+    auto evs = m.eigenvects();
+    REQUIRE(evs.size() == 2);
+    // Each eigenspace is 1-dimensional.
+    REQUIRE(evs[0].second.size() == 1);
+    REQUIRE(evs[1].second.size() == 1);
+}
+
+TEST_CASE("matrix: defective [[1,1],[0,1]] has 1D eigenspace",
+          "[9][matrix][eigenvects]") {
+    Matrix m = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    auto evs = m.eigenvects();
+    // One distinct eigenvalue with geometric multiplicity 1.
+    REQUIRE(evs.size() == 1);
+    REQUIRE(evs[0].second.size() == 1);
+}
+
+TEST_CASE("matrix: is_diagonalizable: diagonal yes, defective no",
+          "[9][matrix][diagonalizable]") {
+    Matrix d = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+    REQUIRE(d.is_diagonalizable());
+    Matrix def = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    REQUIRE(!def.is_diagonalizable());
+}
+
+TEST_CASE("matrix: diagonalize 2x2 reproduces A = P·D·P⁻¹",
+          "[9][matrix][diagonalize]") {
+    Matrix m = {{integer(4), integer(1)}, {integer(2), integer(3)}};
+    auto [P, D] = m.diagonalize();
+    auto reconstructed = P * D * P.inverse();
+    // Verify each entry matches via simplify().
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 2; ++j) {
+            Expr diff = simplify(reconstructed.at(i, j) - m.at(i, j));
+            REQUIRE(diff == S::Zero());
+        }
+    }
+}
+
+TEST_CASE("matrix: diagonalize throws on defective matrix",
+          "[9][matrix][diagonalize]") {
+    Matrix def = {{integer(1), integer(1)}, {integer(0), integer(1)}};
+    REQUIRE_THROWS_AS(def.diagonalize(), std::invalid_argument);
 }
