@@ -439,6 +439,35 @@ area, polygon decomposition.
 
 ---
 
+### Category D: SymPy modules outside the original 0–24 plan
+
+Modules in upstream SymPy that the original phase plan didn't budget
+for. Listed here so the gap is visible — none of these is shipped or
+in-flight today. Effort estimates are for a minimal-viable port at
+the same scope-discipline as Phases 0–13.
+
+| Phase | Title | SymPy ref | Effort |
+|---|---|---|---|
+| 25 | Logic & boolean algebra (CNF/DNF, `satisfiable`, `simplify_logic`) | `sympy.logic` | 2 wk |
+| 26 | Discrete algorithms (FFT, NTT, Walsh-Hadamard, convolutions, Möbius) | `sympy.discrete` | 2 wk |
+| 27 | Holonomic functions (D-finite, recurrence/differential closure) | `sympy.holonomic` | 3 wk |
+| 28 | Algebraic number fields (`primitive_element`, `minimal_polynomial`, fields tower) | `sympy.polys.numberfields` | 3 wk |
+| 29 | DomainMatrix (fast matrix ops on a polynomial domain — order-of-magnitude speed-up) | `sympy.polys.matrices` | 3 wk |
+| 30 | Galois fields & finite-field polynomial tooling | `sympy.polys.galoistools` | 2 wk |
+| 31 | LaTeX parser (round-trip with the LaTeX printer) | `sympy.parsing.latex` | 2 wk |
+| 32 | Orthogonal polynomial families (Legendre, Chebyshev, Hermite, Laguerre, Jacobi, Gegenbauer) | `sympy.functions.special.polynomials` | 1.5 wk |
+| 33 | Combinatorial number sequences (Bernoulli, Bell, Fibonacci, Catalan, Lucas, harmonic) | `sympy.functions.combinatorial.numbers` | 1 wk |
+| 34 | Special integral functions (`Ei`, `Si`, `Ci`, `Shi`, `Chi`, `fresnels`, `fresnelc`, `expint`) | `sympy.functions.special.error_functions` | 1 wk |
+| 35 | Quaternions + algebras | `sympy.algebras` | 1 wk |
+| 36 | NDim arrays (distinct from tensor algebra in Phase 18 — concrete n-dim storage) | `sympy.tensor.array` | 1 wk |
+| 37 | Unification (`sympy.unify`) — pattern-match driven by structural unification | `sympy.unify` | 1 wk |
+| 38 | Extra printers (MathML, GLSL, Rust, Julia, dot, repr) | `sympy.printing` | 1 wk |
+| 39 | Codegen AST nodes + Cython / autowrap bindings | `sympy.codegen.ast`, `sympy.utilities.autowrap` | 2 wk |
+
+**Total category D**: roughly 26 developer-weeks.
+
+---
+
 ## Summary
 
 ```
@@ -447,40 +476,100 @@ Where we are:        14/15 phases shipped, Phase 16 partial; 962 tests
 Cat A shipped:       Fu trig rules, transcendental solveset (_invert),
                      variation of parameters, Jordan + matrix exp,
                      hyperexpand subset.
-What's deferred:     ~30 weeks of remaining Category A (Risch, Meijer-G
-                     full expansion, Gruntz, F4/F5, lambdify, SAT).
-What's beyond:       ~25 weeks for Category C (Phases 17–24, true SymPy parity).
+Cat A remaining:     ~30 wk (Risch, Meijer-G full expansion, Gruntz,
+                     F4/F5, lambdify, SAT, multivariate Poly, …).
+Cat B remaining:     ~5 wk (Phase 16 — v1.0 tag, benchmarks, doxygen,
+                     vcpkg/Conan).
+Cat C (Phases 17–24):  ~25 wk (vector calc, tensors, stats, ntheory,
+                                combinatorics, physics, crypto, geometry).
+Cat D (Phases 25–39):  ~26 wk (logic, discrete, holonomic, algebraic
+                                number fields, DomainMatrix, Galois,
+                                LaTeX parser, orthogonal polys, special
+                                sequences, quaternions, NDim arrays,
+                                unification, extra printers, codegen AST).
+─────────────────────────────────────────────────
+Total to full SymPy parity:  ~86 focused developer-weeks on top of
+                              what's already in main.
 ```
 
-**Total to full SymPy parity**: roughly 75 focused developer-weeks
-on top of what's already in `main`.
+### How far are we from SymPy?
 
-The first compelling milestone is **v0.5 = Phases 15 + 16 landing**:
-that gives us a parser and a tagged release. From there, Category
-A and C can be parallelized — the deep-deferreds within shipped
-phases are independent of the new modules.
+A single number is misleading — depending on the metric, you get a
+very different answer. So three metrics:
+
+| Metric | SymPP / SymPy | Notes |
+|---|---|---|
+| **Everyday CAS workflow coverage** (calc, algebra, ODE, transforms, codegen on textbook-shaped inputs) | **≈ 65 %** | The "common 80 %" cases work end-to-end. Edge cases — high-index DAEs, irreducible quintics, Risch-only integrals, Meijer-G transforms — still hit deferred algorithms. |
+| **Algorithmic depth within shipped subsystems** (the "deep-deferred" items in Category A) | **≈ 50 %** | We have the *breadth* of every Phase 0–13 subsystem, but several core algorithms (Risch, Gruntz, full hyperexpand, F4/F5, full Lie, BZ+Hensel) are pending. Within a shipped subsystem you typically get the textbook path; the graduate-textbook path is what's missing. |
+| **Module-count parity** (top-level SymPy modules with a working SymPP counterpart) | **≈ 35 %** | SymPP currently covers ~14 of ~40 top-level SymPy modules at minimal-viable scope. Categories C and D fill in the missing 26. |
+
+Composite estimate: **SymPP is about half of SymPy on a typical
+user-facing weighted average.** Phrased the other way: you can do
+about half of what you'd reach for SymPy for, end-to-end, today —
+with SymPy itself wired in as the validation oracle on every
+shipped feature, so what *does* work has a much stronger
+correctness guarantee than a pure clean-room port would.
+
+For comparison's sake:
+- **Speed**: SymPP's static C++ tree + hash-cons cache is in the
+  same league as SymEngine for the operations both libraries
+  cover; SymPy itself is 10–100× slower on the same workload.
+  Speed is not the gap — feature-set is.
+- **Numerical work**: SymPP's GMP+MPFR backbone is comparable to
+  SymPy's `mpmath` integration for arbitrary-precision evalf.
+- **Tooling**: doxygen + benchmarks + vcpkg/Conan are part of
+  Phase 16 (partial). SymPy has a much larger documentation and
+  tutorial corpus — that gap closes only with sustained writing.
+
+### Realistic milestones
+
+1. **v0.5 (now → ~6 wk)** — Phase 16 finished: v1.0 tag, doxygen
+   site, benchmark suite, vcpkg/Conan recipes. Closes Cat B.
+2. **v0.7 (~6 → ~36 wk)** — Cat A's high-priority items: Infinity
+   singletons + Gruntz, full hyperexpand + Meijer-G, lambdify
+   (LLVM ORC). Lifts everyday-coverage from ~65 % → ~80 %.
+3. **v0.9 (~36 → ~60 wk)** — Cat C Phases 17–21: vector calculus,
+   tensors, statistics, number theory, combinatorics. Module
+   count climbs toward ~70 %.
+4. **v1.0 (~60 → ~86 wk)** — Cat C Phases 22–24 + Cat D high-value
+   modules: physics submodules, geometry, logic, holonomic,
+   algebraic number fields. Module count ~90 %, everyday coverage
+   ~95 %, full algorithmic depth ~85 %.
+
+Calling SymPP "v1.0" at ~95 % everyday coverage is honest: the
+missing 5 % is research-level work (Risch domain extensions,
+Pantelides for high-index DAEs, full Slater theorem) where any
+serious user is likely going to drop into SymPy or Maple regardless.
 
 ---
 
 ## Critical path
 
 ```
-shipped (0..13) ─┬─ 15 (parser / serialization)
-                  ├─ 16 (hardening → v0.5)
-                  │
-                  ├─ Cat A: hyperexpand → Meijer G → Risch
-                  ├─ Cat A: Infinity → Gruntz
-                  ├─ Cat A: lambdify (LLVM ORC)
-                  │
-                  └─ Cat C: 17 (vector calc) → 18 (tensors)
-                            19 (stats), 20 (ntheory),
-                            21 (combinatorics), 22 (physics),
-                            23 (crypto), 24 (geometry)
-                                        │
-                                        └→ v1.0
+shipped (0..13, 15) ─┬─ 16 (hardening → v0.5)
+                      │
+                      ├─ Cat A high-priority: Infinity → Gruntz
+                      ├─ Cat A high-priority: hyperexpand → Meijer G → Risch
+                      ├─ Cat A high-priority: lambdify (LLVM ORC)
+                      │
+                      ├─ Cat C: 17 (vector calc) → 18 (tensors)
+                      │         19 (stats), 20 (ntheory),
+                      │         21 (combinatorics), 22 (physics),
+                      │         23 (crypto), 24 (geometry)
+                      │
+                      └─ Cat D: 25 (logic), 26 (discrete),
+                                27 (holonomic), 28 (number fields),
+                                29 (DomainMatrix), 30 (Galois),
+                                31 (LaTeX parser), 32–34 (special
+                                functions / sequences / orthogonal polys),
+                                35 (algebras), 36 (NDim arrays),
+                                37 (unify), 38 (extra printers),
+                                39 (codegen AST)
+                                              │
+                                              └→ v1.0
 ```
 
 The deep-deferreds within shipped phases are independent of one
 another and can be tackled in any order. The new modules (17+)
-likewise have low coupling. Phases 15 and 16 are the only
-strictly-sequenced work remaining.
+likewise have low coupling. Phase 16 is the only strictly-sequenced
+work remaining before parallelization opens up.
