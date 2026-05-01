@@ -8,6 +8,7 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -848,6 +849,164 @@ Expr factor(const Expr& expr, const Expr& var) {
     if (terms.empty()) return S::One();
     if (terms.size() == 1) return terms[0];
     return mul(std::move(terms));
+}
+
+namespace {
+
+struct NumerDenom { Expr numer; Expr denom; };
+
+// Walk an Expr and split into (numer, denom) such that numer/denom == e.
+// No reduction beyond what the canonical factories provide — caller should
+// run cancel() afterwards to get a reduced fraction.
+[[nodiscard]] NumerDenom as_numer_denom(const Expr& e) {
+    if (!e) return {S::One(), S::One()};
+    auto t = e->type_id();
+    if (t == TypeId::Rational) {
+        const auto& r = static_cast<const Rational&>(*e);
+        return {make<Integer>(r.numerator()), make<Integer>(r.denominator())};
+    }
+    if (t == TypeId::Pow) {
+        const auto& base = e->args()[0];
+        const auto& exp = e->args()[1];
+        // Negative integer or rational exponent moves the term to the
+        // denominator.
+        bool neg = false;
+        Expr abs_exp;
+        if (exp->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*exp);
+            if (z.is_negative()) {
+                neg = true;
+                abs_exp = make<Integer>(mpz_class(-z.value()));
+            }
+        } else if (exp->type_id() == TypeId::Rational) {
+            const auto& q = static_cast<const Rational&>(*exp);
+            if (q.is_negative()) {
+                neg = true;
+                mpq_class neg_q = -q.value();
+                abs_exp = make<Rational>(neg_q);
+            }
+        }
+        if (neg) return {S::One(), pow(base, abs_exp)};
+        return {e, S::One()};
+    }
+    if (t == TypeId::Mul) {
+        std::vector<Expr> nums, dens;
+        for (const auto& a : e->args()) {
+            auto nd = as_numer_denom(a);
+            nums.push_back(nd.numer);
+            dens.push_back(nd.denom);
+        }
+        return {mul(std::move(nums)), mul(std::move(dens))};
+    }
+    if (t == TypeId::Add) {
+        std::vector<NumerDenom> parts;
+        parts.reserve(e->args().size());
+        for (const auto& a : e->args()) parts.push_back(as_numer_denom(a));
+        // Common denominator: product of all part denominators.
+        std::vector<Expr> denom_factors;
+        denom_factors.reserve(parts.size());
+        for (const auto& p : parts) denom_factors.push_back(p.denom);
+        Expr common = mul(denom_factors);
+        // Numerator: Σ_i (p_i.numer * Π_{j≠i} p_j.denom)
+        std::vector<Expr> result_nums;
+        result_nums.reserve(parts.size());
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            std::vector<Expr> factors;
+            factors.reserve(parts.size());
+            factors.push_back(parts[i].numer);
+            for (std::size_t j = 0; j < parts.size(); ++j) {
+                if (i != j) factors.push_back(parts[j].denom);
+            }
+            result_nums.push_back(mul(factors));
+        }
+        return {add(std::move(result_nums)), common};
+    }
+    return {e, S::One()};
+}
+
+}  // namespace
+
+Expr together(const Expr& expr) {
+    auto nd = as_numer_denom(expr);
+    if (nd.denom == S::One()) return nd.numer;
+    return nd.numer / nd.denom;
+}
+
+Expr cancel(const Expr& expr, const Expr& var) {
+    auto nd = as_numer_denom(expr);
+    Expr num_expanded = expand(nd.numer);
+    Expr den_expanded = expand(nd.denom);
+    Poly num_p(num_expanded, var);
+    Poly den_p(den_expanded, var);
+    if (den_p.is_zero()) return expr;  // can't cancel by zero
+    auto g = gcd(num_p, den_p);
+    Poly reduced_num = num_p / g;
+    Poly reduced_den = den_p / g;
+    if (reduced_den.degree() == 0
+        && reduced_den.coeffs().front() == S::One()) {
+        return reduced_num.as_expr();
+    }
+    return reduced_num.as_expr() / reduced_den.as_expr();
+}
+
+Expr apart(const Expr& expr, const Expr& var) {
+    Expr canceled = cancel(expr, var);
+    auto nd = as_numer_denom(canceled);
+    Poly num_p(expand(nd.numer), var);
+    Poly den_p(expand(nd.denom), var);
+    if (den_p.is_zero() || den_p.degree() == 0) return canceled;
+
+    // Polynomial part.
+    Expr poly_part = S::Zero();
+    if (num_p.degree() >= den_p.degree()) {
+        auto [q, r] = num_p.divmod(den_p);
+        poly_part = q.as_expr();
+        num_p = r;
+    }
+    if (num_p.is_zero()) return poly_part;
+
+    // Distinct linear factor case via Heaviside cover-up.
+    auto roots = rational_roots(den_p);
+    // Detect repeats.
+    std::vector<Expr> distinct;
+    bool any_repeat = false;
+    for (const auto& r : roots) {
+        bool seen = false;
+        for (const auto& dr : distinct) {
+            if (dr == r) { seen = true; break; }
+        }
+        if (seen) { any_repeat = true; break; }
+        distinct.push_back(r);
+    }
+    if (any_repeat || distinct.size() != den_p.degree()) {
+        // Repeated roots or irreducible higher-degree factor present —
+        // outside the minimal apart() scope.
+        if (poly_part == S::Zero()) return num_p.as_expr() / den_p.as_expr();
+        return poly_part + num_p.as_expr() / den_p.as_expr();
+    }
+
+    Expr leading = den_p.leading_coeff();
+    std::vector<Expr> terms;
+    if (!(poly_part == S::Zero())) terms.push_back(poly_part);
+    for (std::size_t i = 0; i < distinct.size(); ++i) {
+        const Expr& r_i = distinct[i];
+        Expr a_num = num_p.eval(r_i);
+        Expr a_den = leading;
+        for (std::size_t j = 0; j < distinct.size(); ++j) {
+            if (i == j) continue;
+            a_den = mul(a_den, distinct[i] - distinct[j]);
+        }
+        Expr a_i = a_num / a_den;
+        terms.push_back(a_i / (var - r_i));
+    }
+    if (terms.empty()) return S::Zero();
+    if (terms.size() == 1) return terms[0];
+    return add(std::move(terms));
+}
+
+Expr horner(const Expr& expr, const Expr& var) {
+    Poly p(expr, var);
+    return p.eval(var);  // Poly::eval already builds the nested Horner form.
 }
 
 SqfList sqf_list(const Poly& f) {

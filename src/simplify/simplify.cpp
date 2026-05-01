@@ -51,11 +51,4 @@ Expr collect(const Expr& e, const Expr& var) {
     return p.as_expr();
 }
 
-Expr together(const Expr& e) {
-    // Phase 5 minimal: canonical form already brings most expressions over
-    // a single denominator via Mul base collection. Return the canonicalized
-    // expression. Full common-denominator combining lands in a follow-up.
-    return simplify(e);
-}
-
 }  // namespace sympp

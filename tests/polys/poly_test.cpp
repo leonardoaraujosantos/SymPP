@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/expand.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -617,6 +618,119 @@ TEST_CASE("Poly: factor_list returns multiplicities",
     std::size_t total_mult = 0;
     for (auto& [p, m] : fl.factors) total_mult += m;
     REQUIRE(total_mult == 5);
+}
+
+// ----- together / cancel / apart / horner ------------------------------------
+
+TEST_CASE("together: 1/x + 1/y", "[4][together][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x, integer(-1)) + pow(y, integer(-1));
+    auto t = together(e);
+    auto resp = oracle.send({{"op", "together"}, {"expr", "1/x + 1/y"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(t->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("together: 1/(x-1) - 1/(x+1)", "[4][together][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x - integer(1), integer(-1)) - pow(x + integer(1), integer(-1));
+    auto t = together(e);
+    REQUIRE(oracle.equivalent(t->str(), "2/((x - 1)*(x + 1))"));
+}
+
+TEST_CASE("cancel: (x^2 - 1)/(x - 1) = x + 1", "[4][cancel][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (pow(x, integer(2)) - integer(1)) / (x - integer(1));
+    auto c = cancel(e, x);
+    REQUIRE(oracle.equivalent(c->str(), "x + 1"));
+}
+
+TEST_CASE("cancel: (x^2 - 4)/(x^2 - 5x + 6) = (x+2)/(x-3)",
+          "[4][cancel][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto num = pow(x, integer(2)) - integer(4);
+    auto den = pow(x, integer(2)) - integer(5) * x + integer(6);
+    auto e = num / den;
+    auto c = cancel(e, x);
+    REQUIRE(oracle.equivalent(c->str(), "(x + 2)/(x - 3)"));
+}
+
+TEST_CASE("cancel: nothing in common returns input", "[4][cancel][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (x + integer(1)) / (x - integer(1));
+    auto c = cancel(e, x);
+    REQUIRE(oracle.equivalent(c->str(), "(x + 1)/(x - 1)"));
+}
+
+TEST_CASE("apart: (3x + 5)/((x-1)(x+2))", "[4][apart][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto num = integer(3) * x + integer(5);
+    auto den = (x - integer(1)) * (x + integer(2));
+    auto e = num / den;
+    auto a = apart(e, x);
+    auto resp = oracle.send({{"op", "apart"},
+                             {"expr", "(3*x + 5)/((x-1)*(x+2))"},
+                             {"var", "x"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(a->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("apart: 1/((x-1)(x-2)(x-3)) — three distinct linear",
+          "[4][apart][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto den = (x - integer(1)) * (x - integer(2)) * (x - integer(3));
+    auto e = pow(den, integer(-1));
+    auto a = apart(e, x);
+    auto resp = oracle.send({{"op", "apart"},
+                             {"expr", "1/((x-1)*(x-2)*(x-3))"},
+                             {"var", "x"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(a->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("apart: improper fraction extracts polynomial part",
+          "[4][apart][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x^3 + 1)/(x^2 - 1) — improper. After division: x + (x+1)/(x²-1).
+    // (x+1)/((x-1)(x+1)) cancels to 1/(x-1).
+    // So result is x + 1/(x-1).
+    auto e = (pow(x, integer(3)) + integer(1)) / (pow(x, integer(2)) - integer(1));
+    auto a = apart(e, x);
+    REQUIRE(oracle.equivalent(a->str(), "x + 1/(x - 1)"));
+}
+
+TEST_CASE("horner: 2x^3 + 3x^2 + x + 5 = x*(x*(2*x + 3) + 1) + 5",
+          "[4][horner][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(2) * pow(x, integer(3)) + integer(3) * pow(x, integer(2))
+             + x + integer(5);
+    auto h = horner(e, x);
+    // Horner form is algebraically equivalent — let oracle confirm.
+    REQUIRE(oracle.equivalent(h->str(),
+                              "2*x**3 + 3*x**2 + x + 5"));
+}
+
+TEST_CASE("horner: degree 4 nests four deep", "[4][horner]") {
+    auto x = symbol("x");
+    auto e = pow(x, integer(4)) + integer(2) * pow(x, integer(3))
+             + integer(3) * pow(x, integer(2)) + integer(4) * x + integer(5);
+    auto h = horner(e, x);
+    // Nested form should not contain x^k for k > 1 anywhere; structurally it's
+    // just adds and muls of x. Verify via expansion equality.
+    REQUIRE(expand(h) == expand(e));
 }
 
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {

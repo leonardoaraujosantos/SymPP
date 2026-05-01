@@ -24,9 +24,7 @@ namespace sympp {
 // coefficients. Builds a polynomial in `var` and reconstitutes.
 [[nodiscard]] SYMPP_EXPORT Expr collect(const Expr& e, const Expr& var);
 
-// together(expr) — placeholder. SymPy's together brings rationals over a
-// common denominator. Phase 5 minimal returns the input unchanged when
-// already in canonical form; future phase wires partial-fraction reverse.
-[[nodiscard]] SYMPP_EXPORT Expr together(const Expr& e);
+// together(expr) is provided by sympp/polys/poly.hpp — it lives in the
+// polynomial subsystem because it walks numerator/denominator structure.
 
 }  // namespace sympp

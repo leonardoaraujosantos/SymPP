@@ -76,6 +76,36 @@ private:
     void trim_leading_zeros();
 };
 
+// Combine an expression's terms over a common denominator. Produces a single
+// fraction n/d (not necessarily reduced — call cancel() afterwards to remove
+// shared factors).
+//
+// Reference: sympy/simplify/radsimp.py::together
+[[nodiscard]] SYMPP_EXPORT Expr together(const Expr& expr);
+
+// Reduce a rational expression by GCD of numerator and denominator.
+// `var` selects the polynomial variable for the GCD computation.
+//
+// Reference: sympy/polys/polytools.py::cancel
+[[nodiscard]] SYMPP_EXPORT Expr cancel(const Expr& expr, const Expr& var);
+
+// Partial-fraction decomposition over ℚ of a rational expression in `var`.
+// Minimal implementation: handles distinct rational linear factors via
+// Heaviside cover-up. For repeated roots or irreducible quadratic factors,
+// returns the cancelled-but-not-decomposed form (still correct, just not
+// fully decomposed).
+//
+// Reference: sympy/polys/partfrac.py::apart
+[[nodiscard]] SYMPP_EXPORT Expr apart(const Expr& expr, const Expr& var);
+
+// Horner-nested form of a polynomial in `var`. Equivalent to evaluating
+// the polynomial symbolically at `var` via Horner's scheme — yields a
+// nested Mul/Add tree like x*(x*(2*x + 3) + 1) + 5 instead of the expanded
+// 2*x**3 + 3*x**2 + x + 5.
+//
+// Reference: sympy/polys/polyfuncs.py::horner
+[[nodiscard]] SYMPP_EXPORT Expr horner(const Expr& expr, const Expr& var);
+
 // Univariate polynomial GCD via Euclidean algorithm. Result is monic
 // (leading coefficient 1) for non-zero inputs. Behaves correctly over ℚ.
 //
