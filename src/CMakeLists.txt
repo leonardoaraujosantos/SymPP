@@ -35,6 +35,8 @@ target_sources(sympp
         functions/miscellaneous.cpp
         functions/special.cpp
         functions/trigonometric.cpp
+        matrices/matrix.cpp
+        polys/poly.cpp
 )
 
 target_sources(sympp
@@ -80,6 +82,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/miscellaneous.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/special.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
 )
 
 # When building the library itself we need to export symbols (Windows DLL).

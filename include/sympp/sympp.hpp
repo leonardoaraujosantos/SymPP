@@ -38,5 +38,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/matrices/matrix.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/fwd.hpp>
 #include <sympp/version.hpp>

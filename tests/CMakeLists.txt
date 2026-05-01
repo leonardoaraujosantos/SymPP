@@ -29,7 +29,9 @@ target_sources(sympp_tests
         functions/miscellaneous_test.cpp
         functions/special_test.cpp
         functions/trigonometric_test.cpp
+        matrices/matrix_test.cpp
         oracle/oracle_smoke_test.cpp
+        polys/poly_test.cpp
 )
 
 target_include_directories(sympp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
