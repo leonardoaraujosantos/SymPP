@@ -50,6 +50,7 @@ target_sources(sympp
         matrices/matrix.cpp
         matrices/matrix_symbol.cpp
         ode/dsolve.cpp
+        parsing/parser.cpp
         physics/units.cpp
         printing/printing.cpp
         polys/poly.cpp
@@ -117,6 +118,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/ode/dsolve.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/parsing/parser.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/physics/units.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/printing/printing.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp

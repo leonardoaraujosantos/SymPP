@@ -275,14 +275,21 @@ adapter would couple SymPP to a specific renderer without adding
 mathematical capability — better to keep the library a pure CAS
 and let the consumer pick their plotting layer.
 
-### Phase 15 — Parser & MATLAB facade · ❌
+### Phase 15 — Parser / serialization · ❌
 
-**Status**: Not started. Original scope: a recursive-descent /
-PEG parser for `parse("x^2 + sin(x) == 0")` returning `Expr`, plus
-a `sympp::matlab::` namespace with `syms`, `sym`, `solve`, `dsolve`,
-`int`, `diff`, `simplify`, etc. as thin wrappers for MATLAB users.
-Tractable (~2 weeks). Intentionally parked — programmatic API is
-fully usable today; the parser is a UX layer.
+**Scope**: a recursive-descent string parser for math expressions:
+`parse("x**2 + sin(x)")` → `Expr`. Useful for (1) consumers reading
+expressions from non-C++ sources (config files, databases, network
+protocols), (2) round-tripping with SymPy via `srepr` for
+serialization. ~1.5 weeks.
+
+**Out of scope**: the MATLAB facade (`sympp::matlab::solve`, etc.)
+that was in the original Phase 15 plan. The MATLAB-toolbox-parity
+framing has served its purpose; SymPP is now reframed as a C++
+alternative to SymPy, and a thin renaming-wrapper namespace adds
+maintenance burden without real value (MATLAB users porting
+scripts will rewrite anyway, and `int`/`diff` collide with C++
+conventions).
 
 ### Phase 16 — Hardening & v1.0 · ❌
 
@@ -332,7 +339,7 @@ parity deltas, not bug fixes.
 
 | # | Title | Effort |
 |---|---|---|
-| 15 | Parser + MATLAB facade           | 2 wk |
+| 15 | Parser / serialization           | 1.5 wk |
 | 16 | Hardening + v1.0 release         | 4–6 wk |
 
 ### Category C: New phases beyond MATLAB scope (SymPy parity)
@@ -427,7 +434,7 @@ phases are independent of the new modules.
 ## Critical path
 
 ```
-shipped (0..13) ─┬─ 15 (parser, MATLAB facade)
+shipped (0..13) ─┬─ 15 (parser / serialization)
                   ├─ 16 (hardening → v0.5)
                   │
                   ├─ Cat A: hyperexpand → Meijer G → Risch
