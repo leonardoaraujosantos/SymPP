@@ -27,4 +27,27 @@ namespace sympp {
 // together(expr) is provided by sympp/polys/poly.hpp — it lives in the
 // polynomial subsystem because it walks numerator/denominator structure.
 
+// powsimp(expr) — combine same-exponent powers within Mul:
+//   x^a * y^a → (x*y)^a   when assumptions justify (positive bases or
+//   integer exponent).
+//
+// The complementary same-base combining (x^a * x^b → x^(a+b)) is already
+// handled by Mul base collection in the canonical form.
+//
+// Reference: sympy/simplify/powsimp.py::powsimp
+[[nodiscard]] SYMPP_EXPORT Expr powsimp(const Expr& e);
+
+// expand_power_exp(expr) — apply x^(a+b) → x^a * x^b at every Pow whose
+// exponent is an Add. Targeted variant of expand().
+//
+// Reference: sympy/core/expr.py expand(power_exp=True)
+[[nodiscard]] SYMPP_EXPORT Expr expand_power_exp(const Expr& e);
+
+// expand_power_base(expr) — apply (x*y)^n → x^n * y^n at every Pow whose
+// base is a Mul, when the exponent is an integer (always safe) or all
+// factors of the base are positive.
+//
+// Reference: sympy/core/expr.py expand(power_base=True)
+[[nodiscard]] SYMPP_EXPORT Expr expand_power_base(const Expr& e);
+
 }  // namespace sympp

@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/assumption_key.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -64,4 +66,93 @@ TEST_CASE("simplify: matches SymPy on polynomial expansion",
     auto s = simplify(e);
     // Expected: 6*x^2 + 2
     REQUIRE(oracle.equivalent(s->str(), "6*x**2 + 2"));
+}
+
+// ----- powsimp ---------------------------------------------------------------
+
+TEST_CASE("powsimp: x^a * y^a → (x*y)^a (positive bases)",
+          "[5][powsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_positive(true));
+    auto y = symbol("y", AssumptionMask{}.set_positive(true));
+    auto a = symbol("a");
+    auto e = pow(x, a) * pow(y, a);
+    auto p = powsimp(e);
+    REQUIRE(oracle.equivalent(p->str(), "(x*y)**a"));
+}
+
+TEST_CASE("powsimp: x^2 * y^2 → (x*y)^2 (integer exp, no assumption needed)",
+          "[5][powsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x, integer(2)) * pow(y, integer(2));
+    auto p = powsimp(e);
+    REQUIRE(oracle.equivalent(p->str(), "(x*y)**2"));
+}
+
+TEST_CASE("powsimp: leaves non-positive non-integer alone",
+          "[5][powsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto a = symbol("a");
+    // No positivity assumption — must NOT combine.
+    auto e = pow(x, a) * pow(y, a);
+    auto p = powsimp(e);
+    // Stay separate.
+    REQUIRE(oracle.equivalent(p->str(), "x**a * y**a"));
+}
+
+// ----- expand_power_exp ------------------------------------------------------
+
+TEST_CASE("expand_power_exp: x^(a+b) → x^a * x^b",
+          "[5][expand_power_exp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto e = pow(x, a + b);
+    auto out = expand_power_exp(e);
+    REQUIRE(oracle.equivalent(out->str(), "x**a * x**b"));
+}
+
+TEST_CASE("expand_power_exp: leaves Pow without Add exponent alone",
+          "[5][expand_power_exp]") {
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto e = pow(x, a);
+    REQUIRE(expand_power_exp(e) == e);
+}
+
+// ----- expand_power_base -----------------------------------------------------
+
+TEST_CASE("expand_power_base: (x*y)^3 → x^3 * y^3 (integer exponent)",
+          "[5][expand_power_base][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x * y, integer(3));
+    auto out = expand_power_base(e);
+    REQUIRE(oracle.equivalent(out->str(), "x**3 * y**3"));
+}
+
+TEST_CASE("expand_power_base: (x*y)^(1/2) needs positive bases",
+          "[5][expand_power_base][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_positive(true));
+    auto y = symbol("y", AssumptionMask{}.set_positive(true));
+    auto e = pow(x * y, S::Half());
+    auto out = expand_power_base(e);
+    REQUIRE(oracle.equivalent(out->str(), "x**(1/2) * y**(1/2)"));
+}
+
+TEST_CASE("expand_power_base: refuses without positivity",
+          "[5][expand_power_base]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x * y, S::Half());
+    auto out = expand_power_base(e);
+    // No positivity assumption — must not split.
+    REQUIRE(out == e);
 }
