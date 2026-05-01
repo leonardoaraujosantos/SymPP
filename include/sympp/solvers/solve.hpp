@@ -18,6 +18,7 @@
 #include <sympp/core/api.hpp>
 #include <sympp/fwd.hpp>
 #include <sympp/matrices/matrix.hpp>
+#include <sympp/sets/sets.hpp>
 
 namespace sympp {
 
@@ -27,5 +28,55 @@ namespace sympp {
 
 // Solve A·x = b, returning x as a column matrix. Throws on singular A.
 [[nodiscard]] SYMPP_EXPORT Matrix linsolve(const Matrix& A, const Matrix& b);
+
+// solveset(expr, var, domain) — solveset wrapper that returns a Set
+// rather than a vector. Empty result becomes EmptySet; otherwise
+// returns FiniteSet of the roots solve() found. Falls through to a
+// ConditionSet placeholder (currently the literal solve-output
+// FiniteSet, since we don't have ConditionSet) when solve() can't.
+[[nodiscard]] SYMPP_EXPORT SetPtr solveset(const Expr& expr, const Expr& var);
+[[nodiscard]] SYMPP_EXPORT SetPtr solveset(const Expr& expr, const Expr& var,
+                                              const SetPtr& domain);
+
+// nsolve(expr, var, x0, dps) — Newton's method in MPFR for finding a
+// real root of expr=0 near initial guess x0. Returns a Float Expr at
+// the requested precision. Throws std::runtime_error on non-convergence.
+[[nodiscard]] SYMPP_EXPORT Expr nsolve(const Expr& expr, const Expr& var,
+                                          const Expr& x0, int dps = 15);
+
+// solve_univariate_inequality(lhs, rel, rhs, var) — solution set of
+// `lhs rel rhs` (rel ∈ {<, ≤, >, ≥, ≠}) over the reals. Computes
+// roots of (lhs - rhs), sorts them, tests the sign on each interval
+// between consecutive roots, and assembles a Union of Intervals.
+//
+// Use the relation kind enum from sympp/core/boolean.hpp.
+[[nodiscard]] SYMPP_EXPORT SetPtr solve_univariate_inequality(
+    const Expr& lhs, const Expr& rel_op_str, const Expr& rhs, const Expr& var);
+
+// rsolve(coeffs, n) — closed-form solution of the linear constant-
+// coefficient recurrence with coefficient list (lowest-index first):
+//
+//     c_k * y(n+k) + c_{k-1} * y(n+k-1) + ... + c_0 * y(n) = 0
+//
+// Returns Σ_i C_i * r_i^n where r_i are the roots of the characteristic
+// polynomial Σ c_i x^i. Free constants are named __C0, __C1, ...
+//
+// Reference: sympy/solvers/recurr.py
+[[nodiscard]] SYMPP_EXPORT Expr rsolve(const std::vector<Expr>& coeffs,
+                                          const Expr& n);
+
+// nonlinsolve(eqs, vars) — for two polynomial equations in two
+// variables, eliminates one via resultant (using the Phase 4
+// resultant), solves the resulting univariate, and back-substitutes.
+// Returns a list of (val_x, val_y) pairs for the joint solutions.
+[[nodiscard]] SYMPP_EXPORT std::vector<std::vector<Expr>> nonlinsolve(
+    const std::vector<Expr>& eqs, const std::vector<Expr>& vars);
+
+// linear_diophantine(a, b, c) — find integer solutions to a*x + b*y = c.
+// Returns std::nullopt if gcd(a, b) does not divide c. Otherwise
+// returns (x0, y0) such that a*x0 + b*y0 = c — the general solution
+// being x = x0 + b/g * t, y = y0 - a/g * t for integer t.
+[[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>>
+linear_diophantine(const Expr& a, const Expr& b, const Expr& c);
 
 }  // namespace sympp

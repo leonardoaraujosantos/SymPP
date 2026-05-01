@@ -118,3 +118,149 @@ TEST_CASE("linsolve: identity returns b unchanged", "[10][linsolve]") {
     Matrix x = linsolve(A, b);
     REQUIRE(x.equals(b));
 }
+
+#include <sympp/sets/sets.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/trigonometric.hpp>
+
+// ----- solveset --------------------------------------------------------------
+
+TEST_CASE("solveset: x^2 - 4 = 0 → {2, -2}", "[10][solveset]") {
+    auto x = symbol("x");
+    auto s = solveset(pow(x, integer(2)) - integer(4), x);
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 2);
+}
+
+TEST_CASE("solveset: no solutions → EmptySet",
+          "[10][solveset]") {
+    auto x = symbol("x");
+    // Constant 5 = 0 has no solution.
+    auto s = solveset(integer(5), x);
+    REQUIRE(s->kind() == SetKind::Empty);
+}
+
+TEST_CASE("solveset: filters via domain",
+          "[10][solveset]") {
+    auto x = symbol("x");
+    auto eq = pow(x, integer(2)) - integer(4);
+    auto domain = interval(integer(0), integer(10));
+    auto s = solveset(eq, x, domain);
+    // Only x=2 falls in [0, 10]; x=-2 is filtered out.
+    REQUIRE(s->kind() == SetKind::FiniteSet);
+    auto fs = std::static_pointer_cast<const FiniteSet>(s);
+    REQUIRE(fs->size() == 1);
+    REQUIRE(fs->elements()[0] == integer(2));
+}
+
+// ----- nsolve ----------------------------------------------------------------
+
+TEST_CASE("nsolve: x^3 - 2 ≈ 1.2599",
+          "[10][nsolve][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto root = nsolve(pow(x, integer(3)) - integer(2), x, integer(1), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", root->str() + " - 1.2599210498948732"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("nsolve: cos(x) - x ≈ 0.7390851332151607",
+          "[10][nsolve][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto root = nsolve(cos(x) - x, x, integer(1), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", root->str() + " - 0.7390851332151607"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+// ----- solve_univariate_inequality -------------------------------------------
+
+TEST_CASE("inequality: x^2 - 4 < 0 → (-2, 2)",
+          "[10][inequality]") {
+    auto x = symbol("x");
+    auto op = symbol("<");
+    auto s = solve_univariate_inequality(
+        pow(x, integer(2)) - integer(4), op, S::Zero(), x);
+    // The solution should be a single open interval roughly (-2, 2).
+    REQUIRE(s->kind() != SetKind::Empty);
+    REQUIRE(s->contains(integer(0)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(3)) == std::optional<bool>{false});
+}
+
+TEST_CASE("inequality: x^2 - 4 > 0 outside (-2, 2)",
+          "[10][inequality]") {
+    auto x = symbol("x");
+    auto op = symbol(">");
+    auto s = solve_univariate_inequality(
+        pow(x, integer(2)) - integer(4), op, S::Zero(), x);
+    REQUIRE(s->contains(integer(3)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(0)) == std::optional<bool>{false});
+}
+
+// ----- rsolve ----------------------------------------------------------------
+
+TEST_CASE("rsolve: y(n+1) - 2*y(n) = 0 → y = C * 2^n",
+          "[10][rsolve][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    // Coeffs: c_0 = -2, c_1 = 1 (i.e., -2 y(n) + y(n+1) = 0)
+    auto sol = rsolve({integer(-2), integer(1)}, n);
+    // Should be C * 2^n for some symbolic C.
+    REQUIRE(oracle.equivalent(sol->str(), "__C0 * 2**n"));
+}
+
+TEST_CASE("rsolve: Fibonacci recurrence y(n+2) = y(n+1) + y(n)",
+          "[10][rsolve]") {
+    auto n = symbol("n");
+    // y(n+2) - y(n+1) - y(n) = 0  → coeffs [-1, -1, 1]
+    auto sol = rsolve({integer(-1), integer(-1), integer(1)}, n);
+    // Solution: C0 * φ^n + C1 * (1-φ)^n with φ = (1+√5)/2.
+    REQUIRE(sol->type_id() == TypeId::Add);
+}
+
+// ----- nonlinsolve -----------------------------------------------------------
+
+TEST_CASE("nonlinsolve: x^2 + y^2 = 1 ∧ x = y",
+          "[10][nonlinsolve][oracle]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto eq1 = pow(x, integer(2)) + pow(y, integer(2)) - integer(1);
+    auto eq2 = x - y;
+    auto sols = nonlinsolve({eq1, eq2}, {x, y});
+    // Two solutions: (sqrt(2)/2, sqrt(2)/2) and (-sqrt(2)/2, -sqrt(2)/2).
+    REQUIRE(sols.size() == 2);
+}
+
+// ----- linear_diophantine ----------------------------------------------------
+
+TEST_CASE("diophantine: 3x + 5y = 1 has solution",
+          "[10][diophantine]") {
+    auto sol = linear_diophantine(integer(3), integer(5), integer(1));
+    REQUIRE(sol.has_value());
+    auto [x, y] = *sol;
+    // Verify 3*x + 5*y = 1.
+    auto check = integer(3) * x + integer(5) * y;
+    REQUIRE(check == integer(1));
+}
+
+TEST_CASE("diophantine: 6x + 9y = 5 has no solution (gcd = 3 ∤ 5)",
+          "[10][diophantine]") {
+    auto sol = linear_diophantine(integer(6), integer(9), integer(5));
+    REQUIRE(!sol.has_value());
+}
+
+TEST_CASE("diophantine: 4x + 6y = 10 (gcd = 2 ∣ 10)",
+          "[10][diophantine]") {
+    auto sol = linear_diophantine(integer(4), integer(6), integer(10));
+    REQUIRE(sol.has_value());
+    auto [x, y] = *sol;
+    auto check = integer(4) * x + integer(6) * y;
+    REQUIRE(check == integer(10));
+}
