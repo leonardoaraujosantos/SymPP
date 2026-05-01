@@ -51,12 +51,21 @@ namespace {
 
 Expr simplify(const Expr& e) {
     if (!e) return e;
-    // Sweep 1: canonical form.
+    // 1. Canonical form.
     Expr current = re_canonicalize(e);
-    // Sweep 2: expand to flush nested products.
-    Expr expanded = expand(current);
-    // Sweep 3: canonical again to collect like terms after expansion.
-    return re_canonicalize(expanded);
+    // 2. Expand to flush nested products.
+    current = expand(current);
+    // 3. Apply pattern-based simplifiers. Each is a no-op when the input
+    //    doesn't match its pattern, so chaining is safe; ordering only
+    //    affects which form we land on when multiple rules could apply.
+    current = trigsimp(current);
+    current = powsimp(current);
+    current = combsimp(current);
+    current = gammasimp(current);
+    current = radsimp(current);
+    current = sqrtdenest(current);
+    // 4. Canonical sweep again to collect any like terms that surfaced.
+    return re_canonicalize(current);
 }
 
 Expr collect(const Expr& e, const Expr& var) {

@@ -437,3 +437,32 @@ TEST_CASE("nsimplify: junk irrational stays put", "[5][nsimplify]") {
     // not guaranteed across factories, but no rational/sqrt match found).
     REQUIRE(r->type_id() == TypeId::Float);
 }
+
+// ----- simplify orchestrator (chained) ---------------------------------------
+
+TEST_CASE("simplify: chains trigsimp (sin² + cos² → 1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+TEST_CASE("simplify: chains combsimp (factorial(n+1)/factorial(n) → n+1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto e = factorial(n + integer(1)) * pow(factorial(n), integer(-1));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "n + 1"));
+}
+
+TEST_CASE("simplify: chains sqrtdenest (sqrt(3+2√2) → 1+√2)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto inner = integer(3) + integer(2) * sqrt(integer(2));
+    auto e = sqrt(inner);
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "1 + sqrt(2)"));
+}
