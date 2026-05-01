@@ -19,11 +19,13 @@ target_sources(sympp_tests
         core/symbol_test.cpp
         core/traversal_test.cpp
         core/undefined_function_test.cpp
+        functions/combinatorial_test.cpp
         functions/exponential_test.cpp
         functions/hyperbolic_test.cpp
         functions/integers_test.cpp
         functions/inverse_trig_test.cpp
         functions/miscellaneous_test.cpp
+        functions/special_test.cpp
         functions/trigonometric_test.cpp
         oracle/oracle_smoke_test.cpp
 )

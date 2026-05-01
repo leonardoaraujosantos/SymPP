@@ -161,3 +161,98 @@ TEST_CASE("sqrt/abs/sign: structural output matches SymPy",
     REQUIRE(oracle.equivalent(abs(x)->str(), "Abs(x)"));
     REQUIRE(oracle.equivalent(sign(x)->str(), "sign(x)"));
 }
+
+// ============================================================================
+// Phase 3h additions
+// ============================================================================
+
+// ----- re / im / conjugate / arg --------------------------------------------
+
+TEST_CASE("re: real arg passes through", "[3h][re]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(re(x) == x);
+    REQUIRE(re(integer(7)) == integer(7));
+    REQUIRE(re(rational(-1, 2)) == rational(-1, 2));
+}
+
+TEST_CASE("im: real arg yields zero", "[3h][im]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(im(x) == S::Zero());
+    REQUIRE(im(integer(7)) == S::Zero());
+}
+
+TEST_CASE("conjugate: real arg passes through; involution otherwise",
+          "[3h][conjugate]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(conjugate(x) == x);
+
+    auto y = symbol("y");  // unknown reality
+    auto e = conjugate(conjugate(y));
+    REQUIRE(e == y);
+}
+
+TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto n = symbol("n", AssumptionMask{}.set_negative(true));
+    REQUIRE(arg_(p) == S::Zero());
+    REQUIRE(arg_(n) == S::Pi());
+    REQUIRE(arg_(integer(5)) == S::Zero());
+}
+
+TEST_CASE("complex parts: stay unevaluated for unknown arg", "[3h][complex]") {
+    auto x = symbol("x");  // unknown reality
+    REQUIRE(re(x)->type_id() == TypeId::Function);
+    REQUIRE(im(x)->type_id() == TypeId::Function);
+    REQUIRE(arg_(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("re/im are real", "[3h][complex][assumptions]") {
+    auto x = symbol("x");
+    REQUIRE(is_real(re(x)) == true);
+    REQUIRE(is_real(im(x)) == true);
+}
+
+// ----- Min, Max --------------------------------------------------------------
+
+TEST_CASE("min/max: numeric inputs collapse", "[3h][minmax]") {
+    REQUIRE(min(integer(2), integer(5)) == integer(2));
+    REQUIRE(max(integer(2), integer(5)) == integer(5));
+    REQUIRE(min({integer(7), integer(3), integer(11), integer(1)}) == integer(1));
+    REQUIRE(max({integer(7), integer(3), integer(11), integer(1)}) == integer(11));
+}
+
+TEST_CASE("min/max: rational inputs", "[3h][minmax]") {
+    REQUIRE(min(rational(1, 2), rational(1, 3)) == rational(1, 3));
+    REQUIRE(max(rational(1, 2), rational(1, 3)) == rational(1, 2));
+    REQUIRE(min(rational(-1, 2), integer(0)) == rational(-1, 2));
+}
+
+TEST_CASE("min/max: mixed numeric+symbolic keeps symbolics",
+          "[3h][minmax]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = min({x, integer(2), integer(7), y});
+    REQUIRE(e->type_id() == TypeId::Function);
+    // After collection, expect 3 args: 2 (the numeric min), x, y.
+    REQUIRE(e->args().size() == 3);
+}
+
+TEST_CASE("min/max: duplicate symbolics deduplicate",
+          "[3h][minmax]") {
+    auto x = symbol("x");
+    auto e = max(x, x);
+    REQUIRE(e == x);
+}
+
+TEST_CASE("min/max: real-arg propagation", "[3h][minmax][assumptions]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    auto y = symbol("y", AssumptionMask{}.set_real(true));
+    REQUIRE(is_real(min(x, y)) == true);
+    REQUIRE(is_real(max(x, y)) == true);
+}
+
+TEST_CASE("min/max: oracle structural agreement", "[3h][minmax][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(min(integer(3), integer(7))->str(), "3"));
+    REQUIRE(oracle.equivalent(max(integer(3), integer(7))->str(), "7"));
+}

@@ -1,5 +1,6 @@
 #include <sympp/functions/miscellaneous.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -191,6 +192,258 @@ Expr sign(const Expr& arg) {
 }
 
 // ----- sqrt — uses Pow under the hood -----------------------------------------
+
+// ============================================================================
+// Complex part extraction
+// ============================================================================
+
+Re::Re(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Re);
+}
+Expr Re::rebuild(std::vector<Expr> new_args) const { return re(new_args[0]); }
+std::optional<bool> Re::ask(AssumptionKey k) const noexcept {
+    switch (k) {
+        case AssumptionKey::Real:
+            return true;  // re(z) is always real for any complex z
+        case AssumptionKey::Finite:
+            if (is_finite(args_[0]) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Im::Im(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Im);
+}
+Expr Im::rebuild(std::vector<Expr> new_args) const { return im(new_args[0]); }
+std::optional<bool> Im::ask(AssumptionKey k) const noexcept {
+    switch (k) {
+        case AssumptionKey::Real:
+            return true;  // im(z) ∈ ℝ
+        case AssumptionKey::Finite:
+            if (is_finite(args_[0]) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Conjugate::Conjugate(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Conjugate);
+}
+Expr Conjugate::rebuild(std::vector<Expr> new_args) const {
+    return conjugate(new_args[0]);
+}
+std::optional<bool> Conjugate::ask(AssumptionKey k) const noexcept {
+    // Conjugation preserves real-ness, integer-ness, etc. on real arguments;
+    // mostly mirrors arg's properties.
+    return args_[0]->ask(k);
+}
+
+Arg::Arg(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Arg);
+}
+Expr Arg::rebuild(std::vector<Expr> new_args) const { return arg_(new_args[0]); }
+std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
+    switch (k) {
+        case AssumptionKey::Real:
+            return true;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr re(const Expr& arg) {
+    // Numeric: real -> identity; (no Complex type yet, so no a+bi case)
+    if (is_real(arg) == true) return arg;
+    // Linearity: re(-x) = -re(x)
+    if (auto p = strip_neg_factor(arg); p.has_value()) {
+        return mul(S::NegativeOne(), make<Re>(*p));
+    }
+    return make<Re>(arg);
+}
+
+Expr im(const Expr& arg) {
+    if (is_real(arg) == true) return S::Zero();
+    if (auto p = strip_neg_factor(arg); p.has_value()) {
+        return mul(S::NegativeOne(), make<Im>(*p));
+    }
+    return make<Im>(arg);
+}
+
+Expr conjugate(const Expr& arg) {
+    if (is_real(arg) == true) return arg;
+    // conjugate(conjugate(x)) = x
+    if (arg->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*arg);
+        if (fn.function_id() == FunctionId::Conjugate) {
+            return arg->args()[0];
+        }
+    }
+    return make<Conjugate>(arg);
+}
+
+Expr arg_(const Expr& arg) {
+    if (is_positive(arg) == true) return S::Zero();
+    if (is_negative(arg) == true) return S::Pi();
+    return make<Arg>(arg);
+}
+
+// ============================================================================
+// Min, Max
+// ============================================================================
+
+MinFn::MinFn(std::vector<Expr> args)
+    : Function(std::move(args)) {
+    compute_hash(FunctionId::Min);
+}
+Expr MinFn::rebuild(std::vector<Expr> new_args) const { return min(std::move(new_args)); }
+std::optional<bool> MinFn::ask(AssumptionKey k) const noexcept {
+    // Min preserves real / integer / rational under all-true closure.
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Integer:
+        case AssumptionKey::Rational:
+        case AssumptionKey::Finite:
+            for (const auto& a : args_) {
+                if (a->ask(k) != true) return std::nullopt;
+            }
+            return true;
+        default:
+            return std::nullopt;
+    }
+}
+
+MaxFn::MaxFn(std::vector<Expr> args)
+    : Function(std::move(args)) {
+    compute_hash(FunctionId::Max);
+}
+Expr MaxFn::rebuild(std::vector<Expr> new_args) const { return max(std::move(new_args)); }
+std::optional<bool> MaxFn::ask(AssumptionKey k) const noexcept {
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Integer:
+        case AssumptionKey::Rational:
+        case AssumptionKey::Finite:
+            for (const auto& a : args_) {
+                if (a->ask(k) != true) return std::nullopt;
+            }
+            return true;
+        default:
+            return std::nullopt;
+    }
+}
+
+namespace {
+
+// Compare two Number Exprs. Returns -1, 0, +1. Caller verifies both are Numbers.
+[[nodiscard]] int compare_numbers(const Number& a, const Number& b) noexcept {
+    // Promote to mpq for the exact tower; Float comparisons compute via mpfr.
+    if (a.type_id() == TypeId::Float || b.type_id() == TypeId::Float) {
+        // At least one is Float — promote the other to Float at the higher dps.
+        int dps = kDefaultDps;
+        if (a.type_id() == TypeId::Float) {
+            dps = std::max(dps, static_cast<const Float&>(a).precision_dps());
+        }
+        if (b.type_id() == TypeId::Float) {
+            dps = std::max(dps, static_cast<const Float&>(b).precision_dps());
+        }
+        mpfr_t ax, bx;
+        mpfr_init2(ax, dps_to_prec(dps));
+        mpfr_init2(bx, dps_to_prec(dps));
+
+        if (a.type_id() == TypeId::Float) {
+            mpfr_set(ax, static_cast<const Float&>(a).value(), MPFR_RNDN);
+        } else if (a.type_id() == TypeId::Integer) {
+            mpfr_set_z(ax, static_cast<const Integer&>(a).value().get_mpz_t(), MPFR_RNDN);
+        } else {
+            mpfr_set_q(ax, static_cast<const Rational&>(a).value().get_mpq_t(), MPFR_RNDN);
+        }
+        if (b.type_id() == TypeId::Float) {
+            mpfr_set(bx, static_cast<const Float&>(b).value(), MPFR_RNDN);
+        } else if (b.type_id() == TypeId::Integer) {
+            mpfr_set_z(bx, static_cast<const Integer&>(b).value().get_mpz_t(), MPFR_RNDN);
+        } else {
+            mpfr_set_q(bx, static_cast<const Rational&>(b).value().get_mpq_t(), MPFR_RNDN);
+        }
+        int c = mpfr_cmp(ax, bx);
+        mpfr_clear(ax);
+        mpfr_clear(bx);
+        return c < 0 ? -1 : (c > 0 ? 1 : 0);
+    }
+    // Both exact: promote to mpq.
+    mpq_class qa, qb;
+    if (a.type_id() == TypeId::Integer) qa = static_cast<const Integer&>(a).value();
+    else qa = static_cast<const Rational&>(a).value();
+    if (b.type_id() == TypeId::Integer) qb = static_cast<const Integer&>(b).value();
+    else qb = static_cast<const Rational&>(b).value();
+    int c = cmp(qa, qb);
+    return c < 0 ? -1 : (c > 0 ? 1 : 0);
+}
+
+// Reduce a Min/Max args list by combining all numeric args into one extreme,
+// keeping symbolic args as-is.
+template <bool IsMin>
+[[nodiscard]] Expr min_max_impl(std::vector<Expr> args) {
+    std::vector<Expr> non_numeric;
+    Expr extreme;  // running min or max numeric
+    for (auto& a : args) {
+        if (is_number(a)) {
+            if (!extreme) {
+                extreme = a;
+            } else {
+                int c = compare_numbers(static_cast<const Number&>(*extreme),
+                                       static_cast<const Number&>(*a));
+                if constexpr (IsMin) {
+                    if (c > 0) extreme = a;  // a < current min
+                } else {
+                    if (c < 0) extreme = a;  // a > current max
+                }
+            }
+        } else {
+            non_numeric.push_back(std::move(a));
+        }
+    }
+
+    // Drop duplicate symbolic args — Min(x, x) = x.
+    std::sort(non_numeric.begin(), non_numeric.end(),
+              [](const Expr& l, const Expr& r) noexcept {
+                  return l.get() < r.get();
+              });
+    non_numeric.erase(std::unique(non_numeric.begin(), non_numeric.end()),
+                      non_numeric.end());
+
+    std::vector<Expr> out;
+    out.reserve(non_numeric.size() + 1);
+    if (extreme) out.push_back(std::move(extreme));
+    for (auto& a : non_numeric) out.push_back(std::move(a));
+
+    if (out.empty()) {
+        // Empty Min/Max — by convention, undefined; SymPy raises. Return
+        // a NaN-equivalent? For now build the empty form to surface the
+        // misuse; callers rarely hit this with proper inputs.
+    }
+    if (out.size() == 1) return std::move(out[0]);
+
+    if constexpr (IsMin) return make<MinFn>(std::move(out));
+    else return make<MaxFn>(std::move(out));
+}
+
+}  // namespace
+
+Expr min(std::vector<Expr> args) { return min_max_impl<true>(std::move(args)); }
+Expr min(const Expr& a, const Expr& b) {
+    return min_max_impl<true>(std::vector<Expr>{a, b});
+}
+Expr max(std::vector<Expr> args) { return min_max_impl<false>(std::move(args)); }
+Expr max(const Expr& a, const Expr& b) {
+    return min_max_impl<false>(std::vector<Expr>{a, b});
+}
+
+// ============================================================================
+// sqrt — uses Pow under the hood
+// ============================================================================
 
 Expr sqrt(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();

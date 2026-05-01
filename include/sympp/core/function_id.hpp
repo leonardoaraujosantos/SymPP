@@ -60,6 +60,13 @@ enum class FunctionId : std::uint16_t {
     Min = 600,
     Max,
 
+    // -- Combinatorial -----------------------------------------------------
+    Factorial = 700,
+    Binomial,
+    RisingFactorial,
+    FallingFactorial,
+    Subfactorial,
+
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,
     LogGamma,
@@ -67,6 +74,7 @@ enum class FunctionId : std::uint16_t {
     Beta,
     Erf,
     Erfc,
+    Erfi,
     BesselJ,
     BesselY,
     BesselI,
