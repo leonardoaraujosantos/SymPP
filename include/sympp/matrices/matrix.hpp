@@ -52,10 +52,18 @@ public:
     [[nodiscard]] Matrix scalar_mul(const Expr& s) const;
 
     [[nodiscard]] Matrix transpose() const;
+    // Conjugate transpose (Hermitian adjoint) — conjugate every entry then
+    // transpose. For real matrices this matches transpose().
+    [[nodiscard]] Matrix conjugate_transpose() const;
+    // Adjugate (classical adjoint) — transpose of the cofactor matrix.
+    // Satisfies A · adj(A) = det(A) · I.
+    [[nodiscard]] Matrix adjugate() const;
     [[nodiscard]] Expr trace() const;
     [[nodiscard]] Expr det() const;
     [[nodiscard]] Matrix inverse() const;
     [[nodiscard]] bool equals(const Matrix& other) const;
+    // Frobenius norm: sqrt(Σ |aᵢⱼ|²).
+    [[nodiscard]] Expr norm_frobenius() const;
 
     // Apply a unary transform to every element.
     template <typename F>
@@ -78,6 +86,22 @@ private:
 // of partial derivatives.
 [[nodiscard]] SYMPP_EXPORT Matrix jacobian(const std::vector<Expr>& fs,
                                             const std::vector<Expr>& vars);
+
+// gradient: scalar f w.r.t. [x1, ..., xn] -> column vector (n×1) of
+// partial derivatives.
+[[nodiscard]] SYMPP_EXPORT Matrix gradient(const Expr& f,
+                                             const std::vector<Expr>& vars);
+
+// hessian: scalar f w.r.t. [x1, ..., xn] -> n×n symmetric matrix of
+// second partial derivatives.
+[[nodiscard]] SYMPP_EXPORT Matrix hessian(const Expr& f,
+                                            const std::vector<Expr>& vars);
+
+// wronskian: list of n functions w.r.t. var -> determinant of the
+// matrix W where W[i, j] = (d^i/dvar^i) fs[j]. Used to test linear
+// independence of fs over the domain of var.
+[[nodiscard]] SYMPP_EXPORT Expr wronskian(const std::vector<Expr>& fs,
+                                            const Expr& var);
 
 // ---- Standard matrix constructors -----------------------------------------
 

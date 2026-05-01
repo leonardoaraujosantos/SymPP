@@ -14,6 +14,7 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
@@ -175,13 +176,9 @@ Expr Matrix::det() const {
     return det_recursive(*this);
 }
 
-Matrix Matrix::inverse() const {
+Matrix Matrix::adjugate() const {
     if (!is_square()) {
-        throw std::invalid_argument("Matrix: inverse requires square matrix");
-    }
-    Expr d = det();
-    if (d == S::Zero()) {
-        throw std::invalid_argument("Matrix: matrix is singular (det = 0)");
+        throw std::invalid_argument("Matrix: adjugate requires square matrix");
     }
     std::size_t n = rows_;
     Matrix adj(n, n);
@@ -193,7 +190,18 @@ Matrix Matrix::inverse() const {
             adj.set(i, j, mul(sign, c));
         }
     }
-    return adj.scalar_mul(pow(d, S::NegativeOne()));
+    return adj;
+}
+
+Matrix Matrix::inverse() const {
+    if (!is_square()) {
+        throw std::invalid_argument("Matrix: inverse requires square matrix");
+    }
+    Expr d = det();
+    if (d == S::Zero()) {
+        throw std::invalid_argument("Matrix: matrix is singular (det = 0)");
+    }
+    return adjugate().scalar_mul(pow(d, S::NegativeOne()));
 }
 
 bool Matrix::equals(const Matrix& other) const {
@@ -220,7 +228,29 @@ std::string Matrix::str() const {
     return out;
 }
 
-// ----- jacobian --------------------------------------------------------------
+Matrix Matrix::conjugate_transpose() const {
+    Matrix out(cols_, rows_);
+    for (std::size_t i = 0; i < rows_; ++i) {
+        for (std::size_t j = 0; j < cols_; ++j) {
+            out.set(j, i, conjugate(at(i, j)));
+        }
+    }
+    return out;
+}
+
+Expr Matrix::norm_frobenius() const {
+    // sqrt(Σ |aᵢⱼ|²) — uses |z|² = z·conj(z) so the result handles
+    // complex entries correctly. For real entries this reduces to
+    // sqrt(Σ aᵢⱼ²).
+    Expr sum = S::Zero();
+    for (const auto& v : data_) {
+        Expr term = mul(v, conjugate(v));
+        sum = add(sum, term);
+    }
+    return sqrt(sum);
+}
+
+// ----- jacobian / gradient / hessian / wronskian -----------------------------
 
 Matrix jacobian(const std::vector<Expr>& fs, const std::vector<Expr>& vars) {
     Matrix out(fs.size(), vars.size());
@@ -230,6 +260,41 @@ Matrix jacobian(const std::vector<Expr>& fs, const std::vector<Expr>& vars) {
         }
     }
     return out;
+}
+
+Matrix gradient(const Expr& f, const std::vector<Expr>& vars) {
+    Matrix g(vars.size(), 1);
+    for (std::size_t i = 0; i < vars.size(); ++i) {
+        g.set(i, 0, diff(f, vars[i]));
+    }
+    return g;
+}
+
+Matrix hessian(const Expr& f, const std::vector<Expr>& vars) {
+    const std::size_t n = vars.size();
+    Matrix h(n, n);
+    for (std::size_t i = 0; i < n; ++i) {
+        Expr di = diff(f, vars[i]);
+        for (std::size_t j = 0; j < n; ++j) {
+            h.set(i, j, diff(di, vars[j]));
+        }
+    }
+    return h;
+}
+
+Expr wronskian(const std::vector<Expr>& fs, const Expr& var) {
+    const std::size_t n = fs.size();
+    Matrix w(n, n);
+    std::vector<Expr> current = fs;  // row 0 = fs themselves
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            w.set(i, j, current[j]);
+        }
+        if (i + 1 < n) {
+            for (auto& v : current) v = diff(v, var);
+        }
+    }
+    return w.det();
 }
 
 // ----- Constructors ---------------------------------------------------------

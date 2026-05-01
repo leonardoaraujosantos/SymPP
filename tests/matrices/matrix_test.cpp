@@ -277,3 +277,89 @@ TEST_CASE("matrix: kronecker product 2x2 ⊗ 2x2 → 4x4",
     REQUIRE(k.at(2, 3) == integer(1));
     REQUIRE(k.at(3, 2) == integer(1));
 }
+
+#include <sympp/calculus/diff.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/trigonometric.hpp>
+
+// ----- adjugate / conjugate_transpose / norm --------------------------------
+
+TEST_CASE("matrix: adjugate of 2x2", "[9][matrix][adjugate][oracle]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    auto adj = m.adjugate();
+    REQUIRE(adj.at(0, 0) == integer(4));
+    REQUIRE(adj.at(0, 1) == integer(-2));
+    REQUIRE(adj.at(1, 0) == integer(-3));
+    REQUIRE(adj.at(1, 1) == integer(1));
+}
+
+TEST_CASE("matrix: A·adj(A) = det(A)·I", "[9][matrix][adjugate]") {
+    Matrix m = {{integer(2), integer(1), integer(3)},
+                {integer(0), integer(4), integer(1)},
+                {integer(5), integer(2), integer(0)}};
+    auto adj = m.adjugate();
+    auto prod = m * adj;
+    auto d = m.det();
+    auto expected = Matrix::identity(3).scalar_mul(d);
+    REQUIRE(prod.equals(expected));
+}
+
+TEST_CASE("matrix: conjugate_transpose of real == transpose",
+          "[9][matrix][conj_transpose]") {
+    Matrix m = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    auto ct = m.conjugate_transpose();
+    auto t = m.transpose();
+    REQUIRE(ct.equals(t));
+}
+
+TEST_CASE("matrix: norm_frobenius of [[1,2],[3,4]] = sqrt(30)",
+          "[9][matrix][norm][oracle]") {
+    auto& oracle = Oracle::instance();
+    Matrix m = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    auto n = m.norm_frobenius();
+    REQUIRE(oracle.equivalent(n->str(), "sqrt(30)"));
+}
+
+// ----- gradient / hessian / wronskian --------------------------------------
+
+TEST_CASE("matrix: gradient of x²+xy is column [2x+y, x]",
+          "[9][matrix][gradient][oracle]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto f = pow(x, integer(2)) + x * y;
+    auto g = gradient(f, {x, y});
+    auto& oracle = Oracle::instance();
+    REQUIRE(g.rows() == 2);
+    REQUIRE(g.cols() == 1);
+    REQUIRE(oracle.equivalent(g.at(0, 0)->str(), "2*x + y"));
+    REQUIRE(g.at(1, 0) == x);
+}
+
+TEST_CASE("matrix: hessian of x²+y² is 2I",
+          "[9][matrix][hessian][oracle]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto f = pow(x, integer(2)) + pow(y, integer(2));
+    auto H = hessian(f, {x, y});
+    REQUIRE(H.at(0, 0) == integer(2));
+    REQUIRE(H.at(1, 1) == integer(2));
+    REQUIRE(H.at(0, 1) == S::Zero());
+    REQUIRE(H.at(1, 0) == S::Zero());
+}
+
+TEST_CASE("matrix: wronskian of {1, x, x²} = 2",
+          "[9][matrix][wronskian][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto w = wronskian({integer(1), x, pow(x, integer(2))}, x);
+    REQUIRE(oracle.equivalent(w->str(), "2"));
+}
+
+TEST_CASE("matrix: wronskian of {sin(x), cos(x)} = -1",
+          "[9][matrix][wronskian][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto w = wronskian({sin(x), cos(x)}, x);
+    REQUIRE(oracle.equivalent(w->str(), "-1"));
+}
