@@ -52,6 +52,7 @@
 #include <sympp/integrals/transforms.hpp>
 #include <sympp/matrices/matrix.hpp>
 #include <sympp/matrices/matrix_symbol.hpp>
+#include <sympp/ode/dsolve.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/polys/rootof.hpp>
 #include <sympp/sets/sets.hpp>
