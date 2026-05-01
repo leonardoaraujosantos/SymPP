@@ -217,6 +217,74 @@ TEST_CASE("Poly: monic normalization", "[4][poly][divmod]") {
     REQUIRE(m.coeffs()[0] == integer(3));
 }
 
+// ----- GCD -------------------------------------------------------------------
+
+TEST_CASE("Poly: gcd of (x^2 - 1) and (x - 1)", "[4][poly][gcd][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    Poly a(pow(x, integer(2)) - integer(1), x);
+    Poly b(x - integer(1), x);
+    auto g = gcd(a, b);
+    // Expect x - 1 (monic).
+    auto resp = oracle.send({{"op", "gcd"},
+                             {"a", "x**2 - 1"}, {"b", "x - 1"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(g.as_expr()->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("Poly: gcd is monic (rational scaling)", "[4][poly][gcd][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (2x^2 - 2) and (3x - 3) — common factor (x - 1)
+    Poly a(integer(2) * pow(x, integer(2)) - integer(2), x);
+    Poly b(integer(3) * x - integer(3), x);
+    auto g = gcd(a, b);
+    auto resp = oracle.send({{"op", "gcd"},
+                             {"a", "2*x**2 - 2"}, {"b", "3*x - 3"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(g.as_expr()->str(),
+                              resp.raw.at("result").get<std::string>()));
+    // Sanity: leading coeff is 1.
+    REQUIRE(g.leading_coeff() == S::One());
+}
+
+TEST_CASE("Poly: gcd of coprime polynomials is 1", "[4][poly][gcd][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    Poly a(pow(x, integer(2)) + integer(1), x);
+    Poly b(x + integer(2), x);
+    auto g = gcd(a, b);
+    REQUIRE(oracle.equivalent(g.as_expr()->str(), "1"));
+}
+
+TEST_CASE("Poly: gcd shared cubic factor", "[4][poly][gcd][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x^3 - 1) = (x-1)(x^2+x+1) and (x^2 - 1) = (x-1)(x+1) — gcd is x - 1
+    Poly a(pow(x, integer(3)) - integer(1), x);
+    Poly b(pow(x, integer(2)) - integer(1), x);
+    auto g = gcd(a, b);
+    auto resp = oracle.send({{"op", "gcd"},
+                             {"a", "x**3 - 1"}, {"b", "x**2 - 1"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(g.as_expr()->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("Poly: gcd with zero", "[4][poly][gcd]") {
+    auto x = symbol("x");
+    Poly a(integer(2) * pow(x, integer(2)) + integer(4), x);
+    Poly z(std::vector<Expr>{S::Zero()}, x);
+    auto g1 = gcd(a, z);
+    auto g2 = gcd(z, a);
+    // Both should equal the monic form of a: x^2 + 2
+    REQUIRE(g1.leading_coeff() == S::One());
+    REQUIRE(g2.leading_coeff() == S::One());
+    REQUIRE(g1.coeffs()[0] == integer(2));
+    REQUIRE(g2.coeffs()[0] == integer(2));
+}
+
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
     auto x = symbol("x");
     // (x^3 + 2x^2 - 7x + 5)' = 3x^2 + 4x - 7

@@ -76,4 +76,10 @@ private:
     void trim_leading_zeros();
 };
 
+// Univariate polynomial GCD via Euclidean algorithm. Result is monic
+// (leading coefficient 1) for non-zero inputs. Behaves correctly over ℚ.
+//
+// Reference: sympy/polys/euclidtools.py::dup_gcd
+[[nodiscard]] SYMPP_EXPORT Poly gcd(const Poly& a, const Poly& b);
+
 }  // namespace sympp

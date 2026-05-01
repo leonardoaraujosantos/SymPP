@@ -248,6 +248,25 @@ std::string Poly::str() const {
     return "Poly(" + as_expr()->str() + ", " + var_->str() + ")";
 }
 
+Poly gcd(const Poly& a, const Poly& b) {
+    if (!(a.var() == b.var())) {
+        throw std::invalid_argument("gcd(Poly, Poly): variable mismatch");
+    }
+    if (a.is_zero() && b.is_zero()) {
+        return Poly{std::vector<Expr>{S::Zero()}, a.var()};
+    }
+    if (a.is_zero()) return b.monic();
+    if (b.is_zero()) return a.monic();
+    Poly p = a;
+    Poly q = b;
+    while (!q.is_zero()) {
+        Poly r = p % q;
+        p = std::move(q);
+        q = std::move(r);
+    }
+    return p.monic();
+}
+
 std::vector<Expr> Poly::roots() const {
     if (degree() == 0) return {};
     if (degree() == 1) {
