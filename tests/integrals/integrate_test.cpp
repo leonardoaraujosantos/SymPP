@@ -383,3 +383,70 @@ TEST_CASE("integrate: ∫(2x)/(x²+1) dx = log(x²+1) (logarithmic derivative)",
     auto r = integrate(e, x);
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
+
+#include <sympp/integrals/quadrature.hpp>
+
+// ----- Numeric quadrature (vpaintegral) --------------------------------------
+
+TEST_CASE("vpaintegral: ∫_0^1 x dx = 1/2",
+          "[7][vpaintegral][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto v = vpaintegral(x, x, S::Zero(), S::One(), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 0.5"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("vpaintegral: ∫_0^1 x² dx = 1/3",
+          "[7][vpaintegral][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto v = vpaintegral(pow(x, integer(2)), x, S::Zero(), S::One(), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 1/3"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("vpaintegral: ∫_0^pi sin(x) dx = 2",
+          "[7][vpaintegral][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto v = vpaintegral(sin(x), x, S::Zero(), S::Pi(), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 2"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("vpaintegral: ∫_0^1 exp(x) dx = e - 1",
+          "[7][vpaintegral][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto v = vpaintegral(exp(x), x, S::Zero(), S::One(), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - (E - 1)"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("vpaintegral: ∫_0^1 exp(x²) dx (intractable symbolically)",
+          "[7][vpaintegral][oracle]") {
+    auto& oracle = Oracle::instance();
+    // Known value: ≈ 1.4626517459071816 — not expressible in elementary
+    // closed form. SymPP's symbolic integrator returns an Integral marker;
+    // vpaintegral computes it numerically.
+    auto x = symbol("x");
+    auto v = vpaintegral(exp(pow(x, integer(2))), x, S::Zero(), S::One(), 15);
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", v->str() + " - 1.4626517459071816"},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}

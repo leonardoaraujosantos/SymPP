@@ -45,6 +45,7 @@ target_sources(sympp
         functions/special.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
+        integrals/quadrature.cpp
         integrals/transforms.cpp
         matrices/matrix.cpp
         polys/poly.cpp
@@ -106,6 +107,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/special.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/integrals/integrate.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/integrals/quadrature.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/integrals/transforms.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp

@@ -48,6 +48,7 @@
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/integrate.hpp>
+#include <sympp/integrals/quadrature.hpp>
 #include <sympp/integrals/transforms.hpp>
 #include <sympp/matrices/matrix.hpp>
 #include <sympp/polys/poly.hpp>
