@@ -6,7 +6,9 @@
 //     sum_{k=0}^{n-1} (1/k!) * d^k expr / dx^k |_{x = x0} * (x - x0)^k
 //
 // Uses our diff() engine, so closed form is available for everything diff
-// covers. Phase 6 minimal: returned as a plain Expr (no O(x^n) marker).
+// covers. The result is a plain Expr; callers who want an explicit
+// remainder term can wrap it in `order(...)` from
+// sympp/calculus/order.hpp.
 //
 // Reference: sympy/series/series.py / sympy/core/expr.py::series
 

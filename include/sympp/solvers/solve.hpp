@@ -1,17 +1,53 @@
 #pragma once
 
-// solve / linsolve.
+// Equation solvers.
 //
-//   solve(expr, var) -> roots of `expr = 0` (treats expr as the LHS with
-//                       implicit RHS = 0).
-//   solve(lhs, rhs, var) -> roots of `lhs - rhs = 0`.
-//   linsolve(A, b) -> solution of A·x = b for square A (uses Matrix::inverse).
+// Univariate polynomial:
+//   solve(expr, var)            roots of expr = 0
+//   solve(lhs, rhs, var)        roots of lhs - rhs = 0
 //
-// Phase 10 minimal: only polynomial equations of degree <= 2 in `var` are
-// handled in closed form. Degree >= 3 / transcendental returns empty
-// (deferred — full SymPy solveset is its own phase).
+// Coverage in solve():
+//   * deg 1, 2          — closed form (linear / quadratic formula)
+//   * deg 3             — Cardano via depressed cubic
+//   * deg 4             — Ferrari via resolvent cubic
+//   * deg ≥ 5           — rational-roots theorem deflation; cofactor
+//                         recurses (so a quintic with one rational
+//                         root and a quartic remainder solves fully).
+//                         No general radical formula exists by
+//                         Abel-Ruffini for irreducible higher degree.
 //
-// Reference: sympy/solvers/solveset.py and sympy/solvers/solvers.py
+// Set-returning variant:
+//   solveset(expr, var [, domain]) returns a Set object. For trig
+//   patterns (sin(a·x), cos(a·x), tan(a·x)) it emits an ImageSet
+//   over Integers representing the full periodic family. Filters
+//   roots against the supplied domain when membership is decidable.
+//
+// Numeric:
+//   nsolve(expr, var, x0, dps)  Newton's method in MPFR for a real
+//                                root near x0.
+//
+// Linear algebra:
+//   linsolve(A, b)              A·x = b for square A via Matrix::inverse.
+//
+// Multivariate polynomial systems:
+//   nonlinsolve(eqs, vars)            two equations, two variables.
+//                                       Eliminates via resultant.
+//   nonlinsolve_groebner(eqs, vars)   n equations, n variables. Builds
+//                                       a Gröbner basis (Buchberger,
+//                                       lex order) and back-solves.
+//
+// Inequalities:
+//   solve_univariate_inequality(lhs, op, rhs, var)
+//   reduce_inequalities(rel, var) / reduce_inequalities(rels, var, conj)
+//
+// Recurrences:
+//   rsolve(coeffs, n)           constant-coefficient linear recurrence.
+//
+// Diophantine:
+//   linear_diophantine(a, b, c) ax + by = c over integers.
+//   pythagorean_triples(max_z)  primitive triples via Euclid's formula.
+//
+// Reference: sympy/solvers/{solveset,solvers,polysys,inequalities,recurr}.py.
 
 #include <array>
 #include <vector>

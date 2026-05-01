@@ -1,14 +1,26 @@
 #pragma once
 
-// Minimal univariate polynomial.
+// Univariate polynomial in a single variable, with arbitrary Expr
+// coefficients (numeric or symbolic).
 //
-// Poly stores coefficients in increasing degree order (coeffs[0] is the
-// constant term). `var` is the symbol the polynomial is in.
+// coeffs[0] is the constant term, coeffs[degree] is the leading
+// coefficient. `var` is the symbol the polynomial is in.
 //
-// Aggressive Phase 4 cut per docs/04-roadmap.md: ship the API surface
-// callers need (degree, coefficients, leading_coeff, evaluate, +/-/*) and
-// closed-form roots up to degree 2; full Berlekamp-Zassenhaus, multivariate
-// factor, Groebner stay deferred.
+// Operations shipped here:
+//   * +, -, *, divmod (and / %), monic, diff
+//   * eval (Horner), as_expr
+//   * roots() — closed form for deg ≤ 4 (Cardano cubic, Ferrari
+//     quartic), rational-root deflation for deg ≥ 5
+//   * sqf_list (Yun square-free factorization)
+//   * gcd via Euclidean algorithm
+//   * factor / factor_list (square-free → rational roots → Kronecker)
+//   * resultant, discriminant, apart, cancel, together, horner
+//
+// Multivariate polynomial systems land in Gröbner basis machinery
+// (sympp/solvers/solve.hpp::groebner). Berlekamp-Zassenhaus +
+// Hensel lifting and Wang multivariate factorization are
+// deferred-deep — Kronecker-based factor() is correct but
+// exponential in degree.
 //
 // Reference: sympy/polys/polytools.py::Poly
 

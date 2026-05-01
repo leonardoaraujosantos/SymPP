@@ -1,14 +1,29 @@
 #pragma once
 
-// simplify, together, collect, cancel.
+// Simplification orchestrator + per-strategy entry points.
 //
-// Phase 5 minimal: lightweight dispatcher built on top of the canonical
-// form (Add term collection, Mul base collection from Phase 1f.2) plus
-// expand from Phase 1i. The full SymPy simplify orchestrator chains a
-// dozen sub-simplifiers (trigsimp, powsimp, radsimp, sqrtdenest, fu, etc.);
-// we ship the high-leverage subset here.
+// `simplify(e)` chains the following sub-simplifiers in order
+// (each is a no-op when its pattern doesn't match):
 //
-// Reference: sympy/simplify/simplify.py::simplify
+//   1. re-canonicalize (Add term collection, Mul base collection)
+//   2. expand          (distribute Mul over Add, expand integer Pow)
+//   3. trigsimp        (sin² + cos² → 1, etc.)
+//   4. powsimp         (combine same-exponent powers)
+//   5. combsimp        (factorial(n+k)/factorial(n) → falling product)
+//   6. gammasimp       (gamma(n+1)/gamma(n) → n)
+//   7. radsimp         (rationalize binomial radical denominators)
+//   8. sqrtdenest      (Borodin denesting on perfect-square discriminants)
+//   9. re-canonicalize (final pass)
+//
+// Each step is also exposed as a free function so callers can invoke
+// just the rule they want without paying for the others.
+//
+// Deferred-deep: hyperexpand (hypergeometric expansion) — this is the
+// blocker for Meijer-G-driven integration as well; treated as one
+// research-level subsystem to land jointly. See docs/04-roadmap.md.
+//
+// Reference: sympy/simplify/simplify.py::simplify and the supporting
+// per-rule files in sympy/simplify/.
 
 #include <utility>
 #include <vector>
@@ -106,13 +121,21 @@ struct CSEResult {
 // Reference: sympy/simplify/simplify.py::nsimplify
 [[nodiscard]] SYMPP_EXPORT Expr nsimplify(const Expr& e, int dps = 15);
 
-// trigsimp(expr) — apply trigonometric identities (Pythagorean, ratio,
-// reciprocal). Minimal Fu-style subset:
-//   * sin²(x) + cos²(x) → 1   (with shared coefficient: a*sin²(x) + a*cos²(x) → a)
-//   * tan(x) → sin(x)/cos(x), cot(x) → cos(x)/sin(x)
-//   * sec(x) → 1/cos(x), csc(x) → 1/sin(x)
-//   * 1 - sin²(x) → cos²(x), 1 - cos²(x) → sin²(x)
-// Walks the tree at every Add and applies the rules to a fixed point.
+// trigsimp(expr) — Pythagorean-identity reduction over Add.
+//
+// At each Add node, group sin²/cos² terms by their argument and
+// rewrite as
+//
+//     a·sin²(x) + b·cos²(x)  →  b + (a − b)·sin²(x)
+//
+// which collapses to `b` when a == b (the canonical
+// sin² + cos² = 1 case). Walks the tree recursively so embedded
+// occurrences inside Mul / Pow / Function arguments get reduced too.
+//
+// Not yet shipped: full Fu rule table (double-angle, half-angle,
+// sum-to-product, cot/sec/csc reciprocal rewrites). The single
+// Pythagorean rule covers the most common simplification need; the
+// rest is deferred-deep.
 //
 // Reference: sympy/simplify/trigsimp.py, sympy/simplify/fu.py
 [[nodiscard]] SYMPP_EXPORT Expr trigsimp(const Expr& e);
