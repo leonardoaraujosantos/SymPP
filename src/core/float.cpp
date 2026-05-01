@@ -206,6 +206,29 @@ std::string Float::str() const {
     return format_mpfr(value_, dps_);
 }
 
+std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
+    if (mpfr_nan_p(value_) != 0) return std::nullopt;
+    bool finite = mpfr_inf_p(value_) == 0;
+    bool zero = mpfr_zero_p(value_) != 0;
+    bool negative_signbit = mpfr_signbit(value_) != 0;
+    int s = zero ? 0 : (negative_signbit ? -1 : 1);
+    switch (k) {
+        case AssumptionKey::Real: return true;
+        // mpmath/SymPy: Floats are *not* known to be rational/integer in the
+        // assumption sense even when the value would fit. Match that.
+        case AssumptionKey::Rational: return std::nullopt;
+        case AssumptionKey::Integer: return std::nullopt;
+        case AssumptionKey::Finite: return finite;
+        case AssumptionKey::Positive: return s > 0;
+        case AssumptionKey::Negative: return s < 0;
+        case AssumptionKey::Zero: return s == 0;
+        case AssumptionKey::Nonzero: return s != 0;
+        case AssumptionKey::Nonnegative: return s >= 0;
+        case AssumptionKey::Nonpositive: return s <= 0;
+    }
+    return std::nullopt;
+}
+
 // ---- evalf ---------------------------------------------------------------
 
 Expr evalf(const Expr& e, int dps) {

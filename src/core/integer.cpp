@@ -95,4 +95,21 @@ std::string Integer::str() const {
     return value_.get_str(10);
 }
 
+std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
+    int s = sgn(value_);
+    switch (k) {
+        case AssumptionKey::Real: return true;
+        case AssumptionKey::Rational: return true;
+        case AssumptionKey::Integer: return true;
+        case AssumptionKey::Finite: return true;
+        case AssumptionKey::Positive: return s > 0;
+        case AssumptionKey::Negative: return s < 0;
+        case AssumptionKey::Zero: return s == 0;
+        case AssumptionKey::Nonzero: return s != 0;
+        case AssumptionKey::Nonnegative: return s >= 0;
+        case AssumptionKey::Nonpositive: return s <= 0;
+    }
+    return std::nullopt;
+}
+
 }  // namespace sympp

@@ -41,6 +41,7 @@ public:
     [[nodiscard]] int sign() const noexcept override { return 1; }
 
     [[nodiscard]] bool equals(const Basic& other) const noexcept override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 
     // Write the constant's value into `out` at precision `prec` (bits).
     // Used by evalf() to materialize a Float at a requested precision.

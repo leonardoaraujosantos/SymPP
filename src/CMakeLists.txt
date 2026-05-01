@@ -7,6 +7,7 @@ add_library(SymPP::sympp ALIAS sympp)
 target_sources(sympp
     PRIVATE
         core/add.cpp
+        core/assumption_mask.cpp
         core/basic.cpp
         core/expand.cpp
         core/expr_cache.cpp
@@ -16,7 +17,9 @@ target_sources(sympp
         core/number_arith.cpp
         core/number_symbol.cpp
         core/pow.cpp
+        core/queries.cpp
         core/rational.cpp
+        core/refine.cpp
         core/singletons.cpp
         core/symbol.cpp
         core/traversal.cpp
@@ -31,6 +34,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/version.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/add.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/api.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_key.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_mask.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_cache.hpp
@@ -43,6 +48,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/operators.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/pow.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/queries.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/refine.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/rational.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/singletons.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/symbol.hpp

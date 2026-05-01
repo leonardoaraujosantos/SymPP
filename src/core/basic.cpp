@@ -30,4 +30,8 @@ bool Basic::equals(const Basic& other) const noexcept {
     return true;
 }
 
+std::optional<bool> Basic::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+
 }  // namespace sympp

@@ -4,6 +4,8 @@
 // For finer control (e.g. include only what you need), use the per-module headers.
 
 #include <sympp/core/add.hpp>
+#include <sympp/core/assumption_key.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/expr_cache.hpp>
@@ -16,6 +18,8 @@
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
+#include <sympp/core/refine.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>

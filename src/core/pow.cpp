@@ -46,6 +46,71 @@ bool Pow::equals(const Basic& other) const noexcept {
     return args_[0] == o.args_[0] && args_[1] == o.args_[1];
 }
 
+std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
+    const auto& base = args_[0];
+    const auto& exp = args_[1];
+    switch (k) {
+        case AssumptionKey::Real: {
+            // positive base + real exp → real
+            if (base->ask(AssumptionKey::Positive) == true
+                && exp->ask(AssumptionKey::Real) == true) return true;
+            // real base + integer exp → real (when 0^neg can't occur)
+            if (base->ask(AssumptionKey::Real) == true
+                && exp->ask(AssumptionKey::Integer) == true
+                && (base->ask(AssumptionKey::Nonzero) == true
+                    || exp->ask(AssumptionKey::Nonnegative) == true)) {
+                return true;
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Positive:
+            // Any real-exp power of a positive is positive.
+            if (base->ask(AssumptionKey::Positive) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            return std::nullopt;
+        case AssumptionKey::Zero:
+            if (base->ask(AssumptionKey::Zero) == true
+                && exp->ask(AssumptionKey::Positive) == true) return true;
+            if (base->ask(AssumptionKey::Nonzero) == true) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (base->ask(AssumptionKey::Nonzero) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Integer:
+            // integer base + nonneg integer exp → integer
+            if (base->ask(AssumptionKey::Integer) == true
+                && exp->ask(AssumptionKey::Integer) == true
+                && exp->ask(AssumptionKey::Nonnegative) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Rational:
+            // rational base + integer exp → rational
+            if (base->ask(AssumptionKey::Rational) == true
+                && exp->ask(AssumptionKey::Integer) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Finite:
+            // finite base + finite nonneg exp → finite (skip 0^neg edge case
+            // by requiring nonneg or nonzero base)
+            if (base->ask(AssumptionKey::Finite) == true
+                && exp->ask(AssumptionKey::Finite) == true
+                && (base->ask(AssumptionKey::Nonzero) == true
+                    || exp->ask(AssumptionKey::Nonnegative) == true)) {
+                return true;
+            }
+            return std::nullopt;
+        case AssumptionKey::Nonnegative:
+        case AssumptionKey::Nonpositive:
+            // Could derive in some special cases (e.g. positive base) but
+            // those reduce to is_positive which is covered above.
+            if (base->ask(AssumptionKey::Positive) == true) {
+                if (k == AssumptionKey::Nonnegative) return true;
+                if (k == AssumptionKey::Nonpositive) return false;
+            }
+            return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 std::string Pow::str() const {
     std::string b = args_[0]->str();
     std::string e = args_[1]->str();

@@ -12,6 +12,25 @@ bool NumberSymbol::equals(const Basic& other) const noexcept {
     return kind() == static_cast<const NumberSymbol&>(other).kind();
 }
 
+std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
+    // Pi, E, EulerGamma, Catalan, GoldenRatio — all positive real irrational
+    // finite. (Imaginary unit and complex constants will need their own
+    // overrides when added.)
+    switch (k) {
+        case AssumptionKey::Real: return true;
+        case AssumptionKey::Rational: return false;
+        case AssumptionKey::Integer: return false;
+        case AssumptionKey::Finite: return true;
+        case AssumptionKey::Positive: return true;
+        case AssumptionKey::Negative: return false;
+        case AssumptionKey::Zero: return false;
+        case AssumptionKey::Nonzero: return true;
+        case AssumptionKey::Nonnegative: return true;
+        case AssumptionKey::Nonpositive: return false;
+    }
+    return std::nullopt;
+}
+
 namespace {
 
 // Stable per-kind hashes — chosen at random, kept constant across versions.

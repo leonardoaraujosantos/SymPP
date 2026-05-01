@@ -16,6 +16,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
+#include "assumption_helpers.hpp"
 #include "canonical_order.hpp"
 #include "expr_map.hpp"
 
@@ -79,6 +80,71 @@ bool Mul::equals(const Basic& other) const noexcept {
         if (!(args_[i] == o.args_[i])) return false;
     }
     return true;
+}
+
+std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
+    using detail::all_args_have;
+    using detail::any_arg_has;
+    switch (k) {
+        case AssumptionKey::Real:
+            if (all_args_have(args_, AssumptionKey::Real, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Integer:
+            if (all_args_have(args_, AssumptionKey::Integer, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Rational:
+            if (all_args_have(args_, AssumptionKey::Rational, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Finite:
+            if (all_args_have(args_, AssumptionKey::Finite, true)) return true;
+            return std::nullopt;
+
+        case AssumptionKey::Zero:
+            // Any zero factor zeroes the product. (We can't claim the product
+            // is *non-zero* without knowing every factor is finite, so that
+            // case stays Unknown unless Nonzero handles it below.)
+            if (any_arg_has(args_, AssumptionKey::Zero, true)) return true;
+            if (all_args_have(args_, AssumptionKey::Nonzero, true)
+                && all_args_have(args_, AssumptionKey::Finite, true)) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (all_args_have(args_, AssumptionKey::Nonzero, true)
+                && all_args_have(args_, AssumptionKey::Finite, true)) return true;
+            if (any_arg_has(args_, AssumptionKey::Zero, true)) return false;
+            return std::nullopt;
+
+        // Sign of product = parity of negative factors, given all are nonzero
+        // and real.
+        case AssumptionKey::Positive: {
+            if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
+            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
+            int neg = 0;
+            for (const auto& a : args_) {
+                auto v = a->ask(AssumptionKey::Negative);
+                if (!v.has_value()) return std::nullopt;
+                if (*v) ++neg;
+            }
+            return (neg % 2) == 0;
+        }
+        case AssumptionKey::Negative: {
+            if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
+            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
+            int neg = 0;
+            for (const auto& a : args_) {
+                auto v = a->ask(AssumptionKey::Negative);
+                if (!v.has_value()) return std::nullopt;
+                if (*v) ++neg;
+            }
+            return (neg % 2) == 1;
+        }
+
+        // Nonneg/nonpos product require sign analysis with potential zeros;
+        // defer for v1.
+        case AssumptionKey::Nonnegative:
+        case AssumptionKey::Nonpositive:
+            return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::string Mul::str() const {

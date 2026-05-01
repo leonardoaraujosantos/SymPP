@@ -10,10 +10,12 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 
 #include <sympp/core/api.hpp>
+#include <sympp/core/assumption_key.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/fwd.hpp>
 
@@ -40,6 +42,13 @@ public:
     [[nodiscard]] virtual std::string str() const = 0;
 
     [[nodiscard]] bool is_atomic() const noexcept { return args().empty(); }
+
+    // Assumption query. Returns std::nullopt for "unknown".
+    // Numbers, NumberSymbols, Symbols-with-assumptions, and compound nodes
+    // override this to provide definite or derived answers.
+    //
+    // Reference: sympy/core/assumptions.py — _ask
+    [[nodiscard]] virtual std::optional<bool> ask(AssumptionKey k) const noexcept;
 
 protected:
     Basic() = default;

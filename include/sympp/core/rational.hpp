@@ -35,6 +35,7 @@ public:
     [[nodiscard]] std::size_t hash() const noexcept override { return hash_; }
     [[nodiscard]] bool equals(const Basic& other) const noexcept override;
     [[nodiscard]] std::string str() const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 
     [[nodiscard]] bool is_zero() const noexcept override { return value_ == 0; }
     [[nodiscard]] bool is_one() const noexcept override { return value_ == 1; }

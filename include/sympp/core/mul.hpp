@@ -33,6 +33,7 @@ public:
     [[nodiscard]] std::span<const Expr> args() const noexcept override { return args_; }
     [[nodiscard]] bool equals(const Basic& other) const noexcept override;
     [[nodiscard]] std::string str() const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 
 private:
     std::vector<Expr> args_;

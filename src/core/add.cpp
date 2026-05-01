@@ -15,6 +15,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
+#include "assumption_helpers.hpp"
 #include "canonical_order.hpp"
 #include "expr_map.hpp"
 
@@ -91,6 +92,53 @@ bool Add::equals(const Basic& other) const noexcept {
         if (!(args_[i] == o.args_[i])) return false;
     }
     return true;
+}
+
+std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
+    using detail::all_args_have;
+    using detail::any_arg_has;
+    switch (k) {
+        // Closure under sum: if every term is real / integer / rational /
+        // finite, the result is too.
+        case AssumptionKey::Real:
+            if (all_args_have(args_, AssumptionKey::Real, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Integer:
+            if (all_args_have(args_, AssumptionKey::Integer, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Rational:
+            if (all_args_have(args_, AssumptionKey::Rational, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Finite:
+            if (all_args_have(args_, AssumptionKey::Finite, true)) return true;
+            return std::nullopt;
+
+        // Sign propagation. Sum of positives is positive; sum of nonneg with
+        // at least one positive is positive (analogously for negative).
+        case AssumptionKey::Positive:
+            if (all_args_have(args_, AssumptionKey::Positive, true)) return true;
+            if (all_args_have(args_, AssumptionKey::Nonnegative, true)
+                && any_arg_has(args_, AssumptionKey::Positive, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            if (all_args_have(args_, AssumptionKey::Negative, true)) return true;
+            if (all_args_have(args_, AssumptionKey::Nonpositive, true)
+                && any_arg_has(args_, AssumptionKey::Negative, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Nonnegative:
+            if (all_args_have(args_, AssumptionKey::Nonnegative, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Nonpositive:
+            if (all_args_have(args_, AssumptionKey::Nonpositive, true)) return true;
+            return std::nullopt;
+
+        // Without algebraic analysis we cannot rule out cancellation, so
+        // defer Zero / Nonzero queries on Add.
+        case AssumptionKey::Zero:
+        case AssumptionKey::Nonzero:
+            return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 std::string Add::str() const {
