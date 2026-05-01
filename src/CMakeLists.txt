@@ -118,6 +118,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/ode/dsolve.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/matlab/matlab.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/parsing/parser.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/physics/units.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/printing/printing.hpp

@@ -7,9 +7,8 @@ parity.
 ## Status snapshot
 
 ```
-820 tests / 1644 assertions  all passing
-53 commits on origin/main
-13 of 15 phases shipped (Phase 14 dropped — see below)
+880 tests / 1724 assertions  all passing
+14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
 | Phase | Title | Status |
@@ -28,7 +27,7 @@ parity.
 | 11 | ODE / PDE                              | ✅ shipped (full Lie + Pantelides deferred) |
 | 12 | Units                                  | ✅ shipped |
 | 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
-| 15 | Parser & MATLAB facade                 | ❌ not started |
+| 15 | Parser & MATLAB facade                 | ✅ shipped |
 | 16 | Hardening & v1.0                       | ❌ not started |
 
 > **Note**: Phase 14 (Plotting bridge) was dropped from scope.
@@ -275,21 +274,30 @@ adapter would couple SymPP to a specific renderer without adding
 mathematical capability — better to keep the library a pure CAS
 and let the consumer pick their plotting layer.
 
-### Phase 15 — Parser / serialization · ❌
+### Phase 15 — Parser + MATLAB facade · ✅
 
-**Scope**: a recursive-descent string parser for math expressions:
-`parse("x**2 + sin(x)")` → `Expr`. Useful for (1) consumers reading
-expressions from non-C++ sources (config files, databases, network
-protocols), (2) round-tripping with SymPy via `srepr` for
-serialization. ~1.5 weeks.
+**Shipped — parser**: a recursive-descent string parser
+`parse("x**2 + sin(x)")` → `Expr`. Two intended uses:
+(1) consumers reading expressions from non-C++ sources (config
+files, databases, network protocols), (2) round-tripping with
+SymPy via `srepr`. Right-associative `**`, `^` aliased,
+function-call dispatch against the SymPP factory set,
+undefined-function preservation, position-tagged `ParseError`.
 
-**Out of scope**: the MATLAB facade (`sympp::matlab::solve`, etc.)
-that was in the original Phase 15 plan. The MATLAB-toolbox-parity
-framing has served its purpose; SymPP is now reframed as a C++
-alternative to SymPy, and a thin renaming-wrapper namespace adds
-maintenance burden without real value (MATLAB users porting
-scripts will rewrite anyway, and `int`/`diff` collide with C++
-conventions).
+**Shipped — MATLAB facade** (`sympp::matlab::*`): MATLAB-named
+wrappers over the SymPP API. Variadic `syms`, `sym(name)`/
+`sym(value)`, `Int` (renamed from `int` — C++ keyword),
+`diff(f, x, n)` for n-th derivative, `taylor` (= `series`),
+`vpa` (= `evalf`), `laplace`/`ilaplace`/`fourier`/`ifourier`/
+`ztrans`/`iztrans`, `solve`/`dsolve`, `simplify`/`subs`/`expand`/
+`factor`/`limit`, `pretty`/`latex`/`ccode`/`fortran`/
+`matlabFunction`. Header-only.
+
+The first plan dropped the facade as "renaming wrapper without
+real value". Reverted: the variadic `syms` and the `Int`-vs-`int`
+keyword adapter are real wrappers, and the namespace-shadowing
+forces consumers to make a clean choice (use SymPP API everywhere
+or MATLAB API everywhere) which keeps porting clear.
 
 ### Phase 16 — Hardening & v1.0 · ❌
 

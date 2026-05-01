@@ -33,6 +33,7 @@ target_sources(sympp_tests
         functions/trigonometric_test.cpp
         integrals/integrate_test.cpp
         integrals/transforms_test.cpp
+        matlab/matlab_test.cpp
         matrices/matrix_test.cpp
         ode/dsolve_test.cpp
         parsing/parser_test.cpp

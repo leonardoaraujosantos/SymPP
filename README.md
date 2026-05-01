@@ -6,9 +6,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-820 tests / 1644 assertions  all passing
-13 of 15 phases shipped
-53 commits on main
+880 tests / 1724 assertions  all passing
+14 of 15 phases shipped
 ```
 
 | Phase | Title | Status |
@@ -27,7 +26,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 | 11 | ODE / PDE                              | ✅ |
 | 12 | Units                                  | ✅ |
 | 13 | Code generation                        | 🟡 printers + function emission |
-| 15 | Parser & MATLAB facade                 | ❌ |
+| 15 | Parser & MATLAB facade                 | ✅ |
 | 16 | Hardening & v1.0                       | ❌ |
 
 > Phase 14 (Plotting bridge) was dropped from scope. Plot via the

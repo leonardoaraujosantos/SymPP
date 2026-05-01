@@ -71,10 +71,18 @@ First public-readiness release. 13 of 15 phases shipped, parser landed,
 - **Phase 13 — Code generation**: `ccode` / `cxxcode` / `fcode` /
   `latex` / `octave_code` / `pretty` printers, `c_function` /
   `cxx_function` / `fortran_function` / `octave_function` emission.
-- **Phase 15 — Parser**: `parse(string_view)` returning `Expr`. Full
-  recursive-descent with proper precedence (unary minus weaker than
-  power, ** right-associative, `^` aliased to `**`), function-call
-  dispatch, undefined-function preservation.
+- **Phase 15 — Parser + MATLAB facade**:
+  * `parse(string_view)` returning `Expr` — full recursive-descent
+    with proper precedence (unary minus weaker than power, **
+    right-associative, `^` aliased to `**`), function-call
+    dispatch, undefined-function preservation.
+  * `sympp::matlab::*` MATLAB-named facade (header-only) —
+    variadic `syms`, `sym`, `Int` (renamed from the `int` keyword),
+    `diff(f, x, n)` for n-th derivative, `taylor` (= series),
+    `vpa` (= evalf), all four transform pairs (`laplace`/
+    `ilaplace`/`fourier`/`ifourier`/`ztrans`/`iztrans`), `solve`/
+    `dsolve`, the algebra wrappers, and print/codegen wrappers
+    (`pretty`, `latex`, `ccode`, `fortran`, `matlabFunction`).
 
 ### Build / packaging
 
@@ -118,7 +126,7 @@ deferred-deep list. Highlights:
 ### Testing
 
 ```
-857 tests / 1692 assertions  all passing
+880 tests / 1724 assertions  all passing
 ```
 
 Every numeric and structural assertion is cross-checked against
