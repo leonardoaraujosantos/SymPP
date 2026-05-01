@@ -51,6 +51,7 @@ target_sources(sympp
         matrices/matrix_symbol.cpp
         polys/poly.cpp
         polys/rootof.cpp
+        sets/sets.cpp
         simplify/simplify.cpp
         solvers/solve.cpp
 )
@@ -114,6 +115,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/rootof.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/sets/sets.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/simplify.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/solvers/solve.hpp
 )

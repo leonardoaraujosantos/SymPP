@@ -54,6 +54,7 @@
 #include <sympp/matrices/matrix_symbol.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/polys/rootof.hpp>
+#include <sympp/sets/sets.hpp>
 #include <sympp/simplify/simplify.hpp>
 #include <sympp/solvers/solve.hpp>
 #include <sympp/fwd.hpp>

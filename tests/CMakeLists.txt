@@ -36,6 +36,7 @@ target_sources(sympp_tests
         matrices/matrix_test.cpp
         oracle/oracle_smoke_test.cpp
         polys/poly_test.cpp
+        sets/sets_test.cpp
         simplify/simplify_test.cpp
         solvers/solve_test.cpp
 )
