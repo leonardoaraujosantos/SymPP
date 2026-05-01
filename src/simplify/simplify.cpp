@@ -16,9 +16,11 @@
 #include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 
@@ -296,6 +298,164 @@ as_trig_square_term(const Expr& term) {
 
 Expr trigsimp(const Expr& e) {
     return apply_recursive(e, trigsimp_add);
+}
+
+// ----- radsimp ---------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] bool is_sqrt_node(const Expr& e) {
+    return e->type_id() == TypeId::Pow && e->args()[1] == S::Half();
+}
+
+// Decompose an expression `den` into rational_part + Σ coef_i * sqrt(arg_i).
+// Walks an Add, splits each term into a sqrt-bearing form or rational form.
+struct SqrtDecomp {
+    std::vector<std::pair<Expr, Expr>> sqrt_terms;  // (coef, sqrt_arg)
+    Expr rational_part = S::Zero();
+};
+
+[[nodiscard]] SqrtDecomp decompose_sqrts(const Expr& den) {
+    SqrtDecomp result;
+    auto handle_term = [&](const Expr& term) {
+        Expr sqrt_factor;
+        std::vector<Expr> coef_factors;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) {
+                if (is_sqrt_node(f) && !sqrt_factor) {
+                    sqrt_factor = f;
+                } else {
+                    coef_factors.push_back(f);
+                }
+            }
+        } else if (is_sqrt_node(term)) {
+            sqrt_factor = term;
+        }
+        if (sqrt_factor) {
+            Expr coef = mul(coef_factors);
+            result.sqrt_terms.emplace_back(coef, sqrt_factor->args()[0]);
+        } else {
+            result.rational_part = add(result.rational_part, term);
+        }
+    };
+    if (den->type_id() == TypeId::Add) {
+        for (const auto& t : den->args()) handle_term(t);
+    } else {
+        handle_term(den);
+    }
+    return result;
+}
+
+}  // namespace
+
+Expr radsimp(const Expr& e) {
+    // Combine into a single fraction so we have a clear num/denom.
+    Expr t = together(e);
+    if (t->type_id() != TypeId::Mul) return t;
+
+    // Locate Pow(_, -1) factor — the denominator.
+    Expr den;
+    std::vector<Expr> num_factors;
+    for (const auto& f : t->args()) {
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && !den) {
+            den = f->args()[0];
+        } else {
+            num_factors.push_back(f);
+        }
+    }
+    if (!den) return t;
+    Expr num = mul(num_factors);
+
+    auto decomp = decompose_sqrts(den);
+    if (decomp.sqrt_terms.size() != 1) return t;
+    // Binomial: den = a + b * sqrt(c). Conjugate: a - b * sqrt(c).
+    const auto& [b_coef, sqrt_arg] = decomp.sqrt_terms[0];
+    const Expr& a = decomp.rational_part;
+    Expr b_sqrt = mul(b_coef, sqrt(sqrt_arg));
+    Expr conjugate = a - b_sqrt;
+    Expr new_num = num * conjugate;
+    // (a + b√c)(a - b√c) = a² - b²c
+    Expr new_den = a * a - b_coef * b_coef * sqrt_arg;
+    if (new_den == S::Zero()) return t;
+    return new_num / new_den;
+}
+
+// ----- sqrtdenest ------------------------------------------------------------
+//
+// sqrt(a + b*sqrt(c)) denests to sqrt(d) + sqrt(e) when (a² - b²c) is a
+// non-negative perfect square (call it r). Then:
+//   d = (a + r) / 2
+//   e = (a - r) / 2
+// And sqrt(a + b*sqrt(c)) = sqrt(d) + sqrt(e).
+//
+// We only attempt this when a, b, c are numeric Integer/Rational so we can
+// compute r exactly via Integer::is_square / mpz_rootrem.
+
+namespace {
+
+[[nodiscard]] std::optional<mpq_class> as_mpq(const Expr& e) {
+    if (e->type_id() == TypeId::Integer) {
+        return mpq_class(static_cast<const Integer&>(*e).value());
+    }
+    if (e->type_id() == TypeId::Rational) {
+        return static_cast<const Rational&>(*e).value();
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] Expr mpq_to_sympp(const mpq_class& q) {
+    mpq_class r = q;
+    r.canonicalize();
+    if (r.get_den() == 1) return make<Integer>(r.get_num());
+    return make<Rational>(r);
+}
+
+[[nodiscard]] std::optional<mpq_class> rational_sqrt(const mpq_class& q) {
+    if (q < 0) return std::nullopt;
+    mpz_class num = q.get_num();
+    mpz_class den = q.get_den();
+    mpz_class num_root, num_rem, den_root, den_rem;
+    mpz_rootrem(num_root.get_mpz_t(), num_rem.get_mpz_t(),
+                num.get_mpz_t(), 2);
+    mpz_rootrem(den_root.get_mpz_t(), den_rem.get_mpz_t(),
+                den.get_mpz_t(), 2);
+    if (num_rem != 0 || den_rem != 0) return std::nullopt;
+    return mpq_class(num_root, den_root);
+}
+
+[[nodiscard]] Expr sqrtdenest_node(const Expr& e) {
+    if (!is_sqrt_node(e)) return e;
+    const Expr& inner = e->args()[0];
+    if (inner->type_id() != TypeId::Add) return e;
+    auto decomp = decompose_sqrts(inner);
+    if (decomp.sqrt_terms.size() != 1) return e;
+    const auto& [b_expr, c_expr] = decomp.sqrt_terms[0];
+    auto a_q = as_mpq(decomp.rational_part);
+    auto b_q = as_mpq(b_expr);
+    auto c_q = as_mpq(c_expr);
+    if (!a_q || !b_q || !c_q) return e;
+
+    mpq_class disc = (*a_q) * (*a_q) - (*b_q) * (*b_q) * (*c_q);
+    auto r_q = rational_sqrt(disc);
+    if (!r_q) return e;
+    // r >= 0 holds since rational_sqrt requires non-negative input.
+    mpq_class d_q = ((*a_q) + (*r_q)) / mpq_class(2);
+    mpq_class f_q = ((*a_q) - (*r_q)) / mpq_class(2);
+    if (d_q < 0 || f_q < 0) return e;
+    Expr d_e = mpq_to_sympp(d_q);
+    Expr f_e = mpq_to_sympp(f_q);
+    // Sign of b_q decides whether result is sqrt(d) + sqrt(f) or sqrt(d) - sqrt(f).
+    Expr result_pos = sqrt(d_e) + sqrt(f_e);
+    if (*b_q >= 0) return result_pos;
+    return sqrt(d_e) - sqrt(f_e);
+}
+
+}  // namespace
+
+Expr sqrtdenest(const Expr& e) {
+    return apply_recursive(e, sqrtdenest_node);
 }
 
 }  // namespace sympp

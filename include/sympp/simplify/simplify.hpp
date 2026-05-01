@@ -50,6 +50,21 @@ namespace sympp {
 // Reference: sympy/core/expr.py expand(power_base=True)
 [[nodiscard]] SYMPP_EXPORT Expr expand_power_base(const Expr& e);
 
+// radsimp(expr) — rationalize denominators containing radicals. Handles
+// the common case of a binomial denominator a + b*sqrt(c) by multiplying
+// numerator and denominator by the conjugate a - b*sqrt(c). Larger
+// denominators (more than one distinct radical) pass through unchanged.
+//
+// Reference: sympy/simplify/radsimp.py::radsimp
+[[nodiscard]] SYMPP_EXPORT Expr radsimp(const Expr& e);
+
+// sqrtdenest(expr) — denest sqrt(a + b*sqrt(c)) → sqrt(d) + sqrt(e) when
+// the expression admits a rational denesting (i.e. when c² - 4*(a²-b²)/c
+// — the discriminant of the auxiliary quadratic — is a perfect square).
+//
+// Reference: sympy/simplify/sqrtdenest.py::sqrtdenest
+[[nodiscard]] SYMPP_EXPORT Expr sqrtdenest(const Expr& e);
+
 // trigsimp(expr) — apply trigonometric identities (Pythagorean, ratio,
 // reciprocal). Minimal Fu-style subset:
 //   * sin²(x) + cos²(x) → 1   (with shared coefficient: a*sin²(x) + a*cos²(x) → a)
