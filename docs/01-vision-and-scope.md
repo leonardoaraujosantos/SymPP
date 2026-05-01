@@ -54,7 +54,7 @@ We want SymPy's breadth, SymEngine's speed, and a license/runtime profile that l
 | 1 — Getting Started | ✅ Full | Symbol/Number/Matrix/Function/Assumptions API |
 | 2 — Symbolic Computations | ✅ Mostly | Excluding Live Editor UI features (subscripts/copy-paste). Units full. |
 | 3 — Mathematics | ✅ Full | Solvers, calculus, transforms, simplification, linear algebra, polynomials, prime factorization |
-| 4 — Graphics | ⚠️ Bridge only | We provide data; consumer plots via gnuplot/matplotlib-cpp/their choice |
+| 4 — Graphics | ❌ Out of scope | Consumer plots SymPP output via their renderer of choice (gnuplot/matplotlib/etc.) |
 | 5 — Code Generation | ✅ Mostly | C/Fortran/LaTeX/Octave-syntax. No Simulink, no Simscape, no MATLAB Coder app. |
 | 6 — Function Reference | ✅ Full | All math functions; MATLAB-named facade in `sympp::matlab::` |
 
@@ -62,6 +62,7 @@ We want SymPy's breadth, SymEngine's speed, and a license/runtime profile that l
 
 - **Simulink / Simscape** — proprietary block formats, no math content.
 - **MATLAB Live Editor** — IDE feature, not a math feature.
+- **Plotting / rendering backends** — consumers pipe SymPP output (`ccode`, `latex`, `evalf`, `vpaintegral`) to their plotting layer of choice. A SymPP-specific plotting bridge would couple the library to a renderer without adding mathematical capability.
 - **Numeric ODE/PDE solvers** — we solve symbolically. Numeric integration is the consumer's problem (Sundials / CasADi / Boost.Numeric.Odeint). We may emit code that drives them.
 - **Domain-specific languages** beyond plain math notation. Categorical-style algebra packages (HOL, Coq-style proof assistants) are a different product class.
 

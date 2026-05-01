@@ -9,7 +9,7 @@ parity.
 ```
 820 tests / 1644 assertions  all passing
 53 commits on origin/main
-13 of 16 original phases shipped
+13 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
 | Phase | Title | Status |
@@ -28,9 +28,15 @@ parity.
 | 11 | ODE / PDE                              | ✅ shipped (full Lie + Pantelides deferred) |
 | 12 | Units                                  | ✅ shipped |
 | 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
-| 14 | Plotting bridge                        | ❌ not started |
 | 15 | Parser & MATLAB facade                 | ❌ not started |
 | 16 | Hardening & v1.0                       | ❌ not started |
+
+> **Note**: Phase 14 (Plotting bridge) was dropped from scope.
+> Plotting is downstream of CAS correctness — consumers can pipe
+> SymPP output to gnuplot / matplotlib / their renderer of choice
+> without needing dedicated SymPP infrastructure. Phase numbering
+> for 15/16 and 17+ kept stable to avoid invalidating existing
+> commit messages and external references.
 
 Legend: ✅ feature-complete at minimal-viable scope · 🟡 partial · ❌ not started
 
@@ -259,14 +265,15 @@ via LLVM ORC — heavy LLVM dependency), `autowrap` equivalent
 layout (stacked fractions, integral signs — ~500 LOC port from
 sympy/printing/pretty/).
 
-### Phase 14 — Plotting bridge · ❌
+### Phase 14 — Plotting bridge · DROPPED
 
-**Status**: Not started. Original scope: `SampledFunction`,
-gnuplot/matplotlib-cpp/CSV adaptors, 1D/2D/3D/contour/implicit/
-parametric plots. Genuinely small effort (~1 week per the original
-estimate) once we decide on the rendering bridge. Intentionally
-parked — most CAS users want symbolic correctness first; plotting
-is downstream of the deliverables.
+Removed from scope. CAS users pipe SymPP output to gnuplot,
+matplotlib, or any other renderer through the existing code
+generation pipeline (`ccode`, `octave_code`, `latex`) and numeric
+quadrature (`vpaintegral`) plus `evalf`. A dedicated plotting
+adapter would couple SymPP to a specific renderer without adding
+mathematical capability — better to keep the library a pure CAS
+and let the consumer pick their plotting layer.
 
 ### Phase 15 — Parser & MATLAB facade · ❌
 
@@ -321,11 +328,10 @@ parity deltas, not bug fixes.
 
 **Total category A**: roughly 42 developer-weeks of focused work.
 
-### Category B: Original phases 14, 15, 16
+### Category B: Remaining original phases (15, 16)
 
 | # | Title | Effort |
 |---|---|---|
-| 14 | Plotting bridge                  | 1 wk |
 | 15 | Parser + MATLAB facade           | 2 wk |
 | 16 | Hardening + v1.0 release         | 4–6 wk |
 
@@ -402,28 +408,26 @@ area, polygon decomposition.
 ## Summary
 
 ```
-Where we are:        13/16 original phases shipped, 820 oracle-validated tests.
+Where we are:        13/15 phases shipped, 820 oracle-validated tests.
 What's deferred:     ~42 weeks of Category A (deep-deferreds within shipped phases).
-What's next:         ~15 weeks for Category B (Phases 14, 15, 16).
+What's next:         ~6–8 weeks for Category B (Phases 15, 16).
 What's beyond:       ~25 weeks for Category C (Phases 17–24, true SymPy parity).
 ```
 
-**Total to full SymPy parity**: roughly 80 focused developer-weeks
+**Total to full SymPy parity**: roughly 75 focused developer-weeks
 on top of what's already in `main`.
 
-The first compelling milestone is **v0.5 = Phases 14 + 15 + 16
-landing**: that gives us a parser, a plotting bridge, and a tagged
-release. From there, Category A and C can be parallelized — the
-deep-deferreds within shipped phases are independent of the new
-modules.
+The first compelling milestone is **v0.5 = Phases 15 + 16 landing**:
+that gives us a parser and a tagged release. From there, Category
+A and C can be parallelized — the deep-deferreds within shipped
+phases are independent of the new modules.
 
 ---
 
 ## Critical path
 
 ```
-shipped (1..13) ─┬─ 14 (plotting)
-                  ├─ 15 (parser, MATLAB facade)
+shipped (0..13) ─┬─ 15 (parser, MATLAB facade)
                   ├─ 16 (hardening → v0.5)
                   │
                   ├─ Cat A: hyperexpand → Meijer G → Risch
@@ -440,5 +444,5 @@ shipped (1..13) ─┬─ 14 (plotting)
 
 The deep-deferreds within shipped phases are independent of one
 another and can be tackled in any order. The new modules (17+)
-likewise have low coupling. Phases 14, 15, 16 are the only strictly-
-sequenced work remaining.
+likewise have low coupling. Phases 15 and 16 are the only
+strictly-sequenced work remaining.

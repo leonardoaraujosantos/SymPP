@@ -7,7 +7,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 
 ```
 820 tests / 1644 assertions  all passing
-13 of 16 original phases shipped
+13 of 15 phases shipped
 53 commits on main
 ```
 
@@ -27,9 +27,12 @@ algorithms with SymPy itself wired in as the validation oracle.
 | 11 | ODE / PDE                              | ✅ |
 | 12 | Units                                  | ✅ |
 | 13 | Code generation                        | 🟡 printers + function emission |
-| 14 | Plotting bridge                        | ❌ |
 | 15 | Parser & MATLAB facade                 | ❌ |
 | 16 | Hardening & v1.0                       | ❌ |
+
+> Phase 14 (Plotting bridge) was dropped from scope. Plot via the
+> code-gen pipeline or `evalf` / `vpaintegral` numeric output piped
+> to the consumer's renderer of choice.
 
 See [docs/04-roadmap.md](docs/04-roadmap.md) for the per-phase
 shipped/deferred breakdown and the path to SymPy parity.
