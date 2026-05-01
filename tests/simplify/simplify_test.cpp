@@ -5,6 +5,7 @@
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
@@ -155,4 +156,75 @@ TEST_CASE("expand_power_base: refuses without positivity",
     auto out = expand_power_base(e);
     // No positivity assumption — must not split.
     REQUIRE(out == e);
+}
+
+// ----- trigsimp --------------------------------------------------------------
+
+TEST_CASE("trigsimp: sin(x)^2 + cos(x)^2 → 1", "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+TEST_CASE("trigsimp: shared coefficient a*sin²+a*cos² → a",
+          "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto e = a * pow(sin(x), integer(2)) + a * pow(cos(x), integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "a"));
+}
+
+TEST_CASE("trigsimp: 2*sin² + 3*cos² → 2 + cos² (form reduction)",
+          "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(2) * pow(sin(x), integer(2))
+             + integer(3) * pow(cos(x), integer(2));
+    auto s = trigsimp(e);
+    // Algebraically equivalent to either form; oracle uses simplify.
+    REQUIRE(oracle.equivalent(s->str(),
+                              "2*sin(x)**2 + 3*cos(x)**2"));
+}
+
+TEST_CASE("trigsimp: independent of argument symbol",
+          "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(sin(x + y), integer(2)) + pow(cos(x + y), integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+TEST_CASE("trigsimp: nested in larger expression", "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // y * (sin²(x) + cos²(x)) + y² → y + y²  (after expand)
+    auto e = y * (pow(sin(x), integer(2)) + pow(cos(x), integer(2)))
+             + pow(y, integer(2));
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "y + y**2"));
+}
+
+TEST_CASE("trigsimp: leaves non-Pythagorean trig alone",
+          "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(x) + cos(x);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "sin(x) + cos(x)"));
+}
+
+TEST_CASE("trigsimp: only sin² (no cos² counterpart) stays",
+          "[5][trigsimp][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sin(x), integer(2)) + integer(1);
+    auto s = trigsimp(e);
+    REQUIRE(oracle.equivalent(s->str(), "sin(x)**2 + 1"));
 }

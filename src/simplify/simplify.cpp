@@ -12,12 +12,14 @@
 #include <sympp/core/function.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
+#include <sympp/core/operators.hpp>
 #include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 
 namespace sympp {
@@ -203,6 +205,97 @@ Expr expand_power_exp(const Expr& e) {
 
 Expr expand_power_base(const Expr& e) {
     return apply_recursive(e, expand_power_base_node);
+}
+
+// ----- trigsimp --------------------------------------------------------------
+
+namespace {
+
+// If `e` is sin(arg)^2 or cos(arg)^2, return (is_sin, arg). Else nullopt.
+[[nodiscard]] std::optional<std::pair<bool, Expr>>
+detect_trig_pow2(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return std::nullopt;
+    if (!(e->args()[1] == integer(2))) return std::nullopt;
+    const Expr& base = e->args()[0];
+    if (base->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*base);
+    if (f.function_id() == FunctionId::Sin) return std::pair{true, base->args()[0]};
+    if (f.function_id() == FunctionId::Cos) return std::pair{false, base->args()[0]};
+    return std::nullopt;
+}
+
+// Decompose a term as (coef * sin(arg)^2) or (coef * cos(arg)^2). Returns
+// nullopt when the term has neither, or has more than one such factor (an
+// unusual structure we leave alone).
+struct TrigSquareTerm {
+    bool is_sin;
+    Expr arg;
+    Expr coef;
+};
+[[nodiscard]] std::optional<TrigSquareTerm>
+as_trig_square_term(const Expr& term) {
+    if (auto r = detect_trig_pow2(term); r) {
+        return TrigSquareTerm{r->first, r->second, S::One()};
+    }
+    if (term->type_id() == TypeId::Mul) {
+        std::optional<std::pair<bool, Expr>> trig;
+        std::vector<Expr> coef_factors;
+        for (const auto& f : term->args()) {
+            if (auto r = detect_trig_pow2(f); r) {
+                if (trig) return std::nullopt;  // multiple — leave alone
+                trig = r;
+            } else {
+                coef_factors.push_back(f);
+            }
+        }
+        if (trig) {
+            return TrigSquareTerm{trig->first, trig->second, mul(coef_factors)};
+        }
+    }
+    return std::nullopt;
+}
+
+[[nodiscard]] Expr trigsimp_add(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+
+    struct CoefPair { Expr sin_coef = S::Zero(); Expr cos_coef = S::Zero(); };
+    std::vector<std::pair<Expr, CoefPair>> by_arg;
+    std::vector<Expr> non_trig;
+
+    auto find_or_create = [&](const Expr& arg) -> CoefPair& {
+        for (auto& [a, p] : by_arg) if (a == arg) return p;
+        by_arg.push_back({arg, CoefPair{}});
+        return by_arg.back().second;
+    };
+
+    for (const auto& term : e->args()) {
+        auto t = as_trig_square_term(term);
+        if (!t) { non_trig.push_back(term); continue; }
+        auto& cp = find_or_create(t->arg);
+        if (t->is_sin) cp.sin_coef = add(cp.sin_coef, t->coef);
+        else cp.cos_coef = add(cp.cos_coef, t->coef);
+    }
+
+    std::vector<Expr> out = std::move(non_trig);
+    for (auto& [arg, cp] : by_arg) {
+        // Rewrite a*sin²(x) + b*cos²(x) as b + (a-b)*sin²(x). When a == b
+        // this collapses to b — the Pythagorean identity. Otherwise it
+        // produces an equivalent form with one fewer trig² (b absorbed).
+        out.push_back(cp.cos_coef);
+        Expr diff = cp.sin_coef - cp.cos_coef;
+        if (!(diff == S::Zero())) {
+            out.push_back(mul(diff, pow(sin(arg), integer(2))));
+        }
+    }
+    if (out.empty()) return S::Zero();
+    if (out.size() == 1) return out[0];
+    return add(std::move(out));
+}
+
+}  // namespace
+
+Expr trigsimp(const Expr& e) {
+    return apply_recursive(e, trigsimp_add);
 }
 
 }  // namespace sympp

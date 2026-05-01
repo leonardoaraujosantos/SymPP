@@ -50,4 +50,15 @@ namespace sympp {
 // Reference: sympy/core/expr.py expand(power_base=True)
 [[nodiscard]] SYMPP_EXPORT Expr expand_power_base(const Expr& e);
 
+// trigsimp(expr) — apply trigonometric identities (Pythagorean, ratio,
+// reciprocal). Minimal Fu-style subset:
+//   * sin²(x) + cos²(x) → 1   (with shared coefficient: a*sin²(x) + a*cos²(x) → a)
+//   * tan(x) → sin(x)/cos(x), cot(x) → cos(x)/sin(x)
+//   * sec(x) → 1/cos(x), csc(x) → 1/sin(x)
+//   * 1 - sin²(x) → cos²(x), 1 - cos²(x) → sin²(x)
+// Walks the tree at every Add and applies the rules to a fixed point.
+//
+// Reference: sympy/simplify/trigsimp.py, sympy/simplify/fu.py
+[[nodiscard]] SYMPP_EXPORT Expr trigsimp(const Expr& e);
+
 }  // namespace sympp
