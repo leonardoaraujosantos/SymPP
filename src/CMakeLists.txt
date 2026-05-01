@@ -30,6 +30,7 @@ target_sources(sympp
         core/undefined_function.cpp
         calculus/diff.cpp
         calculus/limit.cpp
+        calculus/order.cpp
         calculus/series.cpp
         functions/combinatorial.cpp
         functions/exponential.cpp
@@ -85,6 +86,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/diff.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/limit.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/order.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/series.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp

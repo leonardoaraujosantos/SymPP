@@ -33,6 +33,7 @@
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/calculus/limit.hpp>
+#include <sympp/calculus/order.hpp>
 #include <sympp/calculus/series.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>

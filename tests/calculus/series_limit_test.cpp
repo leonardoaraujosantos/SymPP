@@ -108,3 +108,39 @@ TEST_CASE("limit: log(1+x)/x at 0 → 1", "[6][limit][lhopital][oracle]") {
     auto v = limit(e, x, S::Zero());
     REQUIRE(oracle.equivalent(v->str(), "1"));
 }
+
+#include <sympp/calculus/order.hpp>
+
+// ----- Order / Big-O ---------------------------------------------------------
+
+TEST_CASE("Order: O(x^3) prints as O(x**3)", "[6][order]") {
+    auto x = symbol("x");
+    auto o = order(pow(x, integer(3)), x);
+    REQUIRE(o->str() == "O(x**3)");
+}
+
+TEST_CASE("Order: O(0) collapses to 0", "[6][order]") {
+    auto x = symbol("x");
+    auto o = order(S::Zero(), x);
+    REQUIRE(o == S::Zero());
+}
+
+TEST_CASE("Order: hash-cons identity", "[6][order]") {
+    auto x = symbol("x");
+    auto a = order(pow(x, integer(2)), x);
+    auto b = order(pow(x, integer(2)), x);
+    REQUIRE(a.get() == b.get());
+}
+
+TEST_CASE("Order: distinct orders inequal", "[6][order]") {
+    auto x = symbol("x");
+    auto a = order(pow(x, integer(2)), x);
+    auto b = order(pow(x, integer(3)), x);
+    REQUIRE(a != b);
+}
+
+TEST_CASE("Order: with explicit point prints (var, point)", "[6][order]") {
+    auto x = symbol("x");
+    auto o = order(pow(x - integer(1), integer(2)), x, integer(1));
+    REQUIRE(o->str() == "O((x - 1)**2, (x, 1))");
+}
