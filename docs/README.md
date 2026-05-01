@@ -23,8 +23,9 @@ and structural test.
 
 ## Status
 
-13 of 16 original phases shipped — 820 oracle-validated tests, 1644
-assertions all passing. See [Roadmap](04-roadmap.md) for the
+14 of 15 phases shipped (Phase 16 partial). 962 tests / 1872
+assertions, 307 oracle-validated against SymPy 1.14, all passing.
+See [Roadmap](04-roadmap.md) for the
 shipped/deferred breakdown per phase and the path to full SymPy
 parity (Phases 17-24 cover modules originally listed as anti-scope:
 vector calculus, tensors, statistics, number theory, combinatorics,

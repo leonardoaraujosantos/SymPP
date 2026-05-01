@@ -5,8 +5,11 @@ versioning per [SemVer](https://semver.org/).
 
 ## [0.5.0] — Unreleased
 
-First public-readiness release. 13 of 15 phases shipped, parser landed,
-`find_package(SymPP)` works, examples directory and CI in place.
+First public-readiness release. 14 of 15 phases shipped (Phase 16
+partial — `find_package` install + CI matrix done; v1.0 tag pending),
+parser landed, MATLAB facade extended, examples directory and CI in
+place. 962 tests / 1872 assertions, 307 oracle-validated against
+SymPy 1.14, all passing.
 
 ### Added
 

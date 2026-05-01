@@ -115,6 +115,17 @@ For high-frequency operations (hash, equality), we use a tag-based switch over `
 
 ## Module layout
 
+> **Note**: the tree below is the *target* layout — the design intent
+> for SymPy parity. The current `include/sympp/` layout differs in
+> places: `ode/dsolve.hpp` (not `solvers/ode.hpp`), no separate
+> `polys/factor.hpp` or `polys/domain.hpp` yet (factor lives in
+> `polys/poly.hpp`), `simplify/hyperexpand.hpp` is shipped,
+> `functions/hypergeometric.hpp` is shipped (`Hyper`, `MeijerG`),
+> sparse matrices and `codegen/` are not yet present, and the
+> `matlab/` directory has been split into per-area sub-headers
+> (`parsing.hpp`, `assumptions.hpp`, `solvers.hpp`, `ode.hpp`,
+> `pde.hpp`) under the umbrella `matlab.hpp`.
+
 ```
 sympp/
 ├── include/sympp/

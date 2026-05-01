@@ -36,7 +36,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 | 12 | Units                                  | ✅ |
 | 13 | Code generation                        | 🟡 printers + function emission |
 | 15 | Parser & MATLAB facade                 | ✅ |
-| 16 | Hardening & v1.0                       | ❌ |
+| 16 | Hardening & v1.0                       | 🟡 find_package + install + CI shipped; v1.0 tag pending |
 
 > Phase 14 (Plotting bridge) was dropped from scope. Plot via the
 > code-gen pipeline or `evalf` / `vpaintegral` numeric output piped
@@ -94,27 +94,35 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
 - **Number tower** — `Integer` / `Rational` (GMP) / `Float` (MPFR
   arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E`.
 - **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
-  factorial/gamma/erf/heaviside/dirac_delta and the rest of the
-  elementary + special + combinatorial canon.
+  factorial/gamma/erf/heaviside/dirac_delta plus `Hyper` and
+  `MeijerG` (proper Function classes with auto-eval) and the rest of
+  the elementary + special + combinatorial canon.
 - **Calculus** — `diff`, `integrate` (table + trig + parts +
   rational + heurisch), `series`, `limit` with L'Hôpital,
   `summation`, Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ, Cardano cubic,
   Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
-- **Simplification** — `simplify` orchestrator chaining trigsimp,
-  powsimp, radsimp, sqrtdenest, combsimp, gammasimp, cse,
-  nsimplify.
+- **Simplification** — `simplify` orchestrator chaining trigsimp
+  (Pythagorean + Fu double-angle / 2sin·cos collapses),
+  `expand_trig`, `fu`, powsimp, radsimp, sqrtdenest, combsimp,
+  gammasimp, cse, nsimplify, `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁(1;2;z),
+  ₂F₁(1,1;2;z), parameter cancellation).
 - **Linear algebra** — det, inverse, eigendecomposition, LU/QR/
   Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
-  `MatrixSymbol` expression tree.
-- **Equation solvers** — `solve`, `solveset`, `nsolve` (Newton in
-  MPFR), inequality solver, `rsolve`, `nonlinsolve` via
+  `Matrix::jordan_form()` (chains ≤ 2), `Matrix::exp(t)` matrix
+  exponential via Jordan, `MatrixSymbol` expression tree.
+- **Equation solvers** — `solve`, `solveset` with `_invert` chain
+  (peels log/exp/sin/cos/tan/sinh/cosh/tanh/abs from the LHS;
+  emits ImageSet over ℤ for periodic trig), `nsolve` / `vpasolve`
+  (Newton in MPFR), inequality solver, `rsolve`, `nonlinsolve` via
   resultants and via Gröbner.
 - **ODE / PDE** — `dsolve` for separable, linear, Bernoulli,
   exact, Riccati, homogeneous, autonomous, constant-coefficient,
-  Cauchy-Euler, hypergeometric. Linear systems via
-  eigendecomposition. PDE for first-order linear, heat, wave.
-  IVP application + `checkodesol`.
+  Cauchy-Euler, hypergeometric. Variation of parameters for
+  nonhomogeneous 2nd-order linear (constant-coef and Cauchy-Euler).
+  Linear systems via Jordan-form matrix exponential (handles
+  defective A). PDE for first-order linear, heat, wave. IVP
+  application + `checkodesol`.
 - **Transforms** — Laplace, Fourier, Mellin, Z, sine/cosine —
   forward and inverse, table-driven with linearity.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
@@ -122,9 +130,14 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   temperature conversion.
 - **Code generation** — C / C++ / Fortran / LaTeX / Octave
   printers + function emission.
+- **MATLAB facade** — `sympp::matlab::*` namespace with `syms`,
+  `sym(string)` / `str2sym` (parser-routed), `assume` /
+  `assumeAlso` / `refresh`, `dsolve` / `linsolve` / `nsolve` /
+  `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy 1.14 via a long-lived Python
-  subprocess.
+  subprocess. New `hyperexpand` op cross-validates SymPP's
+  hypergeometric rewrites against SymPy's reference implementation.
 
 ## Documentation
 
@@ -166,15 +179,19 @@ Catch2 tag exercise that path; everything else runs without Python.
 
 ### Use as a dependency
 
-After install:
+```bash
+cmake --install build --prefix /your/prefix
+```
 
 ```cmake
 find_package(SymPP REQUIRED)
 target_link_libraries(your_target PRIVATE SymPP::sympp)
 ```
 
-(Note: `find_package` integration is part of Phase 16; for now,
-add the SymPP repo as a CMake subdirectory.)
+`SymPPConfig.cmake` and the per-target export are installed by the
+build's install rules. A worked consumer build (with `demo.cpp` +
+`CMakeLists.txt`) lives in the CI workflow's `find_package consumer
+build` step.
 
 ## License
 

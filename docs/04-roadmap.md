@@ -7,7 +7,7 @@ parity.
 ## Status snapshot
 
 ```
-880 tests / 1724 assertions  all passing
+962 tests / 1872 assertions  all passing
 14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
@@ -18,17 +18,17 @@ parity.
 | 2  | Assumptions                            | 🟡 minimal subset (SAT-based deferred) |
 | 3  | Elementary & special functions         | ✅ shipped |
 | 4  | Polynomials                            | ✅ shipped (multivariate factor + BZ deferred) |
-| 5  | Simplification                         | ✅ shipped (hyperexpand deferred) |
+| 5  | Simplification                         | ✅ shipped (hyperexpand subset shipped — full Slater + Meijer-G expansion deferred) |
 | 6  | Calculus                               | ✅ shipped (Gruntz at infinity deferred) |
 | 7  | Integration                            | ✅ shipped (full Risch + Meijer G deferred) |
 | 8  | Transforms                             | ✅ shipped (Meijer-driven general case deferred) |
-| 9  | Linear algebra                         | ✅ shipped (SVD, Jordan, sparse deferred) |
-| 10 | Equation solvers                       | ✅ shipped (F4/F5 Gröbner + SAT deferred) |
-| 11 | ODE / PDE                              | ✅ shipped (full Lie + Pantelides deferred) |
+| 9  | Linear algebra                         | ✅ shipped (Jordan + matrix exp shipped for chains ≤ 2; SVD + sparse + longer chains deferred) |
+| 10 | Equation solvers                       | ✅ shipped (`_invert` chain shipped — transcendental solveset; F4/F5 Gröbner + SAT deferred) |
+| 11 | ODE / PDE                              | ✅ shipped (variation of parameters shipped; full Lie + Pantelides deferred) |
 | 12 | Units                                  | ✅ shipped |
 | 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
-| 15 | Parser & MATLAB facade                 | ✅ shipped |
-| 16 | Hardening & v1.0                       | ❌ not started |
+| 15 | Parser & MATLAB facade                 | ✅ shipped (extension: parsing / assumptions / solvers / ode / pde sub-headers under `sympp::matlab`) |
+| 16 | Hardening & v1.0                       | 🟡 `find_package` + install rules + CI matrix shipped; v1.0 tag + benchmarks pending |
 
 > **Note**: Phase 14 (Plotting bridge) was dropped from scope.
 > Plotting is downstream of CAS correctness — consumers can pipe
@@ -442,9 +442,13 @@ area, polygon decomposition.
 ## Summary
 
 ```
-Where we are:        13/15 phases shipped, 820 oracle-validated tests.
-What's deferred:     ~42 weeks of Category A (deep-deferreds within shipped phases).
-What's next:         ~6–8 weeks for Category B (Phases 15, 16).
+Where we are:        14/15 phases shipped, Phase 16 partial; 962 tests
+                     (307 oracle-validated against SymPy 1.14, all passing).
+Cat A shipped:       Fu trig rules, transcendental solveset (_invert),
+                     variation of parameters, Jordan + matrix exp,
+                     hyperexpand subset.
+What's deferred:     ~30 weeks of remaining Category A (Risch, Meijer-G
+                     full expansion, Gruntz, F4/F5, lambdify, SAT).
 What's beyond:       ~25 weeks for Category C (Phases 17–24, true SymPy parity).
 ```
 
