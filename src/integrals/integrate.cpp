@@ -18,8 +18,11 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/polys/poly.hpp>
 
 namespace sympp {
 
@@ -28,6 +31,43 @@ namespace {
 // Helper: does `e` depend on `var`? Uses has() from traversal.
 [[nodiscard]] bool depends_on(const Expr& e, const Expr& var) noexcept {
     return has(e, var);
+}
+
+// Decompose `e` as (a, b) such that e == a*var + b, with a, b independent
+// of var. Returns nullopt if e isn't affine in var.
+[[nodiscard]] std::optional<std::pair<Expr, Expr>>
+as_affine(const Expr& e, const Expr& var) {
+    if (!e) return std::nullopt;
+    if (!has(e, var)) return std::pair{S::Zero(), e};
+    if (e == var) return std::pair{S::One(), S::Zero()};
+    if (e->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        bool found_var = false;
+        for (const auto& a : e->args()) {
+            if (a == var) {
+                if (found_var) return std::nullopt;
+                found_var = true;
+            } else if (has(a, var)) {
+                return std::nullopt;
+            } else {
+                rest.push_back(a);
+            }
+        }
+        if (!found_var) return std::nullopt;
+        return std::pair{mul(rest), S::Zero()};
+    }
+    if (e->type_id() == TypeId::Add) {
+        Expr a_acc = S::Zero();
+        Expr b_acc = S::Zero();
+        for (const auto& term : e->args()) {
+            auto sub = as_affine(term, var);
+            if (!sub) return std::nullopt;
+            a_acc = add(a_acc, sub->first);
+            b_acc = add(b_acc, sub->second);
+        }
+        return std::pair{a_acc, b_acc};
+    }
+    return std::nullopt;
 }
 
 // Try the elementary table on a single term. Returns std::nullopt if the
@@ -43,68 +83,44 @@ namespace {
         return mul(rational(1, 2), pow(var, integer(2)));
     }
 
-    // x^n where n is a non-(-1) integer or symbolic constant: x^(n+1)/(n+1)
+    // (a*x + b)^n with n constant: ∫(ax+b)^n dx = (ax+b)^(n+1) / (a*(n+1))
+    // and n == -1 → log(ax+b)/a.
     if (term->type_id() == TypeId::Pow) {
         const auto& base = term->args()[0];
         const auto& exp = term->args()[1];
-        if (base == var && !depends_on(exp, var)) {
-            // Skip the n = -1 case → log(x).
-            if (exp == S::NegativeOne()) {
-                return log(var);
+        if (!depends_on(exp, var)) {
+            auto aff = as_affine(base, var);
+            if (aff && !(aff->first == S::Zero())) {
+                if (exp == S::NegativeOne()) {
+                    return log(base) / aff->first;
+                }
+                Expr n_plus_1 = add(exp, S::One());
+                return pow(base, n_plus_1) / (aff->first * n_plus_1);
             }
-            auto new_exp = add(exp, S::One());
-            return mul(pow(var, new_exp), pow(new_exp, S::NegativeOne()));
         }
     }
 
     // 1/x: ∫ 1/x dx = log(x). 1/x is Pow(x, -1) — caught above.
 
-    // sin(c*x), cos(c*x), exp(c*x) where the inner is c*var with c constant.
+    // sin(ax+b), cos(ax+b), exp(ax+b) where inner is affine in var.
     if (term->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*term);
         if (fn.args().size() == 1) {
             const auto& inner = fn.args()[0];
-            // Helper lambda: given inner = c*var (or var), extract c.
-            auto extract_const_coeff = [&](const Expr& g) -> std::optional<Expr> {
-                if (g == var) return S::One();
-                if (g->type_id() == TypeId::Mul) {
-                    std::vector<Expr> rest;
-                    bool found_var = false;
-                    for (const auto& a : g->args()) {
-                        if (a == var) {
-                            if (found_var) return std::nullopt;  // var^2 etc.
-                            found_var = true;
-                        } else if (depends_on(a, var)) {
-                            return std::nullopt;
-                        } else {
-                            rest.push_back(a);
-                        }
-                    }
-                    if (!found_var) return std::nullopt;
-                    return mul(std::move(rest));
+            auto aff = as_affine(inner, var);
+            if (aff && !(aff->first == S::Zero())) {
+                const Expr& a = aff->first;
+                switch (fn.function_id()) {
+                    case FunctionId::Sin:
+                        // ∫sin(ax+b) dx = -cos(ax+b)/a
+                        return mul(S::NegativeOne(), cos(inner)) / a;
+                    case FunctionId::Cos:
+                        return sin(inner) / a;
+                    case FunctionId::Exp:
+                        return exp(inner) / a;
+                    default:
+                        break;
                 }
-                return std::nullopt;
-            };
-
-            switch (fn.function_id()) {
-                case FunctionId::Sin: {
-                    auto c = extract_const_coeff(inner);
-                    if (!c.has_value()) break;
-                    // ∫ sin(c*x) dx = -cos(c*x)/c
-                    return mul({S::NegativeOne(), cos(inner), pow(*c, S::NegativeOne())});
-                }
-                case FunctionId::Cos: {
-                    auto c = extract_const_coeff(inner);
-                    if (!c.has_value()) break;
-                    return mul(sin(inner), pow(*c, S::NegativeOne()));
-                }
-                case FunctionId::Exp: {
-                    auto c = extract_const_coeff(inner);
-                    if (!c.has_value()) break;
-                    return mul(exp(inner), pow(*c, S::NegativeOne()));
-                }
-                default:
-                    break;
             }
         }
     }
@@ -125,6 +141,13 @@ namespace {
             // shouldn't reach here.
             return mul(mul(std::move(constant_factors)), var);
         }
+        // If we didn't pull anything constant out, recursing on
+        // mul(var_factors) would just be the same term — bail to avoid
+        // infinite recursion. Higher-level strategies (try_rational,
+        // integration by parts, etc.) get a chance instead.
+        if (constant_factors.empty()) {
+            return std::nullopt;
+        }
         // Try integrating the remaining var-dependent product.
         Expr inner = mul(std::move(var_factors));
         if (auto sub = integrate_term(inner, var); sub.has_value()) {
@@ -136,6 +159,15 @@ namespace {
     // Outside the table.
     return std::nullopt;
 }
+
+// Try to integrate `expr` as a rational function in var. Uses
+// polynomial division for the improper part and apart() for the proper
+// part. Returns nullopt when:
+//   * expr has no top-level denominator structure, or
+//   * num / den isn't pure-polynomial in var, or
+//   * apart can't decompose the proper remainder (e.g. repeated roots
+//     beyond what apart handles in this build).
+[[nodiscard]] std::optional<Expr> try_rational(const Expr& expr, const Expr& var);
 
 }  // namespace
 
@@ -155,11 +187,72 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = integrate_term(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_rational(expr, var); r.has_value()) {
+        return *r;
+    }
 
     // Outside the closed-form table — return an unevaluated marker. Use an
     // UndefinedFunction named "Integral" so callers can detect it.
     return function_symbol("Integral")(expr, var);
 }
+
+namespace {
+
+std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
+    // Bring to single fraction.
+    Expr t = together(expr);
+    Expr num = S::One();
+    Expr den;
+    if (t->type_id() == TypeId::Pow
+        && t->args()[1] == S::NegativeOne()) {
+        den = t->args()[0];
+    } else if (t->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_factors;
+        for (const auto& f : t->args()) {
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1] == S::NegativeOne()) {
+                if (den) return std::nullopt;
+                den = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
+        }
+        if (!den) return std::nullopt;
+        num = mul(num_factors);
+    } else {
+        return std::nullopt;
+    }
+
+    // Verify num and den are pure polynomials in var (constant
+    // coefficients only — reject things like sin(x)/cos(x)).
+    Poly num_p(expand(num), var);
+    Poly den_p(expand(den), var);
+    for (const auto& c : num_p.coeffs()) if (has(c, var)) return std::nullopt;
+    for (const auto& c : den_p.coeffs()) if (has(c, var)) return std::nullopt;
+    if (den_p.degree() == 0) return std::nullopt;
+
+    // Polynomial division: num = q * den + r, deg(r) < deg(den).
+    auto [q, r_poly] = num_p.divmod(den_p);
+
+    if (r_poly.is_zero()) {
+        // Pure polynomial result — let the linearity path handle it.
+        return integrate(q.as_expr(), var);
+    }
+
+    // Decompose the proper remainder via apart().
+    Expr proper = r_poly.as_expr() / den_p.as_expr();
+    Expr apart_form = apart(proper, var);
+    if (apart_form == proper) {
+        // apart couldn't decompose further — fall through.
+        return std::nullopt;
+    }
+
+    Expr poly_int = integrate(q.as_expr(), var);
+    Expr apart_int = integrate(apart_form, var);
+    return poly_int + apart_int;
+}
+
+}  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {

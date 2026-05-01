@@ -121,3 +121,69 @@ TEST_CASE("integrate / diff round-trip on polynomial",
     auto fp = diff(F, x);
     REQUIRE(simplify(fp - f) == S::Zero());
 }
+
+// ----- Linear u-substitution & rational integration --------------------------
+
+TEST_CASE("integrate: ∫sin(2x+1) dx = -cos(2x+1)/2",
+          "[7][integrate][linear_sub][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(integer(2) * x + integer(1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "-cos(2*x + 1)/2"));
+}
+
+TEST_CASE("integrate: ∫1/(3x + 2) dx = log(3x + 2)/3",
+          "[7][integrate][linear_sub][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(3) * x + integer(2), integer(-1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "log(3*x + 2)/3"));
+}
+
+TEST_CASE("integrate: ∫(2x+5)^4 dx = (2x+5)^5/10",
+          "[7][integrate][linear_sub][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(2) * x + integer(5), integer(4));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "(2*x + 5)**5/10"));
+}
+
+TEST_CASE("integrate: ∫exp(5x - 3) dx = exp(5x - 3)/5",
+          "[7][integrate][linear_sub][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = exp(integer(5) * x - integer(3));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "exp(5*x - 3)/5"));
+}
+
+TEST_CASE("integrate: ∫(3x+5)/((x-1)(x+2)) via apart",
+          "[7][integrate][rational][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto num = integer(3) * x + integer(5);
+    auto den = (x - integer(1)) * (x + integer(2));
+    auto e = num / den;
+    auto r = integrate(e, x);
+    // Expected: (8/3)*log(x - 1) + (1/3)*log(x + 2). Compare via SymPy.
+    auto resp = oracle.send({{"op", "integrate"},
+                             {"expr", "(3*x + 5)/((x-1)*(x+2))"},
+                             {"var", "x"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(r->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("integrate: improper rational gets polynomial part",
+          "[7][integrate][rational][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x^3/(x^2 - 1) — improper. Verify via diff-back: d/dx(integral) == integrand.
+    auto e = pow(x, integer(3)) / (pow(x, integer(2)) - integer(1));
+    auto r = integrate(e, x);
+    auto check = oracle.equivalent(diff(r, x)->str(), e->str());
+    REQUIRE(check);
+}
