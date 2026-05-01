@@ -318,3 +318,47 @@ TEST_CASE("is_decreasing: -2x is decreasing", "[6][monotonicity]") {
     auto dec = is_decreasing(e, x);
     REQUIRE(dec == std::optional<bool>{true});
 }
+
+#include <sympp/calculus/euler_lagrange.hpp>
+
+// ----- Euler-Lagrange --------------------------------------------------------
+
+TEST_CASE("euler_lagrange: free particle L = (1/2)*y'^2 → y'' = 0",
+          "[6][euler_lagrange][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    auto ypp = symbol("ypp");
+    auto L = pow(yp, integer(2)) / integer(2);
+    auto el = euler_lagrange(L, y, yp, ypp, x);
+    // EL: 0 - ypp = -ypp; equation -ypp = 0 means ypp = 0.
+    REQUIRE(oracle.equivalent(el->str(), "-ypp"));
+}
+
+TEST_CASE("euler_lagrange: harmonic oscillator → -y - y''",
+          "[6][euler_lagrange][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    auto ypp = symbol("ypp");
+    // L = (1/2)yp² - (1/2)y²
+    auto L = pow(yp, integer(2)) / integer(2)
+             - pow(y, integer(2)) / integer(2);
+    auto el = euler_lagrange(L, y, yp, ypp, x);
+    REQUIRE(oracle.equivalent(el->str(), "-y - ypp"));
+}
+
+TEST_CASE("euler_lagrange: pendulum → -sin(y) - y''",
+          "[6][euler_lagrange][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    auto ypp = symbol("ypp");
+    // L = (1/2)yp² + cos(y) — gravity below; equation y'' + sin(y) = 0.
+    auto L = pow(yp, integer(2)) / integer(2) + cos(y);
+    auto el = euler_lagrange(L, y, yp, ypp, x);
+    REQUIRE(oracle.equivalent(el->str(), "-sin(y) - ypp"));
+}

@@ -29,6 +29,7 @@ target_sources(sympp
         core/traversal.cpp
         core/undefined_function.cpp
         calculus/diff.cpp
+        calculus/euler_lagrange.cpp
         calculus/extrema.cpp
         calculus/limit.cpp
         calculus/order.cpp
@@ -88,6 +89,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/diff.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/euler_lagrange.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/extrema.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/limit.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/order.hpp

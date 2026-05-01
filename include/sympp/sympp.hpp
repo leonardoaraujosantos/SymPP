@@ -32,6 +32,7 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <sympp/calculus/euler_lagrange.hpp>
 #include <sympp/calculus/extrema.hpp>
 #include <sympp/calculus/limit.hpp>
 #include <sympp/calculus/order.hpp>
