@@ -339,9 +339,9 @@ Expr dsolve_bernoulli(const Expr& eq, const Expr& y, const Expr& yp,
         } else if (term->type_id() == TypeId::Pow && term->args()[0] == y
                    && term->args()[1]->type_id() == TypeId::Integer) {
             exp_y = static_cast<const Integer&>(*term->args()[1]).to_long();
-        } else if (!has(term, y)) {
-            return false;  // not a multiple of y^k
         } else {
+            // Anything else — whether or not it depends on y — isn't a
+            // multiple of yᵏ for an integer k, so the helper bails out.
             return false;
         }
         out_exp = exp_y;

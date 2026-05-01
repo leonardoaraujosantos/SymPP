@@ -32,6 +32,7 @@
 //
 // Reference: sympy/core/assumptions.py — assumption fact propagation.
 
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>

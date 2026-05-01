@@ -50,6 +50,8 @@
 // Reference: sympy/solvers/{solveset,solvers,polysys,inequalities,recurr}.py.
 
 #include <array>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include <sympp/core/api.hpp>
