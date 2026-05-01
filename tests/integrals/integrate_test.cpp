@@ -3,6 +3,8 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/calculus/diff.hpp>
+#include <sympp/core/float.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -186,4 +188,63 @@ TEST_CASE("integrate: improper rational gets polynomial part",
     auto r = integrate(e, x);
     auto check = oracle.equivalent(diff(r, x)->str(), e->str());
     REQUIRE(check);
+}
+
+// ----- Trig reductions -------------------------------------------------------
+
+TEST_CASE("integrate: ∫sin²(x) dx via reduction (diff back)",
+          "[7][integrate][trig_reduction][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sin(x), integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cos²(x) dx via reduction (diff back)",
+          "[7][integrate][trig_reduction][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(cos(x), integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sin(x)*cos(x) dx (diff back)",
+          "[7][integrate][trig_reduction][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(x) * cos(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sin(2x)*cos(3x) dx product-to-sum",
+          "[7][integrate][trig_reduction][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(integer(2) * x) * cos(integer(3) * x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sin²(2x+1) dx — affine inside reduction",
+          "[7][integrate][trig_reduction]") {
+    // SymPy's plain simplify can't always reduce cos(2*(2x+1)) ↔ cos(4x+2),
+    // so use a numeric-substitution sanity check at x = 1/2.
+    auto x = symbol("x");
+    auto e = pow(sin(integer(2) * x + integer(1)), integer(2));
+    auto r = integrate(e, x);
+    auto db = diff(r, x);
+    // Verify the integration completed (didn't return Integral(...)).
+    REQUIRE(r->type_id() != TypeId::Function);
+    // Substitute a concrete value and compare numerics through evalf.
+    auto e_at = evalf(subs(e, x, S::Half()), 20);
+    auto db_at = evalf(subs(db, x, S::Half()), 20);
+    auto& oracle = Oracle::instance();
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", e_at->str() + " - (" + db_at->str() + ")"},
+                             {"prec", 30}, {"tol", 12}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
 }

@@ -41,20 +41,20 @@ as_affine(const Expr& e, const Expr& var) {
     if (!has(e, var)) return std::pair{S::Zero(), e};
     if (e == var) return std::pair{S::One(), S::Zero()};
     if (e->type_id() == TypeId::Mul) {
-        std::vector<Expr> rest;
-        bool found_var = false;
+        // Split into constant and var-dependent factors. Any factor of
+        // var must itself be affine, and exactly one such factor is
+        // permitted (multiplying two affines in var produces a quadratic).
+        std::vector<Expr> const_factors;
+        std::vector<Expr> var_factors;
         for (const auto& a : e->args()) {
-            if (a == var) {
-                if (found_var) return std::nullopt;
-                found_var = true;
-            } else if (has(a, var)) {
-                return std::nullopt;
-            } else {
-                rest.push_back(a);
-            }
+            if (has(a, var)) var_factors.push_back(a);
+            else const_factors.push_back(a);
         }
-        if (!found_var) return std::nullopt;
-        return std::pair{mul(rest), S::Zero()};
+        if (var_factors.size() != 1) return std::nullopt;
+        auto sub = as_affine(var_factors[0], var);
+        if (!sub) return std::nullopt;
+        Expr scale = mul(const_factors);
+        return std::pair{mul(scale, sub->first), mul(scale, sub->second)};
     }
     if (e->type_id() == TypeId::Add) {
         Expr a_acc = S::Zero();
@@ -69,6 +69,15 @@ as_affine(const Expr& e, const Expr& var) {
     }
     return std::nullopt;
 }
+
+[[nodiscard]] std::optional<Expr> integrate_term(const Expr& term, const Expr& var);
+
+// Forward-decl of the public entry — integrate_term needs to recurse
+// through the full dispatch (Add linearity, trig, rational) when it
+// pulls a constant out of a Mul whose remainder is an Add.
+}  // namespace
+Expr integrate(const Expr& expr, const Expr& var);
+namespace {
 
 // Try the elementary table on a single term. Returns std::nullopt if the
 // term is outside the table.
@@ -148,17 +157,33 @@ as_affine(const Expr& e, const Expr& var) {
         if (constant_factors.empty()) {
             return std::nullopt;
         }
-        // Try integrating the remaining var-dependent product.
+        // Try integrating the remaining var-dependent product. Use the
+        // full integrate() dispatch (not just integrate_term) so an Add
+        // inner gets linearity, and so trig / rational strategies still
+        // apply.
         Expr inner = mul(std::move(var_factors));
-        if (auto sub = integrate_term(inner, var); sub.has_value()) {
-            return mul(mul(std::move(constant_factors)), *sub);
+        Expr sub = integrate(inner, var);
+        // integrate() returns an Integral(_, _) marker on failure (an
+        // UndefinedFunction named "Integral"); propagate as nullopt so
+        // higher strategies can try other approaches.
+        if (sub->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*sub);
+            if (fn.name() == "Integral") return std::nullopt;
         }
-        return std::nullopt;
+        return mul(mul(std::move(constant_factors)), sub);
     }
 
     // Outside the table.
     return std::nullopt;
 }
+
+// Trig identity rewrites:
+//   sin²(u) → (1 - cos(2u))/2
+//   cos²(u) → (1 + cos(2u))/2
+//   sin(p)cos(q) → (sin(p+q) + sin(p-q))/2
+// After rewriting, recurse via integrate so the existing affine-argument
+// rules pick up the resulting sin(linear) / cos(linear) terms.
+[[nodiscard]] std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var);
 
 // Try to integrate `expr` as a rational function in var. Uses
 // polynomial division for the improper part and apart() for the proper
@@ -187,6 +212,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = integrate_term(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_trig_reduction(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_rational(expr, var); r.has_value()) {
         return *r;
     }
@@ -197,6 +225,64 @@ Expr integrate(const Expr& expr, const Expr& var) {
 }
 
 namespace {
+
+std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
+    // sin²(u) → (1 - cos(2u))/2 ; cos²(u) → (1 + cos(2u))/2
+    if (expr->type_id() == TypeId::Pow
+        && expr->args()[1] == integer(2)) {
+        const Expr& base = expr->args()[0];
+        if (base->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*base);
+            if (fn.args().size() == 1 && depends_on(fn.args()[0], var)) {
+                const Expr& u = fn.args()[0];
+                if (fn.function_id() == FunctionId::Sin) {
+                    Expr rewritten = (integer(1) - cos(integer(2) * u))
+                                     / integer(2);
+                    return integrate(rewritten, var);
+                }
+                if (fn.function_id() == FunctionId::Cos) {
+                    Expr rewritten = (integer(1) + cos(integer(2) * u))
+                                     / integer(2);
+                    return integrate(rewritten, var);
+                }
+            }
+        }
+    }
+
+    // sin(p)cos(q) → (sin(p+q) + sin(p-q))/2 — product-to-sum.
+    if (expr->type_id() == TypeId::Mul) {
+        Expr sin_arg, cos_arg;
+        std::vector<Expr> rest;
+        for (const auto& f : expr->args()) {
+            if (!sin_arg && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Sin
+                    && fn.args().size() == 1) {
+                    sin_arg = f->args()[0];
+                    continue;
+                }
+            }
+            if (!cos_arg && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Cos
+                    && fn.args().size() == 1) {
+                    cos_arg = f->args()[0];
+                    continue;
+                }
+            }
+            rest.push_back(f);
+        }
+        if (sin_arg && cos_arg
+            && depends_on(sin_arg, var) && depends_on(cos_arg, var)) {
+            Expr rewritten = (sin(sin_arg + cos_arg)
+                              + sin(sin_arg - cos_arg))
+                             / integer(2);
+            for (const auto& r : rest) rewritten = rewritten * r;
+            return integrate(rewritten, var);
+        }
+    }
+    return std::nullopt;
+}
 
 std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     // Bring to single fraction.
