@@ -533,6 +533,207 @@ namespace {
     return {r1, r2, r3, r4};
 }
 
+// ---------------------------------------------------------------------------
+// Kronecker factorization helpers
+// ---------------------------------------------------------------------------
+
+// Evaluate an integer-coefficient poly (lowest-degree first) at integer x.
+[[nodiscard]] mpz_class eval_int_poly(const std::vector<mpz_class>& coeffs,
+                                      const mpz_class& at) {
+    mpz_class acc = 0;
+    mpz_class power = 1;
+    for (const auto& c : coeffs) {
+        acc += c * power;
+        power *= at;
+    }
+    return acc;
+}
+
+// Lagrange interpolation. Given samples (x_i, y_i), return rational
+// coefficients (lowest-degree first) of the interpolating polynomial of
+// degree at most n - 1 where n = samples.size().
+[[nodiscard]] std::optional<std::vector<mpq_class>>
+lagrange_interpolate(const std::vector<std::pair<mpz_class, mpz_class>>& samples) {
+    const std::size_t n = samples.size();
+    if (n == 0) return std::nullopt;
+    std::vector<mpq_class> result(n, mpq_class(0));
+    for (std::size_t i = 0; i < n; ++i) {
+        // Denominator: Π_{j≠i} (x_i - x_j)
+        mpz_class denom = 1;
+        for (std::size_t j = 0; j < n; ++j) {
+            if (i == j) continue;
+            denom *= (samples[i].first - samples[j].first);
+        }
+        if (denom == 0) return std::nullopt;
+        // Numerator polynomial: Π_{j≠i} (x - x_j), coefficients lowest-first.
+        std::vector<mpq_class> num{mpq_class(1)};
+        for (std::size_t j = 0; j < n; ++j) {
+            if (i == j) continue;
+            std::vector<mpq_class> next(num.size() + 1, mpq_class(0));
+            for (std::size_t a = 0; a < num.size(); ++a) {
+                next[a] -= num[a] * mpq_class(samples[j].first);
+                next[a + 1] += num[a];
+            }
+            num = std::move(next);
+        }
+        mpq_class scale = mpq_class(samples[i].second) / mpq_class(denom);
+        scale.canonicalize();
+        for (std::size_t a = 0; a < num.size(); ++a) {
+            result[a] += num[a] * scale;
+            result[a].canonicalize();
+        }
+    }
+    return result;
+}
+
+// Convert mpq coefficients to a Poly with Integer coefficients. Returns
+// nullopt if any coefficient is non-integer.
+[[nodiscard]] std::optional<Poly>
+mpq_coeffs_to_z_poly(const std::vector<mpq_class>& coeffs, const Expr& var) {
+    std::vector<Expr> es;
+    es.reserve(coeffs.size());
+    for (const auto& q : coeffs) {
+        mpq_class c = q;
+        c.canonicalize();
+        if (c.get_den() != 1) return std::nullopt;
+        es.push_back(make<Integer>(c.get_num()));
+    }
+    return Poly{std::move(es), var};
+}
+
+// Try to find a non-trivial integer-coefficient factor of f via Kronecker.
+// f is assumed to have rational coefficients. Returns nullopt if no factor
+// of degree in [1, deg(f)/2] exists with integer coefficients.
+[[nodiscard]] std::optional<Poly> kronecker_find_factor(const Poly& f) {
+    if (f.degree() < 2) return std::nullopt;
+    auto qcoeffs = poly_coeffs_as_mpq(f);
+    if (!qcoeffs) return std::nullopt;
+    auto zcoeffs = clear_denominators(*qcoeffs);
+
+    const long n = static_cast<long>(f.degree());
+    const long max_k = n / 2;
+
+    for (long k = 1; k <= max_k; ++k) {
+        // Pick k+1 distinct integer points where f does not vanish.
+        std::vector<mpz_class> xs;
+        std::vector<mpz_class> ys;
+        long candidate = 0;
+        long sign = 1;
+        std::size_t guard = 0;
+        while (static_cast<long>(xs.size()) < k + 1) {
+            mpz_class x_pt(candidate * sign);
+            mpz_class y = eval_int_poly(zcoeffs, x_pt);
+            if (y != 0) {
+                xs.push_back(x_pt);
+                ys.push_back(y);
+            }
+            // Spiral: 0, 1, -1, 2, -2, 3, -3, ...
+            if (sign == 1 && candidate != 0) sign = -1;
+            else { sign = 1; ++candidate; }
+            if (++guard > 200) return std::nullopt;
+        }
+
+        // Build divisor-with-sign lists per sample.
+        std::vector<std::vector<mpz_class>> divs(static_cast<std::size_t>(k + 1));
+        bool any_huge = false;
+        for (long i = 0; i <= k; ++i) {
+            auto pos = positive_divisors(ys[static_cast<std::size_t>(i)]);
+            // Cap divisor count to keep enumeration tractable.
+            if (pos.size() > 32) { any_huge = true; break; }
+            std::vector<mpz_class>& slot = divs[static_cast<std::size_t>(i)];
+            slot.reserve(2 * pos.size());
+            for (auto& d : pos) slot.push_back(d);
+            for (auto& d : pos) slot.push_back(-d);
+        }
+        if (any_huge) continue;
+
+        // Enumerate all index combinations.
+        std::vector<std::size_t> indices(static_cast<std::size_t>(k + 1), 0);
+        while (true) {
+            std::vector<std::pair<mpz_class, mpz_class>> samples(
+                static_cast<std::size_t>(k + 1));
+            for (long i = 0; i <= k; ++i) {
+                samples[static_cast<std::size_t>(i)] = {
+                    xs[static_cast<std::size_t>(i)],
+                    divs[static_cast<std::size_t>(i)][indices[static_cast<std::size_t>(i)]]};
+            }
+            if (auto interp = lagrange_interpolate(samples)) {
+                if (auto candidate_poly = mpq_coeffs_to_z_poly(*interp, f.var())) {
+                    if (candidate_poly->degree() == static_cast<std::size_t>(k)
+                        && !candidate_poly->is_zero()) {
+                        // Trial-divide f (over ℚ) by the candidate.
+                        auto [q, r] = f.divmod(*candidate_poly);
+                        if (r.is_zero()) {
+                            return *candidate_poly;
+                        }
+                    }
+                }
+            }
+            // Increment index combination.
+            long c = k;
+            while (c >= 0) {
+                ++indices[static_cast<std::size_t>(c)];
+                if (indices[static_cast<std::size_t>(c)]
+                    < divs[static_cast<std::size_t>(c)].size()) break;
+                indices[static_cast<std::size_t>(c)] = 0;
+                --c;
+            }
+            if (c < 0) break;
+        }
+    }
+    return std::nullopt;
+}
+
+// Returns (primitive_integer_poly, scalar) such that scalar * primitive == g
+// (as Exprs after as_expr), with primitive having integer coefficients whose
+// gcd is 1 (and positive leading coefficient when possible).
+[[nodiscard]] std::pair<Poly, mpq_class> primitive_part(const Poly& g) {
+    auto qs = poly_coeffs_as_mpq(g);
+    if (!qs) return {g, mpq_class(1)};
+    if (qs->empty()) return {g, mpq_class(1)};
+    // Find LCM of denominators.
+    mpz_class lcm = 1;
+    for (const auto& q : *qs) {
+        mpz_class d = q.get_den();
+        mpz_class gd;
+        mpz_gcd(gd.get_mpz_t(), lcm.get_mpz_t(), d.get_mpz_t());
+        lcm = (lcm / gd) * d;
+    }
+    // Multiply through to integers.
+    std::vector<mpz_class> zs;
+    zs.reserve(qs->size());
+    for (const auto& q : *qs) {
+        mpq_class r = q * mpq_class(lcm);
+        zs.push_back(r.get_num());
+    }
+    // GCD of integer coefficients.
+    mpz_class g_int = 0;
+    for (auto& z : zs) {
+        mpz_class abs_z = abs(z);
+        mpz_class gn;
+        mpz_gcd(gn.get_mpz_t(), g_int.get_mpz_t(), abs_z.get_mpz_t());
+        g_int = gn;
+    }
+    if (g_int == 0) return {g, mpq_class(1)};
+    // Make leading coefficient positive.
+    int sign = 1;
+    if (zs.back() < 0) sign = -1;
+    std::vector<Expr> prim_coeffs;
+    prim_coeffs.reserve(zs.size());
+    for (auto& z : zs) {
+        mpz_class divided = z / g_int;
+        if (sign == -1) divided = -divided;
+        prim_coeffs.push_back(make<Integer>(std::move(divided)));
+    }
+    Poly prim{std::move(prim_coeffs), g.var()};
+    // g_orig = (g_int / lcm) * sign * prim   (because zs = lcm * coeffs(g))
+    // and prim = (sign * zs) / g_int = (sign * lcm * coeffs(g)) / g_int.
+    // So coeffs(g) = (g_int * sign / lcm) * coeffs(prim).
+    mpq_class scalar(sign * g_int, lcm);
+    scalar.canonicalize();
+    return {prim, scalar};
+}
+
 // Solve a*x^4 + b*x^3 + c*x^2 + d*x + e = 0 via depression + Ferrari.
 [[nodiscard]] std::vector<Expr> quartic_roots(const Expr& a, const Expr& b,
                                               const Expr& c, const Expr& d,
@@ -562,6 +763,92 @@ namespace {
 
 }  // namespace
 
+
+FactorList factor_list(const Poly& f) {
+    auto sqf = sqf_list(f);
+    mpq_class running_content;
+    {
+        // sqf.content is an Expr; convert to mpq if numeric, else leave as 1
+        // and just keep the Expr (rare for textbook inputs).
+        auto q = coeff_as_mpq(sqf.content);
+        running_content = q ? *q : mpq_class(1);
+    }
+    std::vector<std::pair<Poly, std::size_t>> out;
+
+    for (auto& [g_monic, mult] : sqf.factors) {
+        // g_monic is square-free monic over ℚ. Pull out rational roots first.
+        Poly remaining = g_monic;
+        auto rats = rational_roots(remaining);
+        for (const auto& r : rats) {
+            // Build (x - r) — may have rational coefficients; primitivize.
+            Poly lin(std::vector<Expr>{mul(S::NegativeOne(), r), S::One()},
+                     remaining.var());
+            auto [prim, scalar] = primitive_part(lin);
+            running_content *= scalar;
+            // Multiplicity: rational_roots returns repeats already, so each
+            // call here corresponds to one (x - r) factor; track separately.
+            // We'll consolidate at the end.
+            out.emplace_back(prim, mult);
+            // Deflate `remaining` by (x - r) (use the rational factor, not prim).
+            remaining = remaining / lin;
+        }
+        // Now `remaining` has no rational roots. Apply Kronecker for any
+        // higher-degree factors.
+        while (remaining.degree() >= 2) {
+            auto k_factor = kronecker_find_factor(remaining);
+            if (!k_factor) {
+                // remaining is irreducible.
+                auto [prim, scalar] = primitive_part(remaining);
+                running_content *= scalar;
+                out.emplace_back(prim, mult);
+                break;
+            }
+            auto [prim, scalar] = primitive_part(*k_factor);
+            running_content *= scalar;
+            out.emplace_back(prim, mult);
+            remaining = remaining / *k_factor;
+        }
+        // Trailing constant from deflation (when leading coefficient ≠ 1)
+        // gets absorbed into content.
+        if (remaining.degree() == 0 && !remaining.is_zero()) {
+            if (auto qc = coeff_as_mpq(remaining.leading_coeff()); qc) {
+                running_content *= *qc;
+            }
+        }
+    }
+
+    // Consolidate duplicate (factor, mult) entries (rational_roots may repeat
+    // the same root for higher multiplicity — combine same-Poly entries).
+    std::vector<std::pair<Poly, std::size_t>> consolidated;
+    for (auto& [p, m] : out) {
+        bool merged = false;
+        for (auto& [q, m2] : consolidated) {
+            if (p.as_expr() == q.as_expr()) {
+                m2 += m;
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) consolidated.emplace_back(p, m);
+    }
+    running_content.canonicalize();
+    return FactorList{mpq_to_expr(running_content), std::move(consolidated)};
+}
+
+Expr factor(const Expr& expr, const Expr& var) {
+    Poly f(expr, var);
+    auto fl = factor_list(f);
+    std::vector<Expr> terms;
+    if (!(fl.content == S::One())) terms.push_back(fl.content);
+    for (auto& [p, m] : fl.factors) {
+        Expr ge = p.as_expr();
+        if (m == 1) terms.push_back(ge);
+        else terms.push_back(pow(ge, integer(static_cast<long>(m))));
+    }
+    if (terms.empty()) return S::One();
+    if (terms.size() == 1) return terms[0];
+    return mul(std::move(terms));
+}
 
 SqfList sqf_list(const Poly& f) {
     if (f.is_zero()) return SqfList{S::Zero(), {}};

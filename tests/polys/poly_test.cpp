@@ -516,6 +516,109 @@ TEST_CASE("Poly: quintic returns rational roots only", "[4][poly][roots]") {
     REQUIRE(roots.size() == 5);
 }
 
+// ----- factor over Z (Kronecker) ---------------------------------------------
+
+TEST_CASE("Poly: factor x^2 - 1", "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) - integer(1);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), "(x - 1)*(x + 1)"));
+}
+
+TEST_CASE("Poly: factor x^2 + 2x + 1 = (x+1)^2", "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) + integer(2) * x + integer(1);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), "(x + 1)**2"));
+}
+
+TEST_CASE("Poly: factor x^3 - 1", "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(3)) - integer(1);
+    auto f = factor(e, x);
+    // Over Z: (x - 1)(x^2 + x + 1)
+    REQUIRE(oracle.equivalent(f->str(), "(x - 1)*(x**2 + x + 1)"));
+}
+
+TEST_CASE("Poly: factor x^4 - 1", "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(4)) - integer(1);
+    auto f = factor(e, x);
+    // (x-1)(x+1)(x²+1)
+    REQUIRE(oracle.equivalent(f->str(), "(x - 1)*(x + 1)*(x**2 + 1)"));
+}
+
+TEST_CASE("Poly: factor 6x^2 - 5x + 1", "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = integer(6) * pow(x, integer(2)) - integer(5) * x + integer(1);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), "(2*x - 1)*(3*x - 1)"));
+}
+
+TEST_CASE("Poly: factor irreducible quadratic stays put",
+          "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) + integer(1);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), "x**2 + 1"));
+}
+
+TEST_CASE("Poly: factor x^4 + 4 (Sophie Germain)",
+          "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x^4 + 4 = (x²-2x+2)(x²+2x+2)
+    auto e = pow(x, integer(4)) + integer(4);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(
+        f->str(), "(x**2 - 2*x + 2)*(x**2 + 2*x + 2)"));
+}
+
+TEST_CASE("Poly: factor with content 2(x-1)(x+1)",
+          "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // 2x^2 - 2 = 2(x-1)(x+1)
+    auto e = integer(2) * pow(x, integer(2)) - integer(2);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), "2*(x - 1)*(x + 1)"));
+}
+
+TEST_CASE("Poly: factor degree-5 with mixed roots",
+          "[4][poly][factor][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x-1)(x-2)(x³+1) = (x-1)(x-2)(x+1)(x²-x+1)
+    // Build polynomial directly:
+    auto e = pow(x, integer(5)) - integer(3) * pow(x, integer(4))
+             + integer(2) * pow(x, integer(3)) + pow(x, integer(2))
+             - integer(3) * x + integer(2);
+    auto f = factor(e, x);
+    REQUIRE(oracle.equivalent(
+        f->str(),
+        "(x - 2)*(x - 1)*(x + 1)*(x**2 - x + 1)"));
+}
+
+TEST_CASE("Poly: factor_list returns multiplicities",
+          "[4][poly][factor]") {
+    auto x = symbol("x");
+    // (x-1)^3 (x+2)^2
+    Poly a(x - integer(1), x);
+    Poly b(x + integer(2), x);
+    Poly f = a * a * a * b * b;
+    auto fl = factor_list(f);
+    REQUIRE(fl.factors.size() == 2);
+    std::size_t total_mult = 0;
+    for (auto& [p, m] : fl.factors) total_mult += m;
+    REQUIRE(total_mult == 5);
+}
+
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
     auto x = symbol("x");
     // (x^3 + 2x^2 - 7x + 5)' = 3x^2 + 4x - 7

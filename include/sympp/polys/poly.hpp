@@ -90,6 +90,31 @@ private:
 // Reference: sympy/polys/polyroots.py::roots_quintic / rational roots theorem
 [[nodiscard]] SYMPP_EXPORT std::vector<Expr> rational_roots(const Poly& f);
 
+// Factorization over ℤ.
+//
+// Returns (content, [(factor_i, mult_i)]) where each factor_i is irreducible
+// over ℤ (with integer coefficients) and content * Π factor_i^mult_i == f.
+//
+// Algorithm: Yun square-free decomposition → rational-roots theorem on each
+// square-free part → Kronecker's algorithm on the residual high-degree
+// pieces (interpolate candidate factors from divisor combinations of values
+// at sample points; test divisibility).
+//
+// Kronecker is exponential in degree but correct, simple, and adequate for
+// textbook-size polynomials. Berlekamp-Zassenhaus + Hensel lifting remains
+// deferred for performance.
+//
+// Reference: sympy/polys/factortools.py::dup_factor_list (the full BZ path)
+struct FactorList {
+    Expr content;
+    std::vector<std::pair<Poly, std::size_t>> factors;
+};
+[[nodiscard]] SYMPP_EXPORT FactorList factor_list(const Poly& f);
+
+// Convenience: factor an Expr (in `var`) and return the product of
+// irreducible factors as an Expr.
+[[nodiscard]] SYMPP_EXPORT Expr factor(const Expr& expr, const Expr& var);
+
 // Square-free factorization via Yun's algorithm.
 //
 // Returns (content, [(factor_i, multiplicity_i), ...]) such that
