@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(SymPP
-    VERSION 0.0.1
+    VERSION 0.5.0
     DESCRIPTION "Modern C++ symbolic mathematics library"
-    HOMEPAGE_URL "https://github.com/leonardoaraujo/SymPP"
+    HOMEPAGE_URL "https://github.com/leonardoaraujosantos/SymPP"
     LANGUAGES CXX
 )
 
@@ -137,6 +137,48 @@ endif()
 if(SYMPP_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
+
+# -----------------------------------------------------------------------------
+# Install / find_package(SymPP) machinery
+# -----------------------------------------------------------------------------
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+# Install the library + public headers.
+install(TARGETS sympp sympp_warnings sympp_sanitizers
+    EXPORT SymPPTargets
+    LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILE_SET HEADERS DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Install the CMake export file so consumers can find_package(SymPP).
+install(EXPORT SymPPTargets
+    FILE SymPPTargets.cmake
+    NAMESPACE SymPP::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SymPP
+)
+
+# Generate SymPPConfig.cmake from template + version file.
+configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/SymPPConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/SymPPConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SymPP
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/SymPPConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/SymPPConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/SymPPConfigVersion.cmake
+    ${CMAKE_SOURCE_DIR}/cmake/FindGMP.cmake
+    ${CMAKE_SOURCE_DIR}/cmake/FindMPFR.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/SymPP
+)
 
 # -----------------------------------------------------------------------------
 # Summary
