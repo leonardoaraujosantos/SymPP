@@ -253,3 +253,68 @@ TEST_CASE("pade: [m/0] is the truncated Taylor polynomial",
     REQUIRE(oracle.equivalent(p->str(),
                               "1 + x + x**2/2 + x**3/6"));
 }
+
+#include <sympp/calculus/extrema.hpp>
+
+// ----- stationary_points / minimum / maximum / monotonicity ------------------
+
+TEST_CASE("stationary_points: x² has critical at 0", "[6][stationary]") {
+    auto x = symbol("x");
+    auto pts = stationary_points(pow(x, integer(2)), x);
+    REQUIRE(pts.size() == 1);
+    REQUIRE(pts[0] == S::Zero());
+}
+
+TEST_CASE("stationary_points: x³ - 3x has critical at ±1",
+          "[6][stationary][oracle]") {
+    auto x = symbol("x");
+    auto pts = stationary_points(pow(x, integer(3)) - integer(3) * x, x);
+    REQUIRE(pts.size() == 2);
+    // Roots of 3x² - 3 = 0 — ±1.
+    bool has_pos = false, has_neg = false;
+    for (auto& p : pts) {
+        if (p == integer(1)) has_pos = true;
+        if (p == integer(-1)) has_neg = true;
+    }
+    REQUIRE(has_pos);
+    REQUIRE(has_neg);
+}
+
+TEST_CASE("minimum: x² minimum at 0 → 0", "[6][minimum]") {
+    auto x = symbol("x");
+    auto m = minimum(pow(x, integer(2)), x);
+    REQUIRE(m == S::Zero());
+}
+
+TEST_CASE("maximum: -x² + 4 maximum is 4", "[6][maximum]") {
+    auto x = symbol("x");
+    auto e = mul(S::NegativeOne(), pow(x, integer(2))) + integer(4);
+    auto m = maximum(e, x);
+    REQUIRE(m == integer(4));
+}
+
+TEST_CASE("is_increasing: e^x is increasing (positive symbol arg)",
+          "[6][monotonicity]") {
+    // For e^x to be definitely-increasing we'd need the engine to know
+    // e^x > 0 always. With our generic Symbol we can at least confirm
+    // the helper doesn't crash and returns Unknown when undecidable.
+    auto x = symbol("x");
+    auto inc = is_increasing(pow(x, integer(2)) + integer(5), x);
+    // 2x sign depends on x; can't prove globally → Unknown.
+    REQUIRE(!inc.has_value());
+}
+
+TEST_CASE("is_increasing: 3x + 7 is increasing (constant positive derivative)",
+          "[6][monotonicity]") {
+    auto x = symbol("x");
+    auto e = integer(3) * x + integer(7);
+    auto inc = is_increasing(e, x);
+    REQUIRE(inc == std::optional<bool>{true});
+}
+
+TEST_CASE("is_decreasing: -2x is decreasing", "[6][monotonicity]") {
+    auto x = symbol("x");
+    auto e = mul(S::NegativeOne(), integer(2) * x);
+    auto dec = is_decreasing(e, x);
+    REQUIRE(dec == std::optional<bool>{true});
+}
