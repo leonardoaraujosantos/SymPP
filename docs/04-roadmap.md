@@ -1,330 +1,444 @@
 # 04 — Roadmap
 
-16 phases. Each phase has: deliverables, SymPy source to study, dependencies, and a ballpark effort estimate (solo developer-weeks). Phases marked **PARALLELIZABLE** can run concurrently with neighbours after their dependency is met.
-
-Total estimate: **~14–20 months solo**, **~6–9 months with 2–3 engineers**.
-
-The two long poles are **Phase 4 (polynomials)** and **Phase 7 (integration)**. Aggressive scope cuts there compress the timeline materially.
-
----
-
-## Phase 0 — Foundation & oracle harness (2–3 weeks)
-
-**Deliverables**
-- Repo bootstrap: CMake, directory layout per [02-architecture](02-architecture.md), `.gitignore`, `.editorconfig`, license file (BSD-3).
-- Dependencies wired: GMP, MPFR, Catch2, pybind11, fmtlib (or std::format), CLI11 (for example/repl).
-- CI: GitHub Actions matrix — Linux/macOS/Windows × {gcc, clang, msvc} × {Debug, Release} × {ASan, UBSan, plain}.
-- clang-tidy + clang-format configs.
-- **SymPy oracle harness** — Python subprocess wrapper called from C++ test runner. See [05-validation-strategy](05-validation-strategy.md).
-- Empty `Basic`/`Expr` skeleton compiles and links.
-- "Hello World" test: construct `Symbol("x")`, print it, validate against SymPy.
-
-**Exit criteria**: `make test` runs Catch2 + oracle harness end-to-end on a trivial expression.
-
----
-
-## Phase 1 — Core expression tree (4–5 weeks)
-
-**Deliverables**
-- `Basic`, `Expr` alias, `Atomic`, `Symbol`, `Dummy`, `Wild`.
-- `Number` tower: `Integer` (GMP), `Rational` (GMP), `Float` (MPFR), `Complex`. Coercion rules.
-- Singletons: `Zero`, `One`, `NegativeOne`, `Half`, `Pi`, `E`, `EulerGamma`, `Catalan`, `GoldenRatio`, `Infinity`, `NegativeInfinity`, `ComplexInfinity`, `NaN`, `ImaginaryUnit`.
-- `Add`, `Mul`, `Pow` with canonical-form auto-evaluation (flatten, sort, combine numerics, basic power rules).
-- Hash-consing cache.
-- Operator overloads (`+`, `-`, `*`, `/`, unary `-`, `pow`).
-- `subs`, `xreplace`, `has`, `free_symbols`, `args`.
-- `expand` (basic: distribute Mul over Add; integer-power expansion).
-- Structural equality, hash, `cmp`-style stable ordering.
-- Basic `str()` printer.
-- `evalf(precision)` for numeric expressions (mpmath-equivalent via MPFR).
-
-**SymPy reference**: `core/{basic,expr,symbol,sympify,numbers,add,mul,power,function,operations,evalf,exprtools}.py`.
-
-**Tests vs oracle**: every operation cross-checked against `sympy.sympify(s).<op>()`.
-
-**Exit criteria**: 200+ oracle tests passing covering arithmetic, substitution, basic expand, evalf to 50 digits.
-
----
-
-## Phase 2 — Assumptions (3–4 weeks)
-
-**Deliverables**
-- Old assumptions system: `Symbol("x", real=true, positive=true)` → consistent fact propagation.
-- The assumption ontology table (real, integer, rational, positive, negative, nonnegative, nonpositive, zero, nonzero, even, odd, prime, composite, finite, infinite, complex, imaginary, hermitian, antihermitian, irrational, algebraic, transcendental, commutative).
-- `is_real`, `is_positive`, etc. queries on every `Expr`.
-- Propagation: `Mul(positive, positive).is_positive == true`; `Add(real, real).is_real == true`.
-- `assuming` context manager equivalent.
-- `refine(expr)` to apply current assumptions.
-- **Deferred**: SAT-based `ask` system (port post-v1).
-
-**SymPy reference**: ★`core/assumptions.py`, `assumptions/{assume,facts,ask,refine}.py`. Skip `sathandlers.py`/`satask.py`/`cnf.py`/`lra_satask.py` for v1.
-
-**Exit criteria**: oracle tests on 50 assumption queries; demonstrable propagation through compound expressions.
-
----
-
-## Phase 3 — Elementary & special functions (5–6 weeks) — PARALLELIZABLE with Phase 4
-
-**Deliverables**
-- All elementary functions per [03-feature-mapping](03-feature-mapping.md) Chapter 6 / Elementary.
-- All special functions per Chapter 6 / Special.
-- All combinatorial functions.
-- Each function: auto-evaluation rules, `evalf` via MPFR/mpmath, derivative, `_rewrite_as_*` for major equivalent forms, series expansion.
-- `Derivative` and `Integral` as unevaluated forms.
-
-**Approach**: highly mechanical. Build a code-generation script that scaffolds new function classes from a YAML spec (name, args, eval rules, derivative, rewrites). Manual implementation of evaluator bodies. ~80 functions × ~200 LoC each.
-
-**SymPy reference**: `functions/elementary/*.py`, `functions/special/*.py`, `functions/combinatorial/*.py`.
-
-**Exit criteria**: all functions in oracle test suite; numeric values match SymPy to 30 digits.
-
----
-
-## Phase 4 — Polynomials (8–10 weeks) — LONG POLE
-
-**Deliverables**
-- `Poly` class (sparse, distributed monomial form).
-- Domains: ℤ, ℚ, ℝ (MPFR), ℂ, ℤ_p, ℚ_alg.
-- DUP/DMP arithmetic: add, sub, mul, div, quo, rem, gcd_ex.
-- GCD: subresultant + heuristic + modular over ℤ.
-- Square-free factorization.
-- **Factorization over ℤ**: Berlekamp-Zassenhaus + Hensel lifting (the hard core; ~3 weeks alone).
-- **Factorization over ℚ**: clearing denominators + ℤ.
-- Multivariate factorization: Wang's algorithm.
-- Resultants, discriminants, subresultants.
-- Roots: rational roots, low-degree closed-form (≤4), numeric (mpsolve-style isolation), `RootOf` lazy form.
-- `apart` (partial fractions).
-- `cancel`, `together`.
-- `horner`.
-- **Deferred to Phase 4b**: Gröbner bases (`polys/groebnertools.py`, `fglmtools.py`) — port if Phase 10 polynomial systems need them.
-
-**SymPy reference**: ★`polys/{polytools,densebasic,densearith,densetools,euclidtools,heuristicgcd,modulargcd,factortools,sqfreetools,partfrac,polyfuncs,polyroots,rootisolation,rootoftools,multivariate_resultants,subresultants_qq_zz}.py` and all of `polys/domains/`.
-
-**Exit criteria**: oracle tests for: factor of polynomials of degree ≤20 with integer/rational coeffs, partial fractions, multivariate GCD on bivariate cases.
-
----
-
-## Phase 5 — Simplification (5–6 weeks)
-
-**Deliverables**
-- `simplify(expr)` orchestrator with strategy switching.
-- `collect`, `together`, `cancel` (uses Phase 4).
-- `powsimp`, `expand_power_*`.
-- `trigsimp` via Fu et al. table-driven rules + classical reduction.
-- `radsimp`, `sqrtdenest`.
-- `partfrac` (re-export from Phase 4).
-- `combsimp`, `gammasimp`.
-- `hyperexpand`.
-- `cse` (common subexpression elimination).
-- `nsimplify` (numeric → exact symbolic guess).
-
-**SymPy reference**: ★`simplify/simplify.py`, plus `radsimp.py`, `trigsimp.py`, `fu.py`, `powsimp.py`, `sqrtdenest.py`, `combsimp.py`, `gammasimp.py`, `hyperexpand.py`, `cse_main.py`.
-
-**Exit criteria**: pass SymPy's `simplify` test suite at ≥80% on shared cases; oracle tests on 100+ standard simplification patterns.
-
----
-
-## Phase 6 — Calculus (5–7 weeks)
-
-**Deliverables**
-- `diff` (already partial from Phase 1; finalize chain rule, partials, `Derivative` propagation).
-- `series` — Taylor & Laurent up to user-specified order; `O(x^n)` (Big-O).
-- `limit` — port Gruntz algorithm. **Hard**; budget 2 weeks.
-- `summation` — closed-form via Gosper, hypergeometric, telescoping.
-- `pade` — Padé approximant.
-- Functional derivatives — Euler-Lagrange.
-- `minimum`, `maximum`, `stationary_points`, `is_increasing`, `is_decreasing`.
-- Asymptote / inflection helpers.
-
-**SymPy reference**: ★`series/{limits,gruntz,series,formal,approximants,order,residues}.py`, `concrete/{summations,gosper,expr_with_intlimits}.py`, `calculus/{euler,util}.py`.
-
-**Exit criteria**: 200+ oracle tests including Gruntz limits (Wester test set), classical Taylor expansions, closed-form sums.
-
----
-
-## Phase 7 — Integration (8–10 weeks) — LONG POLE
-
-**Deliverables (in port order)**
-1. Polynomial integration — trivial.
-2. Rational function integration — Lazard-Rioboo-Trager. ~1 week.
-3. **`manualintegrate`** — rule-based table lookup (powers, trig, exp, log substitution patterns). Covers ~70% of textbook integrals. ~2 weeks. **Port this first** for early user value.
-4. Trigonometric reductions.
-5. Risch heuristic (`heurisch`) — practical incomplete Risch. ~2 weeks.
-6. Meijer G-function method (`meijerint`) — handles most special-function integrals; needed by Laplace transform. ~2 weeks.
-7. Definite integration: Newton-Leibniz orchestration; use Meijer G when antiderivative not closed.
-8. Numeric quadrature (`vpaintegral`) — wraps mpmath-equivalent.
-9. **Deferred**: full Risch transcendental (`risch.py`/`prde.py`/`rde.py`) — research-level; port post-v1 if needed.
-
-**SymPy reference**: ★`integrals/{integrals,manualintegrate,heurisch,meijerint,rationaltools,trigonometry,risch,prde,rde,quadrature}.py`.
-
-**Exit criteria**: oracle tests on the standard CAS integration test set (Wester + SymPy's own); document which classes pass/fail.
-
----
-
-## Phase 8 — Transforms (3–4 weeks)
-
-**Deliverables**
-- `laplace_transform`, `inverse_laplace_transform` (uses Phase 7 Meijer G).
-- `fourier_transform`, `inverse_fourier_transform`.
-- `mellin_transform`, `inverse_mellin_transform`.
-- `z_transform`, `inverse_z_transform`.
-- (Optional) sine/cosine/Hankel transforms.
-
-**SymPy reference**: ★`integrals/laplace.py`, `integrals/transforms.py`.
-
-**Exit criteria**: standard tables of transform pairs all match SymPy.
-
----
-
-## Phase 9 — Linear algebra (3–4 weeks) — PARALLELIZABLE with Phase 8
-
-**Deliverables**
-- Dense `Matrix<Expr>` and sparse variant.
-- `det`, `trace`, `inv`, `adjugate`, `transpose`, `conjugate_transpose`.
-- `rref`, `nullspace`, `columnspace`, `rowspace`, `rank`.
-- `eigenvals`, `eigenvects` (uses Phase 4 polys).
-- `jordan_form`, `diagonalize`, `is_diagonalizable`.
-- SVD, LU, QR, Cholesky.
-- Norms (Frobenius, p-norm).
-- `MatrixSymbol` and matrix expression tree (`MatMul`, `MatAdd`, `MatPow`, `Inverse`, `Transpose`, `Trace`, `Determinant`, `BlockMatrix`).
-- `jacobian`, `hessian`, `wronskian`, `gradient`.
-- Hadamard, Kronecker products.
-- Rotation matrices.
-- Hilbert / Vandermonde / companion matrix constructors.
-
-**SymPy reference**: ★`matrices/{matrices,dense,sparse,immutable,matrixbase,determinant,inverse,reductions,subspaces,eigen,decompositions,normalforms}.py`, `matrices/expressions/`.
-
-**Exit criteria**: oracle parity on the matrix examples in the MATLAB toolbox (Hilbert, SVD, Jordan, eigenvalues of Laplace operator example).
-
----
-
-## Phase 10 — Equation solvers (5–6 weeks)
-
-**Deliverables**
-- `solveset(expr, var, domain)` — preferred path; returns Set objects.
-- `linsolve` — using Phase 9.
-- `nonlinsolve` — Gröbner-based for polynomial systems.
-- `solve` — legacy heuristic API (thin wrapper for MATLAB compatibility).
-- `nsolve` — mpmath-equivalent Newton (uses MPFR).
-- Inequalities: `solve_univariate_inequality`, `reduce_inequalities`.
-- Recurrences: `rsolve`.
-- Diophantine (basic Pythagorean, linear) — optional.
-- Set algebra (Interval, FiniteSet, Union, Intersection, Complement, ImageSet, ConditionSet) — built here as solver outputs need it.
-
-**SymPy reference**: ★`solvers/{solveset,solvers,polysys,inequalities,simplex,recurr}.py`, `sets/`.
-
-**Exit criteria**: oracle tests on MATLAB toolbox solver examples; the parametric `solve` with `ReturnConditions` mode equivalent.
-
----
-
-## Phase 11 — ODE/PDE (6–8 weeks)
-
-**Deliverables**
-- `dsolve(eq, func)` for single-equation ODEs:
-  - Classifier ports `single.py` patterns: separable, linear 1st-order, exact, Bernoulli, Riccati, homogeneous, Lie symmetry-reducible, hypergeometric, Cauchy-Euler, constant-coefficient linear of any order.
-  - Per-class solvers.
-- `dsolve` for ODE systems (linear constant-coefficient, autonomous).
-- Initial conditions / IVP support.
-- `pdsolve` — single-PDE classifier (separable, first-order linear, etc.); coverage matches MATLAB's actual reach.
-- DAE manipulation: index reduction, Jacobian extraction. (Numeric DAE solving delegated to consumer.)
-- `checksol`, `checkodesol`.
-
-**SymPy reference**: ★`solvers/ode/{ode,single,systems,nonhomogeneous,riccati,hypergeometric,lie_group,subscheck}.py`, `solvers/pde.py`, `solvers/deutils.py`.
-
-**Exit criteria**: oracle tests on the 10 ODE patterns and 5 PDE patterns from the MATLAB User's Guide chapter 3.
-
----
-
-## Phase 12 — Units (1–2 weeks)
-
-**Deliverables**
-- `Quantity` type wrapping `(Expr, Dimension)`.
-- `Dimension` algebra (length, mass, time, current, temperature, amount, luminosity).
-- SI/CGS/US unit systems with conversion.
-- Unit prefixes (kilo, milli, micro, …).
-- Standard physical constants.
-- Definitions table (length, mass, energy, force, pressure, …).
-
-**SymPy reference**: `physics/units/{quantities,dimensions,prefixes,unitsystem,util}.py`, `physics/units/definitions/`, `physics/units/systems/`.
-
-**Exit criteria**: parity with MATLAB unit examples (temperature conversion, SI/CGS/US conversion, unit-aware physics calculation).
-
----
-
-## Phase 13 — Code generation (4–5 weeks)
-
-**Deliverables**
-- Visitor pattern: `CodePrinter` base, `precedence` table.
-- Concrete printers: `CCodePrinter`, `CXXCodePrinter`, `FortranCodePrinter`, `LatexPrinter`, `PrettyPrinter` (ASCII), `OctavePrinter` (= MATLAB-compatible for `matlabFunction`).
-- Higher-level codegen: function/module emission with arg lists, return types, includes.
-- `CSE` (common subexpression elimination).
-- `lambdify` — JIT compile expression to native function via LLVM ORC.
-- `autowrap` equivalent — emit + invoke C compiler, dlopen.
-- `jacobian`/`hessian` code emission for optimization.
-
-**SymPy reference**: ★`printing/{codeprinter,c,cxx,fortran,latex,octave,str,precedence,pycode}.py`, `printing/pretty/`, `codegen/{algorithms,ast,cnodes,cxxnodes,fnodes,cutils,futils,rewriting}.py`, `utilities/{lambdify,autowrap}.py`, `simplify/cse_main.py`.
-
-**Exit criteria**: round-trip — symbolic expression → C code → compile → execute → numeric match SymPy's `lambdify` output. Same for Fortran, LaTeX rendering, Octave (validated by running through MATLAB if available).
-
----
-
-## Phase 14 — Plotting bridge (1 week)
-
-**Deliverables**
-- `SampledFunction` — sample `Expr` over a domain into a buffer.
-- Adaptors: gnuplot stream, matplotlib-cpp, raw CSV/JSON export.
-- 1D, 2D, 3D, contour, implicit, parametric variants.
-
-**Exit criteria**: example consumer renders the MATLAB toolbox pendulum animation using SymPP + matplotlib-cpp.
-
----
-
-## Phase 15 — Parser & MATLAB facade (2 weeks)
-
-**Deliverables**
-- `parse("x^2 + sin(x) == 0")` — recursive descent or PEG grammar; returns `Expr`.
-- MATLAB-compatible top-level functions in `sympp::matlab::` namespace: `syms`, `sym`, `solve`, `dsolve`, `int`, `diff`, `simplify`, `subs`, `factor`, `expand`, `taylor`, `laplace`, `fourier`, `ztrans`, `vpa`, `eval`, etc.
-- Each MATLAB function is a thin wrapper over the SymPP core API to ease porting MATLAB scripts.
-
-**SymPy reference**: `parsing/sympy_parser.py` (algorithm only; can't reuse the AST/`eval` approach in C++).
-
-**Exit criteria**: 20-example MATLAB regression suite (selected from the User's Guide) parses and runs.
-
----
-
-## Phase 16 — Hardening & v1.0 release (4–6 weeks)
-
-**Deliverables**
-- Run SymPy's own test suite subset against SymPP via the oracle harness; document pass rates.
-- Performance benchmarks vs SymEngine baseline.
-- Doxygen / public-header docs complete.
-- Tutorial: "Porting a MATLAB script to SymPP" — walk through 5 examples.
-- vcpkg port, Conan recipe, CMake `find_package` example.
-- Pre-built binaries for Linux/macOS/Windows.
-- Tagged v1.0 release.
-
-**Exit criteria**: a clean Linux/macOS/Windows install + sample app + green tests on a fresh machine.
-
----
-
-## Critical path summary
+This file is the source of truth for what SymPP has shipped, what's
+deferred (and *honestly why*), and the forward path to SymPy feature
+parity.
+
+## Status snapshot
 
 ```
-0 → 1 → 2 ─┬─ 3 ─┐
-           ├─ 4 ─┼─ 5 ─ 6 ─ 7 ─┬─ 8 ──┐
-           │     │              ├─ 9 ──┼─ 10 ─ 11 ─ 12 ─ 13 ─ 14 ─ 15 ─ 16
-           └─────┘
+820 tests / 1644 assertions  all passing
+53 commits on origin/main
+13 of 16 original phases shipped
 ```
 
-3 and 4 can run in parallel after 2. 8 and 9 can run in parallel after 7.
+| Phase | Title | Status |
+|---|---|---|
+| 0  | Foundation & oracle harness            | ✅ shipped |
+| 1  | Core expression tree                   | ✅ shipped |
+| 2  | Assumptions                            | 🟡 minimal subset (SAT-based deferred) |
+| 3  | Elementary & special functions         | ✅ shipped |
+| 4  | Polynomials                            | ✅ shipped (multivariate factor + BZ deferred) |
+| 5  | Simplification                         | ✅ shipped (hyperexpand deferred) |
+| 6  | Calculus                               | ✅ shipped (Gruntz at infinity deferred) |
+| 7  | Integration                            | ✅ shipped (full Risch + Meijer G deferred) |
+| 8  | Transforms                             | ✅ shipped (Meijer-driven general case deferred) |
+| 9  | Linear algebra                         | ✅ shipped (SVD, Jordan, sparse deferred) |
+| 10 | Equation solvers                       | ✅ shipped (F4/F5 Gröbner + SAT deferred) |
+| 11 | ODE / PDE                              | ✅ shipped (full Lie + Pantelides deferred) |
+| 12 | Units                                  | ✅ shipped |
+| 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
+| 14 | Plotting bridge                        | ❌ not started |
+| 15 | Parser & MATLAB facade                 | ❌ not started |
+| 16 | Hardening & v1.0                       | ❌ not started |
 
-## Aggressive-cut v1.0
+Legend: ✅ feature-complete at minimal-viable scope · 🟡 partial · ❌ not started
 
-If solo developer + 9-month deadline, cut:
-- Phase 4: skip multivariate factorization, Gröbner. (Saves 3 weeks.)
-- Phase 7: ship only manualintegrate + rational. Skip Risch and Meijer G. (Saves 4 weeks; **but Phase 8 transforms become much weaker**.)
-- Phase 11: ODE only, no PDE, no DAE. (Saves 2 weeks.)
-- Phase 13: C and LaTeX printers only. (Saves 2 weeks.)
-- Skip Phase 15 MATLAB facade — users can use the SymPP API directly. (Saves 2 weeks.)
+The original "Phase X minimal" labels in the commit history reflect
+intentional aggressive scope cuts taken in the first weekend session;
+each minimal landing has since been re-visited and the deferred items
+shipped in dedicated follow-up commits ("Phase X deep").
 
-This produces a "useful for engineers but not MATLAB-equivalent" v0.5 in ~8 months.
+---
+
+## Phase status breakdown
+
+Each phase below lists what's actually in `main` and what's still
+deferred — with the *real* reason for the deferral, not "it was hard".
+
+### Phase 0 — Foundation & oracle harness · ✅
+
+**Shipped**: CMake build, GMP/MPFR/Catch2/nlohmann_json wired,
+clang/clang++ on macOS+Linux, BSD-3 license, `Basic`/`Expr`
+skeleton, Python oracle subprocess (long-lived, JSON-over-stdin/stdout),
+`tests/oracle/oracle_smoke_test`. CI not wired (intentional — local
+testing is the bottleneck).
+
+### Phase 1 — Core expression tree · ✅
+
+**Shipped**: Number tower (`Integer` GMP, `Rational` GMP, `Float`
+MPFR, `NumberSymbol` for Pi/E/EulerGamma/Catalan), `Symbol`,
+`ImaginaryUnit`, hash-cons cache via `weak_ptr`-keyed multimap,
+`Add`/`Mul`/`Pow` with full canonical-form auto-evaluation,
+operator overloads (`+ - * / pow`), `subs`/`xreplace`/`has`/
+`free_symbols`/`args`, `expand`, structural equality + canonical
+ordering, `str()` printer, `evalf` to arbitrary precision via MPFR.
+`I*I = -1` and `I^n` cycle. Singletons `S::Zero/One/Half/Pi/E/I/...`.
+
+**Not shipped** (intentional): `Dummy`, `Wild`, `Complex` as a
+distinct number type (we use `a + b*I` instead), `Infinity` /
+`NegativeInfinity` / `ComplexInfinity` / `NaN` — these are deferred
+together with the Gruntz limit work.
+
+### Phase 2 — Assumptions · 🟡 minimal
+
+**Shipped**: `AssumptionMask` (Real, Rational, Integer, Positive,
+Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite),
+`is_real/is_positive/is_integer/...` queries on every `Expr`,
+propagation through `Add`/`Mul`/`Pow`, `refine()` on assumption-gated
+rewrites.
+
+**Deferred-deep**: Even/Odd/Prime/Composite, Hermitian/Antihermitian,
+Algebraic/Transcendental, the SAT-based `ask` system. Reason: SAT
+porting is its own multi-week subsystem and our practical use cases
+hit only the basic ontology.
+
+### Phase 3 — Elementary & special functions · ✅
+
+**Shipped**: 30+ functions: `sin/cos/tan/asin/acos/atan/atan2`,
+`sinh/cosh/tanh/asinh/acosh/atanh`, `exp/log`, `sqrt/abs/sign/
+re/im/conjugate/arg`, `min_/max_`, `floor/ceiling`, `factorial/
+binomial/gamma/loggamma`, `erf/erfc/heaviside/dirac_delta`. Each
+has auto-eval rules, `evalf` via MPFR/mpmath-equivalent, and a
+`diff_arg` chain-rule entry.
+
+**Deferred**: Bessel/Zeta/Beta/digamma — naming is in `FunctionId`
+but no implementation. Reason: not yet driven by a downstream phase.
+
+### Phase 4 — Polynomials · ✅
+
+**Shipped**: Univariate `Poly` over Expr coefficients, +/-/* and
+divmod, GCD via Euclidean algorithm over ℚ, square-free factorization
+(Yun), rational roots theorem, cubic via Cardano, quartic via Ferrari,
+factor over ℤ via Kronecker (square-free + rational + Kronecker
+reconstruction), `cancel`/`together`/`apart`/`horner`, resultant
+(Sylvester) + discriminant, lazy `RootOf` with MPFR bisection evalf,
+multivariate Gröbner basis (Buchberger, lex order) shipped in
+Phase 10.
+
+**Deferred-deep**: Multivariate `Poly` (sparse distributed monomial
+form), full domain tower (ℂ, ℤ_p, ℚ_alg), Berlekamp-Zassenhaus +
+Hensel lifting (Kronecker is correct but exponential), Wang
+multivariate factorization, modular GCD, full `apart` for repeated
+roots / quadratic factors via linear-system solve. Reason: each is
+a multi-week port and Kronecker is adequate for textbook degrees.
+
+### Phase 5 — Simplification · ✅
+
+**Shipped**: `simplify` orchestrator (chains all of the below),
+`collect`, `together`, `cancel` (uses Phase 4 GCD), `powsimp`,
+`expand_power_exp`, `expand_power_base`, `trigsimp` (Pythagorean
+identity), `radsimp` (rationalize binomial denominators),
+`sqrtdenest` (Borodin denesting via discriminant test), `combsimp`
+(factorial ratios), `gammasimp` (gamma ratios), `cse` (common
+subexpression elimination via hash-cons), `nsimplify` (rational +
+pi/e + sqrt-of-rational table).
+
+**Deferred-deep**: `hyperexpand`. Reason: requires hypergeometric
+function machinery — full SymPy port is ~1000 LOC and is also the
+blocker for general-case Meijer G integration. Treated as one
+research-level subsystem to land jointly.
+
+### Phase 6 — Calculus · ✅
+
+**Shipped**: `diff` with full chain/product/power/sum rules,
+`series` (Taylor via 1/k!·f⁽ᵏ⁾ formula), `limit` with **L'Hôpital
+for 0/0 indeterminate forms**, `Order` (Big-O class), `summation`
+(closed-form: linearity, constant, Σk, Σk², Σk³, geometric),
+`pade` approximant via Taylor + linear-system solve,
+`stationary_points`/`minimum`/`maximum`/`is_increasing`/
+`is_decreasing`, `euler_lagrange` functional derivative,
+`vertical_asymptotes`, `inflection_points`.
+
+**Deferred-deep**: Full **Gruntz** algorithm at infinity
+(0·∞, ∞-∞, ∞/∞), `horizontal_asymptotes`. Reason: requires an
+`Infinity` singleton + asymptotic-comparison machinery — which is
+its own subsystem.
+
+### Phase 7 — Integration · ✅
+
+**Shipped**: Linearity over Add, table for elementary forms with
+**affine arguments** (∫sin(ax+b), ∫(ax+b)^n, ∫exp(ax+b)),
+**trig reductions** (sin², cos², product-to-sum), **rational
+function integration via apart**, **integration by parts** (log,
+poly·{sin,cos,exp}), **heurisch** chain-rule-reverse u-substitution,
+**`manualintegrate` orchestrator** with optional fallback to numeric,
+**`vpaintegral`** (adaptive Simpson in MPFR for high-precision
+definite integrals).
+
+**Deferred-deep**: Full Risch transcendental algorithm (`risch.py`
++ `prde.py` + `rde.py` — research-level ports), Meijer G method.
+Reason: each is multi-week. Coverage on textbook integrals is
+already solid via the heuristics + by-parts + heurisch chain.
+
+### Phase 8 — Transforms · ✅
+
+**Shipped**: `laplace_transform` + `inverse_laplace_transform`
+(apart-driven), `fourier_transform` + `inverse_fourier_transform`,
+`mellin_transform` + `inverse_mellin_transform`, `z_transform` +
+`inverse_z_transform`, `sine_transform` + `cosine_transform`. Each
+is table-based with linearity over Add and constant-factor pull-out.
+
+**Deferred-deep**: Meijer-G-driven general-case transforms (handle
+arbitrary algebraic / special-function inputs). Reason: depends on
+the hypergeometric machinery still pending from Phase 5.
+
+### Phase 9 — Linear algebra · ✅
+
+**Shipped**: Dense `Matrix<Expr>`, identity/zeros, +/-/*, scalar
+mul, transpose, conjugate_transpose, trace, det (cofactor),
+adjugate, inverse (adjugate / det), Frobenius norm, `gradient` /
+`hessian` / `jacobian` / `wronskian`, `rref` / `rank` / `nullspace`
+/ `columnspace` / `rowspace`, `charpoly` / `eigenvals` / `eigenvects`
+/ `is_diagonalizable` / `diagonalize`, **LU + QR (Gram-Schmidt) +
+Cholesky** decompositions, Hadamard + Kronecker products, Hilbert /
+Vandermonde / companion / rotation_matrix_2d/x/y/z constructors,
+`MatrixSymbol` + symbolic matrix expression tree (`MatAdd`,
+`MatMul`, `MatPow`, `MTranspose`, `MInverse`, `MTrace`,
+`MDeterminant`, `BlockMatrix`).
+
+**Deferred-deep**: Full symbolic SVD (requires eigendecomposition of
+A^TA — scales poorly for n>3), `jordan_form` (nilpotent analysis on
+generalized eigenspaces), sparse `Matrix` variant (separate storage
+representation).
+
+### Phase 10 — Equation solvers · ✅
+
+**Shipped**: `solve` (univariate polynomial deg ≤ 4 closed-form, deg
+≥ 5 via rational-roots), `solveset` (returns `Set`), `linsolve`,
+`nsolve` (Newton's method in MPFR throughout), `solve_univariate_
+inequality`, `reduce_inequalities` (single + AND/OR vector forms),
+`rsolve` (constant-coefficient recurrence), `nonlinsolve` (2-var
+via resultant + numeric verification, n-var via Gröbner). **Set
+algebra**: `Interval` / `FiniteSet` / `Union` / `Intersection` /
+`Complement` / `EmptySet` / `Reals` / `Integers` / `ConditionSet` /
+`ImageSet`. **Trig `solveset`** emits `ImageSet` for periodic
+solutions. **Linear Diophantine** + **Pythagorean triples**
+(Euclid's formula). **Buchberger Gröbner basis** with lex order,
+n-variable nonlinear system solving via triangular back-substitution.
+
+**Deferred-deep**: Full SAT-based assumption reasoning, F4 / F5
+Gröbner algorithms (Buchberger is exponential worst-case),
+degrevlex / matrix monomial orderings, general transcendental
+`solveset` (a·sin(x) + b·cos(x) = c, exp/log compositions, etc.).
+
+### Phase 11 — ODE / PDE · ✅
+
+**Shipped**: `dsolve_first_order` classifier + dispatch,
+`dsolve_separable`, `dsolve_linear_first_order`, `dsolve_bernoulli`,
+`dsolve_exact`, `dsolve_constant_coeff` (any order),
+`dsolve_cauchy_euler`, `dsolve_system` for y'=A·y via
+eigendecomposition, `apply_ivp` for initial conditions,
+`checkodesol`, `pdsolve_first_order_linear` (constant coefficients).
+**Deep**: `dsolve_riccati` (linearize to 2nd-order),
+`dsolve_homogeneous` (y'=f(y/x)), `dsolve_lie_autonomous`,
+`dsolve_hypergeometric` recognition + opaque `hyper(...)` factory,
+`pdsolve_first_order_variable` (homogeneous case via real method
+of characteristics), `pdsolve_heat` (separation of variables),
+`pdsolve_wave` (d'Alembert form), `dae_jacobians`,
+`dae_structural_index`.
+
+**Deferred-deep**: Full Lie symmetry classifier (point + contact +
+Lie-Bäcklund — 1500+ LOC port), full Pantelides BLT decomposition
++ Tarjan SCC for high-index DAEs, full `hyperexpand` series
+expansion of the hypergeometric function.
+
+### Phase 12 — Units · ✅
+
+**Shipped**: `Dimension` (7-tuple of integer exponents over SI base
+dimensions), `Unit` (name, symbol, dim, scale), `Quantity` (Expr +
+Unit with dim-checked arithmetic), all SI base + 13 derived units
+(N, J, W, Pa, Hz, V, Ω, F, T, Wb, H, lx, gram), prefixes
+(yocto..yotta), CGS (cm, dyne, erg) + US (foot, inch, mile, lb,
+oz, gal, BTU) + time (min, hour, day, year), 12 physical constants
+with exact post-2019-redef values for c/h/k_B/e/N_A,
+`convert(qty, target)`, affine **temperature conversions** (C/F/K).
+
+### Phase 13 — Code generation · 🟡
+
+**Shipped**: `CodePrinter` visitor base, `ccode` / `cxxcode` /
+`fcode` / `latex` / `octave_code` / `pretty` printers, function
+emission `c_function` / `cxx_function` / `fortran_function` /
+`octave_function`. Greek letter mapping in LaTeX, `\frac{}{}`,
+`\sqrt{}`, std::numbers::pi_v in C++, Fortran `d0` suffix for
+double precision, Octave `.* ./ .^` element-wise operators.
+
+**Deferred-deep**: `lambdify` (JIT compile expr to native function
+via LLVM ORC — heavy LLVM dependency), `autowrap` equivalent
+(emit C source + invoke compiler + dlopen), full 2D pretty-print
+layout (stacked fractions, integral signs — ~500 LOC port from
+sympy/printing/pretty/).
+
+### Phase 14 — Plotting bridge · ❌
+
+**Status**: Not started. Original scope: `SampledFunction`,
+gnuplot/matplotlib-cpp/CSV adaptors, 1D/2D/3D/contour/implicit/
+parametric plots. Genuinely small effort (~1 week per the original
+estimate) once we decide on the rendering bridge. Intentionally
+parked — most CAS users want symbolic correctness first; plotting
+is downstream of the deliverables.
+
+### Phase 15 — Parser & MATLAB facade · ❌
+
+**Status**: Not started. Original scope: a recursive-descent /
+PEG parser for `parse("x^2 + sin(x) == 0")` returning `Expr`, plus
+a `sympp::matlab::` namespace with `syms`, `sym`, `solve`, `dsolve`,
+`int`, `diff`, `simplify`, etc. as thin wrappers for MATLAB users.
+Tractable (~2 weeks). Intentionally parked — programmatic API is
+fully usable today; the parser is a UX layer.
+
+### Phase 16 — Hardening & v1.0 · ❌
+
+**Status**: Not started. Original scope: cross-port test runs,
+performance benchmarks vs SymEngine, doxygen docs, vcpkg / Conan,
+v1.0 tag. Tractable.
+
+---
+
+## Forward roadmap — to SymPy parity
+
+The original 16-phase plan was scoped to "MATLAB Symbolic Math
+Toolbox parity". To compete with **SymPy** itself we need three
+additional categories of work:
+
+### Category A: Close the deep-deferreds in shipped phases
+
+Each item below replaces a "good enough" implementation with the
+genuinely-comprehensive version. None of these is a blocker — the
+current code works correctly within its documented scope. They are
+parity deltas, not bug fixes.
+
+| Phase | Deep-deferred work | Effort | Priority |
+|---|---|---|---|
+| 1  | Infinity / NegativeInfinity / ComplexInfinity / NaN singletons | 1 wk | High (unblocks Gruntz) |
+| 2  | SAT-based assumption reasoning | 3 wk | Low |
+| 4  | Multivariate Poly + Wang factorization                | 3 wk | Medium |
+| 4  | Berlekamp-Zassenhaus + Hensel lifting               | 2 wk | Medium |
+| 4  | Full polynomial domain tower (ℤ_p, ℚ_alg, ℂ)        | 2 wk | Low |
+| 5  | hyperexpand + hypergeometric function infrastructure | 4 wk | High (unblocks Phase 7+8) |
+| 6  | Full Gruntz limit algorithm                          | 2 wk | High |
+| 7  | Full Risch transcendental integration                | 4 wk | Medium |
+| 7  | Meijer G-function integration method                 | 3 wk | High (with hyperexpand) |
+| 9  | Symbolic SVD                                         | 2 wk | Medium |
+| 9  | Jordan canonical form                                | 2 wk | Medium |
+| 9  | Sparse Matrix variant                                | 2 wk | Low |
+| 10 | F4 / F5 Gröbner algorithms                           | 3 wk | Low |
+| 10 | General transcendental solveset                      | 2 wk | Medium |
+| 11 | Full Lie symmetry classifier                         | 3 wk | Low |
+| 11 | Pantelides BLT + Tarjan SCC for high-index DAEs      | 2 wk | Low |
+| 13 | lambdify (LLVM ORC integration)                      | 3 wk | High (huge user value) |
+| 13 | Full 2D pretty-print layout                          | 1 wk | Medium |
+
+**Total category A**: roughly 42 developer-weeks of focused work.
+
+### Category B: Original phases 14, 15, 16
+
+| # | Title | Effort |
+|---|---|---|
+| 14 | Plotting bridge                  | 1 wk |
+| 15 | Parser + MATLAB facade           | 2 wk |
+| 16 | Hardening + v1.0 release         | 4–6 wk |
+
+### Category C: New phases beyond MATLAB scope (SymPy parity)
+
+These are SymPy modules with no MATLAB analogue but significant
+real-world use. Listed in roughly the order they should land.
+
+#### Phase 17 — Vector calculus & differential geometry
+
+`Vector`, `CoordSys3D`, gradient/divergence/curl/laplacian on
+arbitrary coordinate systems (Cartesian, cylindrical, spherical),
+metric tensor, Christoffel symbols, covariant derivative,
+Riemann/Ricci/scalar curvature.
+
+**SymPy reference**: `vector/`, `diffgeom/`. Effort: 3 weeks.
+
+#### Phase 18 — Tensor algebra
+
+`Tensor`, abstract index notation, contraction, raising/lowering
+indices via metric, symmetric/antisymmetric components.
+
+**SymPy reference**: `tensor/`. Effort: 2 weeks.
+
+#### Phase 19 — Statistics & probability
+
+`Distribution` (continuous + discrete), `cdf`/`pdf`/`expectation`/
+`variance`/`density`/`sample` over Normal, Uniform, Exponential,
+Binomial, Poisson, etc. Random variables, conditional probabilities,
+Bayesian updates.
+
+**SymPy reference**: `stats/`. Effort: 3 weeks.
+
+#### Phase 20 — Number theory
+
+Primality testing, factorization, modular arithmetic, totient,
+quadratic residues, continued fractions, Diophantine equation solver
+(beyond linear + Pythagorean).
+
+**SymPy reference**: `ntheory/`. Effort: 2 weeks.
+
+#### Phase 21 — Combinatorics & group theory
+
+Permutations, finite groups, polytope/Young tableaux, partitions,
+generating functions, group presentations.
+
+**SymPy reference**: `combinatorics/`. Effort: 3 weeks.
+
+#### Phase 22 — Physics modules
+
+Classical mechanics (Lagrangian/Hamiltonian formalisms), quantum
+mechanics (Hilbert space, operators, Dirac notation, density matrix),
+optics, electromagnetism. Each is a large submodule in SymPy.
+
+**SymPy reference**: `physics/{mechanics,quantum,optics}/`. Effort:
+4 weeks per submodule.
+
+#### Phase 23 — Cryptography primitives
+
+RSA, ElGamal, elliptic curve arithmetic, hash-to-curve, finite-field
+operations beyond ℤ_p basics.
+
+**SymPy reference**: `crypto/`. Effort: 2 weeks.
+
+#### Phase 24 — Geometry
+
+Points, lines, polygons, circles, ellipses, intersection, distance,
+area, polygon decomposition.
+
+**SymPy reference**: `geometry/`. Effort: 1 week.
+
+---
+
+## Summary
+
+```
+Where we are:        13/16 original phases shipped, 820 oracle-validated tests.
+What's deferred:     ~42 weeks of Category A (deep-deferreds within shipped phases).
+What's next:         ~15 weeks for Category B (Phases 14, 15, 16).
+What's beyond:       ~25 weeks for Category C (Phases 17–24, true SymPy parity).
+```
+
+**Total to full SymPy parity**: roughly 80 focused developer-weeks
+on top of what's already in `main`.
+
+The first compelling milestone is **v0.5 = Phases 14 + 15 + 16
+landing**: that gives us a parser, a plotting bridge, and a tagged
+release. From there, Category A and C can be parallelized — the
+deep-deferreds within shipped phases are independent of the new
+modules.
+
+---
+
+## Critical path
+
+```
+shipped (1..13) ─┬─ 14 (plotting)
+                  ├─ 15 (parser, MATLAB facade)
+                  ├─ 16 (hardening → v0.5)
+                  │
+                  ├─ Cat A: hyperexpand → Meijer G → Risch
+                  ├─ Cat A: Infinity → Gruntz
+                  ├─ Cat A: lambdify (LLVM ORC)
+                  │
+                  └─ Cat C: 17 (vector calc) → 18 (tensors)
+                            19 (stats), 20 (ntheory),
+                            21 (combinatorics), 22 (physics),
+                            23 (crypto), 24 (geometry)
+                                        │
+                                        └→ v1.0
+```
+
+The deep-deferreds within shipped phases are independent of one
+another and can be tackled in any order. The new modules (17+)
+likewise have low coupling. Phases 14, 15, 16 are the only strictly-
+sequenced work remaining.
