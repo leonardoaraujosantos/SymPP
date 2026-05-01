@@ -7,6 +7,7 @@ target_sources(sympp_tests
     PRIVATE
         oracle/oracle.hpp
         oracle/oracle.cpp
+        calculus/diff_test.cpp
         core/arithmetic_test.cpp
         core/assumptions_test.cpp
         core/collection_test.cpp

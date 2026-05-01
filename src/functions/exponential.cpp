@@ -11,6 +11,7 @@
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
@@ -128,6 +129,17 @@ Expr log(const Expr& arg) {
     }
 
     return make<Log>(arg);
+}
+
+// ----- Derivatives ----------------------------------------------------------
+
+Expr Exp::diff_arg(std::size_t /*i*/) const {
+    // d/dx exp(x) = exp(x)
+    return exp(args_[0]);
+}
+Expr Log::diff_arg(std::size_t /*i*/) const {
+    // d/dx log(x) = 1/x
+    return pow(args_[0], S::NegativeOne());
 }
 
 }  // namespace sympp

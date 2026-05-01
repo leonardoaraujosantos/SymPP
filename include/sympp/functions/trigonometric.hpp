@@ -35,6 +35,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "sin"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Cos final : public Function {
@@ -44,6 +45,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "cos"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Tan final : public Function {
@@ -53,6 +55,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "tan"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 // Factories — apply auto-eval rules. May return non-Sin/Cos/Tan results
@@ -79,6 +82,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "asin"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Acos final : public Function {
@@ -88,6 +92,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "acos"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Atan final : public Function {
@@ -97,6 +102,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "atan"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Atan2 final : public Function {
@@ -106,6 +112,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "atan2"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 [[nodiscard]] SYMPP_EXPORT Expr asin(const Expr& arg);

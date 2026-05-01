@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 
+#include <sympp/core/singletons.hpp>
+
 namespace sympp {
 
 namespace {
@@ -54,6 +56,17 @@ std::string Function::str() const {
     }
     out.push_back(')');
     return out;
+}
+
+// Default partial derivative — returns 0. Concrete subclasses with known
+// derivatives override this. UndefinedFunction (a generic f(x)) returns 0
+// here; downstream `diff()` will keep an unevaluated form for that case
+// since the chain rule yields 0 only for genuinely independent functions.
+//
+// Reference: sympy/core/function.py::Function.fdiff (default raises;
+// for our purposes returning 0 keeps the engine pure-functional).
+Expr Function::diff_arg(std::size_t /*i*/) const {
+    return S::Zero();
 }
 
 }  // namespace sympp

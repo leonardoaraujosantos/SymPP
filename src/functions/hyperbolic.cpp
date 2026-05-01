@@ -6,13 +6,16 @@
 
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
@@ -209,6 +212,35 @@ Expr atanh(const Expr& arg) {
         return mul(S::NegativeOne(), make<Atanh>(*pos));
     }
     return make<Atanh>(arg);
+}
+
+// ----- Derivatives ----------------------------------------------------------
+
+Expr Sinh::diff_arg(std::size_t /*i*/) const {
+    return cosh(args_[0]);
+}
+Expr Cosh::diff_arg(std::size_t /*i*/) const {
+    return sinh(args_[0]);
+}
+Expr Tanh::diff_arg(std::size_t /*i*/) const {
+    // 1 - tanh(x)^2
+    auto t2 = pow(tanh(args_[0]), integer(2));
+    return add(S::One(), mul(S::NegativeOne(), t2));
+}
+Expr Asinh::diff_arg(std::size_t /*i*/) const {
+    // 1 / sqrt(1 + x^2)
+    auto one_plus_xsq = add(S::One(), pow(args_[0], integer(2)));
+    return pow(one_plus_xsq, rational(-1, 2));
+}
+Expr Acosh::diff_arg(std::size_t /*i*/) const {
+    // 1 / sqrt(x^2 - 1)
+    auto xsq_minus_one = add(pow(args_[0], integer(2)), S::NegativeOne());
+    return pow(xsq_minus_one, rational(-1, 2));
+}
+Expr Atanh::diff_arg(std::size_t /*i*/) const {
+    // 1 / (1 - x^2)
+    auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
+    return pow(one_minus_xsq, S::NegativeOne());
 }
 
 }  // namespace sympp

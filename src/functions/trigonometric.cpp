@@ -7,6 +7,7 @@
 
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
@@ -14,6 +15,7 @@
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/number_symbol.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -348,6 +350,38 @@ Expr atan(const Expr& arg) {
     }
 
     return make<Atan>(arg);
+}
+
+// ----- Derivatives ----------------------------------------------------------
+
+Expr Sin::diff_arg(std::size_t /*i*/) const {
+    return cos(args_[0]);
+}
+Expr Cos::diff_arg(std::size_t /*i*/) const {
+    return mul(S::NegativeOne(), sin(args_[0]));
+}
+Expr Tan::diff_arg(std::size_t /*i*/) const {
+    return add(S::One(), pow(tan(args_[0]), integer(2)));
+}
+
+Expr Asin::diff_arg(std::size_t /*i*/) const {
+    auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
+    return pow(one_minus_xsq, rational(-1, 2));
+}
+Expr Acos::diff_arg(std::size_t /*i*/) const {
+    auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
+    return mul(S::NegativeOne(), pow(one_minus_xsq, rational(-1, 2)));
+}
+Expr Atan::diff_arg(std::size_t /*i*/) const {
+    auto one_plus_xsq = add(S::One(), pow(args_[0], integer(2)));
+    return pow(one_plus_xsq, S::NegativeOne());
+}
+Expr Atan2::diff_arg(std::size_t i) const {
+    auto y = args_[0];
+    auto x = args_[1];
+    auto denom = add(pow(x, integer(2)), pow(y, integer(2)));
+    if (i == 0) return mul(x, pow(denom, S::NegativeOne()));
+    return mul(mul(S::NegativeOne(), y), pow(denom, S::NegativeOne()));
 }
 
 Expr atan2(const Expr& y, const Expr& x) {

@@ -32,6 +32,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "sinh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Cosh final : public Function {
@@ -41,6 +42,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "cosh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Tanh final : public Function {
@@ -50,6 +52,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "tanh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Asinh final : public Function {
@@ -59,6 +62,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "asinh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Acosh final : public Function {
@@ -68,6 +72,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "acosh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Atanh final : public Function {
@@ -77,6 +82,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "atanh"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 [[nodiscard]] SYMPP_EXPORT Expr sinh(const Expr& arg);

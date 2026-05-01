@@ -42,6 +42,13 @@ public:
     // refine to descend through Function nodes.
     [[nodiscard]] virtual Expr rebuild(std::vector<Expr> new_args) const = 0;
 
+    // Partial derivative with respect to the i-th argument, evaluated at the
+    // current args. Default implementation returns an unevaluated Derivative
+    // marker (a placeholder Expr); overrides supply closed-form rules.
+    //
+    // Reference: sympy/core/function.py::Function.fdiff (one-based there).
+    [[nodiscard]] virtual Expr diff_arg(std::size_t i) const;
+
 protected:
     explicit Function(std::vector<Expr> args);
 

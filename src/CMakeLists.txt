@@ -27,6 +27,7 @@ target_sources(sympp
         core/symbol.cpp
         core/traversal.cpp
         core/undefined_function.cpp
+        calculus/diff.cpp
         functions/combinatorial.cpp
         functions/exponential.cpp
         functions/hyperbolic.cpp
@@ -71,6 +72,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/traversal.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/diff.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp
