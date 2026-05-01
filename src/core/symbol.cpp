@@ -5,6 +5,7 @@
 #include <utility>
 
 #include <sympp/core/assumption_mask.hpp>
+#include "string_hash.hpp"
 
 namespace sympp {
 
@@ -17,7 +18,7 @@ constexpr std::size_t kSymbolHashSeed = 0x9E37'79B9'7F4A'7C15ULL;
 
 [[nodiscard]] std::size_t hash_symbol(const std::string& name,
                                       const AssumptionMask& assumptions) noexcept {
-    std::size_t h = std::hash<std::string>{}(name) ^ kSymbolHashSeed;
+    std::size_t h = sympp::detail::fnv1a_64(name) ^ kSymbolHashSeed;
     h ^= assumptions.hash() + 0x9E37'79B9'7F4A'7C15ULL + (h << 6) + (h >> 2);
     return h;
 }

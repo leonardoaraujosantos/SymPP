@@ -9,6 +9,7 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/function_id.hpp>
+#include "string_hash.hpp"
 
 namespace sympp {
 
@@ -28,7 +29,7 @@ UndefinedFunction::UndefinedFunction(std::string name, std::vector<Expr> args)
     compute_hash(FunctionId::Undefined);
     // Mix the name into the existing hash — Function::compute_hash doesn't
     // know about the per-instance name.
-    hash_ = hash_combine(hash_, std::hash<std::string>{}(name_));
+    hash_ = hash_combine(hash_, sympp::detail::fnv1a_64(name_));
 }
 
 bool UndefinedFunction::equals(const Basic& other) const noexcept {
