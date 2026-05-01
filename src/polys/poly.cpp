@@ -20,6 +20,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/matrices/matrix.hpp>
 
 #include <gmpxx.h>
 
@@ -1007,6 +1008,53 @@ Expr apart(const Expr& expr, const Expr& var) {
 Expr horner(const Expr& expr, const Expr& var) {
     Poly p(expr, var);
     return p.eval(var);  // Poly::eval already builds the nested Horner form.
+}
+
+Expr resultant(const Poly& p, const Poly& q) {
+    if (!(p.var() == q.var())) {
+        throw std::invalid_argument("resultant: variable mismatch");
+    }
+    if (p.is_zero() || q.is_zero()) return S::Zero();
+    const std::size_t m = p.degree();
+    const std::size_t n = q.degree();
+    if (m == 0 && n == 0) {
+        // Both constants; resultant convention: 1 (no common roots).
+        return S::One();
+    }
+    const std::size_t size = m + n;
+    Matrix syl = Matrix::zeros(size, size);
+    // p contributes n rows. Row i covers columns [i, i+m].
+    // p.coeffs() is lowest-degree first; Sylvester wants highest-degree first.
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j <= m; ++j) {
+            syl.set(i, i + j, p.coeffs()[m - j]);
+        }
+    }
+    // q contributes m rows. Row n + i covers columns [i, i+n].
+    for (std::size_t i = 0; i < m; ++i) {
+        for (std::size_t j = 0; j <= n; ++j) {
+            syl.set(n + i, i + j, q.coeffs()[n - j]);
+        }
+    }
+    return syl.det();
+}
+
+Expr resultant(const Expr& p, const Expr& q, const Expr& var) {
+    return resultant(Poly(p, var), Poly(q, var));
+}
+
+Expr discriminant(const Poly& p) {
+    if (p.degree() < 1) return S::Zero();
+    Expr res = resultant(p, p.diff());
+    const std::size_t n = p.degree();
+    const Expr& lc = p.leading_coeff();
+    // (-1)^(n(n-1)/2) sign factor
+    Expr sign = ((n * (n - 1) / 2) % 2 == 0) ? S::One() : S::NegativeOne();
+    return sign * res / lc;
+}
+
+Expr discriminant(const Expr& p, const Expr& var) {
+    return discriminant(Poly(p, var));
 }
 
 SqfList sqf_list(const Poly& f) {

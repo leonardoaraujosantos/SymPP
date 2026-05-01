@@ -733,6 +733,74 @@ TEST_CASE("horner: degree 4 nests four deep", "[4][horner]") {
     REQUIRE(expand(h) == expand(e));
 }
 
+// ----- Resultant / Discriminant ----------------------------------------------
+
+TEST_CASE("resultant: x^2 - 1, x - 1 share root → 0",
+          "[4][resultant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = resultant(pow(x, integer(2)) - integer(1), x - integer(1), x);
+    REQUIRE(oracle.equivalent(e->str(), "0"));
+}
+
+TEST_CASE("resultant: coprime polys → nonzero",
+          "[4][resultant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x² + 1 and x + 2 — no common root over ℚ. Resultant = (-2)² + 1 = 5.
+    auto e = resultant(pow(x, integer(2)) + integer(1), x + integer(2), x);
+    auto resp = oracle.send({{"op", "resultant"},
+                             {"p", "x**2 + 1"}, {"q", "x + 2"},
+                             {"var", "x"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(e->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("resultant: arbitrary cubic vs quadratic",
+          "[4][resultant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pow(x, integer(3)) - integer(2) * x + integer(1);
+    auto q = pow(x, integer(2)) + integer(3) * x - integer(4);
+    auto e = resultant(p, q, x);
+    auto resp = oracle.send({{"op", "resultant"},
+                             {"p", "x**3 - 2*x + 1"},
+                             {"q", "x**2 + 3*x - 4"},
+                             {"var", "x"}});
+    REQUIRE(resp.ok);
+    REQUIRE(oracle.equivalent(e->str(),
+                              resp.raw.at("result").get<std::string>()));
+}
+
+TEST_CASE("discriminant: quadratic ax^2 + bx + c → b² - 4ac",
+          "[4][discriminant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // 2x² + 5x + 3 — disc = 25 - 24 = 1
+    auto e = discriminant(integer(2) * pow(x, integer(2)) + integer(5) * x
+                          + integer(3), x);
+    REQUIRE(oracle.equivalent(e->str(), "1"));
+}
+
+TEST_CASE("discriminant: x^3 - 1 has discriminant -27",
+          "[4][discriminant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = discriminant(pow(x, integer(3)) - integer(1), x);
+    REQUIRE(oracle.equivalent(e->str(), "-27"));
+}
+
+TEST_CASE("discriminant: cubic with double root vanishes",
+          "[4][discriminant][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x-1)²(x-2) = x³ - 4x² + 5x - 2 — has a double root, disc = 0.
+    auto e = discriminant(pow(x, integer(3)) - integer(4) * pow(x, integer(2))
+                          + integer(5) * x - integer(2), x);
+    REQUIRE(oracle.equivalent(e->str(), "0"));
+}
+
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
     auto x = symbol("x");
     // (x^3 + 2x^2 - 7x + 5)' = 3x^2 + 4x - 7

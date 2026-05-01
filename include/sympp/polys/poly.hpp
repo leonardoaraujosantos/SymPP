@@ -106,6 +106,24 @@ private:
 // Reference: sympy/polys/polyfuncs.py::horner
 [[nodiscard]] SYMPP_EXPORT Expr horner(const Expr& expr, const Expr& var);
 
+// Resultant of two polynomials in the same variable, computed as the
+// determinant of their Sylvester matrix. Vanishes iff p and q share a
+// common root. Common uses: detecting common roots, eliminating one
+// variable from a system of two polynomials, computing discriminants.
+//
+// Reference: sympy/polys/subresultants_qq_zz.py / sympy/matrices/...sylvester
+[[nodiscard]] SYMPP_EXPORT Expr resultant(const Poly& p, const Poly& q);
+[[nodiscard]] SYMPP_EXPORT Expr resultant(const Expr& p, const Expr& q,
+                                            const Expr& var);
+
+// Discriminant of a polynomial. By definition:
+//   disc(p) = (-1)^(n(n-1)/2) * resultant(p, p') / lc(p)
+// where n = degree(p), lc = leading coefficient.
+//
+// Reference: sympy/polys/polytools.py::discriminant
+[[nodiscard]] SYMPP_EXPORT Expr discriminant(const Poly& p);
+[[nodiscard]] SYMPP_EXPORT Expr discriminant(const Expr& p, const Expr& var);
+
 // Univariate polynomial GCD via Euclidean algorithm. Result is monic
 // (leading coefficient 1) for non-zero inputs. Behaves correctly over ℚ.
 //
