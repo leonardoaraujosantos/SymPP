@@ -49,6 +49,7 @@ public:
 
     [[nodiscard]] Expr operator()(Expr x) const;
     [[nodiscard]] Expr operator()(Expr x, Expr y) const;
+    [[nodiscard]] Expr operator()(Expr x, Expr y, Expr z) const;
     [[nodiscard]] Expr operator()(std::vector<Expr> args) const;
 
 private:

@@ -31,6 +31,8 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <sympp/calculus/limit.hpp>
+#include <sympp/calculus/series.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
@@ -38,7 +40,11 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/integrals/integrate.hpp>
+#include <sympp/integrals/transforms.hpp>
 #include <sympp/matrices/matrix.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/simplify/simplify.hpp>
+#include <sympp/solvers/solve.hpp>
 #include <sympp/fwd.hpp>
 #include <sympp/version.hpp>

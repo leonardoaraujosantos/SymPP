@@ -49,6 +49,11 @@ Expr FunctionSymbol::operator()(Expr x, Expr y) const {
     return make<UndefinedFunction>(name_, std::vector<Expr>{std::move(x), std::move(y)});
 }
 
+Expr FunctionSymbol::operator()(Expr x, Expr y, Expr z) const {
+    return make<UndefinedFunction>(
+        name_, std::vector<Expr>{std::move(x), std::move(y), std::move(z)});
+}
+
 Expr FunctionSymbol::operator()(std::vector<Expr> args) const {
     return make<UndefinedFunction>(name_, std::move(args));
 }

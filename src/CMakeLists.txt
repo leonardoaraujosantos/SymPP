@@ -28,6 +28,8 @@ target_sources(sympp
         core/traversal.cpp
         core/undefined_function.cpp
         calculus/diff.cpp
+        calculus/limit.cpp
+        calculus/series.cpp
         functions/combinatorial.cpp
         functions/exponential.cpp
         functions/hyperbolic.cpp
@@ -35,8 +37,12 @@ target_sources(sympp
         functions/miscellaneous.cpp
         functions/special.cpp
         functions/trigonometric.cpp
+        integrals/integrate.cpp
+        integrals/transforms.cpp
         matrices/matrix.cpp
         polys/poly.cpp
+        simplify/simplify.cpp
+        solvers/solve.cpp
 )
 
 target_sources(sympp
@@ -75,6 +81,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/diff.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/limit.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/series.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp
@@ -82,8 +90,12 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/miscellaneous.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/special.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/integrals/integrate.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/integrals/transforms.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/simplify/simplify.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/solvers/solve.hpp
 )
 
 # When building the library itself we need to export symbols (Windows DLL).

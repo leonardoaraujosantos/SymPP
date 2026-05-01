@@ -8,6 +8,7 @@ target_sources(sympp_tests
         oracle/oracle.hpp
         oracle/oracle.cpp
         calculus/diff_test.cpp
+        calculus/series_limit_test.cpp
         core/arithmetic_test.cpp
         core/assumptions_test.cpp
         core/collection_test.cpp
@@ -29,9 +30,13 @@ target_sources(sympp_tests
         functions/miscellaneous_test.cpp
         functions/special_test.cpp
         functions/trigonometric_test.cpp
+        integrals/integrate_test.cpp
+        integrals/transforms_test.cpp
         matrices/matrix_test.cpp
         oracle/oracle_smoke_test.cpp
         polys/poly_test.cpp
+        simplify/simplify_test.cpp
+        solvers/solve_test.cpp
 )
 
 target_include_directories(sympp_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
