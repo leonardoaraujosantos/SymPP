@@ -51,6 +51,7 @@
 #include <sympp/integrals/quadrature.hpp>
 #include <sympp/integrals/transforms.hpp>
 #include <sympp/matrices/matrix.hpp>
+#include <sympp/matrices/matrix_symbol.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/polys/rootof.hpp>
 #include <sympp/simplify/simplify.hpp>

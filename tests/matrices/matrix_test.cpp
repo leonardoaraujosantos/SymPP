@@ -580,3 +580,109 @@ TEST_CASE("matrix: Cholesky throws on asymmetric matrix",
     Matrix m = {{integer(1), integer(2)}, {integer(3), integer(4)}};
     REQUIRE_THROWS_AS(m.cholesky(), std::invalid_argument);
 }
+
+#include <sympp/matrices/matrix_symbol.hpp>
+
+// ----- MatrixSymbol + matrix expression tree -------------------------------
+
+TEST_CASE("matrix_symbol: shape and printing", "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 4);
+    REQUIRE(A->rows() == 3);
+    REQUIRE(A->cols() == 4);
+    REQUIRE(A->str() == "A");
+}
+
+TEST_CASE("matrix_symbol: matmul shape product",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 4);
+    auto B = matrix_symbol("B", 4, 2);
+    auto C = matmul(A, B);
+    REQUIRE(C->rows() == 3);
+    REQUIRE(C->cols() == 2);
+    REQUIRE(C->str() == "A*B");
+}
+
+TEST_CASE("matrix_symbol: matmul throws on inner dim mismatch",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 4);
+    auto B = matrix_symbol("B", 5, 2);
+    REQUIRE_THROWS_AS(matmul(A, B), std::invalid_argument);
+}
+
+TEST_CASE("matrix_symbol: matadd shape",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 2, 3);
+    auto B = matrix_symbol("B", 2, 3);
+    auto C = matadd(A, B);
+    REQUIRE(C->rows() == 2);
+    REQUIRE(C->cols() == 3);
+    REQUIRE(C->str() == "A + B");
+}
+
+TEST_CASE("matrix_symbol: transpose flips shape",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 4);
+    auto At = mtranspose(A);
+    REQUIRE(At->rows() == 4);
+    REQUIRE(At->cols() == 3);
+    REQUIRE(At->str() == "A.T");
+}
+
+TEST_CASE("matrix_symbol: inverse only on square",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 4);
+    REQUIRE_THROWS_AS(minverse(A), std::invalid_argument);
+    auto B = matrix_symbol("B", 3, 3);
+    auto Binv = minverse(B);
+    REQUIRE(Binv->str() == "B**(-1)");
+}
+
+TEST_CASE("matrix_symbol: trace and determinant are scalar",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 3);
+    auto t = mtrace(A);
+    REQUIRE(t->rows() == 1);
+    REQUIRE(t->cols() == 1);
+    REQUIRE(t->str() == "Trace(A)");
+    auto d = mdeterminant(A);
+    REQUIRE(d->str() == "Determinant(A)");
+}
+
+TEST_CASE("matrix_symbol: matpow square only",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 3, 3);
+    auto A3 = matpow(A, 3);
+    REQUIRE(A3->str() == "A**3");
+    auto B = matrix_symbol("B", 2, 3);
+    REQUIRE_THROWS_AS(matpow(B, 2), std::invalid_argument);
+}
+
+TEST_CASE("matrix_symbol: nested expressions print with parens",
+          "[9][matrix_symbol]") {
+    auto A = matrix_symbol("A", 2, 2);
+    auto B = matrix_symbol("B", 2, 2);
+    auto C = matmul(matadd(A, B), A);
+    // (A + B) * A
+    REQUIRE(C->str() == "(A + B)*A");
+}
+
+TEST_CASE("matrix_symbol: BlockMatrix shape and printing",
+          "[9][matrix_symbol][block]") {
+    auto A = matrix_symbol("A", 2, 2);
+    auto B = matrix_symbol("B", 2, 3);
+    auto C = matrix_symbol("C", 4, 2);
+    auto D = matrix_symbol("D", 4, 3);
+    auto block = block_matrix({{A, B}, {C, D}});
+    REQUIRE(block->rows() == 6);
+    REQUIRE(block->cols() == 5);
+    REQUIRE(block->str() == "BlockMatrix([[A, B], [C, D]])");
+}
+
+TEST_CASE("matrix_symbol: BlockMatrix shape mismatch throws",
+          "[9][matrix_symbol][block]") {
+    auto A = matrix_symbol("A", 2, 2);
+    auto B = matrix_symbol("B", 3, 2);  // wrong rows for row 0
+    REQUIRE_THROWS_AS(
+        block_matrix({{A, B}}),
+        std::invalid_argument);
+}
