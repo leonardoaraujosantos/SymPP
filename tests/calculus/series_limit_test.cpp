@@ -214,3 +214,42 @@ TEST_CASE("summation: Σ from a to b uses telescoping",
     auto s = summation(k, k, a, b);
     REQUIRE(oracle.equivalent(s->str(), "(b - a + 1)*(a + b)/2"));
 }
+
+#include <sympp/calculus/pade.hpp>
+
+// ----- Padé approximant ------------------------------------------------------
+
+TEST_CASE("pade: [1/1] of e^x → (1 + x/2)/(1 - x/2)",
+          "[6][pade][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pade(exp(x), x, 1, 1);
+    REQUIRE(oracle.equivalent(p->str(), "(1 + x/2)/(1 - x/2)"));
+}
+
+TEST_CASE("pade: [2/2] of e^x", "[6][pade][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pade(exp(x), x, 2, 2);
+    // (1 + x/2 + x²/12) / (1 - x/2 + x²/12)
+    REQUIRE(oracle.equivalent(p->str(),
+                              "(1 + x/2 + x**2/12)/(1 - x/2 + x**2/12)"));
+}
+
+TEST_CASE("pade: [3/2] of sin(x)", "[6][pade][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pade(sin(x), x, 3, 2);
+    // (x - 7x³/60) / (1 + x²/20)
+    REQUIRE(oracle.equivalent(p->str(),
+                              "(x - 7*x**3/60)/(1 + x**2/20)"));
+}
+
+TEST_CASE("pade: [m/0] is the truncated Taylor polynomial",
+          "[6][pade][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto p = pade(exp(x), x, 3, 0);
+    REQUIRE(oracle.equivalent(p->str(),
+                              "1 + x + x**2/2 + x**3/6"));
+}

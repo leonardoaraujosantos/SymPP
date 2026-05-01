@@ -147,6 +147,7 @@ namespace {
 
 [[nodiscard]] Expr det_recursive(const Matrix& m) {
     std::size_t n = m.rows();
+    if (n == 0) return S::One();   // det of empty matrix is 1 (vacuous product)
     if (n == 1) return m.at(0, 0);
     if (n == 2) {
         return m.at(0, 0) * m.at(1, 1) - m.at(0, 1) * m.at(1, 0);

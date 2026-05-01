@@ -34,6 +34,7 @@
 #include <sympp/calculus/diff.hpp>
 #include <sympp/calculus/limit.hpp>
 #include <sympp/calculus/order.hpp>
+#include <sympp/calculus/pade.hpp>
 #include <sympp/calculus/series.hpp>
 #include <sympp/calculus/summation.hpp>
 #include <sympp/functions/combinatorial.hpp>
