@@ -159,6 +159,65 @@ Poly Poly::operator*(const Poly& other) const {
     return Poly{std::move(out), var_};
 }
 
+bool Poly::is_zero() const {
+    return coeffs_.size() == 1 && coeffs_[0] == S::Zero();
+}
+
+Poly Poly::monic() const {
+    if (is_zero()) return *this;
+    const Expr& lc = coeffs_.back();
+    if (lc == S::One()) return *this;
+    std::vector<Expr> out;
+    out.reserve(coeffs_.size());
+    for (const auto& c : coeffs_) {
+        out.push_back(c / lc);
+    }
+    return Poly{std::move(out), var_};
+}
+
+Poly Poly::diff() const {
+    if (coeffs_.size() <= 1) {
+        return Poly{std::vector<Expr>{S::Zero()}, var_};
+    }
+    std::vector<Expr> out;
+    out.reserve(coeffs_.size() - 1);
+    for (std::size_t i = 1; i < coeffs_.size(); ++i) {
+        out.push_back(mul(integer(static_cast<long>(i)), coeffs_[i]));
+    }
+    return Poly{std::move(out), var_};
+}
+
+std::pair<Poly, Poly> Poly::divmod(const Poly& other) const {
+    if (other.is_zero()) {
+        throw std::invalid_argument("Poly::divmod: division by zero polynomial");
+    }
+    if (!(var_ == other.var_)) {
+        throw std::invalid_argument("Poly::divmod: variable mismatch");
+    }
+    Poly r = *this;
+    if (r.degree() < other.degree() || r.is_zero()) {
+        return {Poly{std::vector<Expr>{S::Zero()}, var_}, std::move(r)};
+    }
+    const std::size_t qd = r.degree() - other.degree();
+    std::vector<Expr> q(qd + 1, S::Zero());
+    const Expr& lc_other = other.leading_coeff();
+    while (!r.is_zero() && r.degree() >= other.degree()) {
+        const std::size_t shift = r.degree() - other.degree();
+        Expr factor = r.leading_coeff() / lc_other;
+        q[shift] = factor;
+        std::vector<Expr> sub(shift + other.coeffs_.size(), S::Zero());
+        for (std::size_t i = 0; i < other.coeffs_.size(); ++i) {
+            sub[i + shift] = mul(factor, other.coeffs_[i]);
+        }
+        Poly subp{std::move(sub), var_};
+        r = r - subp;
+    }
+    return {Poly{std::move(q), var_}, std::move(r)};
+}
+
+Poly Poly::operator/(const Poly& other) const { return divmod(other).first; }
+Poly Poly::operator%(const Poly& other) const { return divmod(other).second; }
+
 Expr Poly::eval(const Expr& at) const {
     // Horner's scheme.
     if (coeffs_.empty()) return S::Zero();

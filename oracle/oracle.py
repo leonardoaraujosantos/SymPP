@@ -118,6 +118,55 @@ def handle(req):
         e = _sympify(req["expr"])
         return {"ok": True, "result": sympy.latex(e)}
 
+    # --- Phase 4 polynomial ops ---
+    if op == "div":
+        # Polynomial long division: returns (quotient, remainder) over var.
+        p = _sympify(req["p"])
+        q = _sympify(req["q"])
+        v = sympy.Symbol(req["var"])
+        quot, rem = sympy.div(p, q, v)
+        return {"ok": True, "quotient": _to_str(quot), "remainder": _to_str(rem)}
+
+    if op == "gcd":
+        a = _sympify(req["a"])
+        b = _sympify(req["b"])
+        return {"ok": True, "result": _to_str(sympy.gcd(a, b))}
+
+    if op == "sqf_list":
+        # Returns (content, [(factor, multiplicity), ...]) over var.
+        e = _sympify(req["expr"])
+        v = sympy.Symbol(req["var"])
+        content, factors = sympy.sqf_list(e, v)
+        return {
+            "ok": True,
+            "content": _to_str(content),
+            "factors": [[_to_str(f), int(m)] for f, m in factors],
+        }
+
+    if op == "apart":
+        e = _sympify(req["expr"])
+        v = sympy.Symbol(req["var"])
+        return {"ok": True, "result": _to_str(sympy.apart(e, v))}
+
+    if op == "together":
+        e = _sympify(req["expr"])
+        return {"ok": True, "result": _to_str(sympy.together(e))}
+
+    if op == "cancel":
+        e = _sympify(req["expr"])
+        return {"ok": True, "result": _to_str(sympy.cancel(e))}
+
+    if op == "resultant":
+        p = _sympify(req["p"])
+        q = _sympify(req["q"])
+        v = sympy.Symbol(req["var"])
+        return {"ok": True, "result": _to_str(sympy.resultant(p, q, v))}
+
+    if op == "discriminant":
+        e = _sympify(req["expr"])
+        v = sympy.Symbol(req["var"])
+        return {"ok": True, "result": _to_str(sympy.discriminant(e, v))}
+
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}
 
 

@@ -17,6 +17,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <tuple>
 
 #include <sympp/core/api.hpp>
 #include <sympp/fwd.hpp>
@@ -40,6 +41,21 @@ public:
     [[nodiscard]] Poly operator+(const Poly& other) const;
     [[nodiscard]] Poly operator-(const Poly& other) const;
     [[nodiscard]] Poly operator*(const Poly& other) const;
+
+    // Polynomial long division. Returns (quotient, remainder) such that
+    // self == q * other + r and degree(r) < degree(other) (or r == 0).
+    // Throws on zero divisor or variable mismatch.
+    [[nodiscard]] std::pair<Poly, Poly> divmod(const Poly& other) const;
+    [[nodiscard]] Poly operator/(const Poly& other) const;
+    [[nodiscard]] Poly operator%(const Poly& other) const;
+
+    [[nodiscard]] bool is_zero() const;
+    // Divides through by the leading coefficient — returns a monic Poly with
+    // the same roots. Caller must ensure the leading coefficient is invertible
+    // (numeric, or symbolic-but-nonzero).
+    [[nodiscard]] Poly monic() const;
+    // Differentiate w.r.t. var, returning a Poly of degree one less.
+    [[nodiscard]] Poly diff() const;
 
     // Evaluate at numeric / symbolic value.
     [[nodiscard]] Expr eval(const Expr& at) const;

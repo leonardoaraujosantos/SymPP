@@ -126,9 +126,105 @@ TEST_CASE("Poly: quadratic with irrational roots", "[4][poly][roots][oracle]") {
     REQUIRE(oracle.equivalent(roots[1]->str(), "-sqrt(2)"));
 }
 
-TEST_CASE("Poly: degree 3+ roots return empty (deferred)", "[4][poly][roots]") {
+// ----- Polynomial division ---------------------------------------------------
+
+namespace {
+struct DivOracle { std::string quotient, remainder; };
+[[nodiscard]] DivOracle oracle_div(std::string_view p, std::string_view q,
+                                   std::string_view var) {
+    auto& oracle = Oracle::instance();
+    auto resp = oracle.send({{"op", "div"}, {"p", p}, {"q", q}, {"var", var}});
+    REQUIRE(resp.ok);
+    return DivOracle{resp.raw.at("quotient").get<std::string>(),
+                     resp.raw.at("remainder").get<std::string>()};
+}
+}  // namespace
+
+TEST_CASE("Poly: divmod exact (x^2 - 1) / (x - 1)", "[4][poly][divmod][oracle]") {
+    auto& oracle = Oracle::instance();
     auto x = symbol("x");
-    Poly p(pow(x, integer(3)) - integer(1), x);
-    auto roots = p.roots();
-    REQUIRE(roots.empty());
+    Poly p(pow(x, integer(2)) - integer(1), x);
+    Poly d(x - integer(1), x);
+    auto [q, r] = p.divmod(d);
+    auto ref = oracle_div("x**2 - 1", "x - 1", "x");
+    REQUIRE(oracle.equivalent(q.as_expr()->str(), ref.quotient));
+    REQUIRE(oracle.equivalent(r.as_expr()->str(), ref.remainder));
+    REQUIRE(r.is_zero());
+}
+
+TEST_CASE("Poly: divmod with remainder (x^2 + 1) / (x + 1)", "[4][poly][divmod][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    Poly p(pow(x, integer(2)) + integer(1), x);
+    Poly d(x + integer(1), x);
+    auto [q, r] = p.divmod(d);
+    auto ref = oracle_div("x**2 + 1", "x + 1", "x");
+    REQUIRE(oracle.equivalent(q.as_expr()->str(), ref.quotient));
+    REQUIRE(oracle.equivalent(r.as_expr()->str(), ref.remainder));
+}
+
+TEST_CASE("Poly: divmod cubic by quadratic", "[4][poly][divmod][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x^3 - 6x^2 + 11x - 6) / (x^2 - 3x + 2) = x - 3, remainder 0
+    Poly p(pow(x, integer(3)) - integer(6) * pow(x, integer(2))
+               + integer(11) * x - integer(6), x);
+    Poly d(pow(x, integer(2)) - integer(3) * x + integer(2), x);
+    auto [q, r] = p.divmod(d);
+    auto ref = oracle_div("x**3 - 6*x**2 + 11*x - 6",
+                          "x**2 - 3*x + 2", "x");
+    REQUIRE(oracle.equivalent(q.as_expr()->str(), ref.quotient));
+    REQUIRE(oracle.equivalent(r.as_expr()->str(), ref.remainder));
+}
+
+TEST_CASE("Poly: divmod with rational coefficients", "[4][poly][divmod][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (2x^3 + 3x^2 - x + 5) / (2x + 1)
+    Poly p(integer(2) * pow(x, integer(3)) + integer(3) * pow(x, integer(2))
+               - x + integer(5), x);
+    Poly d(integer(2) * x + integer(1), x);
+    auto [q, r] = p.divmod(d);
+    auto ref = oracle_div("2*x**3 + 3*x**2 - x + 5", "2*x + 1", "x");
+    REQUIRE(oracle.equivalent(q.as_expr()->str(), ref.quotient));
+    REQUIRE(oracle.equivalent(r.as_expr()->str(), ref.remainder));
+}
+
+TEST_CASE("Poly: divmod degree(divisor) > degree(dividend)", "[4][poly][divmod]") {
+    auto x = symbol("x");
+    // (x + 1) / (x^2 + 1)  -> q=0, r=x+1
+    Poly p(x + integer(1), x);
+    Poly d(pow(x, integer(2)) + integer(1), x);
+    auto [q, r] = p.divmod(d);
+    REQUIRE(q.is_zero());
+    REQUIRE(r.as_expr() == p.as_expr());
+}
+
+TEST_CASE("Poly: divmod by zero throws", "[4][poly][divmod]") {
+    auto x = symbol("x");
+    Poly p(pow(x, integer(2)) + x, x);
+    Poly z(std::vector<Expr>{S::Zero()}, x);
+    REQUIRE_THROWS_AS(p.divmod(z), std::invalid_argument);
+}
+
+TEST_CASE("Poly: monic normalization", "[4][poly][divmod]") {
+    auto x = symbol("x");
+    Poly p(integer(3) * pow(x, integer(2)) + integer(6) * x + integer(9), x);
+    auto m = p.monic();
+    // Now leading coeff is 1, others divided by 3
+    REQUIRE(m.leading_coeff() == S::One());
+    REQUIRE(m.coeffs()[1] == integer(2));
+    REQUIRE(m.coeffs()[0] == integer(3));
+}
+
+TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
+    auto x = symbol("x");
+    // (x^3 + 2x^2 - 7x + 5)' = 3x^2 + 4x - 7
+    Poly p(pow(x, integer(3)) + integer(2) * pow(x, integer(2))
+               - integer(7) * x + integer(5), x);
+    auto dp = p.diff();
+    REQUIRE(dp.degree() == 2);
+    REQUIRE(dp.coeffs()[2] == integer(3));
+    REQUIRE(dp.coeffs()[1] == integer(4));
+    REQUIRE(dp.coeffs()[0] == integer(-7));
 }
