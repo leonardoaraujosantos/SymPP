@@ -5,6 +5,7 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/function.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/type_id.hpp>
@@ -27,6 +28,10 @@ namespace {
             return mul(std::move(new_args));
         case TypeId::Pow:
             return pow(new_args[0], new_args[1]);
+        case TypeId::Function: {
+            const auto& f = static_cast<const Function&>(*original);
+            return f.rebuild(std::move(new_args));
+        }
         default:
             return original;  // atomic — no args to rewrite
     }

@@ -12,6 +12,7 @@ target_sources(sympp
         core/expand.cpp
         core/expr_cache.cpp
         core/float.cpp
+        core/function.cpp
         core/integer.cpp
         core/mul.cpp
         core/number_arith.cpp
@@ -23,6 +24,10 @@ target_sources(sympp
         core/singletons.cpp
         core/symbol.cpp
         core/traversal.cpp
+        core/undefined_function.cpp
+        functions/exponential.cpp
+        functions/miscellaneous.cpp
+        functions/trigonometric.cpp
 )
 
 target_sources(sympp
@@ -41,6 +46,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_cache.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_collections.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/float.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/function.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/function_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/integer.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/mul.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number.hpp
@@ -55,6 +62,10 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/traversal.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/miscellaneous.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
 )
 
 # When building the library itself we need to export symbols (Windows DLL).

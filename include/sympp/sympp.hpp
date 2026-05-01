@@ -11,6 +11,8 @@
 #include <sympp/core/expr_cache.hpp>
 #include <sympp/core/expr_collections.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/function.hpp>
+#include <sympp/core/function_id.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -25,5 +27,9 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/core/undefined_function.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/fwd.hpp>
 #include <sympp/version.hpp>
