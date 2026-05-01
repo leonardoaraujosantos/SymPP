@@ -1,12 +1,21 @@
 # SymPP
 
+[![CI](https://github.com/leonardoaraujosantos/SymPP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/leonardoaraujosantos/SymPP/actions/workflows/ci.yml)
+[![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
+[![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
+[![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
+[![Tests](https://img.shields.io/badge/tests-962%20passing-brightgreen)](#)
+[![Oracle](https://img.shields.io/badge/oracle-SymPy%201.14-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
+[![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
+
 Modern C++20 symbolic mathematics library. Clean-room port of SymPy
 algorithms with SymPy itself wired in as the validation oracle.
 
 ## Status
 
 ```
-880 tests / 1724 assertions  all passing
+962 tests / 1872 assertions  all passing
 14 of 15 phases shipped
 ```
 
