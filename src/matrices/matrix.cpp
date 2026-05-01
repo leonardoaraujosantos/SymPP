@@ -12,7 +12,9 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
@@ -225,6 +227,121 @@ Matrix jacobian(const std::vector<Expr>& fs, const std::vector<Expr>& vars) {
     for (std::size_t i = 0; i < fs.size(); ++i) {
         for (std::size_t j = 0; j < vars.size(); ++j) {
             out.set(i, j, diff(fs[i], vars[j]));
+        }
+    }
+    return out;
+}
+
+// ----- Constructors ---------------------------------------------------------
+
+Matrix hilbert(std::size_t n) {
+    Matrix h(n, n);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            h.set(i, j, rational(1, static_cast<long>(i + j + 1)));
+        }
+    }
+    return h;
+}
+
+Matrix vandermonde(const std::vector<Expr>& xs, std::size_t cols) {
+    Matrix v(xs.size(), cols);
+    for (std::size_t i = 0; i < xs.size(); ++i) {
+        for (std::size_t j = 0; j < cols; ++j) {
+            v.set(i, j, pow(xs[i], integer(static_cast<long>(j))));
+        }
+    }
+    return v;
+}
+
+Matrix companion(const std::vector<Expr>& coeffs) {
+    // For monic p(x) = x^n + c_{n-1} x^(n-1) + ... + c_0, the companion has
+    // 1's on the sub-diagonal and -c_i in the last column.
+    const std::size_t n = coeffs.size();
+    if (n == 0) {
+        throw std::invalid_argument("companion: empty coefficient list");
+    }
+    Matrix c = Matrix::zeros(n, n);
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+        c.set(i + 1, i, S::One());
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        c.set(i, n - 1, mul(S::NegativeOne(), coeffs[i]));
+    }
+    return c;
+}
+
+Matrix rotation_matrix_2d(const Expr& theta) {
+    Matrix r(2, 2);
+    Expr c = cos(theta);
+    Expr s = sin(theta);
+    r.set(0, 0, c);
+    r.set(0, 1, mul(S::NegativeOne(), s));
+    r.set(1, 0, s);
+    r.set(1, 1, c);
+    return r;
+}
+
+Matrix rotation_matrix_x(const Expr& theta) {
+    Matrix r = Matrix::identity(3);
+    Expr c = cos(theta);
+    Expr s = sin(theta);
+    r.set(1, 1, c);
+    r.set(1, 2, mul(S::NegativeOne(), s));
+    r.set(2, 1, s);
+    r.set(2, 2, c);
+    return r;
+}
+
+Matrix rotation_matrix_y(const Expr& theta) {
+    Matrix r = Matrix::identity(3);
+    Expr c = cos(theta);
+    Expr s = sin(theta);
+    r.set(0, 0, c);
+    r.set(0, 2, s);
+    r.set(2, 0, mul(S::NegativeOne(), s));
+    r.set(2, 2, c);
+    return r;
+}
+
+Matrix rotation_matrix_z(const Expr& theta) {
+    Matrix r = Matrix::identity(3);
+    Expr c = cos(theta);
+    Expr s = sin(theta);
+    r.set(0, 0, c);
+    r.set(0, 1, mul(S::NegativeOne(), s));
+    r.set(1, 0, s);
+    r.set(1, 1, c);
+    return r;
+}
+
+// ----- Hadamard / Kronecker -------------------------------------------------
+
+Matrix hadamard_product(const Matrix& a, const Matrix& b) {
+    if (a.rows() != b.rows() || a.cols() != b.cols()) {
+        throw std::invalid_argument("hadamard_product: shape mismatch");
+    }
+    Matrix out(a.rows(), a.cols());
+    for (std::size_t i = 0; i < a.rows(); ++i) {
+        for (std::size_t j = 0; j < a.cols(); ++j) {
+            out.set(i, j, mul(a.at(i, j), b.at(i, j)));
+        }
+    }
+    return out;
+}
+
+Matrix kronecker_product(const Matrix& a, const Matrix& b) {
+    const std::size_t ar = a.rows(), ac = a.cols();
+    const std::size_t br = b.rows(), bc = b.cols();
+    Matrix out(ar * br, ac * bc);
+    for (std::size_t i = 0; i < ar; ++i) {
+        for (std::size_t j = 0; j < ac; ++j) {
+            const Expr& aij = a.at(i, j);
+            for (std::size_t k = 0; k < br; ++k) {
+                for (std::size_t l = 0; l < bc; ++l) {
+                    out.set(i * br + k, j * bc + l, mul(aij, b.at(k, l)));
+                }
+            }
         }
     }
     return out;

@@ -185,3 +185,95 @@ TEST_CASE("Matrix: jacobian matches SymPy", "[9a][jacobian][oracle]") {
     REQUIRE(oracle.equivalent(j.at(1, 0)->str(), "2*y"));
     REQUIRE(oracle.equivalent(j.at(1, 1)->str(), "2*x"));
 }
+
+// ----- Standard constructors -------------------------------------------------
+
+TEST_CASE("matrix: hilbert(3) has 1/(i+j+1) entries", "[9][matrix][hilbert]") {
+    auto h = hilbert(3);
+    REQUIRE(h.at(0, 0) == integer(1));
+    REQUIRE(h.at(0, 1) == rational(1, 2));
+    REQUIRE(h.at(1, 1) == rational(1, 3));
+    REQUIRE(h.at(2, 2) == rational(1, 5));
+}
+
+TEST_CASE("matrix: vandermonde with [a, b, c] cols=3",
+          "[9][matrix][vandermonde]") {
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto c = symbol("c");
+    auto v = vandermonde({a, b, c}, 3);
+    REQUIRE(v.rows() == 3);
+    REQUIRE(v.cols() == 3);
+    REQUIRE(v.at(0, 0) == integer(1));
+    REQUIRE(v.at(1, 1) == b);
+    REQUIRE(v.at(2, 2) == pow(c, integer(2)));
+}
+
+TEST_CASE("matrix: companion of x^2 + 2x + 3 has 0,-3 / 1,-2",
+          "[9][matrix][companion][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto comp = companion({integer(3), integer(2)});  // x^2 + 2x + 3
+    REQUIRE(comp.rows() == 2);
+    REQUIRE(comp.at(0, 0) == S::Zero());
+    REQUIRE(comp.at(1, 0) == S::One());
+    REQUIRE(comp.at(0, 1) == integer(-3));
+    REQUIRE(comp.at(1, 1) == integer(-2));
+    // Characteristic polynomial: det(xI - C) = x^2 + 2x + 3.
+    auto x = symbol("x");
+    Matrix lambda_I = Matrix::identity(2).scalar_mul(x);
+    Matrix delta = lambda_I - comp;
+    auto cp = delta.det();
+    REQUIRE(oracle.equivalent(cp->str(), "x**2 + 2*x + 3"));
+}
+
+TEST_CASE("matrix: rotation_matrix_2d", "[9][matrix][rotation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto theta = symbol("theta");
+    auto r = rotation_matrix_2d(theta);
+    // det should be cos²θ + sin²θ = 1.
+    auto d = r.det();
+    REQUIRE(oracle.equivalent(d->str(), "1"));
+}
+
+TEST_CASE("matrix: rotation_matrix_z preserves z-axis",
+          "[9][matrix][rotation]") {
+    auto theta = symbol("theta");
+    auto r = rotation_matrix_z(theta);
+    REQUIRE(r.at(2, 2) == integer(1));
+    REQUIRE(r.at(0, 2) == S::Zero());
+    REQUIRE(r.at(2, 0) == S::Zero());
+}
+
+// ----- Hadamard / Kronecker -------------------------------------------------
+
+TEST_CASE("matrix: hadamard product element-wise",
+          "[9][matrix][hadamard]") {
+    Matrix a = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    Matrix b = {{integer(5), integer(6)}, {integer(7), integer(8)}};
+    auto h = hadamard_product(a, b);
+    REQUIRE(h.at(0, 0) == integer(5));
+    REQUIRE(h.at(0, 1) == integer(12));
+    REQUIRE(h.at(1, 0) == integer(21));
+    REQUIRE(h.at(1, 1) == integer(32));
+}
+
+TEST_CASE("matrix: kronecker product 2x2 ⊗ 2x2 → 4x4",
+          "[9][matrix][kronecker]") {
+    Matrix a = {{integer(1), integer(2)}, {integer(0), integer(1)}};
+    Matrix b = {{integer(0), integer(1)}, {integer(1), integer(0)}};
+    auto k = kronecker_product(a, b);
+    REQUIRE(k.rows() == 4);
+    REQUIRE(k.cols() == 4);
+    // Top-left block: 1 * b
+    REQUIRE(k.at(0, 0) == S::Zero());
+    REQUIRE(k.at(0, 1) == integer(1));
+    REQUIRE(k.at(1, 0) == integer(1));
+    // Top-right block: 2 * b
+    REQUIRE(k.at(0, 2) == S::Zero());
+    REQUIRE(k.at(0, 3) == integer(2));
+    REQUIRE(k.at(1, 2) == integer(2));
+    // Bottom-right block: 1 * b (since a[1,1] = 1)
+    REQUIRE(k.at(2, 2) == S::Zero());
+    REQUIRE(k.at(2, 3) == integer(1));
+    REQUIRE(k.at(3, 2) == integer(1));
+}

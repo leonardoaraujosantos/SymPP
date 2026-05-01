@@ -79,4 +79,37 @@ private:
 [[nodiscard]] SYMPP_EXPORT Matrix jacobian(const std::vector<Expr>& fs,
                                             const std::vector<Expr>& vars);
 
+// ---- Standard matrix constructors -----------------------------------------
+
+// Hilbert matrix H[i, j] = 1 / (i + j + 1) for i, j in [0, n).
+[[nodiscard]] SYMPP_EXPORT Matrix hilbert(std::size_t n);
+
+// Vandermonde matrix V[i, j] = xs[i]^j.
+[[nodiscard]] SYMPP_EXPORT Matrix vandermonde(const std::vector<Expr>& xs,
+                                                std::size_t cols);
+
+// Companion matrix of a monic polynomial with coefficients
+// [c_0, c_1, ..., c_{n-1}] (lowest-degree first; the polynomial is
+// x^n + c_{n-1}*x^(n-1) + ... + c_0). Returns the n×n matrix whose
+// characteristic polynomial equals the input.
+[[nodiscard]] SYMPP_EXPORT Matrix companion(const std::vector<Expr>& coeffs);
+
+// 2D rotation by angle θ.
+[[nodiscard]] SYMPP_EXPORT Matrix rotation_matrix_2d(const Expr& theta);
+
+// 3D rotation about an axis ('x', 'y', or 'z') by angle θ.
+[[nodiscard]] SYMPP_EXPORT Matrix rotation_matrix_x(const Expr& theta);
+[[nodiscard]] SYMPP_EXPORT Matrix rotation_matrix_y(const Expr& theta);
+[[nodiscard]] SYMPP_EXPORT Matrix rotation_matrix_z(const Expr& theta);
+
+// ---- Element-wise / structural products -----------------------------------
+
+// Hadamard (element-wise) product: A ⊙ B with A, B same shape.
+[[nodiscard]] SYMPP_EXPORT Matrix hadamard_product(const Matrix& a,
+                                                     const Matrix& b);
+
+// Kronecker product: A ⊗ B has shape (rows(A)*rows(B), cols(A)*cols(B)).
+[[nodiscard]] SYMPP_EXPORT Matrix kronecker_product(const Matrix& a,
+                                                     const Matrix& b);
+
 }  // namespace sympp
