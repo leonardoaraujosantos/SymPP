@@ -9,6 +9,7 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
@@ -206,6 +207,37 @@ Expr mul(std::vector<Expr> args) {
             }
         } else {
             non_numeric.push_back(std::move(a));
+        }
+    }
+
+    // ---- Step 2b: fold ImaginaryUnit pairs (I * I = -1) ----
+    // We do this before base collection so I^n in Pow doesn't have to
+    // handle exponent summation; instead we count occurrences directly.
+    {
+        const Expr& I_atom = S::I();
+        int i_count = 0;
+        std::vector<Expr> filtered;
+        filtered.reserve(non_numeric.size());
+        for (auto& e : non_numeric) {
+            if (e == I_atom) ++i_count;
+            else filtered.push_back(std::move(e));
+        }
+        non_numeric = std::move(filtered);
+        if (i_count > 0) {
+            const int neg_pairs = i_count / 2;
+            const bool extra_I = (i_count % 2) == 1;
+            if (neg_pairs % 2 == 1) {
+                // multiply running_prod by -1
+                if (!running_prod) {
+                    running_prod = S::NegativeOne();
+                } else {
+                    auto neg = number_mul(
+                        static_cast<const Number&>(*running_prod),
+                        static_cast<const Number&>(*S::NegativeOne()));
+                    if (neg) running_prod = *neg;
+                }
+            }
+            if (extra_I) non_numeric.push_back(I_atom);
         }
     }
 

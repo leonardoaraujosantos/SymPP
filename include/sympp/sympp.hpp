@@ -14,6 +14,7 @@
 #include <sympp/core/float.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/function_id.hpp>
+#include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>

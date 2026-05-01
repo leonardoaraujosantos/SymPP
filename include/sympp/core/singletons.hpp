@@ -30,6 +30,9 @@ namespace S {
 [[nodiscard]] SYMPP_EXPORT const Expr& True();
 [[nodiscard]] SYMPP_EXPORT const Expr& False();
 
+// Imaginary unit. I*I = -1; folded by Mul/Pow.
+[[nodiscard]] SYMPP_EXPORT const Expr& I();
+
 }  // namespace S
 
 }  // namespace sympp

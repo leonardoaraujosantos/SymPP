@@ -9,7 +9,9 @@
 
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/rational.hpp>
@@ -174,6 +176,22 @@ Expr pow(const Expr& base, const Expr& exp) {
     if (exp == S::Zero()) return S::One();
     // 1^x → 1
     if (base == S::One()) return S::One();
+
+    // ---- I^Integer cycles through {1, I, -1, -I} ----
+    if (base == S::I() && exp->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*exp);
+        // Compute n mod 4 in [0, 3] without overflow concerns.
+        mpz_class four(4);
+        mpz_class r;
+        mpz_mod(r.get_mpz_t(), z.value().get_mpz_t(), four.get_mpz_t());
+        const long m = r.get_si();  // 0..3
+        switch (m) {
+            case 0: return S::One();
+            case 1: return S::I();
+            case 2: return S::NegativeOne();
+            case 3: return mul(S::NegativeOne(), S::I());
+        }
+    }
 
     // ---- numeric base & numeric exp ----
     if (is_number(base) && is_number(exp)) {

@@ -14,6 +14,7 @@ target_sources(sympp
         core/expr_cache.cpp
         core/float.cpp
         core/function.cpp
+        core/imaginary_unit.cpp
         core/integer.cpp
         core/mul.cpp
         core/number_arith.cpp
@@ -64,6 +65,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/float.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/function_id.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/imaginary_unit.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/integer.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/mul.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number.hpp

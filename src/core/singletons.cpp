@@ -1,6 +1,7 @@
 #include <sympp/core/singletons.hpp>
 
 #include <sympp/core/boolean.hpp>
+#include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/rational.hpp>
@@ -64,6 +65,11 @@ const Expr& True() {
 
 const Expr& False() {
     static const Expr value = make<BooleanFalse>();
+    return value;
+}
+
+const Expr& I() {
+    static const Expr value = make<ImaginaryUnit>();
     return value;
 }
 
