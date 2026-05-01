@@ -5,8 +5,10 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/mul.hpp>
+#include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/type_id.hpp>
 
@@ -31,6 +33,25 @@ namespace {
         case TypeId::Function: {
             const auto& f = static_cast<const Function&>(*original);
             return f.rebuild(std::move(new_args));
+        }
+        case TypeId::Relational: {
+            const auto& r = static_cast<const Relational&>(*original);
+            switch (r.kind()) {
+                case RelKind::Eq: return eq(new_args[0], new_args[1]);
+                case RelKind::Ne: return ne(new_args[0], new_args[1]);
+                case RelKind::Lt: return lt(new_args[0], new_args[1]);
+                case RelKind::Le: return le(new_args[0], new_args[1]);
+                case RelKind::Gt: return gt(new_args[0], new_args[1]);
+                case RelKind::Ge: return ge(new_args[0], new_args[1]);
+            }
+            return original;
+        }
+        case TypeId::Piecewise: {
+            std::vector<PiecewiseBranch> branches;
+            for (std::size_t i = 0; i + 1 < new_args.size(); i += 2) {
+                branches.push_back({new_args[i], new_args[i + 1]});
+            }
+            return piecewise(std::move(branches));
         }
         default:
             return original;  // atomic — no args to rewrite

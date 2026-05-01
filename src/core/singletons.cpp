@@ -1,5 +1,6 @@
 #include <sympp/core/singletons.hpp>
 
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/rational.hpp>
@@ -53,6 +54,16 @@ const Expr& EulerGamma() {
 
 const Expr& Catalan() {
     static const Expr value = make<CatalanSymbol>();
+    return value;
+}
+
+const Expr& True() {
+    static const Expr value = make<BooleanTrue>();
+    return value;
+}
+
+const Expr& False() {
+    static const Expr value = make<BooleanFalse>();
     return value;
 }
 

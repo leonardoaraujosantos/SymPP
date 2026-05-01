@@ -9,6 +9,7 @@ target_sources(sympp
         core/add.cpp
         core/assumption_mask.cpp
         core/basic.cpp
+        core/boolean.cpp
         core/expand.cpp
         core/expr_cache.cpp
         core/float.cpp
@@ -17,6 +18,7 @@ target_sources(sympp
         core/mul.cpp
         core/number_arith.cpp
         core/number_symbol.cpp
+        core/piecewise.cpp
         core/pow.cpp
         core/queries.cpp
         core/rational.cpp
@@ -46,6 +48,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_key.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_mask.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/boolean.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_cache.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_collections.hpp
@@ -58,6 +61,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number_arith.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number_symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/operators.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/piecewise.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/pow.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/queries.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/refine.hpp

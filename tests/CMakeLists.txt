@@ -13,6 +13,7 @@ target_sources(sympp_tests
         core/expand_test.cpp
         core/expr_cache_test.cpp
         core/float_test.cpp
+        core/piecewise_test.cpp
         core/integer_test.cpp
         core/rational_test.cpp
         core/singletons_test.cpp

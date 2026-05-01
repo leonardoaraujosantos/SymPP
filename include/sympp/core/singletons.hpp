@@ -26,6 +26,10 @@ namespace S {
 [[nodiscard]] SYMPP_EXPORT const Expr& EulerGamma();
 [[nodiscard]] SYMPP_EXPORT const Expr& Catalan();
 
+// Boolean atoms.
+[[nodiscard]] SYMPP_EXPORT const Expr& True();
+[[nodiscard]] SYMPP_EXPORT const Expr& False();
+
 }  // namespace S
 
 }  // namespace sympp

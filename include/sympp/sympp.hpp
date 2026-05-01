@@ -7,6 +7,7 @@
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/expr_cache.hpp>
 #include <sympp/core/expr_collections.hpp>
@@ -19,6 +20,7 @@
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/refine.hpp>
