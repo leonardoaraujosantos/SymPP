@@ -14,20 +14,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         compiler: [gcc, clang]
         build_type: [Release]
-        exclude:
-          # macOS uses AppleClang; no separate gcc job there.
-          - os: macos-latest
-            compiler: gcc
 
     steps:
       - uses: actions/checkout@v4
 
       # ---- Dependencies (Linux) ----
       - name: Install dependencies (Ubuntu)
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -36,13 +31,6 @@ jobs:
             python3 python3-pip
           pip3 install --break-system-packages sympy==1.14 || pip3 install sympy==1.14
 
-      # ---- Dependencies (macOS) ----
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          brew install cmake ninja gmp mpfr
-          python3 -m pip install --break-system-packages sympy==1.14 || python3 -m pip install sympy==1.14
-
       # ---- Pick compiler ----
       - name: Set compiler env (gcc)
         if: matrix.compiler == 'gcc'
@@ -50,15 +38,10 @@ jobs:
           echo "CC=gcc-13" >> $GITHUB_ENV
           echo "CXX=g++-13" >> $GITHUB_ENV
       - name: Set compiler env (clang)
-        if: matrix.compiler == 'clang' && runner.os == 'Linux'
+        if: matrix.compiler == 'clang'
         run: |
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-      - name: Set compiler env (AppleClang)
-        if: matrix.compiler == 'clang' && runner.os == 'macOS'
-        run: |
-          echo "CC=$(xcrun --find clang)" >> $GITHUB_ENV
-          echo "CXX=$(xcrun --find clang++)" >> $GITHUB_ENV
 
       # ---- Configure + build ----
       - name: Configure

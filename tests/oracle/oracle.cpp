@@ -115,10 +115,13 @@ void Oracle::spawn() {
 void Oracle::shutdown_subprocess() noexcept {
     if (pid_ <= 0) return;
     try {
-        // Best-effort polite shutdown
+        // Best-effort polite shutdown — discard the return value
+        // explicitly because we don't care if the subprocess already
+        // exited on its own.
         nlohmann::json bye{{"op", "shutdown"}};
         auto payload = bye.dump() + "\n";
-        ::write(stdin_fd_, payload.data(), payload.size());
+        auto written = ::write(stdin_fd_, payload.data(), payload.size());
+        (void)written;
     } catch (...) {
         // ignored — destructor must not throw
     }

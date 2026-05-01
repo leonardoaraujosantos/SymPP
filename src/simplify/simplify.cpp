@@ -1,6 +1,7 @@
 #include <sympp/simplify/simplify.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 #include <vector>
 
