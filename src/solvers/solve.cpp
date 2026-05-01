@@ -1,7 +1,9 @@
 #include <sympp/solvers/solve.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <functional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -11,6 +13,8 @@
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/boolean.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/function_id.hpp>
@@ -55,7 +59,71 @@ SetPtr solveset(const Expr& expr, const Expr& var) {
     return solveset(expr, var, reals());
 }
 
+namespace {
+
+// Detect simple trig zero patterns and emit ImageSet representing the
+// full periodic solution. Returns nullopt when expr isn't a recognized
+// pattern.
+//   sin(var)    → {n·π : n ∈ ℤ}
+//   cos(var)    → {n·π + π/2 : n ∈ ℤ}
+//   tan(var)    → {n·π : n ∈ ℤ}
+//   sin(a·var)  → {n·π/a : n ∈ ℤ}
+//   cos(a·var)  → {(2n+1)·π/(2a) : n ∈ ℤ}
+[[nodiscard]] std::optional<SetPtr> trig_solveset(const Expr& expr,
+                                                    const Expr& var) {
+    if (expr->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*expr);
+    if (fn.args().size() != 1) return std::nullopt;
+    const Expr& inner = fn.args()[0];
+    // Extract scaling: inner = a · var with a free of var.
+    Expr a;
+    if (inner == var) {
+        a = S::One();
+    } else if (inner->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        bool found = false;
+        for (const auto& f : inner->args()) {
+            if (f == var) {
+                if (found) return std::nullopt;
+                found = true;
+            } else if (has(f, var)) {
+                return std::nullopt;
+            } else {
+                rest.push_back(f);
+            }
+        }
+        if (!found) return std::nullopt;
+        a = mul(rest);
+    } else {
+        return std::nullopt;
+    }
+    auto n = symbol("__n");
+    Expr image;
+    switch (fn.function_id()) {
+        case FunctionId::Sin:
+        case FunctionId::Tan:
+            image = mul(n, S::Pi()) / a;
+            break;
+        case FunctionId::Cos:
+            image = (mul(integer(2), n) + integer(1)) * S::Pi()
+                    / (integer(2) * a);
+            break;
+        default:
+            return std::nullopt;
+    }
+    return image_set(n, image, integers());
+}
+
+}  // namespace
+
 SetPtr solveset(const Expr& expr, const Expr& var, const SetPtr& domain) {
+    // Trig pattern: emit ImageSet for the full periodic solution.
+    if (auto trig = trig_solveset(expr, var); trig) {
+        // Filter against domain (only when domain is something other
+        // than reals — the periodic solution is real-valued).
+        if (domain->kind() == SetKind::Reals) return *trig;
+        return set_intersection(*trig, domain);
+    }
     auto roots = solve(expr, var);
     if (roots.empty()) return empty_set();
     // Filter against the domain when membership is decidable.
@@ -414,6 +482,406 @@ namespace {
 }
 
 }  // namespace
+
+// ----- reduce_inequalities --------------------------------------------------
+
+namespace {
+
+[[nodiscard]] SetPtr reduce_single_rel(const Expr& rel, const Expr& var) {
+    if (rel->type_id() != TypeId::Relational) {
+        // Pass through; treat as Reals (assume vacuously true).
+        return reals();
+    }
+    const auto& r = static_cast<const Relational&>(*rel);
+    std::string op_name;
+    switch (r.kind()) {
+        case RelKind::Lt: op_name = "<"; break;
+        case RelKind::Le: op_name = "<="; break;
+        case RelKind::Gt: op_name = ">"; break;
+        case RelKind::Ge: op_name = ">="; break;
+        case RelKind::Ne: op_name = "!="; break;
+        case RelKind::Eq:
+            // Equality reduces to FiniteSet of solutions.
+            return solveset(r.lhs() - r.rhs(), var);
+    }
+    auto op_sym = symbol(op_name);
+    return solve_univariate_inequality(r.lhs(), op_sym, r.rhs(), var);
+}
+
+}  // namespace
+
+SetPtr reduce_inequalities(const Expr& rel, const Expr& var) {
+    return reduce_single_rel(rel, var);
+}
+
+SetPtr reduce_inequalities(const std::vector<Expr>& rels, const Expr& var,
+                             bool conjunction) {
+    if (rels.empty()) return conjunction ? reals() : empty_set();
+    SetPtr acc = reduce_single_rel(rels[0], var);
+    for (std::size_t i = 1; i < rels.size(); ++i) {
+        SetPtr next = reduce_single_rel(rels[i], var);
+        acc = conjunction ? set_intersection(acc, next)
+                          : set_union(acc, next);
+    }
+    return acc;
+}
+
+// ----- Pythagorean Diophantine ---------------------------------------------
+
+std::vector<std::array<Expr, 3>> pythagorean_triples(long max_z) {
+    std::vector<std::array<Expr, 3>> out;
+    if (max_z < 5) return out;  // smallest is (3, 4, 5)
+    for (long m = 2; m * m <= max_z; ++m) {
+        for (long n = 1; n < m; ++n) {
+            // gcd(m, n) == 1 and opposite parity → primitive.
+            mpz_class mz(m), nz(n);
+            mpz_class g;
+            mpz_gcd(g.get_mpz_t(), mz.get_mpz_t(), nz.get_mpz_t());
+            if (g != 1) continue;
+            if ((m % 2) == (n % 2)) continue;
+            long x_val = m * m - n * n;
+            long y_val = 2 * m * n;
+            long z_val = m * m + n * n;
+            if (z_val > max_z) break;
+            out.push_back({integer(x_val), integer(y_val), integer(z_val)});
+        }
+    }
+    return out;
+}
+
+// ----- Gröbner basis (Buchberger) and multivariate nonlinsolve --------------
+//
+// Minimal Buchberger over ℚ with lex order. Polynomials are represented
+// as vectors of (coefficient, exponent_tuple) terms where the tuple is
+// indexed by variable position. We build dense vectors keyed on
+// monomials.
+
+namespace {
+
+// Multivariate monomial: vector of long exponents, one per variable.
+struct Monomial {
+    std::vector<long> e;
+    // Lex ordering: compare exponents left-to-right. Returns -1/0/+1.
+    [[nodiscard]] int cmp(const Monomial& o) const {
+        for (std::size_t i = 0; i < e.size(); ++i) {
+            if (e[i] != o.e[i]) return e[i] < o.e[i] ? -1 : 1;
+        }
+        return 0;
+    }
+    [[nodiscard]] bool operator==(const Monomial& o) const { return cmp(o) == 0; }
+    [[nodiscard]] bool operator<(const Monomial& o) const { return cmp(o) < 0; }
+};
+
+// Multivariate polynomial as map monomial → mpq coefficient.
+struct MPoly {
+    std::vector<std::pair<Monomial, mpq_class>> terms;  // sorted by monomial desc
+
+    [[nodiscard]] bool is_zero() const { return terms.empty(); }
+    [[nodiscard]] const Monomial& leading_mono() const { return terms.front().first; }
+    [[nodiscard]] const mpq_class& leading_coef() const { return terms.front().second; }
+
+    void canonicalize() {
+        // Sort descending by monomial.
+        std::sort(terms.begin(), terms.end(),
+                   [](const auto& a, const auto& b) { return b.first < a.first; });
+        // Combine equal monomials.
+        std::vector<std::pair<Monomial, mpq_class>> out;
+        for (auto& t : terms) {
+            if (!out.empty() && out.back().first == t.first) {
+                out.back().second += t.second;
+                if (out.back().second == 0) out.pop_back();
+            } else if (!(t.second == 0)) {
+                out.push_back(std::move(t));
+            }
+        }
+        terms = std::move(out);
+    }
+};
+
+// Convert an Expr polynomial in `vars` to an MPoly via expand + walk.
+[[nodiscard]] MPoly expr_to_mpoly(const Expr& expr,
+                                    const std::vector<Expr>& vars) {
+    MPoly p;
+    Expr e = expand(expr);
+    auto add_term = [&](const mpq_class& coef,
+                        std::vector<long> exps) {
+        p.terms.push_back({Monomial{std::move(exps)}, coef});
+    };
+    auto handle_term = [&](const Expr& term) -> bool {
+        // term must factor as (numeric coef) * (Π vars[i]^exp_i).
+        std::vector<long> exps(vars.size(), 0);
+        mpq_class coef = 1;
+        auto handle_factor = [&](const Expr& f) -> bool {
+            if (f->type_id() == TypeId::Integer) {
+                coef *= mpq_class(static_cast<const Integer&>(*f).value());
+                return true;
+            }
+            if (f->type_id() == TypeId::Rational) {
+                coef *= static_cast<const Rational&>(*f).value();
+                return true;
+            }
+            // Match var or var^k.
+            for (std::size_t i = 0; i < vars.size(); ++i) {
+                if (f == vars[i]) { exps[i] += 1; return true; }
+                if (f->type_id() == TypeId::Pow && f->args()[0] == vars[i]
+                    && f->args()[1]->type_id() == TypeId::Integer) {
+                    long k = static_cast<const Integer&>(*f->args()[1]).to_long();
+                    if (k < 0) return false;
+                    exps[i] += k;
+                    return true;
+                }
+            }
+            return false;
+        };
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) {
+                if (!handle_factor(f)) return false;
+            }
+        } else {
+            if (!handle_factor(term)) return false;
+        }
+        if (coef == 0) return true;
+        add_term(coef, std::move(exps));
+        return true;
+    };
+    if (e->type_id() == TypeId::Add) {
+        for (const auto& t : e->args()) {
+            if (!handle_term(t)) {
+                p.terms.clear();  // malformed; signal failure below
+                return p;
+            }
+        }
+    } else {
+        if (!handle_term(e)) p.terms.clear();
+    }
+    p.canonicalize();
+    return p;
+}
+
+[[nodiscard]] Expr mpoly_to_expr(const MPoly& p,
+                                   const std::vector<Expr>& vars) {
+    if (p.terms.empty()) return S::Zero();
+    std::vector<Expr> term_exprs;
+    for (const auto& [mono, coef] : p.terms) {
+        std::vector<Expr> factors;
+        // coefficient
+        mpq_class cc = coef;
+        cc.canonicalize();
+        if (cc.get_den() == 1) {
+            factors.push_back(make<Integer>(cc.get_num()));
+        } else {
+            factors.push_back(make<Rational>(cc));
+        }
+        for (std::size_t i = 0; i < vars.size(); ++i) {
+            if (mono.e[i] == 0) continue;
+            if (mono.e[i] == 1) factors.push_back(vars[i]);
+            else factors.push_back(pow(vars[i], integer(mono.e[i])));
+        }
+        term_exprs.push_back(mul(factors));
+    }
+    return add(term_exprs);
+}
+
+// MPoly arithmetic helpers.
+[[nodiscard]] MPoly mpoly_sub(const MPoly& a, const MPoly& b) {
+    MPoly out = a;
+    for (const auto& t : b.terms) {
+        out.terms.push_back({t.first, -t.second});
+    }
+    out.canonicalize();
+    return out;
+}
+
+[[nodiscard]] MPoly mpoly_scale_mono(const MPoly& a, const mpq_class& coef,
+                                        const Monomial& mono) {
+    MPoly out;
+    out.terms.reserve(a.terms.size());
+    for (const auto& t : a.terms) {
+        Monomial m;
+        m.e.resize(mono.e.size());
+        for (std::size_t i = 0; i < mono.e.size(); ++i) {
+            m.e[i] = t.first.e[i] + mono.e[i];
+        }
+        out.terms.push_back({std::move(m), t.second * coef});
+    }
+    return out;  // already sorted (multiplication preserves order)
+}
+
+[[nodiscard]] bool mono_divides(const Monomial& a, const Monomial& b) {
+    for (std::size_t i = 0; i < a.e.size(); ++i) {
+        if (a.e[i] > b.e[i]) return false;
+    }
+    return true;
+}
+
+[[nodiscard]] Monomial mono_sub(const Monomial& a, const Monomial& b) {
+    Monomial m;
+    m.e.resize(a.e.size());
+    for (std::size_t i = 0; i < a.e.size(); ++i) m.e[i] = a.e[i] - b.e[i];
+    return m;
+}
+
+[[nodiscard]] Monomial mono_lcm(const Monomial& a, const Monomial& b) {
+    Monomial m;
+    m.e.resize(a.e.size());
+    for (std::size_t i = 0; i < a.e.size(); ++i) {
+        m.e[i] = std::max(a.e[i], b.e[i]);
+    }
+    return m;
+}
+
+// Multivariate polynomial reduction: reduce f modulo a list G of
+// polynomials. Returns the remainder.
+[[nodiscard]] MPoly mpoly_reduce(MPoly f, const std::vector<MPoly>& G) {
+    MPoly r;
+    while (!f.is_zero()) {
+        bool reduced = false;
+        for (const auto& g : G) {
+            if (g.is_zero()) continue;
+            if (mono_divides(g.leading_mono(), f.leading_mono())) {
+                Monomial diff = mono_sub(f.leading_mono(), g.leading_mono());
+                mpq_class coef = f.leading_coef() / g.leading_coef();
+                MPoly scaled = mpoly_scale_mono(g, coef, diff);
+                f = mpoly_sub(f, scaled);
+                reduced = true;
+                break;
+            }
+        }
+        if (!reduced) {
+            r.terms.push_back(f.terms.front());
+            f.terms.erase(f.terms.begin());
+        }
+    }
+    return r;
+}
+
+// S-polynomial of f, g.
+[[nodiscard]] MPoly s_poly(const MPoly& f, const MPoly& g) {
+    Monomial l = mono_lcm(f.leading_mono(), g.leading_mono());
+    Monomial diff_f = mono_sub(l, f.leading_mono());
+    Monomial diff_g = mono_sub(l, g.leading_mono());
+    MPoly fterm = mpoly_scale_mono(f, mpq_class(1) / f.leading_coef(), diff_f);
+    MPoly gterm = mpoly_scale_mono(g, mpq_class(1) / g.leading_coef(), diff_g);
+    return mpoly_sub(fterm, gterm);
+}
+
+}  // namespace
+
+std::vector<Expr> groebner(const std::vector<Expr>& eqs,
+                             const std::vector<Expr>& vars) {
+    std::vector<MPoly> G;
+    G.reserve(eqs.size());
+    for (const auto& e : eqs) {
+        auto p = expr_to_mpoly(e, vars);
+        if (!p.is_zero()) G.push_back(std::move(p));
+    }
+    // Buchberger's algorithm.
+    std::size_t i = 0;
+    while (i < G.size()) {
+        for (std::size_t j = 0; j < i; ++j) {
+            MPoly s = s_poly(G[j], G[i]);
+            MPoly r = mpoly_reduce(s, G);
+            if (!r.is_zero()) G.push_back(std::move(r));
+        }
+        ++i;
+        if (G.size() > 200) break;  // safety bound
+    }
+    // Reduce basis: drop polynomials whose leading mono is divisible
+    // by another's, normalize each to monic.
+    std::vector<MPoly> reduced;
+    for (std::size_t k = 0; k < G.size(); ++k) {
+        bool drop = false;
+        for (std::size_t l = 0; l < G.size(); ++l) {
+            if (l == k || G[l].is_zero()) continue;
+            if (mono_divides(G[l].leading_mono(), G[k].leading_mono())
+                && !(G[l].leading_mono() == G[k].leading_mono())) {
+                drop = true;
+                break;
+            }
+        }
+        if (!drop && !G[k].is_zero()) {
+            MPoly p = G[k];
+            mpq_class lc = p.leading_coef();
+            for (auto& t : p.terms) t.second /= lc;
+            reduced.push_back(std::move(p));
+        }
+    }
+    // Final pass: reduce each polynomial against the others.
+    for (std::size_t k = 0; k < reduced.size(); ++k) {
+        std::vector<MPoly> others;
+        for (std::size_t l = 0; l < reduced.size(); ++l) {
+            if (l != k) others.push_back(reduced[l]);
+        }
+        MPoly red = mpoly_reduce(reduced[k], others);
+        // Re-normalize.
+        if (!red.is_zero()) {
+            mpq_class lc = red.leading_coef();
+            for (auto& t : red.terms) t.second /= lc;
+        }
+        reduced[k] = std::move(red);
+    }
+    std::vector<Expr> out;
+    out.reserve(reduced.size());
+    for (auto& p : reduced) {
+        if (!p.is_zero()) out.push_back(mpoly_to_expr(p, vars));
+    }
+    return out;
+}
+
+std::vector<std::vector<Expr>> nonlinsolve_groebner(
+    const std::vector<Expr>& eqs, const std::vector<Expr>& vars) {
+    auto basis = groebner(eqs, vars);
+    if (basis.empty()) return {};
+    // Lex order Gröbner basis with vars = [x, y, z, ...] is triangular
+    // with the last variable's univariate polynomial *last* in the
+    // elimination ideal. Solve in reverse order: z first, then y given
+    // z, then x given y, z. Build solutions as a vector indexed by the
+    // original `vars` order.
+    const std::size_t n = vars.size();
+    std::function<std::vector<std::vector<Expr>>(std::vector<Expr>, long)>
+        rec = [&](std::vector<Expr> partial,
+                  long var_idx) -> std::vector<std::vector<Expr>> {
+        if (var_idx < 0) {
+            return {partial};
+        }
+        // Substitute already-known values (for indices > var_idx) into
+        // each basis element; pick the first that becomes univariate
+        // in vars[var_idx].
+        for (const auto& g : basis) {
+            Expr g_sub = g;
+            for (std::size_t k = static_cast<std::size_t>(var_idx + 1);
+                 k < n; ++k) {
+                g_sub = subs(g_sub, vars[k], partial[k]);
+            }
+            g_sub = expand(simplify(g_sub));
+            // Must contain vars[var_idx] and no earlier variable
+            // vars[k] for k < var_idx.
+            if (!has(g_sub, vars[static_cast<std::size_t>(var_idx)])) continue;
+            bool ok = true;
+            for (long k = 0; k < var_idx; ++k) {
+                if (has(g_sub, vars[static_cast<std::size_t>(k)])) {
+                    ok = false; break;
+                }
+            }
+            if (!ok) continue;
+            auto roots = solve(g_sub,
+                                vars[static_cast<std::size_t>(var_idx)]);
+            std::vector<std::vector<Expr>> out;
+            for (auto& r : roots) {
+                auto next = partial;
+                next[static_cast<std::size_t>(var_idx)] = r;
+                auto sub_sols = rec(next, var_idx - 1);
+                for (auto& s : sub_sols) out.push_back(std::move(s));
+            }
+            return out;
+        }
+        return {};  // no triangular polynomial found
+    };
+    std::vector<Expr> partial(n, S::Zero());
+    return rec(partial, static_cast<long>(n) - 1);
+}
+
+// ----- linear_diophantine --------------------------------------------------
 
 std::optional<std::pair<Expr, Expr>>
 linear_diophantine(const Expr& a, const Expr& b, const Expr& c) {

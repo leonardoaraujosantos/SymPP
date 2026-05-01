@@ -15,6 +15,12 @@ std::optional<bool> Reals::contains(const Expr& e) const {
     return is_real(e);
 }
 
+// ---- Integers --------------------------------------------------------------
+
+std::optional<bool> Integers::contains(const Expr& e) const {
+    return is_integer(e);
+}
+
 // ---- Interval -------------------------------------------------------------
 
 Interval::Interval(Expr lo, Expr hi, bool left_open, bool right_open)
@@ -143,10 +149,49 @@ std::optional<bool> Complement::contains(const Expr& e) const {
     return std::nullopt;
 }
 
+// ---- ConditionSet ---------------------------------------------------------
+
+ConditionSet::ConditionSet(Expr var, Expr condition, SetPtr base_set)
+    : var_(std::move(var)), condition_(std::move(condition)),
+      base_(std::move(base_set)) {}
+
+std::string ConditionSet::str() const {
+    return "{" + var_->str() + " ∈ " + base_->str()
+           + " : " + condition_->str() + "}";
+}
+
+std::optional<bool> ConditionSet::contains(const Expr& e) const {
+    auto in_base = base_->contains(e);
+    if (in_base == std::optional<bool>{false}) return false;
+    // We can't symbolically decide whether the condition holds for e
+    // without an evaluator over Boolean expressions. Report Unknown.
+    (void)in_base;
+    return std::nullopt;
+}
+
+// ---- ImageSet -------------------------------------------------------------
+
+ImageSet::ImageSet(Expr var, Expr expr, SetPtr base_set)
+    : var_(std::move(var)), expr_(std::move(expr)),
+      base_(std::move(base_set)) {}
+
+std::string ImageSet::str() const {
+    return "ImageSet(Lambda(" + var_->str() + ", " + expr_->str() + "), "
+           + base_->str() + ")";
+}
+
+std::optional<bool> ImageSet::contains(const Expr& e) const {
+    // Membership requires solving expr_(var) = e for var ∈ base_.
+    // Beyond the minimal scope; report Unknown.
+    (void)e;
+    return std::nullopt;
+}
+
 // ---- Factories ------------------------------------------------------------
 
 SetPtr empty_set() { return std::make_shared<EmptySet>(); }
 SetPtr reals() { return std::make_shared<Reals>(); }
+SetPtr integers() { return std::make_shared<Integers>(); }
 SetPtr interval(const Expr& lo, const Expr& hi, bool left_open, bool right_open) {
     return std::make_shared<Interval>(lo, hi, left_open, right_open);
 }
@@ -168,6 +213,14 @@ SetPtr set_intersection(SetPtr a, SetPtr b) {
 SetPtr set_complement(SetPtr universal, SetPtr removed) {
     if (removed->kind() == SetKind::Empty) return universal;
     return std::make_shared<Complement>(std::move(universal), std::move(removed));
+}
+
+SetPtr condition_set(const Expr& var, const Expr& condition, SetPtr base_set) {
+    return std::make_shared<ConditionSet>(var, condition, std::move(base_set));
+}
+
+SetPtr image_set(const Expr& var, const Expr& expr, SetPtr base_set) {
+    return std::make_shared<ImageSet>(var, expr, std::move(base_set));
 }
 
 }  // namespace sympp

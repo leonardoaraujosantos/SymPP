@@ -2,7 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -141,4 +143,38 @@ TEST_CASE("set: complement with empty returns universal",
     auto u = finite_set({integer(1), integer(2)});
     auto c = set_complement(u, empty_set());
     REQUIRE(c->kind() == SetKind::FiniteSet);
+}
+
+// ----- Integers --------------------------------------------------------------
+
+TEST_CASE("set: integers contains integers, not rationals",
+          "[10d][sets][integers]") {
+    auto s = integers();
+    REQUIRE(s->contains(integer(5)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(-2)) == std::optional<bool>{true});
+    REQUIRE(s->contains(rational(1, 3)) == std::optional<bool>{false});
+}
+
+// ----- ConditionSet ----------------------------------------------------------
+
+TEST_CASE("set: condition_set prints {var ∈ S : φ}",
+          "[10d][sets][conditionset]") {
+    auto x = symbol("x");
+    auto cond = lt(x, integer(5));
+    auto s = condition_set(x, cond, reals());
+    auto str = s->str();
+    REQUIRE(str.find("x") != std::string::npos);
+    REQUIRE(str.find("Reals") != std::string::npos);
+}
+
+// ----- ImageSet --------------------------------------------------------------
+
+TEST_CASE("set: image_set prints with Lambda",
+          "[10d][sets][imageset]") {
+    auto n = symbol("n");
+    auto s = image_set(n, mul(integer(2), n), integers());
+    auto str = s->str();
+    REQUIRE(str.find("ImageSet") != std::string::npos);
+    REQUIRE(str.find("Lambda") != std::string::npos);
+    REQUIRE(str.find("Integers") != std::string::npos);
 }

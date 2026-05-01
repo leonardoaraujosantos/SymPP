@@ -13,6 +13,7 @@
 //
 // Reference: sympy/solvers/solveset.py and sympy/solvers/solvers.py
 
+#include <array>
 #include <vector>
 
 #include <sympp/core/api.hpp>
@@ -78,5 +79,42 @@ namespace sympp {
 // being x = x0 + b/g * t, y = y0 - a/g * t for integer t.
 [[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>>
 linear_diophantine(const Expr& a, const Expr& b, const Expr& c);
+
+// pythagorean_triples(max_z) — primitive Pythagorean triples (x, y, z)
+// with z ≤ max_z, parametrized by Euclid's formula:
+//   x = m² − n², y = 2·m·n, z = m² + n²
+// for m > n > 0 with gcd(m, n) = 1 and opposite parity. Returns the
+// list of (x, y, z) triples; up to swap of x, y per triple (one even
+// leg, one odd).
+[[nodiscard]] SYMPP_EXPORT std::vector<std::array<Expr, 3>>
+pythagorean_triples(long max_z);
+
+// reduce_inequalities(rel, var) — solve a single Relational over the
+// reals. Thin wrapper that decodes the relation kind and dispatches to
+// solve_univariate_inequality.
+[[nodiscard]] SYMPP_EXPORT SetPtr reduce_inequalities(
+    const Expr& rel, const Expr& var);
+
+// reduce_inequalities(rels, var, conjunction) — combine multiple
+// Relational expressions. When conjunction == true, intersects the
+// per-leaf solution sets (logical AND); when false, unions them
+// (logical OR). Useful for compound bounds like x > 0 AND x < 5.
+[[nodiscard]] SYMPP_EXPORT SetPtr reduce_inequalities(
+    const std::vector<Expr>& rels, const Expr& var, bool conjunction);
+
+// groebner(eqs, vars) — Buchberger's algorithm with lexicographic
+// monomial ordering on multivariate polynomials over ℚ. Returns the
+// reduced Gröbner basis as a list of polynomials. Useful for
+// triangularizing polynomial systems before back-solving.
+[[nodiscard]] SYMPP_EXPORT std::vector<Expr> groebner(
+    const std::vector<Expr>& eqs, const std::vector<Expr>& vars);
+
+// nonlinsolve_groebner(eqs, vars) — n-variable polynomial system
+// solver via Gröbner triangularization. Returns a list of
+// solution-vectors (one per joint root). Generalizes the basic
+// 2×2 nonlinsolve.
+[[nodiscard]] SYMPP_EXPORT std::vector<std::vector<Expr>>
+nonlinsolve_groebner(const std::vector<Expr>& eqs,
+                       const std::vector<Expr>& vars);
 
 }  // namespace sympp

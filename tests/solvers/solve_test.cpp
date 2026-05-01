@@ -119,6 +119,7 @@ TEST_CASE("linsolve: identity returns b unchanged", "[10][linsolve]") {
     REQUIRE(x.equals(b));
 }
 
+#include <sympp/core/boolean.hpp>
 #include <sympp/sets/sets.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
@@ -263,4 +264,121 @@ TEST_CASE("diophantine: 4x + 6y = 10 (gcd = 2 ∣ 10)",
     auto [x, y] = *sol;
     auto check = integer(4) * x + integer(6) * y;
     REQUIRE(check == integer(10));
+}
+
+// ----- Trig solveset → ImageSet ----------------------------------------------
+
+TEST_CASE("solveset: sin(x) = 0 → ImageSet of n*pi",
+          "[10d][solveset][trig]") {
+    auto x = symbol("x");
+    auto s = solveset(sin(x), x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
+TEST_CASE("solveset: cos(x) = 0 → ImageSet of (2n+1)*pi/2",
+          "[10d][solveset][trig]") {
+    auto x = symbol("x");
+    auto s = solveset(cos(x), x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
+TEST_CASE("solveset: sin(2*x) = 0 → ImageSet of n*pi/2",
+          "[10d][solveset][trig]") {
+    auto x = symbol("x");
+    auto s = solveset(sin(integer(2) * x), x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
+TEST_CASE("solveset: tan(x) = 0 → ImageSet of n*pi",
+          "[10d][solveset][trig]") {
+    auto x = symbol("x");
+    auto s = solveset(tan(x), x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+}
+
+// ----- reduce_inequalities ---------------------------------------------------
+
+TEST_CASE("reduce_inequalities: single x < 5",
+          "[10d][reduce_inequalities]") {
+    auto x = symbol("x");
+    auto rel = lt(x, integer(5));
+    auto s = reduce_inequalities(rel, x);
+    REQUIRE(s->contains(integer(0)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(10)) == std::optional<bool>{false});
+}
+
+TEST_CASE("reduce_inequalities: AND combines with intersection",
+          "[10d][reduce_inequalities]") {
+    auto x = symbol("x");
+    // x > 0 AND x < 5
+    std::vector<Expr> rels = {gt(x, integer(0)), lt(x, integer(5))};
+    auto s = reduce_inequalities(rels, x, true);
+    REQUIRE(s->contains(integer(3)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(-1)) == std::optional<bool>{false});
+    REQUIRE(s->contains(integer(10)) == std::optional<bool>{false});
+}
+
+TEST_CASE("reduce_inequalities: OR combines with union",
+          "[10d][reduce_inequalities]") {
+    auto x = symbol("x");
+    // x < -5 OR x > 5 — outside [-5, 5]
+    std::vector<Expr> rels = {lt(x, integer(-5)), gt(x, integer(5))};
+    auto s = reduce_inequalities(rels, x, false);
+    REQUIRE(s->contains(integer(-10)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(10)) == std::optional<bool>{true});
+    REQUIRE(s->contains(integer(0)) == std::optional<bool>{false});
+}
+
+// ----- Pythagorean Diophantine -----------------------------------------------
+
+TEST_CASE("pythagorean_triples: max_z=20 contains (3,4,5), (5,12,13)",
+          "[10d][pythagorean]") {
+    auto triples = pythagorean_triples(20);
+    REQUIRE(!triples.empty());
+    bool has_345 = false, has_5_12_13 = false;
+    for (auto& t : triples) {
+        if (t[0] == integer(3) && t[1] == integer(4) && t[2] == integer(5)) {
+            has_345 = true;
+        }
+        if (t[0] == integer(5) && t[1] == integer(12) && t[2] == integer(13)) {
+            has_5_12_13 = true;
+        }
+    }
+    REQUIRE(has_345);
+    REQUIRE(has_5_12_13);
+    // Verify x² + y² = z² for each.
+    for (auto& t : triples) {
+        REQUIRE(pow(t[0], integer(2)) + pow(t[1], integer(2))
+                == pow(t[2], integer(2)));
+    }
+}
+
+// ----- Gröbner basis ---------------------------------------------------------
+
+TEST_CASE("groebner: simple linear system",
+          "[10d][groebner]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // x - y, x + y - 2 → unique solution (1, 1).
+    auto basis = groebner({x - y, x + y - integer(2)}, {x, y});
+    REQUIRE(!basis.empty());
+}
+
+TEST_CASE("groebner: x²+y²=1 ∧ x=y returns triangular form",
+          "[10d][groebner]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto basis = groebner({pow(x, integer(2)) + pow(y, integer(2)) - integer(1),
+                            x - y}, {x, y});
+    REQUIRE(!basis.empty());
+}
+
+TEST_CASE("nonlinsolve_groebner: 2-variable polynomial system",
+          "[10d][nonlinsolve_groebner]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // x*y = 1, x + y = 3 → roots of t² - 3t + 1, two solutions.
+    auto sols = nonlinsolve_groebner(
+        {x * y - integer(1), x + y - integer(3)}, {x, y});
+    REQUIRE(!sols.empty());
 }

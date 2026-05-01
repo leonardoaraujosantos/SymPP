@@ -26,11 +26,14 @@ using SetPtr = std::shared_ptr<const Set>;
 enum class SetKind : std::uint8_t {
     Empty,
     Reals,
+    Integers,
     Interval,
     FiniteSet,
     Union,
     Intersection,
     Complement,
+    ConditionSet,   // {x ∈ S : φ(x)}
+    ImageSet,       // {f(n) : n ∈ S}
 };
 
 class SYMPP_EXPORT Set {
@@ -58,6 +61,16 @@ class SYMPP_EXPORT Reals final : public Set {
 public:
     [[nodiscard]] SetKind kind() const noexcept override { return SetKind::Reals; }
     [[nodiscard]] std::string str() const override { return "Reals"; }
+    [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+};
+
+// All integers.
+class SYMPP_EXPORT Integers final : public Set {
+public:
+    [[nodiscard]] SetKind kind() const noexcept override {
+        return SetKind::Integers;
+    }
+    [[nodiscard]] std::string str() const override { return "Integers"; }
     [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
 };
 
@@ -135,10 +148,51 @@ private:
     SetPtr a_, b_;
 };
 
+// {var ∈ base_set : condition(var)} where condition is an Expr that
+// evaluates to a Boolean (or Relational) when given a value for var.
+class SYMPP_EXPORT ConditionSet final : public Set {
+public:
+    ConditionSet(Expr var, Expr condition, SetPtr base_set);
+    [[nodiscard]] SetKind kind() const noexcept override {
+        return SetKind::ConditionSet;
+    }
+    [[nodiscard]] std::string str() const override;
+    [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+    [[nodiscard]] const Expr& variable() const { return var_; }
+    [[nodiscard]] const Expr& condition() const { return condition_; }
+    [[nodiscard]] const SetPtr& base_set() const { return base_; }
+
+private:
+    Expr var_;
+    Expr condition_;
+    SetPtr base_;
+};
+
+// {expr(var) : var ∈ base_set} — image of base_set under the map
+// var → expr. Used for periodic solution sets like {n·π : n ∈ ℤ}.
+class SYMPP_EXPORT ImageSet final : public Set {
+public:
+    ImageSet(Expr var, Expr expr, SetPtr base_set);
+    [[nodiscard]] SetKind kind() const noexcept override {
+        return SetKind::ImageSet;
+    }
+    [[nodiscard]] std::string str() const override;
+    [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+    [[nodiscard]] const Expr& variable() const { return var_; }
+    [[nodiscard]] const Expr& image_expr() const { return expr_; }
+    [[nodiscard]] const SetPtr& base_set() const { return base_; }
+
+private:
+    Expr var_;
+    Expr expr_;
+    SetPtr base_;
+};
+
 // ---- Factories ------------------------------------------------------------
 
 [[nodiscard]] SYMPP_EXPORT SetPtr empty_set();
 [[nodiscard]] SYMPP_EXPORT SetPtr reals();
+[[nodiscard]] SYMPP_EXPORT SetPtr integers();
 [[nodiscard]] SYMPP_EXPORT SetPtr interval(const Expr& lo, const Expr& hi,
                                               bool left_open = false,
                                               bool right_open = false);
@@ -146,5 +200,11 @@ private:
 [[nodiscard]] SYMPP_EXPORT SetPtr set_union(SetPtr a, SetPtr b);
 [[nodiscard]] SYMPP_EXPORT SetPtr set_intersection(SetPtr a, SetPtr b);
 [[nodiscard]] SYMPP_EXPORT SetPtr set_complement(SetPtr universal, SetPtr removed);
+[[nodiscard]] SYMPP_EXPORT SetPtr condition_set(const Expr& var,
+                                                  const Expr& condition,
+                                                  SetPtr base_set);
+[[nodiscard]] SYMPP_EXPORT SetPtr image_set(const Expr& var,
+                                              const Expr& expr,
+                                              SetPtr base_set);
 
 }  // namespace sympp
