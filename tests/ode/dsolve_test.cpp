@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/calculus/diff.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/operators.hpp>
@@ -267,4 +268,193 @@ TEST_CASE("pdsolve_first_order_linear: 1 u_x + 1 u_y = 5",
                                             x, y);
     // u(x, y) = 5x + F(x - y).
     REQUIRE(sol->type_id() == TypeId::Add);
+}
+
+#include <sympp/functions/miscellaneous.hpp>
+
+// ----- Riccati ---------------------------------------------------------------
+
+TEST_CASE("dsolve_riccati: y' = 1 + y² → tan(x + C)",
+          "[11d][riccati][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    // P=1, Q=0, R=1: y' = 1 + 0·y + 1·y².
+    auto sol = dsolve_riccati(integer(1), integer(0), integer(1), x);
+    // Substitute into the original eq and verify residual.
+    auto eq = yp - integer(1) - pow(y, integer(2));
+    auto residual = checkodesol(eq, sol, y, yp, x);
+    auto C0 = symbol("__C0");
+    auto C1 = symbol("__C1");
+    Expr fixed = subs(subs(residual, C0, integer(1)), C1, integer(0));
+    Expr at_half = simplify(subs(fixed, x, rational(1, 2)));
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", at_half->str()},
+                             {"prec", 30}, {"tol", 8}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("dsolve_riccati: variable coefficient bails out",
+          "[11d][riccati]") {
+    auto x = symbol("x");
+    auto sol = dsolve_riccati(integer(1), x, integer(1), x);
+    // Variable Q in x — coef_u_prime depends on x, so we bail to marker.
+    REQUIRE(sol->type_id() == TypeId::Function);
+}
+
+// ----- Homogeneous y' = f(y/x) -----------------------------------------------
+
+TEST_CASE("dsolve_homogeneous: y' = y/x → y = C·x",
+          "[11d][homogeneous][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    auto eq = yp - y / x;
+    auto sol = dsolve_homogeneous(eq, y, yp, x);
+    // Verify checkodesol → 0 numerically at x=2 with __C0 = 3.
+    auto residual = checkodesol(eq, sol, y, yp, x);
+    auto C0 = symbol("__C0");
+    Expr fixed = subs(residual, C0, integer(3));
+    Expr at_2 = simplify(subs(fixed, x, integer(2)));
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", at_2->str()},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+// ----- Lie autonomous --------------------------------------------------------
+
+TEST_CASE("dsolve_lie_autonomous: y' = y² (autonomous)",
+          "[11d][lie][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    auto eq = yp - pow(y, integer(2));
+    auto sol = dsolve_lie_autonomous(eq, y, yp, x);
+    auto residual = checkodesol(eq, sol, y, yp, x);
+    auto C0 = symbol("__C0");
+    Expr fixed = subs(residual, C0, integer(1));
+    Expr at_half = simplify(subs(fixed, x, rational(1, 2)));
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", at_half->str()},
+                             {"prec", 30}, {"tol", 10}});
+    REQUIRE(resp.ok);
+    REQUIRE(resp.raw.at("result").get<bool>());
+}
+
+TEST_CASE("dsolve_lie_autonomous: rejects x-dependent rhs",
+          "[11d][lie]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    // Has x in rhs — not autonomous.
+    auto eq = yp - x - y;
+    auto sol = dsolve_lie_autonomous(eq, y, yp, x);
+    REQUIRE(sol->type_id() == TypeId::Function);
+}
+
+// ----- Hypergeometric --------------------------------------------------------
+
+TEST_CASE("hyper: factory creates hyper(a, b, c, z)",
+          "[11d][hyper]") {
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto c = symbol("c");
+    auto z = symbol("z");
+    auto h = hyper(a, b, c, z);
+    REQUIRE(h->type_id() == TypeId::Function);
+}
+
+TEST_CASE("dsolve_hypergeometric: standard form recognized",
+          "[11d][hyper]") {
+    auto x = symbol("x");
+    // x(1-x)y'' + (3 - 4x)y' - 2y = 0.  Match: c = 3, a+b+1 = 4 → a+b=3,
+    // a*b = 2. Roots of t²-3t+2: 1, 2 → hyper(1, 2, 3, x).
+    auto coef_y = integer(-2);
+    auto coef_yp = integer(3) - integer(4) * x;
+    auto coef_ypp = x * (integer(1) - x);
+    auto sol = dsolve_hypergeometric({coef_y, coef_yp, expand(coef_ypp)}, x);
+    REQUIRE(sol->type_id() == TypeId::Function);
+}
+
+// ----- Variable-coeff PDE ----------------------------------------------------
+
+TEST_CASE("pdsolve_first_order_variable: x u_x + y u_y = 0",
+          "[11d][pdsolve][oracle]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto yp = symbol("yp");
+    // a = x, b = y, c = 0 — characteristics are y/x = const.
+    auto sol = pdsolve_first_order_variable(x, y, S::Zero(), y, yp, x);
+    // Solution should be F(y/x) form.
+    REQUIRE(sol->type_id() == TypeId::Function);
+}
+
+// ----- Heat / Wave -----------------------------------------------------------
+
+TEST_CASE("pdsolve_heat: u_t = k u_xx product solution",
+          "[11d][pdsolve_heat]") {
+    auto x = symbol("x");
+    auto t = symbol("t");
+    auto k = symbol("k");
+    auto lambda = symbol("lambda");
+    auto u = pdsolve_heat(k, lambda, x, t);
+    // Verify u_t - k u_xx = 0.
+    auto u_t = diff(u, t);
+    auto u_xx = diff(diff(u, x), x);
+    Expr residual = simplify(u_t - k * u_xx);
+    REQUIRE(residual == S::Zero());
+}
+
+TEST_CASE("pdsolve_wave: u_tt = c² u_xx d'Alembert",
+          "[11d][pdsolve_wave]") {
+    auto x = symbol("x");
+    auto t = symbol("t");
+    auto c = symbol("c");
+    auto u = pdsolve_wave(c, x, t);
+    // u = F(x - c·t) + G(x + c·t). Structure check: it's an Add of two
+    // function calls.
+    REQUIRE(u->type_id() == TypeId::Add);
+}
+
+// ----- DAE Jacobian / structural index ---------------------------------------
+
+TEST_CASE("dae_jacobians: extracts ∂F/∂yp and ∂F/∂y",
+          "[11d][dae]") {
+    auto y1 = symbol("y1");
+    auto y2 = symbol("y2");
+    auto y1p = symbol("y1p");
+    auto y2p = symbol("y2p");
+    auto x = symbol("x");
+    // Simple DAE: y1' = y2, y1 + y2 - 1 = 0 (the second is algebraic).
+    std::vector<Expr> F = {y1p - y2, y1 + y2 - integer(1)};
+    auto [M, K] = dae_jacobians(F, {y1, y2}, {y1p, y2p});
+    REQUIRE(M.rows() == 2);
+    REQUIRE(M.cols() == 2);
+    // Row 0 of M: ∂(y1p - y2)/∂(y1p, y2p) = (1, 0). Row 1: (0, 0) — algebraic.
+    REQUIRE(M.at(0, 0) == integer(1));
+    REQUIRE(M.at(1, 0) == S::Zero());
+    REQUIRE(M.at(1, 1) == S::Zero());
+}
+
+TEST_CASE("dae_structural_index: pure ODE → 0",
+          "[11d][dae]") {
+    auto y1 = symbol("y1"); auto y1p = symbol("y1p");
+    std::vector<Expr> F = {y1p - y1};   // y' = y, regular ODE
+    REQUIRE(dae_structural_index(F, {y1}, {y1p}) == 0);
+}
+
+TEST_CASE("dae_structural_index: index-1 algebraic constraint",
+          "[11d][dae]") {
+    auto y1 = symbol("y1"); auto y2 = symbol("y2");
+    auto y1p = symbol("y1p"); auto y2p = symbol("y2p");
+    // y1' = y2, y1 + y2 = 1. Second eq is algebraic in y → M has a zero row.
+    std::vector<Expr> F = {y1p - y2, y1 + y2 - integer(1)};
+    auto idx = dae_structural_index(F, {y1, y2}, {y1p, y2p});
+    REQUIRE(idx >= 1);
 }

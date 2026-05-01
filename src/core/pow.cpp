@@ -188,6 +188,16 @@ Expr pow(const Expr& base, const Expr& exp) {
     // 1^x → 1
     if (base == S::One()) return S::One();
 
+    // ---- (a^m)^n → a^(m*n) when n is an Integer ----
+    // Safe for integer outer exponent (avoids the (x²)^(1/2) ≠ x issue
+    // for negative x). Common case: pow(pow(y, 2), -1) → pow(y, -2).
+    if (exp->type_id() == TypeId::Integer
+        && base->type_id() == TypeId::Pow) {
+        const auto& inner_exp = base->args()[1];
+        Expr new_exp = mul(inner_exp, exp);
+        return pow(base->args()[0], new_exp);
+    }
+
     // ---- I^Integer cycles through {1, I, -1, -I} ----
     if (base == S::I() && exp->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*exp);

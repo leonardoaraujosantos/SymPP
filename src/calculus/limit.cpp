@@ -29,18 +29,25 @@ struct NumDen { Expr num; Expr den; };
     Expr t = together(e);
     if (t->type_id() != TypeId::Mul) return {t, S::One()};
     std::vector<Expr> num_factors;
-    Expr den;
+    std::vector<Expr> den_factors;
     for (const auto& f : t->args()) {
+        // Match any factor with a negative-integer exponent; collect its
+        // base raised to the absolute exponent into the denominator. This
+        // covers both Pow(d, -1) and Pow(d, -k) cases (e.g. Pow(x, -2)
+        // after the canonical (a^m)^n → a^(m·n) fold).
         if (f->type_id() == TypeId::Pow
-            && f->args()[1] == S::NegativeOne()
-            && !den) {
-            den = f->args()[0];
-            continue;
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z.is_negative()) {
+                Expr abs_exp = mul(S::NegativeOne(), f->args()[1]);
+                den_factors.push_back(pow(f->args()[0], abs_exp));
+                continue;
+            }
         }
         num_factors.push_back(f);
     }
-    if (!den) return {t, S::One()};
-    return {mul(num_factors), den};
+    if (den_factors.empty()) return {t, S::One()};
+    return {mul(num_factors), mul(den_factors)};
 }
 
 }  // namespace

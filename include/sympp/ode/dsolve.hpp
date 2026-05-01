@@ -62,6 +62,43 @@ namespace sympp {
 [[nodiscard]] SYMPP_EXPORT Expr dsolve_exact(
     const Expr& M, const Expr& N, const Expr& y, const Expr& x);
 
+// Riccati: y' = P(x) + Q(x)·y + R(x)·y².
+//   Linearizes via y = -u'/(R·u) into the second-order linear ODE
+//     R·u'' − (R' + Q·R)·u' + R²·P·u = 0
+//   Solve the linear ODE; back-substitute. P, Q, R are passed as
+//   Exprs in x (with no y dependence).
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_riccati(
+    const Expr& P, const Expr& Q, const Expr& R, const Expr& x);
+
+// Homogeneous: y' = f(y/x). Detects when the rhs is a function of
+// (y/x) only by substituting y = v·x and checking if x cancels.
+// Then v + x·v' = f(v) is separable.
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_homogeneous(
+    const Expr& eq, const Expr& y, const Expr& yp, const Expr& x);
+
+// Lie point symmetries — minimal subset:
+//   * autonomous y' = f(y) where rhs is independent of x — separable
+//   * scaling-invariant ODE under x → λx, y → λᵏy for some k.
+// Returns the reduced general solution when a symmetry is detected;
+// otherwise an unevaluated marker.
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_lie_autonomous(
+    const Expr& eq, const Expr& y, const Expr& yp, const Expr& x);
+
+// Hypergeometric ODE recognition:
+//   x(1-x) y'' + (c - (a+b+1)x) y' - a·b·y = 0  →  ₂F₁(a, b; c; x).
+// Coefficients are extracted from the input as polynomials in x.
+// Returns hyper(a, b, c, x) when matching, an unevaluated marker
+// otherwise.
+[[nodiscard]] SYMPP_EXPORT Expr dsolve_hypergeometric(
+    const std::vector<Expr>& coeffs_y_ypp,  // [c0_of_y, c1_of_yp, c2_of_ypp]
+    const Expr& x);
+
+// hyper(a, b, c, z) — Gauss hypergeometric ₂F₁(a, b; c; z) as an
+// opaque function symbol. The full power series implementation
+// (hyperexpand) lands in a separate Phase 5 follow-up.
+[[nodiscard]] SYMPP_EXPORT Expr hyper(const Expr& a, const Expr& b,
+                                        const Expr& c, const Expr& z);
+
 // --- Higher-order ---
 // Returns y(x) general solution Σ Cᵢ exp(rᵢ x) (with x^k multipliers for
 // repeated roots) for the homogeneous constant-coefficient ODE
@@ -100,5 +137,40 @@ namespace sympp {
 [[nodiscard]] SYMPP_EXPORT Expr pdsolve_first_order_linear(
     const Expr& a, const Expr& b, const Expr& c,
     const Expr& x, const Expr& y);
+
+// Variable-coefficient method of characteristics: a(x,y)·u_x +
+// b(x,y)·u_y = c(x,y). Solves dy/dx = b/a as an ODE for y(x);
+// the implicit form ξ(x, y) = const becomes the characteristic.
+// Returns u(x, y) = F(ξ(x, y)) on the homogeneous (c=0) case;
+// otherwise emits an unevaluated Pdsolve marker (full inhomogeneous
+// MOC requires solving for u along characteristics).
+[[nodiscard]] SYMPP_EXPORT Expr pdsolve_first_order_variable(
+    const Expr& a, const Expr& b, const Expr& c,
+    const Expr& y, const Expr& yp, const Expr& x);
+
+// Heat equation u_t = k·u_xx via separation of variables. Returns the
+// product solution exp(-k·λ·t) · (A·sin(√λ·x) + B·cos(√λ·x)) for an
+// arbitrary separation constant λ (passed as an Expr).
+[[nodiscard]] SYMPP_EXPORT Expr pdsolve_heat(
+    const Expr& k, const Expr& lambda, const Expr& x, const Expr& t);
+
+// Wave equation u_tt = c²·u_xx via d'Alembert: F(x - c·t) + G(x + c·t).
+[[nodiscard]] SYMPP_EXPORT Expr pdsolve_wave(
+    const Expr& c, const Expr& x, const Expr& t);
+
+// DAE helpers: Jacobian extraction. Given F(y, y', x) = 0 (a vector of
+// equations), returns (M, K) where M = ∂F/∂y' and K = ∂F/∂y.
+// A DAE is index-1 when M is non-singular.
+[[nodiscard]] SYMPP_EXPORT std::pair<Matrix, Matrix> dae_jacobians(
+    const std::vector<Expr>& F, const std::vector<Expr>& y,
+    const std::vector<Expr>& yp);
+
+// Structural differential index — coarse estimate. Returns 0 if M is
+// already non-singular (purely algebraic), 1 if it's singular but the
+// system is otherwise well-posed, and ≥2 with a brief explanation
+// when full Pantelides analysis would be needed (deep-deferred).
+[[nodiscard]] SYMPP_EXPORT std::size_t dae_structural_index(
+    const std::vector<Expr>& F, const std::vector<Expr>& y,
+    const std::vector<Expr>& yp);
 
 }  // namespace sympp
