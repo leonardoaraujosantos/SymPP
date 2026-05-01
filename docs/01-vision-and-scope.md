@@ -2,7 +2,7 @@
 
 ## Mission
 
-Build a modern, idiomatic C++ symbolic mathematics library — **SymPP** — that any C++ project can drop in via CMake `find_package` and use to perform the same symbolic math a MATLAB user expects from the Symbolic Math Toolbox.
+Build a modern, idiomatic C++ symbolic mathematics library — **SymPP** — that any C++ project can drop in via CMake `find_package`. The original target was MATLAB Symbolic Math Toolbox parity; the current target is broader — a real C++ alternative to SymPy itself, with SymPy's algorithm catalog ported and validated against SymPy as the oracle.
 
 ## Why
 
@@ -16,12 +16,13 @@ We want SymPy's breadth, SymEngine's speed, and a license/runtime profile that l
 
 ## Goals
 
-1. **MATLAB Symbolic Math Toolbox feature parity** for the math features documented in *Symbolic Math Toolbox User's Guide R2026a* — Chapters 1–5 except Simulink/Simscape integration. See [03-feature-mapping](03-feature-mapping.md).
-2. **Clean-room port from SymPy.** Read the SymPy algorithm; reimplement in modern C++. Never copy code verbatim — license-compatible (BSD-3) but we want idiomatic C++, not Python-shaped C++.
-3. **SymPy as validation oracle.** Every algorithm has a test that runs the same input through SymPy and asserts equivalence. See [05-validation-strategy](05-validation-strategy.md).
-4. **Modern C++.** C++20 minimum: concepts, `std::span`, `<ranges>`, `std::variant`, `std::format`. Header-only public API where viable; compiled internals.
-5. **Deployable.** No Python runtime in production. CMake `find_package(SymPP)`, vcpkg/Conan recipes, single shared library.
-6. **License: BSD-3.** Match SymPy. Compatible with commercial use.
+1. **MATLAB Symbolic Math Toolbox feature parity** for the math features documented in *Symbolic Math Toolbox User's Guide R2026a* — Chapters 1–5 except Simulink/Simscape integration. See [03-feature-mapping](03-feature-mapping.md). **Status: 13/16 phases shipped, on track.**
+2. **SymPy parity** for the modules a research/engineering user expects: vector calculus, tensors, statistics, number theory, combinatorics, physics submodules, geometry. Originally listed as anti-scope; promoted to in-scope (Category C in the [Roadmap](04-roadmap.md)).
+3. **Clean-room port from SymPy.** Read the SymPy algorithm; reimplement in modern C++. Never copy code verbatim — license-compatible (BSD-3) but we want idiomatic C++, not Python-shaped C++.
+4. **SymPy as validation oracle.** Every algorithm has a test that runs the same input through SymPy and asserts equivalence. See [05-validation-strategy](05-validation-strategy.md).
+5. **Modern C++.** C++20 minimum: concepts, `std::span`, `<ranges>`, `std::variant`, `std::format`. Header-only public API where viable; compiled internals.
+6. **Deployable.** No Python runtime in production. CMake `find_package(SymPP)`, vcpkg/Conan recipes, single shared library.
+7. **License: BSD-3.** Match SymPy. Compatible with commercial use.
 
 ## Non-goals
 
@@ -57,14 +58,19 @@ We want SymPy's breadth, SymEngine's speed, and a license/runtime profile that l
 | 5 — Code Generation | ✅ Mostly | C/Fortran/LaTeX/Octave-syntax. No Simulink, no Simscape, no MATLAB Coder app. |
 | 6 — Function Reference | ✅ Full | All math functions; MATLAB-named facade in `sympp::matlab::` |
 
-## Anti-scope (deferred indefinitely unless requested)
+## Anti-scope (genuinely out of scope)
 
-- Tensor algebra (SymPy `tensor/`)
-- Crypto, combinatorics, lie algebras, geometric algebra
-- Finite group theory
-- Stats / probability distributions
-- Plotting backends
-- Mechanics solvers (`physics/mechanics/`)
-- Continuum mechanics, vector calculus packages
+- **Simulink / Simscape** — proprietary block formats, no math content.
+- **MATLAB Live Editor** — IDE feature, not a math feature.
+- **Numeric ODE/PDE solvers** — we solve symbolically. Numeric integration is the consumer's problem (Sundials / CasADi / Boost.Numeric.Odeint). We may emit code that drives them.
+- **Domain-specific languages** beyond plain math notation. Categorical-style algebra packages (HOL, Coq-style proof assistants) are a different product class.
 
-These can be added as separate optional modules if a consumer needs them.
+## Scope reclamation
+
+The earlier draft of this document listed tensor algebra, crypto,
+combinatorics, statistics, geometry, vector calculus, and mechanics
+modules as anti-scope. Those have been **promoted to in-scope** —
+they are explicit goals tracked as **Phases 17-24 in the
+[Roadmap](04-roadmap.md)**. They land after the v0.5 release
+(Phases 14-16) and the deep-deferred items within already-shipped
+phases close out.

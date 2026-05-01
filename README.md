@@ -1,50 +1,174 @@
 # SymPP
 
-Modern C++ symbolic mathematics library targeting feature parity with the MATLAB Symbolic Math Toolbox, validated continuously against SymPy.
+Modern C++20 symbolic mathematics library. Clean-room port of SymPy
+algorithms with SymPy itself wired in as the validation oracle.
 
 ## Status
 
-Pre-development — Phase 0 (foundation + oracle harness).
+```
+820 tests / 1644 assertions  all passing
+13 of 16 original phases shipped
+53 commits on main
+```
 
-See [docs/](docs/) for the full plan:
+| Phase | Title | Status |
+|---|---|---|
+| 0  | Foundation & oracle harness            | ✅ |
+| 1  | Core expression tree                   | ✅ |
+| 2  | Assumptions                            | 🟡 minimal subset |
+| 3  | Elementary & special functions         | ✅ |
+| 4  | Polynomials                            | ✅ |
+| 5  | Simplification                         | ✅ |
+| 6  | Calculus                               | ✅ |
+| 7  | Integration                            | ✅ |
+| 8  | Transforms                             | ✅ |
+| 9  | Linear algebra                         | ✅ |
+| 10 | Equation solvers                       | ✅ |
+| 11 | ODE / PDE                              | ✅ |
+| 12 | Units                                  | ✅ |
+| 13 | Code generation                        | 🟡 printers + function emission |
+| 14 | Plotting bridge                        | ❌ |
+| 15 | Parser & MATLAB facade                 | ❌ |
+| 16 | Hardening & v1.0                       | ❌ |
 
-- [01 — Vision and Scope](docs/01-vision-and-scope.md)
-- [02 — Architecture](docs/02-architecture.md)
-- [03 — Feature Mapping (MATLAB → SymPy source)](docs/03-feature-mapping.md)
-- [04 — Roadmap](docs/04-roadmap.md)
-- [05 — Validation Strategy](docs/05-validation-strategy.md)
-- [06 — Build and Tooling](docs/06-build-and-tooling.md)
-- [07 — Coding Standards](docs/07-coding-standards.md)
+See [docs/04-roadmap.md](docs/04-roadmap.md) for the per-phase
+shipped/deferred breakdown and the path to SymPy parity.
 
-## Quick start (Phase 0)
+## Quick example
+
+```cpp
+#include <sympp/sympp.hpp>
+#include <iostream>
+
+int main() {
+    using namespace sympp;
+
+    auto x = symbol("x");
+    auto y = symbol("y");
+
+    // Calculus
+    auto f = pow(x, integer(3)) + integer(2) * x * y;
+    std::cout << "df/dx = " << diff(f, x)->str() << "\n";
+    std::cout << "∫f dx = " << integrate(f, x)->str() << "\n";
+
+    // Solve
+    auto roots = solve(pow(x, integer(2)) - integer(5) * x + integer(6), x);
+    for (auto& r : roots) std::cout << "root: " << r->str() << "\n";
+
+    // Linear algebra
+    Matrix A = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    std::cout << "det(A) = " << A.det()->str() << "\n";
+
+    // Code gen
+    std::cout << printing::ccode(diff(sin(x) * exp(x), x)) << "\n";
+}
+```
+
+Output:
+```
+df/dx = 2*y + 3*x**2
+∫f dx = 1/4*x**4 + x**2*y
+root: 3
+root: 2
+det(A) = -2
+exp(x)*sin(x) + exp(x)*cos(x)
+```
+
+More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
+
+## What's in the box
+
+- **Symbolic algebra** — Add/Mul/Pow with full canonical form,
+  hash-cons cache, structural equality.
+- **Number tower** — `Integer` / `Rational` (GMP) / `Float` (MPFR
+  arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E`.
+- **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
+  factorial/gamma/erf/heaviside/dirac_delta and the rest of the
+  elementary + special + combinatorial canon.
+- **Calculus** — `diff`, `integrate` (table + trig + parts +
+  rational + heurisch), `series`, `limit` with L'Hôpital,
+  `summation`, Padé, Euler-Lagrange, asymptotes.
+- **Polynomials** — div/gcd/sqf, factor over ℤ, Cardano cubic,
+  Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
+- **Simplification** — `simplify` orchestrator chaining trigsimp,
+  powsimp, radsimp, sqrtdenest, combsimp, gammasimp, cse,
+  nsimplify.
+- **Linear algebra** — det, inverse, eigendecomposition, LU/QR/
+  Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
+  `MatrixSymbol` expression tree.
+- **Equation solvers** — `solve`, `solveset`, `nsolve` (Newton in
+  MPFR), inequality solver, `rsolve`, `nonlinsolve` via
+  resultants and via Gröbner.
+- **ODE / PDE** — `dsolve` for separable, linear, Bernoulli,
+  exact, Riccati, homogeneous, autonomous, constant-coefficient,
+  Cauchy-Euler, hypergeometric. Linear systems via
+  eigendecomposition. PDE for first-order linear, heat, wave.
+  IVP application + `checkodesol`.
+- **Transforms** — Laplace, Fourier, Mellin, Z, sine/cosine —
+  forward and inverse, table-driven with linearity.
+- **Units** — SI / CGS / US customary, prefixes, 12 physical
+  constants with exact post-2019-redef values, affine
+  temperature conversion.
+- **Code generation** — C / C++ / Fortran / LaTeX / Octave
+  printers + function emission.
+- **SymPy oracle** — every numeric and structural assertion
+  cross-checked against SymPy 1.14 via a long-lived Python
+  subprocess.
+
+## Documentation
+
+- [docs/README.md](docs/README.md) — documentation index
+- [docs/01-vision-and-scope.md](docs/01-vision-and-scope.md)
+- [docs/02-architecture.md](docs/02-architecture.md)
+- [docs/03-feature-mapping.md](docs/03-feature-mapping.md) — MATLAB → SymPy reference table
+- [docs/04-roadmap.md](docs/04-roadmap.md) — phase-by-phase status + forward plan
+- [docs/05-validation-strategy.md](docs/05-validation-strategy.md)
+- [docs/06-build-and-tooling.md](docs/06-build-and-tooling.md)
+- [docs/07-coding-standards.md](docs/07-coding-standards.md)
+- [docs/08-tutorial.md](docs/08-tutorial.md) — **worked examples**
+
+## Build
+
+### Prerequisites
+
+- CMake ≥ 3.25
+- C++20 compiler (gcc 11+, clang 14+, AppleClang 14+)
+- GMP + GMPXX (`brew install gmp` / `apt install libgmp-dev libgmpxx4ldbl`)
+- MPFR (`brew install mpfr` / `apt install libmpfr-dev`)
+- Python 3.10+ with SymPy 1.14+ for the test oracle (`pip install sympy`)
+
+CMake fetches Catch2 v3.5.4 and nlohmann/json v3.11.3 automatically.
+
+### Build & test
 
 ```bash
-# macOS prerequisites
-brew install cmake python@3.12
-pip3 install sympy
-
-# Build and test
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+git clone https://github.com/leonardoaraujosantos/SymPP.git
+cd SymPP
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+./build/tests/sympp_tests
 ```
 
-## Layout
+The test runner spawns a Python subprocess on demand for the oracle —
+SymPy must be importable from your `python3`. Tests with the `[oracle]`
+Catch2 tag exercise that path; everything else runs without Python.
 
+### Use as a dependency
+
+After install:
+
+```cmake
+find_package(SymPP REQUIRED)
+target_link_libraries(your_target PRIVATE SymPP::sympp)
 ```
-SymPP/
-├── CMakeLists.txt
-├── include/sympp/      — public headers
-├── src/                — library implementation
-├── tests/              — Catch2 test suite (oracle-validated)
-├── oracle/             — SymPy oracle Python harness
-├── examples/           — sample consumer projects
-├── benchmarks/         — performance suite
-├── cmake/              — CMake helpers
-├── docs/               — design documents
-└── sympy/              — SymPy reference checkout (read-only, gitignored)
-```
+
+(Note: `find_package` integration is part of Phase 16; for now,
+add the SymPP repo as a CMake subdirectory.)
 
 ## License
 
-BSD 3-Clause. See [LICENSE](LICENSE).
+BSD 3-Clause. See [LICENSE](LICENSE). Matches SymPy upstream.
+
+## Repository
+
+https://github.com/leonardoaraujosantos/SymPP
