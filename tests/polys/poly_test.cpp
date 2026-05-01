@@ -358,6 +358,164 @@ TEST_CASE("Poly: sqf_list of constant", "[4][poly][sqf]") {
     REQUIRE(sl.content == integer(7));
 }
 
+// ----- Rational roots --------------------------------------------------------
+
+TEST_CASE("Poly: rational_roots of x^2 - 4", "[4][poly][rational_roots]") {
+    auto x = symbol("x");
+    Poly f(pow(x, integer(2)) - integer(4), x);
+    auto roots = rational_roots(f);
+    REQUIRE(roots.size() == 2);
+    // Order: synthetic division proceeds by smallest p first; ±2 in some order.
+    std::sort(roots.begin(), roots.end(),
+              [](const Expr& a, const Expr& b) { return a->str() < b->str(); });
+    REQUIRE(roots[0] == integer(-2));
+    REQUIRE(roots[1] == integer(2));
+}
+
+TEST_CASE("Poly: rational_roots with multiplicity", "[4][poly][rational_roots]") {
+    auto x = symbol("x");
+    // (x-3)^2 = x^2 - 6x + 9 — root 3 with multiplicity 2
+    Poly f(pow(x, integer(2)) - integer(6) * x + integer(9), x);
+    auto roots = rational_roots(f);
+    REQUIRE(roots.size() == 2);
+    REQUIRE(roots[0] == integer(3));
+    REQUIRE(roots[1] == integer(3));
+}
+
+TEST_CASE("Poly: rational_roots p/q form", "[4][poly][rational_roots]") {
+    auto x = symbol("x");
+    // 6x^2 - 5x + 1 = (2x-1)(3x-1) — roots 1/2 and 1/3
+    Poly f(integer(6) * pow(x, integer(2)) - integer(5) * x + integer(1), x);
+    auto roots = rational_roots(f);
+    REQUIRE(roots.size() == 2);
+    std::sort(roots.begin(), roots.end(),
+              [](const Expr& a, const Expr& b) { return a->str() < b->str(); });
+    // Lex-sorted "1/2" < "1/3" (3 > 2 at the last char).
+    REQUIRE(roots[0] == rational(1, 2));
+    REQUIRE(roots[1] == rational(1, 3));
+}
+
+TEST_CASE("Poly: rational_roots zero root", "[4][poly][rational_roots]") {
+    auto x = symbol("x");
+    // x^3 - x — roots 0, 1, -1
+    Poly f(pow(x, integer(3)) - x, x);
+    auto roots = rational_roots(f);
+    REQUIRE(roots.size() == 3);
+}
+
+TEST_CASE("Poly: rational_roots no rationals (irreducible quadratic)",
+          "[4][poly][rational_roots]") {
+    auto x = symbol("x");
+    // x^2 + 1 has no rational roots
+    Poly f(pow(x, integer(2)) + integer(1), x);
+    auto roots = rational_roots(f);
+    REQUIRE(roots.empty());
+}
+
+// ----- Cubic / quartic closed-form roots -------------------------------------
+
+namespace {
+[[nodiscard]] bool oracle_is_zero(std::string_view expr) {
+    auto& oracle = Oracle::instance();
+    if (oracle.equivalent(expr, "0")) return true;
+    // Symbolic simplify can't always prove nested-radical Cardano outputs
+    // are zero. Fall back to a high-precision numeric check.
+    auto resp = oracle.send({{"op", "evalf_is_zero"},
+                             {"expr", expr}, {"prec", 50}, {"tol", 25}});
+    return resp.ok && resp.raw.at("result").get<bool>();
+}
+}  // namespace
+
+TEST_CASE("Poly: cubic with rational roots (deflation)", "[4][poly][roots][cubic][oracle]") {
+    auto x = symbol("x");
+    // (x-1)(x-2)(x-3) = x^3 - 6x^2 + 11x - 6
+    Poly f(pow(x, integer(3)) - integer(6) * pow(x, integer(2))
+               + integer(11) * x - integer(6), x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 3);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: cubic x^3 - 8 (Cardano via deflation)", "[4][poly][roots][cubic][oracle]") {
+    auto x = symbol("x");
+    Poly f(pow(x, integer(3)) - integer(8), x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 3);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: cubic x^3 + x + 1 (full Cardano, no rationals)",
+          "[4][poly][roots][cubic][oracle]") {
+    auto x = symbol("x");
+    Poly f(pow(x, integer(3)) + x + integer(1), x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 3);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: depressed cubic q = 0", "[4][poly][roots][cubic][oracle]") {
+    auto x = symbol("x");
+    // x^3 - 4x = x(x-2)(x+2). Has rational root 0; deflates.
+    Poly f(pow(x, integer(3)) - integer(4) * x, x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 3);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: quartic with all rational roots", "[4][poly][roots][quartic][oracle]") {
+    auto x = symbol("x");
+    // (x-1)(x+1)(x-2)(x+2) = (x^2-1)(x^2-4) = x^4 - 5x^2 + 4
+    Poly f(pow(x, integer(4)) - integer(5) * pow(x, integer(2)) + integer(4), x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 4);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: biquadratic x^4 + 5x^2 + 6", "[4][poly][roots][quartic][oracle]") {
+    auto x = symbol("x");
+    // No rational roots; biquadratic in x²: u² + 5u + 6 = (u+2)(u+3)
+    // x² = -2 or x² = -3 — all four roots are complex.
+    Poly f(pow(x, integer(4)) + integer(5) * pow(x, integer(2)) + integer(6), x);
+    auto roots = f.roots();
+    REQUIRE(roots.size() == 4);
+    for (const auto& r : roots) {
+        auto val = f.eval(r);
+        REQUIRE(oracle_is_zero(val->str()));
+    }
+}
+
+TEST_CASE("Poly: quintic returns rational roots only", "[4][poly][roots]") {
+    auto x = symbol("x");
+    // (x-1) * (x^4 + 1) — rational root 1; the rest is degree 4 quartic
+    // with no rational roots (we'd recurse).
+    // To keep this test focused, use (x-1)(x-2)(x^3 + 1) which has 5 roots
+    // total, 2 rational (1, 2) and 3 from cubic via Cardano.
+    // Build: (x-1)(x-2)(x³+1) — multiply manually:
+    //   = (x²-3x+2)(x³+1) = x^5 + x² - 3x^4 - 3x + 2x³ + 2
+    //   = x^5 - 3x^4 + 2x³ + x² - 3x + 2
+    Poly f(pow(x, integer(5)) - integer(3) * pow(x, integer(4))
+               + integer(2) * pow(x, integer(3)) + pow(x, integer(2))
+               - integer(3) * x + integer(2), x);
+    auto roots = f.roots();
+    // Expect 5 roots: 2 rational + 3 cubic via Cardano (extracted recursively).
+    REQUIRE(roots.size() == 5);
+}
+
 TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
     auto x = symbol("x");
     // (x^3 + 2x^2 - 7x + 5)' = 3x^2 + 4x - 7

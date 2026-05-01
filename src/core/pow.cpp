@@ -31,7 +31,18 @@ constexpr std::size_t kPowHashSeed = 0xF00D'FACE'7777'8888ULL;
 [[nodiscard]] bool needs_parens_in_pow_base(const Expr& e) noexcept {
     if (!e) return false;
     auto t = e->type_id();
-    return t == TypeId::Add || t == TypeId::Mul || t == TypeId::Pow;
+    if (t == TypeId::Add || t == TypeId::Mul || t == TypeId::Pow) return true;
+    // Negative numeric base needs parens or `-12**(1/2)` parses as
+    // `-(12**(1/2))` due to operator precedence. (-12)**(1/2) is correct.
+    if (t == TypeId::Integer) {
+        return static_cast<const Integer&>(*e).is_negative();
+    }
+    // Rational p/q always needs parens — `p/q**e` parses as `p / q**e`.
+    if (t == TypeId::Rational) return true;
+    if (t == TypeId::Float) {
+        return static_cast<const Float&>(*e).is_negative();
+    }
+    return false;
 }
 
 [[nodiscard]] bool needs_parens_in_pow_exp(const Expr& e) noexcept {

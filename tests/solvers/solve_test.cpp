@@ -78,10 +78,17 @@ TEST_CASE("solve: quadratic with parametric coefficient",
                               "(-b - sqrt(b**2 - 4*a*c)) / (2*a)"));
 }
 
-TEST_CASE("solve: degree 3+ returns empty (deferred)", "[10][solve]") {
+TEST_CASE("solve: cubic via rational-root deflation", "[10][solve][oracle]") {
+    auto& oracle = Oracle::instance();
     auto x = symbol("x");
+    // x^3 - 8 = (x - 2)(x² + 2x + 4); rational root 2 + two from quadratic.
     auto roots = solve(pow(x, integer(3)) - integer(8), x);
-    REQUIRE(roots.empty());  // Phase 10 minimal: no Cardano yet
+    REQUIRE(roots.size() == 3);
+    // Each root must satisfy x³ - 8 = 0.
+    for (const auto& r : roots) {
+        auto val = pow(r, integer(3)) - integer(8);
+        REQUIRE(oracle.equivalent(val->str(), "0"));
+    }
 }
 
 // ----- linsolve --------------------------------------------------------------

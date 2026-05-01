@@ -167,6 +167,20 @@ def handle(req):
         v = sympy.Symbol(req["var"])
         return {"ok": True, "result": _to_str(sympy.discriminant(e, v))}
 
+    if op == "evalf_is_zero":
+        # High-precision numeric check that |expr| < 10**(-tol). Useful when
+        # symbolic simplification of nested radicals can't prove zero but the
+        # expression is in fact zero (Cardano substitutions, etc.).
+        e = _sympify(req["expr"])
+        prec = req.get("prec", 50)
+        tol = req.get("tol", 25)
+        try:
+            v = e.evalf(prec)
+            mag = abs(v)
+            return {"ok": True, "result": bool(mag < sympy.Float(f"1e-{tol}"))}
+        except Exception as ex:
+            return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
+
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}
 
 

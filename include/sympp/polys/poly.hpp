@@ -82,6 +82,14 @@ private:
 // Reference: sympy/polys/euclidtools.py::dup_gcd
 [[nodiscard]] SYMPP_EXPORT Poly gcd(const Poly& a, const Poly& b);
 
+// Rational root finder. Returns roots of the polynomial that are exactly
+// rational (i.e., p/q for integers p, q), repeated by multiplicity. Works
+// only when every coefficient of `f` is an Integer or Rational; otherwise
+// returns an empty vector.
+//
+// Reference: sympy/polys/polyroots.py::roots_quintic / rational roots theorem
+[[nodiscard]] SYMPP_EXPORT std::vector<Expr> rational_roots(const Poly& f);
+
 // Square-free factorization via Yun's algorithm.
 //
 // Returns (content, [(factor_i, multiplicity_i), ...]) such that
