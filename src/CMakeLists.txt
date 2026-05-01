@@ -26,6 +26,8 @@ target_sources(sympp
         core/traversal.cpp
         core/undefined_function.cpp
         functions/exponential.cpp
+        functions/hyperbolic.cpp
+        functions/integers.cpp
         functions/miscellaneous.cpp
         functions/trigonometric.cpp
 )
@@ -64,6 +66,8 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/undefined_function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/integers.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/miscellaneous.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
 )

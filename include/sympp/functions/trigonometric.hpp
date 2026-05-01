@@ -61,4 +61,56 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr cos(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr tan(const Expr& arg);
 
+// ----- Inverse trigonometric -------------------------------------------------
+//
+// Auto-evaluation:
+//   * asin(0) = 0, asin(1) = pi/2, asin(-1) = -pi/2
+//   * acos(0) = pi/2, acos(1) = 0, acos(-1) = pi
+//   * atan(0) = 0, atan(1) = pi/4, atan(-1) = -pi/4
+//   * asin(-x) = -asin(x); atan(-x) = -atan(x)
+//   * acos(-x) = pi - acos(x)
+//   * atan2(0, 0) stays unevaluated; atan2(y, 0) for sign-known y → ±pi/2,
+//     atan2(0, x) for sign-known x → 0 or pi.
+
+class SYMPP_EXPORT Asin final : public Function {
+public:
+    explicit Asin(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Asin; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "asin"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Acos final : public Function {
+public:
+    explicit Acos(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Acos; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "acos"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Atan final : public Function {
+public:
+    explicit Atan(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Atan; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "atan"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Atan2 final : public Function {
+public:
+    Atan2(Expr y, Expr x);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Atan2; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "atan2"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+[[nodiscard]] SYMPP_EXPORT Expr asin(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr acos(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr atan(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr atan2(const Expr& y, const Expr& x);
+
 }  // namespace sympp

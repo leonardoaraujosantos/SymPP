@@ -29,6 +29,8 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/integers.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/fwd.hpp>

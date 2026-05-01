@@ -1,5 +1,6 @@
 #include <sympp/functions/trigonometric.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -214,6 +215,174 @@ Expr tan(const Expr& arg) {
     }
 
     return make<Tan>(arg);
+}
+
+// ============================================================================
+// Inverse trigonometric
+// ============================================================================
+
+Asin::Asin(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Asin);
+}
+Expr Asin::rebuild(std::vector<Expr> new_args) const { return asin(new_args[0]); }
+std::optional<bool> Asin::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+            // Real iff arg is real and |arg| <= 1. We don't track |arg|<=1
+            // precisely yet; conservatively flag real only when arg is itself
+            // real (the principal-branch convention SymPy uses).
+            if (is_real(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Acos::Acos(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Acos);
+}
+Expr Acos::rebuild(std::vector<Expr> new_args) const { return acos(new_args[0]); }
+std::optional<bool> Acos::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+            if (is_real(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Nonnegative:
+            // acos image is [0, pi], always nonnegative for real inputs.
+            if (is_real(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Atan::Atan(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Atan);
+}
+Expr Atan::rebuild(std::vector<Expr> new_args) const { return atan(new_args[0]); }
+std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Finite:
+            if (is_real(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Atan2::Atan2(Expr y, Expr x)
+    : Function(std::vector<Expr>{std::move(y), std::move(x)}) {
+    compute_hash(FunctionId::Atan2);
+}
+Expr Atan2::rebuild(std::vector<Expr> new_args) const {
+    return atan2(new_args[0], new_args[1]);
+}
+std::optional<bool> Atan2::ask(AssumptionKey k) const noexcept {
+    const auto& y = args_[0];
+    const auto& x = args_[1];
+    switch (k) {
+        case AssumptionKey::Real:
+            if (is_real(y) == true && is_real(x) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+// ----- asin / acos / atan factories -----------------------------------------
+
+namespace {
+
+// Numeric Float arg evaluator for unary inverse trig. mpfr's asin/acos/atan
+// silently return NaN on out-of-domain inputs; we forward that behavior.
+[[nodiscard]] Expr inv_trig_evalf(int (*op)(mpfr_ptr, mpfr_srcptr, mpfr_rnd_t),
+                                  const Expr& arg) {
+    return trig_evalf(op, arg);
+}
+
+}  // namespace
+
+Expr asin(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    if (arg == S::One()) return mul(S::Half(), S::Pi());
+    if (arg == S::NegativeOne()) return mul(S::NegativeOne(), mul(S::Half(), S::Pi()));
+
+    if (arg->type_id() == TypeId::Float) {
+        return inv_trig_evalf(mpfr_asin, arg);
+    }
+
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Asin>(*pos));
+    }
+
+    return make<Asin>(arg);
+}
+
+Expr acos(const Expr& arg) {
+    if (arg == S::Zero()) return mul(S::Half(), S::Pi());
+    if (arg == S::One()) return S::Zero();
+    if (arg == S::NegativeOne()) return S::Pi();
+
+    if (arg->type_id() == TypeId::Float) {
+        return inv_trig_evalf(mpfr_acos, arg);
+    }
+
+    return make<Acos>(arg);
+}
+
+Expr atan(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    if (arg == S::One()) return mul(rational(1, 4), S::Pi());
+    if (arg == S::NegativeOne()) return mul(rational(-1, 4), S::Pi());
+
+    if (arg->type_id() == TypeId::Float) {
+        return inv_trig_evalf(mpfr_atan, arg);
+    }
+
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Atan>(*pos));
+    }
+
+    return make<Atan>(arg);
+}
+
+Expr atan2(const Expr& y, const Expr& x) {
+    // Both numeric Floats -> mpfr_atan2.
+    if (y->type_id() == TypeId::Float && x->type_id() == TypeId::Float) {
+        const auto& fy = static_cast<const Float&>(*y);
+        const auto& fx = static_cast<const Float&>(*x);
+        int dps = std::max(fy.precision_dps(), fx.precision_dps());
+        mpfr_t r;
+        mpfr_init2(r, dps_to_prec(dps));
+        mpfr_atan2(r, fy.value(), fx.value(), MPFR_RNDN);
+        auto out = make<Float>(static_cast<mpfr_srcptr>(r), dps);
+        mpfr_clear(r);
+        return out;
+    }
+
+    // Special exact reductions.
+    if (y == S::Zero() && x == S::Zero()) {
+        // Conventionally undefined; SymPy keeps it unevaluated.
+        return make<Atan2>(y, x);
+    }
+    if (y == S::Zero()) {
+        // atan2(0, x) = 0 for x>0, pi for x<0
+        if (is_positive(x) == true) return S::Zero();
+        if (is_negative(x) == true) return S::Pi();
+    }
+    if (x == S::Zero()) {
+        // atan2(y, 0) = pi/2 for y>0, -pi/2 for y<0
+        if (is_positive(y) == true) return mul(S::Half(), S::Pi());
+        if (is_negative(y) == true) {
+            return mul(S::NegativeOne(), mul(S::Half(), S::Pi()));
+        }
+    }
+
+    return make<Atan2>(y, x);
 }
 
 }  // namespace sympp
