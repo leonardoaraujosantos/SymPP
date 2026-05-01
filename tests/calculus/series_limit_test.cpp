@@ -57,3 +57,54 @@ TEST_CASE("limit: trig substitution", "[6][limit]") {
     REQUIRE(limit(sin(x), x, S::Pi()) == S::Zero());
     REQUIRE(limit(cos(x), x, S::Zero()) == S::One());
 }
+
+// ----- L'Hôpital indeterminate forms -----------------------------------------
+
+TEST_CASE("limit: sin(x)/x at 0 → 1 (classic 0/0)", "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(x) / x;
+    auto v = limit(e, x, S::Zero());
+    REQUIRE(oracle.equivalent(v->str(), "1"));
+}
+
+TEST_CASE("limit: (1 - cos(x))/x^2 at 0 → 1/2", "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (integer(1) - cos(x)) / pow(x, integer(2));
+    auto v = limit(e, x, S::Zero());
+    REQUIRE(oracle.equivalent(v->str(), "1/2"));
+}
+
+TEST_CASE("limit: (x^2 - 1)/(x - 1) at 1 → 2 (factorable 0/0)",
+          "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (pow(x, integer(2)) - integer(1)) / (x - integer(1));
+    auto v = limit(e, x, integer(1));
+    REQUIRE(oracle.equivalent(v->str(), "2"));
+}
+
+TEST_CASE("limit: (e^x - 1)/x at 0 → 1", "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (exp(x) - integer(1)) / x;
+    auto v = limit(e, x, S::Zero());
+    REQUIRE(oracle.equivalent(v->str(), "1"));
+}
+
+TEST_CASE("limit: tan(x)/x at 0 → 1", "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = tan(x) / x;
+    auto v = limit(e, x, S::Zero());
+    REQUIRE(oracle.equivalent(v->str(), "1"));
+}
+
+TEST_CASE("limit: log(1+x)/x at 0 → 1", "[6][limit][lhopital][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = log(integer(1) + x) / x;
+    auto v = limit(e, x, S::Zero());
+    REQUIRE(oracle.equivalent(v->str(), "1"));
+}
