@@ -56,6 +56,15 @@ protected:
     return !(a == b);
 }
 
+// Same idea at the Basic level so dereferenced comparisons work too.
+[[nodiscard]] inline bool operator==(const Basic& a, const Basic& b) noexcept {
+    return a.equals(b);
+}
+
+[[nodiscard]] inline bool operator!=(const Basic& a, const Basic& b) noexcept {
+    return !a.equals(b);
+}
+
 // Factory helper. In Phase 1 this routes through the hash-cons cache.
 template <typename T, typename... Args>
 [[nodiscard]] std::shared_ptr<const T> make(Args&&... args) {

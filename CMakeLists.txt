@@ -30,6 +30,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json" FORCE)
 
 # Force shared/static based on option
@@ -89,6 +91,15 @@ if(SYMPP_ENABLE_UBSAN AND NOT MSVC)
     target_compile_options(sympp_sanitizers INTERFACE -fsanitize=undefined)
     target_link_options(sympp_sanitizers INTERFACE -fsanitize=undefined)
 endif()
+
+# -----------------------------------------------------------------------------
+# Required dependencies
+# -----------------------------------------------------------------------------
+find_package(GMP REQUIRED)
+find_package(MPFR 4.0 REQUIRED)
+
+message(STATUS "  GMP:                  ${GMP_VERSION} (${GMP_LIBRARY})")
+message(STATUS "  MPFR:                 ${MPFR_VERSION} (${MPFR_LIBRARY})")
 
 # -----------------------------------------------------------------------------
 # Subdirectories

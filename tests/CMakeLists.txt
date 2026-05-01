@@ -7,6 +7,11 @@ target_sources(sympp_tests
     PRIVATE
         oracle/oracle.hpp
         oracle/oracle.cpp
+        core/arithmetic_test.cpp
+        core/float_test.cpp
+        core/integer_test.cpp
+        core/rational_test.cpp
+        core/singletons_test.cpp
         core/symbol_test.cpp
         oracle/oracle_smoke_test.cpp
 )

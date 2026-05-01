@@ -6,7 +6,16 @@ add_library(SymPP::sympp ALIAS sympp)
 
 target_sources(sympp
     PRIVATE
+        core/add.cpp
         core/basic.cpp
+        core/float.cpp
+        core/integer.cpp
+        core/mul.cpp
+        core/number_arith.cpp
+        core/number_symbol.cpp
+        core/pow.cpp
+        core/rational.cpp
+        core/singletons.cpp
         core/symbol.cpp
 )
 
@@ -17,8 +26,19 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/sympp.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/fwd.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/version.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/add.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/api.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/float.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/integer.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/mul.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/number.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/number_arith.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/number_symbol.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/operators.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/pow.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/rational.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/singletons.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/symbol.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/type_id.hpp
 )
@@ -39,6 +59,10 @@ target_include_directories(sympp
 target_compile_features(sympp PUBLIC cxx_std_20)
 
 target_link_libraries(sympp
+    PUBLIC
+        GMP::gmpxx
+        GMP::gmp
+        MPFR::mpfr
     PRIVATE
         SymPP::warnings
         SymPP::sanitizers

@@ -24,7 +24,12 @@ enum class TypeId : std::uint16_t {
     Rational,
     Float,
     Complex,
-    NumberSymbol,  // Pi, E, EulerGamma, ...
+    NumberSymbol,  // Pi, E, EulerGamma, Catalan, GoldenRatio, ...
+    Infinity,      // +oo
+    NegativeInfinity,
+    ComplexInfinity,  // zoo (1/0)
+    NaN,
+    ImaginaryUnit,  // I
 
     // -- Arithmetic --
     Add = 40,
