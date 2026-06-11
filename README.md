@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-993%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-998%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.14-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-993 tests / 1911 assertions  all passing
+998 tests / 1919 assertions  all passing
 14 of 15 phases shipped
 ```
 
@@ -97,7 +97,7 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   factorial/gamma/erf/heaviside/dirac_delta plus `Hyper` and
   `MeijerG` (proper Function classes with auto-eval) and the rest of
   the elementary + special + combinatorial canon.
-- **Calculus** — `diff`, `integrate` (table + trig + parts +
+- **Calculus** — `diff`, `integrate` (table + trig + parts + arctan +
   rational + heurisch), `series`, `limit` with L'Hôpital,
   `summation`, Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ, Cardano cubic,

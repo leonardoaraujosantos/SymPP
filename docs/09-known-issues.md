@@ -109,6 +109,24 @@ truth and links the issue number.
   For an affine log argument the primitive matches SymPy only up to an
   additive constant (`log(x+1/2)` vs `log(2x+1)`); the derivative is exact.
 
+### INT-5 — `integrate(1/(a·x²+b·x+c))` (irreducible) returned the marker
+- **Input:** `integrate(1/(1+x**2))`, `integrate(1/(x**2+4))`,
+  `integrate(1/(4*x**2+9))`, `integrate(1/(x**2+2*x+5))`.
+- **Was:** `Integral((x**2 + 1)**(-1), x)` — `try_rational` only decomposes
+  denominators with *real* roots (via `apart`); an irreducible quadratic
+  (negative discriminant, complex roots) had no closed-form path.
+- **Expected (SymPy):** `atan(x)`, `atan(x/2)/2`, `atan(2*x/3)/6`,
+  `atan((x+1)/2)/2`.
+- **Fix:** added `try_arctan_quadratic`, dispatched right after
+  `try_rational`. For `1/(a·x²+b·x+c)` with `D = 4ac − b² > 0` it returns
+  `2·atan((2ax+b)/√D)/√D`. Requires rational coefficients; `D ≤ 0` (real
+  roots) falls through to `try_rational`, so `1/(x²−1)` still yields logs.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[arctan][regression]` (incl. a reducible `1/(x²−1)` guard).
+- **Scope:** the `√(quadratic)` reciprocals (`∫1/√(1−x²) = asin`,
+  `∫1/√(x²+1) = asinh`) are still deferred — a separate branch on the
+  `−1/2` exponent. Symbolic coefficients (`1/(k²+x²)`) are out of scope.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

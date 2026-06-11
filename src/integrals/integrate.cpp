@@ -240,6 +240,13 @@ namespace {
 //     beyond what apart handles in this build).
 [[nodiscard]] std::optional<Expr> try_rational(const Expr& expr, const Expr& var);
 
+// ∫ 1/(a·x² + b·x + c) dx for an irreducible quadratic (discriminant
+// 4ac − b² > 0): the arctangent rule  2·atan((2ax+b)/√D)/√D. Reducible
+// denominators (real roots) are left to try_rational, which splits them into
+// logs. Returns nullopt unless the denominator is a degree-2 polynomial in
+// var with numeric coefficients and positive discriminant.
+[[nodiscard]] std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var);
+
 }  // namespace
 
 // Recursion-depth backstop. Integration by parts recurses through
@@ -281,6 +288,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_rational(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_arctan_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
@@ -660,6 +670,37 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     Expr poly_int = integrate(q.as_expr(), var);
     Expr apart_int = integrate(apart_form, var);
     return poly_int + apart_int;
+}
+
+std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
+    // Match 1/(quadratic): a Pow with exponent −1 over a var-dependent base.
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    if (!(expr->args()[1] == S::NegativeOne())) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    if (!depends_on(base, var)) return std::nullopt;
+
+    Poly p(expand(base), var);
+    if (p.degree() != 2) return std::nullopt;
+    const Expr& c = p.coeffs()[0];
+    const Expr& b = p.coeffs()[1];
+    const Expr& a = p.coeffs()[2];
+
+    // Need rational coefficients to decide irreducibility from the sign of the
+    // discriminant. Symbolic coefficients (e.g. 1/(k²+x²)) are out of scope.
+    if (is_rational(a) != true || is_rational(b) != true
+        || is_rational(c) != true) {
+        return std::nullopt;
+    }
+
+    // D = 4ac − b². D > 0 ⇒ no real roots ⇒ arctangent. D ≤ 0 ⇒ real roots,
+    // which try_rational already splits into logs, so leave those alone.
+    Expr disc = integer(4) * a * c - b * b;
+    if (is_positive(disc) != true) return std::nullopt;
+
+    // ∫ 1/(a·x² + b·x + c) dx = 2·atan((2a·x + b)/√D) / √D.
+    Expr root_d = sqrt(disc);
+    Expr arg = (integer(2) * a * var + b) / root_d;
+    return simplify(integer(2) * atan(arg) / root_d);
 }
 
 }  // namespace
