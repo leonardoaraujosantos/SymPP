@@ -39,6 +39,55 @@ TEST_CASE("simplify: distributes and recombines", "[5][simplify][oracle]") {
     REQUIRE(oracle.equivalent(s->str(), "-1"));
 }
 
+// Regression (issue #3 / SIMP-1): simplify() used to leave — and even
+// inflate — cancellable rational functions, returning something larger
+// than the input (e.g. ((x-1)*x**2 - (x-1))*(x-1)**(-2)) instead of x+1.
+// A rational-cancellation step now reduces n/d by polynomial GCD.
+TEST_CASE("simplify: cancels (x^2 - 1)/(x - 1) → x + 1",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (pow(x, integer(2)) - integer(1)) / (x - integer(1));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "x + 1"));
+}
+
+TEST_CASE("simplify: cancels (x^2 + 2x + 1)/(x + 1) → x + 1",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = (pow(x, integer(2)) + integer(2) * x + integer(1))
+             / (x + integer(1));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "x + 1"));
+}
+
+// Multivariate cancellation is deliberately NOT performed yet: cancel()'s
+// GCD does not terminate when coefficients are symbolic (CANCEL-1), so
+// simplify() restricts its cancel step to univariate rational functions.
+// This must still TERMINATE and return something equivalent to the input
+// (here, the un-cancelled fraction), never hang.
+TEST_CASE("simplify: multivariate fraction terminates (cancel deferred)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = (pow(x, integer(2)) - pow(y, integer(2))) / (x - y);
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "(x**2 - y**2)/(x - y)"));
+}
+
+// Guard: the cancel step must NOT run on transcendental input — feeding
+// sin(x)^2 + cos(x)^2 to cancel()/Poly() used to loop forever. simplify()
+// restricts cancellation to rational functions, so this must terminate and
+// still reduce via trigsimp.
+TEST_CASE("simplify: sin^2 + cos^2 still collapses to 1 (no cancel hang)",
+          "[5][simplify][regression]") {
+    auto x = symbol("x");
+    auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
+    REQUIRE(simplify(e) == integer(1));
+}
+
 TEST_CASE("collect: groups powers of var", "[5][collect][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

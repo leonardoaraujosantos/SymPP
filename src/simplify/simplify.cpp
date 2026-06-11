@@ -33,6 +33,66 @@ namespace sympp {
 
 namespace {
 
+// Total node count — used as a cheap "is this simpler?" measure, mirroring
+// SymPy's count_ops-based form selection inside simplify().
+[[nodiscard]] int node_count(const Expr& e) {
+    int n = 0;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        if (!x) return;
+        ++n;
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
+
+// True iff `e` is a rational function in its symbols — built only from
+// numbers, symbols, +, *, and integer powers. cancel()/Poly() can loop
+// forever on transcendental subexpressions (e.g. sin(x)), so simplify()
+// must not hand those to the cancel step.
+[[nodiscard]] bool is_rational_function(const Expr& e) {
+    switch (e->type_id()) {
+        case TypeId::Integer:
+        case TypeId::Rational:
+        case TypeId::Symbol:
+            return true;
+        case TypeId::Add:
+        case TypeId::Mul:
+            for (const auto& a : e->args()) {
+                if (!is_rational_function(a)) return false;
+            }
+            return true;
+        case TypeId::Pow:
+            // Polynomial/rational only when the exponent is a literal integer
+            // (covers denominators via negative exponents like (x-1)**(-1)).
+            return is_rational_function(e->args()[0])
+                   && e->args()[1]->type_id() == TypeId::Integer;
+        default:
+            return false;
+    }
+}
+
+// True iff `e` contains a genuine symbol-dependent denominator — a Pow with
+// a negative integer exponent whose base involves a free symbol (e.g. the
+// (x-1)**(-1) in (x**2-1)/(x-1)). A bare rational coefficient like 1/2 is a
+// Rational node, not such a Pow, so it does not count. cancel() is only worth
+// running — and only safe from looping — on expressions that actually have
+// one of these to reduce.
+[[nodiscard]] bool has_symbolic_denominator(const Expr& e) {
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& exp = e->args()[1];
+        if (exp->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*exp).is_negative()
+            && !free_symbols(e->args()[0]).empty()) {
+            return true;
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_symbolic_denominator(a)) return true;
+    }
+    return false;
+}
+
 // Re-run the canonical-form factories on every node — many substitution
 // chains leave nominally-canonical Expr that benefit from a fresh sweep.
 [[nodiscard]] Expr re_canonicalize(const Expr& e) {
@@ -54,9 +114,9 @@ namespace {
 Expr simplify(const Expr& e) {
     if (!e) return e;
     // 1. Canonical form.
-    Expr current = re_canonicalize(e);
+    Expr canon = re_canonicalize(e);
     // 2. Expand to flush nested products.
-    current = expand(current);
+    Expr current = expand(canon);
     // 3. Apply pattern-based simplifiers. Each is a no-op when the input
     //    doesn't match its pattern, so chaining is safe; ordering only
     //    affects which form we land on when multiple rules could apply.
@@ -68,7 +128,36 @@ Expr simplify(const Expr& e) {
     current = sqrtdenest(current);
     current = hyperexpand(current);
     // 4. Canonical sweep again to collect any like terms that surfaced.
-    return re_canonicalize(current);
+    current = re_canonicalize(current);
+
+    // 5. Rational-function cancellation. The pattern pipeline does not reduce
+    //    n/d by polynomial GCD, so simplify() could leave (or even inflate)
+    //    cancellable fractions like (x**2-1)/(x-1). cancel() runs its own
+    //    together()+GCD; adopt its result only when strictly simpler so
+    //    simplify() never returns something larger than the pipeline already
+    //    produced.
+    //
+    //    Restricted to *univariate* rational functions with a symbol-dependent
+    //    denominator: cancel()/Poly() loops on transcendental input, and its
+    //    GCD does not terminate when coefficients are themselves symbolic
+    //    (the multivariate case — see CANCEL-1 in docs/09-known-issues.md).
+    //    With a single free symbol the coefficients are numeric and the GCD
+    //    always terminates.
+    auto syms = free_symbols(canon);
+    if (syms.size() == 1 && is_rational_function(canon)
+        && has_symbolic_denominator(canon)) {
+        try {
+            Expr cancelled = cancel(canon, *syms.begin());
+            cancelled = re_canonicalize(cancelled);
+            if (node_count(cancelled) < node_count(current)) {
+                current = cancelled;
+            }
+        } catch (const std::exception&) {
+            // cancel() rejected the form; keep the pipeline result rather
+            // than propagating out of simplify().
+        }
+    }
+    return current;
 }
 
 Expr collect(const Expr& e, const Expr& var) {
