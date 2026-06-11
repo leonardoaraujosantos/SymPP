@@ -53,6 +53,16 @@ TEST_CASE("tanh: odd identity tanh(-x) = -tanh(x)", "[3f][tanh]") {
     REQUIRE(tanh(neg) == mul(S::NegativeOne(), tanh(x)));
 }
 
+// ----- f(f⁻¹(x)) = x compositions (regression, FUNC-1) -----------------------
+TEST_CASE("hyperbolic: f(inverse(x)) collapses to x", "[3f][regression]") {
+    auto x = symbol("x");
+    REQUIRE(sinh(asinh(x)) == x);
+    REQUIRE(cosh(acosh(x)) == x);
+    REQUIRE(tanh(atanh(x)) == x);
+    // Reverse direction stays unevaluated.
+    REQUIRE(asinh(sinh(x))->type_id() == TypeId::Function);
+}
+
 // ----- Assumptions -----------------------------------------------------------
 
 TEST_CASE("sinh/tanh: real for real arg", "[3f][assumptions]") {

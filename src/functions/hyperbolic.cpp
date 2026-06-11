@@ -47,6 +47,15 @@ namespace {
     return std::nullopt;
 }
 
+// If `arg` is the single-argument application of function `id`, return its
+// inner argument; else nullopt. Used for the f(f⁻¹(x)) = x simplifications.
+[[nodiscard]] std::optional<Expr> arg_of(const Expr& arg, FunctionId id) {
+    if (arg->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*arg);
+    if (fn.function_id() == id && fn.args().size() == 1) return fn.args()[0];
+    return std::nullopt;
+}
+
 [[nodiscard]] Expr unary_evalf(int (*op)(mpfr_ptr, mpfr_srcptr, mpfr_rnd_t),
                                const Expr& arg) {
     const auto& f = static_cast<const Float&>(*arg);
@@ -156,6 +165,8 @@ Expr sinh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_sinh, arg);
     }
+    // sinh(asinh(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Asinh); v.has_value()) return *v;
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Sinh>(*pos));
     }
@@ -167,6 +178,8 @@ Expr cosh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_cosh, arg);
     }
+    // cosh(acosh(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) return *v;
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return make<Cosh>(*pos);  // even
     }
@@ -178,6 +191,8 @@ Expr tanh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_tanh, arg);
     }
+    // tanh(atanh(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) return *v;
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Tanh>(*pos));
     }
