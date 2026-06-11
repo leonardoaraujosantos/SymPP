@@ -586,9 +586,22 @@ truth and links the issue number.
   function table, bound to the binary `min`/`max` overloads.
 - **Regression test:** `tests/parsing/parser_test.cpp`
   — `[parser][regression]`.
-- **Scope:** the parser dispatches only 1- and 2-argument calls, so 3+-argument
-  `Min`/`Max` still parse to an undefined function (a pre-existing parser
-  limitation, not specific to Min/Max).
+- **Scope:** the binary form only — 3+-argument `Min`/`Max` were addressed in
+  PARSE-3 below.
+
+### PARSE-3 — parser did not fold 3+-argument `Min`/`Max`
+- **Input:** `parse("Max(3, 7, 1)")`, `parse("Min(3, 7, 1)")`,
+  `parse("Max(1, 2, 3, 4)")`, `parse("Max(x, 3, 1)")`.
+- **Was:** `Max(3, 7, 1)`, … — the parser only dispatched 1- and 2-argument
+  `Min`/`Max`; a 3+-argument call fell through to an undefined function and
+  stayed unevaluated, even though the variadic `min`/`max` already fold.
+- **Expected (SymPy):** `7`, `1`, `4`, `Max(3, x)`.
+- **Fix:** `apply_function` now routes any-arity `Min`/`Max` to the variadic
+  `min(args)`/`max(args)` (which combine the numeric args into one extreme and
+  keep the symbolic ones), instead of only the 2-argument table entries
+  (`src/parsing/parser.cpp`).
+- **Regression test:** `tests/parsing/parser_test.cpp`
+  — `[parser][regression]`.
 
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …

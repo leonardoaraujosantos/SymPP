@@ -164,11 +164,6 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
     static const std::map<std::string, TwoArgFn> table = {
         {"atan2", &atan2},
         {"binomial", &binomial},
-        // SymPy's canonical Min/Max (the names str() emits). Only the binary
-        // form round-trips here — the parser dispatches 1- and 2-argument
-        // calls; 3+-argument Min/Max remain undefined functions.
-        {"Min", static_cast<TwoArgFn>(&min)},
-        {"Max", static_cast<TwoArgFn>(&max)},
     };
     return table;
 }
@@ -308,6 +303,13 @@ private:
     [[nodiscard]] Expr apply_function(const std::string& name,
                                        const std::vector<Expr>& args,
                                        std::size_t pos) {
+        // Variadic Min/Max (the canonical names str() emits) — fold any number
+        // of arguments. min()/max() take the full list and combine the numeric
+        // args into one extreme, so n-argument forms round-trip.
+        if (!args.empty()) {
+            if (name == "Min") return min(args);
+            if (name == "Max") return max(args);
+        }
         if (args.size() == 1) {
             const auto& t = one_arg_funcs();
             auto it = t.find(name);

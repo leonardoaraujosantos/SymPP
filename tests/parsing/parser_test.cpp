@@ -286,3 +286,20 @@ TEST_CASE("parse: binary Min/Max round-trip and evaluate",
     REQUIRE(parse("Min(3, 5)") == integer(3));
     REQUIRE(parse("Max(3, 5)") == integer(5));
 }
+
+// ----- Variadic Min/Max parsing (regression, PARSE-3) ------------------------
+// The parser only dispatched 2-argument Min/Max; 3+-argument calls fell through
+// to an undefined function (Max(3, 7, 1) stayed unevaluated). Route any arity
+// to the variadic min()/max(), which fold the numeric args.
+TEST_CASE("parse: variadic Min/Max fold and round-trip",
+          "[15][parser][regression]") {
+    auto x = symbol("x");
+    REQUIRE(parse("Max(3, 7, 1)") == integer(7));
+    REQUIRE(parse("Min(3, 7, 1)") == integer(1));
+    REQUIRE(parse("Max(1, 2, 3, 4)") == integer(4));
+    REQUIRE(parse("Min(1, 2, 3, 4)") == integer(1));
+    // Mixed symbolic + numeric: numeric args collapse to one extreme.
+    REQUIRE(parse("Max(x, 3, 1)") == max({x, integer(3), integer(1)}));
+    REQUIRE(parse(max({x, integer(3), integer(1)})->str())
+            == max({x, integer(3), integer(1)}));
+}
