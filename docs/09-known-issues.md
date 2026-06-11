@@ -223,6 +223,19 @@ truth and links the issue number.
 - **Scope:** mirrors TRIG-1 — only the {1,2,3,4,6}-denominator angles; other
   arguments (e.g. `asin(1/3)`) stay symbolic.
 
+### EXP-1 — `exp` not evaluated at imaginary multiples of π (Euler identity)
+- **Input:** `exp(I*pi)`, `exp(2*I*pi)`, `exp(I*pi/2)`, `exp(-I*pi/2)`.
+- **Was:** `exp(pi*I)`, … — left unevaluated.
+- **Expected (SymPy):** `-1`, `1`, `I`, `-I`.
+- **Fix:** added an `imaginary_pi_coeff` helper (detects `r·I·π`) and the Euler
+  rule `exp(r·I·π) = i^(2r)` when `2r` is an integer (`pow(I, n)` already
+  cycles through {1, I, −1, −I}). This matches SymPy, which folds only the
+  `q ∈ {1,2}` coefficients and keeps `exp(I·π/3)`, `exp(I·π/4)` symbolic.
+- **Regression test:** `tests/functions/exponential_test.cpp`
+  — `[exp][regression]` (±1/±I values, periodicity, and a `π/3` symbolic guard).
+- **Scope:** only half-integer coefficients; `exp(I·x)` for symbolic `x` is not
+  expanded to `cos + I·sin` (that is `expand_complex`/`rewrite`, not auto-eval).
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

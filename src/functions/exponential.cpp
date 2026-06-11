@@ -9,10 +9,12 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
@@ -30,6 +32,36 @@ namespace {
     auto out = make<Float>(static_cast<mpfr_srcptr>(r), dps);
     mpfr_clear(r);
     return out;
+}
+
+// If `arg` is r·I·π for a rational r, return r; else nullopt. Used for the
+// Euler identity exp(r·I·π).
+[[nodiscard]] std::optional<mpq_class> imaginary_pi_coeff(const Expr& arg) {
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    bool has_i = false;
+    bool has_pi = false;
+    Expr coeff = S::One();
+    for (const auto& f : arg->args()) {
+        if (f == S::I()) {
+            if (has_i) return std::nullopt;  // I² etc.
+            has_i = true;
+        } else if (f == S::Pi()) {
+            if (has_pi) return std::nullopt;  // π² etc.
+            has_pi = true;
+        } else if (is_number(f)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;  // a non-numeric extra factor
+        }
+    }
+    if (!has_i || !has_pi) return std::nullopt;
+    if (coeff->type_id() == TypeId::Integer) {
+        return mpq_class(static_cast<const Integer&>(*coeff).value());
+    }
+    if (coeff->type_id() == TypeId::Rational) {
+        return static_cast<const Rational&>(*coeff).value();
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -98,6 +130,18 @@ Expr exp(const Expr& arg) {
         if (fn.function_id() == FunctionId::Log) {
             const auto& inner = arg->args()[0];
             if (is_positive(inner) == true) return inner;
+        }
+    }
+
+    // Euler: exp(r·I·π) = i^(2r) when 2r is an integer (q ∈ {1,2}: ±1, ±I).
+    // Matches SymPy, which keeps π/3, π/4, … exponents symbolic. pow(I, n)
+    // already cycles I^n through {1, I, -1, -I}.
+    if (auto r = imaginary_pi_coeff(arg); r.has_value()) {
+        mpq_class two_r = 2 * *r;
+        if (two_r.get_den() == 1) {
+            mpz_class n = two_r.get_num() % 4;
+            if (n < 0) n += 4;
+            return pow(S::I(), integer(n.get_si()));
         }
     }
 

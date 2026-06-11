@@ -10,7 +10,9 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
@@ -30,6 +32,32 @@ TEST_CASE("exp: exp(0) = 1", "[3c][exp]") {
 
 TEST_CASE("exp: exp(1) = E", "[3c][exp]") {
     REQUIRE(exp(S::One()) == S::E());
+}
+
+// ----- Euler identity exp(r·I·π) (regression, EXP-1) -------------------------
+// exp at imaginary multiples of π used to stay unevaluated. Now folds for a
+// half-integer coefficient (q ∈ {1,2}) to ±1 / ±I, matching SymPy; π/3, π/4
+// stay symbolic.
+TEST_CASE("exp: Euler identity at imaginary π multiples", "[3c][exp][regression]") {
+    auto pi = S::Pi();
+    auto I = S::I();
+    REQUIRE(exp(I * pi) == S::NegativeOne());            // e^{iπ} = −1
+    REQUIRE(exp(integer(2) * I * pi) == S::One());       // e^{2iπ} = 1
+    REQUIRE(exp(integer(3) * I * pi) == S::NegativeOne());
+    REQUIRE(exp(I * pi / integer(2)) == I);              // e^{iπ/2} = I
+    REQUIRE(exp(integer(5) * I * pi / integer(2)) == I); // periodic
+}
+
+TEST_CASE("exp: imaginary π/2 → −I via oracle", "[3c][exp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto e = exp(mul(rational(-1, 2), mul(S::I(), S::Pi())));
+    REQUIRE(oracle.equivalent(e->str(), "-I"));
+}
+
+TEST_CASE("exp: π/3 imaginary exponent stays symbolic", "[3c][exp][regression]") {
+    // Denominator 3 → SymPy keeps exp(I*pi/3) unevaluated; so must SymPP.
+    auto e = exp(S::I() * S::Pi() / integer(3));
+    REQUIRE(e->type_id() == TypeId::Function);
 }
 
 TEST_CASE("log: log(1) = 0", "[3c][log]") {
