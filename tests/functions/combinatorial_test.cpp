@@ -91,6 +91,24 @@ TEST_CASE("gamma: positive integer reduces to factorial", "[3i][gamma]") {
     REQUIRE(gamma(integer(5)) == integer(24));
 }
 
+// GAMMA-1: half-integer arguments stayed symbolic; SymPy gives closed forms
+// with sqrt(pi). gamma(p/2) = C·sqrt(pi) via the duplication recurrence.
+TEST_CASE("gamma: half-integer reduces to a multiple of sqrt(pi)",
+          "[3i][gamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(gamma(rational(1, 2))->str(), "sqrt(pi)"));
+    REQUIRE(oracle.equivalent(gamma(rational(3, 2))->str(), "sqrt(pi)/2"));
+    REQUIRE(oracle.equivalent(gamma(rational(5, 2))->str(), "3*sqrt(pi)/4"));
+    REQUIRE(oracle.equivalent(gamma(rational(7, 2))->str(), "15*sqrt(pi)/8"));
+}
+
+TEST_CASE("gamma: negative half-integer reduces to a multiple of sqrt(pi)",
+          "[3i][gamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(gamma(rational(-1, 2))->str(), "-2*sqrt(pi)"));
+    REQUIRE(oracle.equivalent(gamma(rational(-3, 2))->str(), "4*sqrt(pi)/3"));
+}
+
 TEST_CASE("gamma: numeric Float matches MPFR", "[3i][gamma]") {
     auto e = gamma(float_value(1.5));
     REQUIRE(e->type_id() == TypeId::Float);
