@@ -63,6 +63,21 @@ TEST_CASE("hyperbolic: f(inverse(x)) collapses to x", "[3f][regression]") {
     REQUIRE(asinh(sinh(x))->type_id() == TypeId::Function);
 }
 
+// ----- Cross-function inverse compositions (regression, FUNC-3) --------------
+// cosh(asinh(x)) = √(x²+1), etc. — the hyperbolic analogue of FUNC-2.
+TEST_CASE("hyperbolic: cross-function inverse compositions",
+          "[3f][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(cosh(asinh(x))->str(), "sqrt(x**2 + 1)"));
+    REQUIRE(oracle.equivalent(tanh(asinh(x))->str(), "x/sqrt(x**2 + 1)"));
+    REQUIRE(oracle.equivalent(cosh(atanh(x))->str(), "1/sqrt(1 - x**2)"));
+    REQUIRE(oracle.equivalent(sinh(atanh(x))->str(), "x/sqrt(1 - x**2)"));
+    REQUIRE(oracle.equivalent(sinh(acosh(x))->str(), "sqrt(x - 1)*sqrt(x + 1)"));
+    REQUIRE(oracle.equivalent(tanh(acosh(x))->str(),
+                              "sqrt(x - 1)*sqrt(x + 1)/x"));
+}
+
 // ----- Assumptions -----------------------------------------------------------
 
 TEST_CASE("sinh/tanh: real for real arg", "[3f][assumptions]") {
