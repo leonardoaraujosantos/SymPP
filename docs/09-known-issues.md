@@ -706,6 +706,34 @@ truth and links the issue number.
 - **Scope:** oscillatory `sin(oo)`/`cos(oo)` stay unevaluated (no real limit —
   SymPy returns `AccumBounds`, not modeled here).
 
+### EVALF-1 — `evalf` did not recurse into Add/Mul/Pow/Function
+- **Input:** `evalf(2*pi)`, `evalf(sqrt(2))`, `evalf(sin(pi))`, `evalf(exp(1))`.
+- **Was:** `2*pi`, `2**(1/2)`, … — the `evalf` switch only handled numeric
+  atoms (Integer/Rational/Float/NumberSymbol/RootOf); compound expressions hit
+  a `default` identity branch (a `// Phase 1f` TODO), so a numeric constant
+  expression never reduced to a `Float`.
+- **Expected (SymPy):** `6.2831853…`, `1.4142135…`, `≈0`, `2.7182818…`.
+- **Fix:** `evalf` (`src/core/float.cpp`) now recurses — Add/Mul/Pow rebuild
+  through `add`/`mul`/`pow` over evalf'd args (numeric folding does the rest),
+  and a Function evalfs its arguments then `rebuild`s (a now-Float argument
+  folds via the function's numeric path, e.g. `sin(pi) → sin(Float) ≈ 0`).
+- **Regression test:** `tests/core/float_test.cpp` — `[evalf][regression]`.
+
+### FLOOR-CONST — `floor`/`ceiling` of a real constant stayed symbolic
+- **Input:** `floor(pi)`, `ceiling(pi)`, `floor(2*pi)`, `floor(-pi)`,
+  `floor(sqrt(2))`, `floor(pi**2)`.
+- **Was:** `floor(pi)`, … — only Integer/Rational/Float (and integer-tagged
+  symbols) folded; a symbolic real constant stayed wrapped.
+- **Expected (SymPy):** `3`, `4`, `6`, `-4`, `1`, `9`.
+- **Fix:** `floor`/`ceiling` (`src/functions/integers.cpp`) now evalf a
+  free-symbol-free argument (enabled by EVALF-1) and round the resulting Float
+  to an exact Integer, with a boundary guard that refuses to fold when the
+  value sits within ~1e-40 of an integer (so a disguised integer cannot be
+  mis-rounded). A complex (`floor(I)`) or infinite (`floor(oo)`) argument does
+  not evalf to a Float and is left unevaluated.
+- **Regression test:** `tests/functions/integers_test.cpp`
+  — `[floor][ceiling][regression]`.
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
