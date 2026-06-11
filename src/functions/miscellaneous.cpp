@@ -8,6 +8,7 @@
 #include <gmpxx.h>
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
@@ -73,6 +74,57 @@ namespace {
     }
 }
 
+// A rational (Integer or Rational) literal.
+[[nodiscard]] bool is_rational_literal(const Expr& e) {
+    return e->type_id() == TypeId::Integer || e->type_id() == TypeId::Rational;
+}
+
+// If `m` is a pure-imaginary term with a rational coefficient (b·I, or I
+// itself), return b; std::nullopt otherwise.
+[[nodiscard]] std::optional<Expr> rational_imag_coeff(const Expr& m) {
+    if (m == S::I()) return S::One();
+    if (m->type_id() != TypeId::Mul) return std::nullopt;
+    bool has_i = false;
+    Expr coeff = S::One();
+    for (const auto& f : m->args()) {
+        if (f == S::I()) {
+            if (has_i) return std::nullopt;  // I² etc.
+            has_i = true;
+        } else if (is_rational_literal(f)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;  // symbolic / irrational factor
+        }
+    }
+    if (!has_i) return std::nullopt;
+    return coeff;
+}
+
+// If `e` is a complex number a + b·I with rational real and imaginary parts,
+// return (a, b); std::nullopt if any term is symbolic or irrational.
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> rational_complex(
+    const Expr& e) {
+    if (e == S::I()) return std::make_pair(S::Zero(), S::One());
+    if (auto b = rational_imag_coeff(e)) {
+        return std::make_pair(S::Zero(), *b);
+    }
+    if (e->type_id() == TypeId::Add) {
+        Expr re = S::Zero();
+        Expr im = S::Zero();
+        for (const auto& t : e->args()) {
+            if (is_rational_literal(t)) {
+                re = add(re, t);
+            } else if (auto b = rational_imag_coeff(t)) {
+                im = add(im, *b);
+            } else {
+                return std::nullopt;
+            }
+        }
+        return std::make_pair(re, im);
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 // ----- Abs -------------------------------------------------------------------
@@ -130,6 +182,14 @@ Expr abs(const Expr& arg) {
     // NumberSymbol — Pi, E, EulerGamma, Catalan are all positive.
     if (arg->type_id() == TypeId::NumberSymbol) {
         return arg;
+    }
+
+    // Complex number a + b·I with rational parts → sqrt(a² + b²) (the modulus).
+    // Covers Abs(I) = 1, Abs(b·I) = |b|, Abs(3 + 4·I) = 5, etc.
+    if (auto z = rational_complex(arg); z.has_value() && z->second != S::Zero()) {
+        const Expr& re = z->first;
+        const Expr& im = z->second;
+        return sqrt(add(mul(re, re), mul(im, im)));
     }
 
     // Abs(x) for nonnegative x → x.
