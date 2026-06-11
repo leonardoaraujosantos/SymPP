@@ -750,31 +750,33 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/integers_test.cpp`
   — `[floor][ceiling][regression]`.
 
-## Open
+### CANCEL-1 — `cancel()`/`Poly` GCD hung on symbolic coefficients ([#5])
+- **Input:** `cancel((b - a + 1)*(a + b)/2, a)`, `factor(x**2 - y**2, x)` (and
+  any polynomial whose coefficients in the working variable are symbolic).
+- **Was:** infinite loop — never returned.
+- **Expected (SymPy):** the reduced expression (`cancel`), or — for true
+  multivariate factorization — a factored/unfactored result.
+- **Cause:** in `Poly::divmod` the leading-term cancellation
+  `lc − (lc/lc_other)·lc_other` did not fold to a structural zero when the
+  coefficients were symbolic Adds: `(b+b²) − (b+b²)` stayed an unmerged Add
+  (the bare Add flattens but the `−1·Add` subtrahend does not), so the
+  remainder degree never dropped and the Euclidean GCD spun forever.
+- **Fix:** `divmod` now `expand`s each coefficient subtraction (so the
+  cancellation folds to `0`) and has a degree-decrease backstop that stops if
+  a coefficient cannot cancel. `cancel` is therefore safe on multivariate
+  input — `cancel((x²−y²)/(x−y), x) = x+y`. `factor` is `ℚ`-coefficient only,
+  so it now bails to the unfactored input when a coefficient is symbolic
+  rather than entering the integer-coefficient machinery.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[cancel][factor][regression]`.
+- **Scope:** `cancel` reduces multivariate fractions; `simplify` still applies
+  cancel only in the univariate case (auto-applying it multivariate regressed
+  a downstream ODE form — a separate quality task). True multivariate
+  *factorization* (`x²−y² → (x−y)(x+y)`) is not yet implemented.
 
-### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
-- **Input:** `cancel((b - a + 1)*(a + b)/2, a)` (and any multivariate
-  polynomial whose coefficients in the cancel variable are symbolic).
-- **Is:** infinite loop — never returns.
-- **Expected (SymPy):** returns the already-reduced expression immediately.
-- **Cause:** the polynomial-remainder-sequence GCD does not terminate when
-  the leading coefficient is itself symbolic and the other operand is a
-  degree-0 constant.
-- **Impact:** reached via `simplify`/`summation`; `simplify` now guards
-  against it (univariate-only cancel — see SIMP-1). Also makes
-  `factor(x**2 - y**2, x)` (multivariate square-free factorization, which
-  uses the same GCD) hang. The root `cancel()`/`Poly::gcd` loop is open.
-- **Status:** open. Regression test to be added with the fix.
-
-
-### Missing auto-simplifications (lower priority)
-- `exp(log(x))` does not reduce to `x` (SymPy auto-evaluates this).
-- Radical perfect-square extraction: `sqrt(8)` stays `8**(1/2)` instead
-  of `2*sqrt(2)`; `(-4)**(1/2)` stays instead of `2*I`. Surfaces as
-  unsimplified roots from `solve` (e.g. `1/2*8**(1/2)` for `x**2-2`
-  rather than `sqrt(2)`).
-- **Status:** open, tracked as parity gaps rather than correctness bugs
-  (values are correct, only the canonical form differs).
+> All previously-filed parity bugs are now resolved. The earlier
+> "Missing auto-simplifications" cluster (`exp(log(x))`, `sqrt(8)`,
+> `(-4)**(1/2)`) was closed by EXP-1 / SQRT-2 / SQRT-3 and is no longer open.
 
 [#1]: https://github.com/leonardoaraujosantos/SymPP/issues/1
 [#2]: https://github.com/leonardoaraujosantos/SymPP/issues/2

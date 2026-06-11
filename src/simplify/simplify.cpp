@@ -138,11 +138,12 @@ Expr simplify(const Expr& e) {
     //    produced.
     //
     //    Restricted to *univariate* rational functions with a symbol-dependent
-    //    denominator: cancel()/Poly() loops on transcendental input, and its
-    //    GCD does not terminate when coefficients are themselves symbolic
-    //    (the multivariate case — see CANCEL-1 in docs/09-known-issues.md).
-    //    With a single free symbol the coefficients are numeric and the GCD
-    //    always terminates.
+    //    denominator. cancel() no longer hangs on multivariate input
+    //    (CANCEL-1 fixed: divmod expands coefficient subtractions), and is
+    //    available directly via cancel(); but auto-applying it here for the
+    //    multivariate case regressed a downstream ODE form, so simplify keeps
+    //    the conservative univariate scope. (Multivariate cancel-in-simplify
+    //    is a separate quality task.)
     auto syms = free_symbols(canon);
     if (syms.size() == 1 && is_rational_function(canon)
         && has_symbolic_denominator(canon)) {

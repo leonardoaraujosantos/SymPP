@@ -209,15 +209,25 @@ std::pair<Poly, Poly> Poly::divmod(const Poly& other) const {
     std::vector<Expr> q(qd + 1, S::Zero());
     const Expr& lc_other = other.leading_coeff();
     while (!r.is_zero() && r.degree() >= other.degree()) {
-        const std::size_t shift = r.degree() - other.degree();
-        Expr factor = r.leading_coeff() / lc_other;
+        const std::size_t prev_degree = r.degree();
+        const std::size_t shift = prev_degree - other.degree();
+        Expr factor = expand(r.leading_coeff() / lc_other);
         q[shift] = factor;
-        std::vector<Expr> sub(shift + other.coeffs_.size(), S::Zero());
+        // Subtract factor·x^shift·other, expanding each coefficient so that
+        // symbolic cancellations fold to a structural zero. Without expand,
+        // (b+b²) − (b+b²) stays as an unmerged Add (the bare Add flattens but
+        // the −1·Add subtrahend does not), the leading term never zeroes, and
+        // the loop never terminates.
+        std::vector<Expr> rc = r.coeffs_;
         for (std::size_t i = 0; i < other.coeffs_.size(); ++i) {
-            sub[i + shift] = mul(factor, other.coeffs_[i]);
+            const std::size_t idx = i + shift;
+            rc[idx] = expand(rc[idx] - mul(factor, other.coeffs_[i]));
         }
-        Poly subp{std::move(sub), var_};
-        r = r - subp;
+        r = Poly{std::move(rc), var_};  // constructor trims structural zeros
+        // Backstop: a valid reduction always drops the degree. If a coefficient
+        // could not be cancelled (e.g. a non-polynomial coefficient), stop with
+        // the current remainder rather than spinning forever.
+        if (!r.is_zero() && r.degree() >= prev_degree) break;
     }
     return {Poly{std::move(q), var_}, std::move(r)};
 }
@@ -839,6 +849,12 @@ FactorList factor_list(const Poly& f) {
 
 Expr factor(const Expr& expr, const Expr& var) {
     Poly f(expr, var);
+    // factor_list (square-free + rational-root + Kronecker) is defined only
+    // over ℚ-coefficient polynomials. A symbolic coefficient (i.e. a genuinely
+    // multivariate polynomial like x²−y² in x) is out of scope — return the
+    // input unfactored rather than spinning in the integer-coefficient
+    // machinery. Multivariate factorization is tracked separately.
+    if (!poly_coeffs_as_mpq(f)) return expr;
     auto fl = factor_list(f);
     std::vector<Expr> terms;
     if (!(fl.content == S::One())) terms.push_back(fl.content);
