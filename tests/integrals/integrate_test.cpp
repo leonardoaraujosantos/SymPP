@@ -700,6 +700,45 @@ TEST_CASE("integrate: ∫x²*exp(x) dx (recursive parts)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-13: ∫poly·cosh / poly·sinh fell through to the unevaluated Integral
+// because the by-parts target set was {exp,sin,cos}. sinh/cosh now integrate
+// by parts too (they don't cycle like exp·sin/cos).
+TEST_CASE("integrate: ∫x*cosh(x) dx = x*sinh(x) - cosh(x)",
+          "[7][integrate][parts][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * cosh(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "x*sinh(x) - cosh(x)"));
+}
+
+TEST_CASE("integrate: ∫x*sinh(x) dx = x*cosh(x) - sinh(x)",
+          "[7][integrate][parts][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * sinh(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "x*cosh(x) - sinh(x)"));
+}
+
+TEST_CASE("integrate: ∫x²*cosh(x) dx (recursive parts)",
+          "[7][integrate][parts][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) * cosh(x);
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*cosh(2x+1) dx (parts with affine)",
+          "[7][integrate][parts][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * cosh(integer(2) * x + integer(1));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",
