@@ -83,6 +83,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/function.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/function_id.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/imaginary_unit.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/infinity.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/integer.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/mul.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/number.hpp
