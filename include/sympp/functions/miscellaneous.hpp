@@ -43,6 +43,9 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "Abs"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    // d/darg |arg| = sign(arg)  (for real arg; the chain rule in diff()
+    // multiplies by arg').
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Sign final : public Function {

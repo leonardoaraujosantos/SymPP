@@ -87,6 +87,20 @@ truth and links the issue number.
 - **Scope:** periodic/infinite solution sets (e.g. `sin(x)=0`) remain the
   domain of `solveset`; `solve` yields no finite vector for those.
 
+### DIFF-1 — `diff(Abs(x))` returned 0 instead of `sign(x)` ([#13])
+- **Input:** `diff(abs(x), x)`
+- **Was:** `0` — `Abs` had no `diff_arg` override, so it fell through to
+  `Function::diff_arg`'s default of `0`.
+- **Expected (SymPy):** `sign(x)`.
+- **Fix:** `Abs::diff_arg(i) = sign(arg)`; `diff()`'s chain rule supplies
+  the `arg'` factor (so `diff(abs(2x+1)) = 2*sign(2x+1)`,
+  `diff(x*abs(x)) = x*sign(x) + Abs(x)`).
+- **Regression test:** `tests/calculus/diff_test.cpp`
+  — `[diff][abs][regression]`.
+- **Minor follow-on:** `diff(abs(x**2))` gives `2*x*sign(x**2)` (correct
+  but unsimplified — `sign` doesn't yet auto-reduce `sign(x**2) → 1` for a
+  manifestly-nonnegative argument).
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
@@ -98,8 +112,9 @@ truth and links the issue number.
   the leading coefficient is itself symbolic and the other operand is a
   degree-0 constant.
 - **Impact:** reached via `simplify`/`summation`; `simplify` now guards
-  against it (univariate-only cancel — see SIMP-1). The root `cancel()`
-  loop is still open.
+  against it (univariate-only cancel — see SIMP-1). Also makes
+  `factor(x**2 - y**2, x)` (multivariate square-free factorization, which
+  uses the same GCD) hang. The root `cancel()`/`Poly::gcd` loop is open.
 - **Status:** open. Regression test to be added with the fix.
 
 ### LIM-1 — limit of the classic `e` definition returns garbage ([#2])
@@ -129,3 +144,4 @@ truth and links the issue number.
 [#7]: https://github.com/leonardoaraujosantos/SymPP/issues/7
 [#9]: https://github.com/leonardoaraujosantos/SymPP/issues/9
 [#11]: https://github.com/leonardoaraujosantos/SymPP/issues/11
+[#13]: https://github.com/leonardoaraujosantos/SymPP/issues/13
