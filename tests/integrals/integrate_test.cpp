@@ -291,6 +291,53 @@ TEST_CASE("integrate: ∫1/(x^2-1) dx stays a log (reducible, unaffected)",
     REQUIRE(r->str().find("log") != std::string::npos);
 }
 
+// ----- Arc-sine / arc-sinh of a quadratic radicand (regression, INT-6) -------
+// ∫1/√(a·x²+c) dx (pure quadratic radicand, c>0) used to fall through. It now
+// returns asinh (a>0) or asin (a<0). The x²−1 case (acosh/log) stays deferred.
+TEST_CASE("integrate: ∫1/sqrt(1-x^2) dx = asin(x)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(integer(1) - pow(x, integer(2)), rational(-1, 2)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "asin(x)"));
+}
+
+TEST_CASE("integrate: ∫1/sqrt(9-4x^2) dx = asin(2x/3)/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto rad = integer(9) - integer(4) * pow(x, integer(2));
+    auto r = integrate(pow(rad, rational(-1, 2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "asin(2*x/3)/2"));
+}
+
+TEST_CASE("integrate: ∫1/sqrt(x^2+1) dx = asinh(x)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(2)) + integer(1), rational(-1, 2)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "asinh(x)"));
+}
+
+TEST_CASE("integrate: ∫1/sqrt(4x^2+9) dx = asinh(2x/3)/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto rad = integer(4) * pow(x, integer(2)) + integer(9);
+    auto r = integrate(pow(rad, rational(-1, 2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "asinh(2*x/3)/2"));
+}
+
+TEST_CASE("integrate: ∫1/sqrt(x^2-1) dx stays deferred (acosh, out of scope)",
+          "[7][integrate][invtrig][regression]") {
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(2)) - integer(1), rational(-1, 2)), x);
+    // c < 0 here -> acosh/log form, deliberately not handled.
+    REQUIRE(r->str().find("Integral(") != std::string::npos);
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by
