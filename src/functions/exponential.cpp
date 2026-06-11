@@ -9,6 +9,7 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -147,6 +148,14 @@ Expr exp(const Expr& arg) {
     if (arg == S::Zero()) return S::One();
     if (arg == S::One()) return S::E();
 
+    // Infinity: exp(oo) = oo, exp(-oo) = 0, exp(zoo)/exp(nan) = nan.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::Zero();
+    if (arg->type_id() == TypeId::ComplexInfinity
+        || arg->type_id() == TypeId::NaN) {
+        return S::NaN();
+    }
+
     // exp(log(x)) = x, when x is positive (otherwise needs branch handling).
     if (arg->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*arg);
@@ -178,6 +187,15 @@ Expr exp(const Expr& arg) {
 Expr log(const Expr& arg) {
     if (arg == S::One()) return S::Zero();
     if (arg == S::E()) return S::One();
+
+    // Infinity: log(oo) = oo, log(0) = zoo, log(-oo) = oo, log(zoo) = oo.
+    if (arg->type_id() == TypeId::Infinity
+        || arg->type_id() == TypeId::NegativeInfinity
+        || arg->type_id() == TypeId::ComplexInfinity) {
+        return S::Infinity();
+    }
+    if (arg->type_id() == TypeId::NaN) return S::NaN();
+    if (arg == S::Zero()) return S::ComplexInfinity();
 
     // log(exp(x)) = x, when x is real.
     if (arg->type_id() == TypeId::Function) {

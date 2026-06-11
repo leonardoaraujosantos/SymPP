@@ -10,6 +10,7 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -299,6 +300,9 @@ Expr pow(const Expr& base, const Expr& exp) {
     if (exp == S::One()) return base;
     // x^0 → 1  (including 0^0 by SymPy convention)
     if (exp == S::Zero()) return S::One();
+    // Infinity / nan in the base or exponent (1^oo = nan, so this must run
+    // before the 1^x → 1 rule below).
+    if (auto inf = pow_with_infinity(base, exp); inf.has_value()) return *inf;
     // 1^x → 1
     if (base == S::One()) return S::One();
 

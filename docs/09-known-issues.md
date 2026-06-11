@@ -647,6 +647,29 @@ truth and links the issue number.
   but unsimplified — `sign` doesn't yet auto-reduce `sign(x**2) → 1` for a
   manifestly-nonnegative argument).
 
+### LIM-1 — limits at infinity returned garbage; no `Infinity` type ([#2])
+- **Input:** `limit((1 + 1/x)**x, x, oo)`, `limit(x**2/(x+1), x, oo)`,
+  `limit(exp(x)/x, x, oo)`, `limit(x*sin(1/x), x, oo)`.
+- **Was:** `(oo**(-1) + 1)**oo`, … — `oo` parsed as a plain symbol and the
+  limit engine only did finite-point direct substitution + 0/0 L'Hôpital, so
+  every limit at infinity was wrong.
+- **Expected (SymPy):** `E`, `oo`, `oo`, `1`.
+- **Fix:** added real `Infinity` / `NegativeInfinity` / `ComplexInfinity` /
+  `NaN` atoms (`src/core/infinity.hpp`/`.cpp`) with `S::Infinity()` etc., wired
+  them through `add`/`mul`/`pow` (oo+finite=oo, oo-oo=nan, oo*0=nan, 1/oo=0,
+  2^oo=oo, 1^oo=nan, …) and through `exp`/`log` (exp(oo)=oo, exp(-oo)=0,
+  log(oo)=oo, log(0)=zoo). The parser maps `oo`/`zoo`/`nan` (and `-oo`). The
+  limit engine (`src/calculus/limit.cpp`) now resolves the indeterminate forms:
+  `1^∞`/`∞^0`/`0^0` via `a^b = exp(b·log a)`, `0·∞` by rewriting to a `0/0`
+  quotient, and `∞/∞` (and `0/0`) by L'Hôpital with `together()`-based
+  re-rationalisation each step.
+- **Regression test:** `tests/core/infinity_test.cpp` (`[infinity]`) and
+  `tests/calculus/series_limit_test.cpp` (`[limit][infinity][regression]`).
+- **Scope:** still unresolved — a finite-point pole (`limit(1/x**2, x, 0)`,
+  needs one-sided handling) and bare `∞ − ∞` polynomial forms
+  (`limit(x - x**2, x, oo)`, needs dominant-term extraction); both stay
+  unevaluated rather than returning a wrong value.
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
@@ -663,15 +686,6 @@ truth and links the issue number.
   uses the same GCD) hang. The root `cancel()`/`Poly::gcd` loop is open.
 - **Status:** open. Regression test to be added with the fix.
 
-### LIM-1 — limit of the classic `e` definition returns garbage ([#2])
-- **Input:** `limit((1 + 1/x)**x, x, oo)`
-- **Is:** `(oo**(-1) + 1)**oo` (unevaluated, nonsensical).
-- **Expected (SymPy):** `E`.
-- **Notes:** the limit engine substitutes the target naively instead of
-  detecting the `1^∞` indeterminate form (needs `exp(limit(x*log(1+1/x)))`
-  rewrite). Partly blocked by the missing `Infinity` singleton — `oo` is
-  currently parsed as a plain symbol.
-- **Status:** open. Regression test to be added with the fix.
 
 ### Missing auto-simplifications (lower priority)
 - `exp(log(x))` does not reduce to `x` (SymPy auto-evaluates this).

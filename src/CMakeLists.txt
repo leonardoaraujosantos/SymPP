@@ -15,6 +15,7 @@ target_sources(sympp
         core/float.cpp
         core/function.cpp
         core/imaginary_unit.cpp
+        core/infinity.cpp
         core/integer.cpp
         core/mul.cpp
         core/number_arith.cpp

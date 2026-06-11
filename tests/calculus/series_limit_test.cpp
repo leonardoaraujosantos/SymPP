@@ -109,6 +109,65 @@ TEST_CASE("limit: log(1+x)/x at 0 → 1", "[6][limit][lhopital][oracle]") {
     REQUIRE(oracle.equivalent(v->str(), "1"));
 }
 
+// ----- Limits at infinity (LIM-1, regression for issue #2) -------------------
+// `oo` used to be a plain symbol and the engine had no concept of infinity, so
+// limit((1+1/x)**x, x, oo) returned garbage. Infinity is now a real atom and
+// the engine handles the standard indeterminate forms.
+TEST_CASE("limit: (1 + 1/x)^x at oo → E (the classic 1^oo form)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(1) + integer(1) / x, x);
+    auto v = limit(e, x, S::Infinity());
+    REQUIRE(oracle.equivalent(v->str(), "E"));
+}
+
+TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(1) + integer(2) / x, x);
+    auto v = limit(e, x, S::Infinity());
+    REQUIRE(oracle.equivalent(v->str(), "exp(2)"));
+}
+
+TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // deg num == deg den → ratio of leading coefficients.
+    auto r1 = limit((integer(2) * pow(x, integer(2)) + integer(3))
+                        / (pow(x, integer(2)) - integer(1)),
+                    x, S::Infinity());
+    REQUIRE(oracle.equivalent(r1->str(), "2"));
+    // deg num > deg den → oo.
+    auto r2 = limit(pow(x, integer(2)) / (x + integer(1)), x, S::Infinity());
+    REQUIRE(r2 == S::Infinity());
+    // deg num < deg den → 0.
+    auto r3 = limit((x + integer(1)) / pow(x, integer(2)), x, S::Infinity());
+    REQUIRE(r3 == S::Zero());
+}
+
+TEST_CASE("limit: 0*oo and oo/oo forms at oo",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x*sin(1/x) → 1 (0*oo).
+    REQUIRE(oracle.equivalent(
+        limit(x * sin(integer(1) / x), x, S::Infinity())->str(), "1"));
+    // exp(x)/x → oo (oo/oo).
+    REQUIRE(limit(exp(x) / x, x, S::Infinity()) == S::Infinity());
+    // log(x)/x → 0.
+    REQUIRE(oracle.equivalent(limit(log(x) / x, x, S::Infinity())->str(), "0"));
+}
+
+TEST_CASE("limit: at -oo", "[6][limit][infinity][oracle][regression]") {
+    auto x = symbol("x");
+    REQUIRE(limit(exp(x), x, S::NegativeInfinity()) == S::Zero());
+    REQUIRE(limit(pow(x, integer(3)), x, S::NegativeInfinity())
+            == S::NegativeInfinity());
+}
+
 #include <sympp/calculus/order.hpp>
 
 // ----- Order / Big-O ---------------------------------------------------------

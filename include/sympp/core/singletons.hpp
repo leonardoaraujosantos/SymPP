@@ -33,6 +33,12 @@ namespace S {
 // Imaginary unit. I*I = -1; folded by Mul/Pow.
 [[nodiscard]] SYMPP_EXPORT const Expr& I();
 
+// Infinity atoms. +oo, -oo, zoo (1/0) and nan (indeterminate).
+[[nodiscard]] SYMPP_EXPORT const Expr& Infinity();
+[[nodiscard]] SYMPP_EXPORT const Expr& NegativeInfinity();
+[[nodiscard]] SYMPP_EXPORT const Expr& ComplexInfinity();
+[[nodiscard]] SYMPP_EXPORT const Expr& NaN();
+
 }  // namespace S
 
 }  // namespace sympp

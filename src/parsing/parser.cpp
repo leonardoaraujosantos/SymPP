@@ -176,6 +176,9 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
     if (name == "False") return S::False();
     if (name == "EulerGamma") return S::EulerGamma();
     if (name == "Catalan") return S::Catalan();
+    if (name == "oo" || name == "infty") return S::Infinity();
+    if (name == "zoo") return S::ComplexInfinity();
+    if (name == "nan") return S::NaN();
     return std::nullopt;
 }
 

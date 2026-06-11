@@ -2,6 +2,7 @@
 
 #include <sympp/core/boolean.hpp>
 #include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/rational.hpp>
@@ -70,6 +71,26 @@ const Expr& False() {
 
 const Expr& I() {
     static const Expr value = make<ImaginaryUnit>();
+    return value;
+}
+
+const Expr& Infinity() {
+    static const Expr value = make<sympp::Infinity>();
+    return value;
+}
+
+const Expr& NegativeInfinity() {
+    static const Expr value = make<sympp::NegativeInfinity>();
+    return value;
+}
+
+const Expr& ComplexInfinity() {
+    static const Expr value = make<sympp::ComplexInfinity>();
+    return value;
+}
+
+const Expr& NaN() {
+    static const Expr value = make<sympp::NaN>();
     return value;
 }
 

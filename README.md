@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1068%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1078%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.14-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1068 tests / 2107 assertions  all passing
+1078 tests / 2148 assertions  all passing
 14 of 15 phases shipped
 ```
 
@@ -92,13 +92,15 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
 - **Symbolic algebra** — Add/Mul/Pow with full canonical form,
   hash-cons cache, structural equality.
 - **Number tower** — `Integer` / `Rational` (GMP) / `Float` (MPFR
-  arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E`.
+  arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E` / `oo` / `-oo` /
+  `zoo` / `nan` (full infinity arithmetic).
 - **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
   factorial/gamma/erf/heaviside/dirac_delta plus `Hyper` and
   `MeijerG` (proper Function classes with auto-eval) and the rest of
   the elementary + special + combinatorial canon.
 - **Calculus** — `diff`, `integrate` (table + trig + parts + arctan/asin/asinh +
-  rational + heurisch), `series`, `limit` with L'Hôpital,
+  rational + heurisch), `series`, `limit` with L'Hôpital (finite points
+  and at ±∞, with 1^∞ / 0·∞ / ∞/∞ indeterminate forms),
   `summation`, Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ, Cardano cubic,
   Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
