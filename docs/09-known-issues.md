@@ -304,6 +304,20 @@ truth and links the issue number.
 - **Scope:** numeric ratio only (a symbolic `r` would need a Piecewise on
   `r = 1`, as SymPy emits); higher-degree `P(k)·r^k` still defers.
 
+### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
+- **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
+  `cosh(acosh(x))`, `tanh(atanh(x))`.
+- **Was:** `sin(asin(x))`, … — left unevaluated.
+- **Expected (SymPy):** all `x`.
+- **Fix:** an `arg_of` helper in the trig and hyperbolic factories returns the
+  inner argument when the forward function wraps its own inverse, collapsing
+  `f(f⁻¹(x)) → x`.
+- **Regression test:** `tests/functions/inverse_trig_test.cpp` and
+  `tests/functions/hyperbolic_test.cpp` — `[regression]`.
+- **Scope:** only the `f(f⁻¹)` direction. The reverse `f⁻¹(f(x))`
+  (e.g. `asin(sin(x))`) stays unevaluated — it is `x` only on a restricted
+  range, matching SymPy.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

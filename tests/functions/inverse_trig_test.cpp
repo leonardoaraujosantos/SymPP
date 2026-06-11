@@ -85,6 +85,18 @@ TEST_CASE("acos: stays unevaluated on a non-special argument",
     REQUIRE(acos(rational(1, 3))->type_id() == TypeId::Function);
 }
 
+// ----- f(f⁻¹(x)) = x compositions (regression, FUNC-1) -----------------------
+// sin(asin(x)) = x and the cos/tan analogues. The reverse (asin(sin(x))) is NOT
+// folded — it is only x on a restricted range, matching SymPy.
+TEST_CASE("trig: f(inverse(x)) collapses to x", "[3e][regression]") {
+    auto x = symbol("x");
+    REQUIRE(sin(asin(x)) == x);
+    REQUIRE(cos(acos(x)) == x);
+    REQUIRE(tan(atan(x)) == x);
+    // Reverse direction stays unevaluated.
+    REQUIRE(asin(sin(x))->type_id() == TypeId::Function);
+}
+
 // ----- acos ------------------------------------------------------------------
 
 TEST_CASE("acos: canonical values", "[3e][acos]") {

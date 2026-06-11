@@ -53,6 +53,15 @@ namespace {
     return std::nullopt;
 }
 
+// If `arg` is the single-argument application of function `id`, return its
+// inner argument; else nullopt. Used for the f(f⁻¹(x)) = x simplifications.
+[[nodiscard]] std::optional<Expr> arg_of(const Expr& arg, FunctionId id) {
+    if (arg->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*arg);
+    if (fn.function_id() == id && fn.args().size() == 1) return fn.args()[0];
+    return std::nullopt;
+}
+
 // Numeric evaluator: evalf the argument and apply the MPFR trig op.
 // Used when the user passes an explicit Float, or wants numeric output.
 [[nodiscard]] Expr trig_evalf(int (*op)(mpfr_ptr, mpfr_srcptr, mpfr_rnd_t),
@@ -274,6 +283,9 @@ Expr sin(const Expr& arg) {
         return trig_evalf(mpfr_sin, arg);
     }
 
+    // sin(asin(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Asin); v.has_value()) return *v;
+
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
     // π and all their quadrant images).
     if (auto r = pi_coefficient(arg); r.has_value()) {
@@ -311,6 +323,9 @@ Expr cos(const Expr& arg) {
         return trig_evalf(mpfr_cos, arg);
     }
 
+    // cos(acos(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Acos); v.has_value()) return *v;
+
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
     // π and all their quadrant images).
     if (auto r = pi_coefficient(arg); r.has_value()) {
@@ -347,6 +362,9 @@ Expr tan(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return trig_evalf(mpfr_tan, arg);
     }
+
+    // tan(atan(x)) = x.
+    if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) return *v;
 
     // Exact value at a rational multiple of π. Poles (π/2 + kπ) and
     // out-of-table denominators are left unevaluated.
