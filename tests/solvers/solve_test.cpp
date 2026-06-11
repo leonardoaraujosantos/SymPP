@@ -14,6 +14,8 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/matrices/matrix.hpp>
 #include <sympp/solvers/solve.hpp>
 
@@ -89,6 +91,44 @@ TEST_CASE("solve: cubic via rational-root deflation", "[10][solve][oracle]") {
         auto val = pow(r, integer(3)) - integer(8);
         REQUIRE(oracle.equivalent(val->str(), "0"));
     }
+}
+
+// ----- transcendental solve (regression, issue #11 / SOLVE-1) ----------------
+// solve() used to be polynomial-only and returned [] for equations that
+// solveset solves via the _invert chain (log/exp/sinh/…). It now falls back
+// to solveset and surfaces a finite solution set.
+TEST_CASE("solve: log(x) - 1 = 0 -> x = E", "[10][solve][transcendental][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto roots = solve(log(x) - integer(1), x);
+    REQUIRE(roots.size() == 1);
+    REQUIRE(oracle.equivalent(roots[0]->str(), "E"));
+}
+
+TEST_CASE("solve: exp(x) - 2 = 0 -> x = log(2)", "[10][solve][transcendental][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto roots = solve(exp(x) - integer(2), x);
+    REQUIRE(roots.size() == 1);
+    REQUIRE(oracle.equivalent(roots[0]->str(), "log(2)"));
+}
+
+TEST_CASE("solve: sinh(x) - 1 = 0 -> x = asinh(1)", "[10][solve][transcendental][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto roots = solve(sinh(x) - integer(1), x);
+    REQUIRE(roots.size() == 1);
+    REQUIRE(oracle.equivalent(roots[0]->str(), "asinh(1)"));
+}
+
+// Guard against the solve <-> solveset recursion: a polynomial must still be
+// solved by the (unchanged) polynomial path, and a transcendental fallback
+// must terminate.
+TEST_CASE("solve: polynomial path intact after transcendental fallback",
+          "[10][solve][regression]") {
+    auto x = symbol("x");
+    auto roots = solve(pow(x, integer(2)) - integer(5) * x + integer(6), x);
+    REQUIRE(roots.size() == 2);  // {2, 3} — no regression, no recursion
 }
 
 // ----- linsolve --------------------------------------------------------------
