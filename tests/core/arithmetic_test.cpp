@@ -126,6 +126,20 @@ TEST_CASE("pow: Integer^negative-Integer becomes Rational", "[1][pow]") {
     REQUIRE(e->str() == "1/8");
 }
 
+// Regression (POW-RAT): a^(p/q) of a perfect q-th power folds to an exact
+// value — 8^(2/3)=4, not just the 1/q roots. A non-exact root stays symbolic.
+TEST_CASE("pow: perfect rational power a^(p/q)", "[1][pow][regression]") {
+    REQUIRE(pow(integer(8), rational(2, 3)) == integer(4));
+    REQUIRE(pow(integer(16), rational(3, 4)) == integer(8));
+    REQUIRE(pow(integer(4), rational(3, 2)) == integer(8));
+    REQUIRE(pow(integer(32), rational(2, 5)) == integer(4));
+    REQUIRE(pow(rational(8, 27), rational(2, 3)) == rational(4, 9));
+    REQUIRE(pow(integer(8), rational(-2, 3)) == rational(1, 4));
+    // Unit-numerator roots unchanged; non-exact root stays an irreducible Pow.
+    REQUIRE(pow(integer(27), rational(1, 3)) == integer(3));
+    REQUIRE(pow(integer(12), rational(2, 3))->type_id() == TypeId::Pow);
+}
+
 // ----- Operator overloads -----------------------------------------------------
 
 TEST_CASE("operator+ produces Add", "[1][operators]") {

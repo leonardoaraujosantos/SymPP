@@ -163,11 +163,14 @@ namespace {
                                                    const Expr& exp) {
     if (exp->type_id() != TypeId::Rational) return std::nullopt;
     const auto& q = static_cast<const Rational&>(*exp);
-    if (q.numerator() != 1) return std::nullopt;  // only 1/n for now
     auto den = q.denominator();
     if (!den.fits_ulong_p()) return std::nullopt;
     auto n = den.get_ui();
     if (n < 2) return std::nullopt;
+    // Numerator p: base^(p/n) = (base^(1/n))^p when the n-th root is exact.
+    const mpz_class& p = q.numerator();
+    if (!p.fits_slong_p()) return std::nullopt;
+    const long pl = p.get_si();
 
     // Exact n-th root of a non-negative integer, or nullopt.
     auto exact_root = [n](const mpz_class& z) -> std::optional<mpz_class> {
@@ -180,7 +183,10 @@ namespace {
     if (base->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*base);
         if (z.is_negative()) return std::nullopt;  // branch handling — defer
-        if (auto r = exact_root(z.value())) return make<Integer>(std::move(*r));
+        if (auto r = exact_root(z.value())) {
+            // (root)^p — pow folds integer^integer (negative p → Rational).
+            return pow(make<Integer>(std::move(*r)), make<Integer>(pl));
+        }
         return std::nullopt;
     }
     if (base->type_id() == TypeId::Rational) {
@@ -190,7 +196,7 @@ namespace {
         // here, so both roots are over non-negative integers.
         auto rn = exact_root(r.numerator());
         auto rd = exact_root(r.denominator());
-        if (rn && rd) return rational(*rn, *rd);
+        if (rn && rd) return pow(rational(*rn, *rd), make<Integer>(pl));
         return std::nullopt;
     }
     return std::nullopt;
