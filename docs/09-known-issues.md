@@ -268,6 +268,21 @@ truth and links the issue number.
   of a negative base (`(-8)^(1/3)`) need full branch-cut handling and stay
   symbolic.
 
+### LOG-1 — `log` of a negative / imaginary argument not evaluated
+- **Input:** `log(-1)`, `log(-2)`, `log(-E)`, `log(I)`, `log(-I)`, `log(2*I)`.
+- **Was:** `log(-1)`, … — left unevaluated.
+- **Expected (SymPy):** `I*pi`, `log(2) + I*pi`, `1 + I*pi`, `I*pi/2`,
+  `-I*pi/2`, `log(2) + I*pi/2`.
+- **Fix:** in the `log` factory (the inverse of EXP-1): `log(x) = log(|x|) + Iπ`
+  for a negative real `x` (guarded by `is_real`/`is_negative`, so it also folds
+  `−E`), and `log(b·I) = log(|b|) + sign(b)·Iπ/2` for a nonzero rational `b`
+  via an `imaginary_coeff` helper.
+- **Regression test:** `tests/functions/exponential_test.cpp`
+  — `[log][regression]` (negative reals, imaginary axis, and a positive/symbolic
+  no-op guard).
+- **Scope:** principal branch; general complex `log(a+b·I)` (off the axes) is
+  not auto-evaluated, matching SymPy.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

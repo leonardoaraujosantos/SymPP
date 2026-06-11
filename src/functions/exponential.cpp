@@ -6,6 +6,7 @@
 
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
@@ -62,6 +63,28 @@ namespace {
         return static_cast<const Rational&>(*coeff).value();
     }
     return std::nullopt;
+}
+
+// If `arg` is b·I for a nonzero rational b (including I itself), return b as a
+// numeric Expr; else nullopt. Used for log on the imaginary axis.
+[[nodiscard]] std::optional<Expr> imaginary_coeff(const Expr& arg) {
+    if (arg == S::I()) return S::One();
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    bool has_i = false;
+    Expr coeff = S::One();
+    for (const auto& f : arg->args()) {
+        if (f == S::I()) {
+            if (has_i) return std::nullopt;  // I² etc.
+            has_i = true;
+        } else if (f->type_id() == TypeId::Integer
+                   || f->type_id() == TypeId::Rational) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;  // non-rational extra factor
+        }
+    }
+    if (!has_i) return std::nullopt;
+    return coeff;
 }
 
 }  // namespace
@@ -163,6 +186,19 @@ Expr log(const Expr& arg) {
             const auto& inner = arg->args()[0];
             if (is_real(inner) == true) return inner;
         }
+    }
+
+    // log(negative real) = log(|x|) + I·π  (covers −1, −2, −1/2, −E, …).
+    if (is_real(arg) == true && is_negative(arg) == true) {
+        return add(log(mul(S::NegativeOne(), arg)), mul(S::I(), S::Pi()));
+    }
+
+    // log(b·I) = log(|b|) + sign(b)·I·π/2 for a nonzero rational b.
+    if (auto b = imaginary_coeff(arg); b.has_value()) {
+        bool neg = is_negative(*b) == true;
+        Expr magnitude = neg ? mul(S::NegativeOne(), *b) : *b;
+        Expr quarter_turn = mul(rational(neg ? -1 : 1, 2), mul(S::I(), S::Pi()));
+        return add(log(magnitude), quarter_turn);
     }
 
     if (arg->type_id() == TypeId::Float) {
