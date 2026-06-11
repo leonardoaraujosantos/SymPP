@@ -89,6 +89,26 @@ truth and links the issue number.
   results are spelled with `sin`/`cos`. Inverse-trig antiderivatives
   (`∫1/(1+x²) = atan`, `∫1/√(1-x²) = asin`) remain deferred.
 
+### INT-4 — `integrate(xⁿ·log(x))` returned the unevaluated marker
+- **Input:** `integrate(x*log(x))`, `integrate(x**2*log(x))`,
+  `integrate((x+1)*log(x))`, `integrate(x*log(2*x+1))`.
+- **Was:** `Integral(x*log(x), x)` — integration by parts only ever used
+  `sin`/`cos`/`exp` of an affine argument as the `dv` factor, never `log`, so
+  a polynomial × `log` product fell through. (Standalone `∫log(ax+b)` already
+  worked via its own branch.)
+- **Expected (SymPy):** `x²·log(x)/2 − x²/4`, `x³·log(x)/3 − x³/9`, …
+- **Fix:** added a by-parts branch with `u = log(ax+b)`, `dv = rest dx`:
+  `∫rest·log(ax+b) = log(ax+b)·∫rest − ∫(∫rest)·a/(ax+b)`. The trailing
+  integral is rational (∫rest is polynomial, `du = a/(ax+b)`), so
+  `try_rational` closes it; the marker/depth guards bail on anything that does
+  not reduce. The result is `expand`ed for a distributed polynomial form.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[byparts][log][regression]`.
+- **Scope:** `log` powers (`∫log(x)²`, `∫x·log(x)²`) still defer — they are
+  `Pow(log, n)`, not a single `Log` factor, and need recursive by-parts.
+  For an affine log argument the primitive matches SymPy only up to an
+  additive constant (`log(x+1/2)` vs `log(2x+1)`); the derivative is exact.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),
