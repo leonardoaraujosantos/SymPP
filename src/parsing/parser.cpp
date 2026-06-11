@@ -153,6 +153,9 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"erf", &erf}, {"erfc", &erfc},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate},
+        // SymPy canonical spellings — these are the names str() emits, so the
+        // parser must accept them too for round-tripping (parse(e->str()) == e).
+        {"Abs", &abs}, {"Heaviside", &heaviside}, {"DiracDelta", &dirac_delta},
     };
     return table;
 }

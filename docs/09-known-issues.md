@@ -351,6 +351,21 @@ truth and links the issue number.
   keeps it too, so SymPP matches by leaving it (it only folds when `n` is a
   known nonnegative integer).
 
+### PARSE-1 — parser rejected the capitalised names `str()` emits
+- **Input:** `parse("Abs(-3)")`, `parse(abs(x)->str())` (= `parse("Abs(x)")`),
+  same for `Heaviside`, `DiracDelta`.
+- **Was:** an *undefined function* `Abs(...)` — the parser table held only the
+  lowercase aliases (`abs`, `heaviside`, `dirac_delta`), but `str()` prints the
+  SymPy-canonical capitalised names, so `parse(e->str())` did not round-trip.
+- **Expected (SymPy):** `Abs(-3) → 3`, and `parse(e->str()) == e`.
+- **Fix:** added `Abs` / `Heaviside` / `DiracDelta` aliases to the parser's
+  one-argument function table (the lowercase spellings still work).
+- **Regression test:** `tests/parsing/parser_test.cpp`
+  — `[parser][regression]` (capital-name eval + str round-trip).
+- **Scope:** the other functions (`sign`, `floor`, `re`, `im`, `conjugate`,
+  `gamma`, `erf`, …) already print lowercase, matching both the parser and
+  SymPy, so they round-trip unchanged.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

@@ -10,6 +10,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/parsing/parser.hpp>
 
@@ -252,4 +253,23 @@ TEST_CASE("parse: str round-trip on 2*x + sin(x*y)",
     auto y = symbol("y");
     auto e = integer(2) * x + sin(x * y);
     REQUIRE(parse(e->str()) == e);
+}
+
+// ----- Canonical (SymPy) function-name parsing (regression, PARSE-1) ---------
+// str() emits Abs/Heaviside/DiracDelta (SymPy's canonical capitalised names),
+// but the parser only accepted the lowercase aliases — so parse(e->str())
+// failed to round-trip and `Abs(-3)` (valid SymPy) stayed an undefined function.
+TEST_CASE("parse: capitalised SymPy names (Abs/Heaviside/DiracDelta)",
+          "[15][parser][regression]") {
+    REQUIRE(parse("Abs(-3)") == integer(3));
+    // Lowercase aliases still accepted.
+    REQUIRE(parse("abs(-3)") == integer(3));
+}
+
+TEST_CASE("parse: round-trips Abs/Heaviside/DiracDelta str()",
+          "[15][parser][roundtrip][regression]") {
+    auto x = symbol("x");
+    REQUIRE(parse(abs(x)->str()) == abs(x));
+    REQUIRE(parse(heaviside(x)->str()) == heaviside(x));
+    REQUIRE(parse(dirac_delta(x)->str()) == dirac_delta(x));
 }
