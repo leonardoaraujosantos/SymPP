@@ -253,6 +253,21 @@ truth and links the issue number.
   (`cbrt(16) → 2·cbrt(2)`) is not yet implemented. Radicands above the trial-
   division bound stay symbolic.
 
+### SQRT-3 — `sqrt` of a negative number not folded to imaginary
+- **Input:** `sqrt(-1)`, `sqrt(-4)`, `sqrt(-8)`, `sqrt(-1/4)`, `sqrt(-2/3)`.
+- **Was:** `(-1)**(1/2)`, … — SQRT-1/SQRT-2 deferred negative bases for
+  branch handling.
+- **Expected (SymPy):** `I`, `2*I`, `2*sqrt(2)*I`, `I/2`, `sqrt(6)*I/3`.
+- **Fix:** added `try_sqrt_of_negative` in `src/core/pow.cpp` — for the ½ power
+  of a negative Integer/Rational, returns `I·√|base|`, reusing the
+  perfect-root / factor-extraction paths so the magnitude comes back fully
+  reduced.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[sqrt][regression]`.
+- **Scope:** only the principal square root (½ power); other fractional powers
+  of a negative base (`(-8)^(1/3)`) need full branch-cut handling and stay
+  symbolic.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

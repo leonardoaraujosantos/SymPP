@@ -248,6 +248,27 @@ namespace {
     return mul(rational(s, den), radical);
 }
 
+// Principal square root of a negative Integer/Rational: √(−a) = I·√a (a > 0).
+// Restricted to the ½ power; other fractional powers of a negative base need
+// full branch-cut handling and are left symbolic.
+[[nodiscard]] std::optional<Expr> try_sqrt_of_negative(const Expr& base,
+                                                       const Expr& exp) {
+    if (!(exp == rational(1, 2))) return std::nullopt;
+    bool negative = false;
+    if (base->type_id() == TypeId::Integer) {
+        negative = static_cast<const Integer&>(*base).is_negative();
+    } else if (base->type_id() == TypeId::Rational) {
+        negative = static_cast<const Rational&>(*base).is_negative();
+    } else {
+        return std::nullopt;
+    }
+    if (!negative) return std::nullopt;
+    // √(−a) = I·√a; pow(|base|, ½) reuses the perfect-root / factor-extraction
+    // paths, so the magnitude comes back fully reduced (√(−8) → 2·√2·I).
+    Expr magnitude = mul(S::NegativeOne(), base);
+    return mul(S::I(), pow(magnitude, exp));
+}
+
 }  // namespace
 
 Expr pow(const Expr& base, const Expr& exp) {
@@ -297,6 +318,10 @@ Expr pow(const Expr& base, const Expr& exp) {
         // √N where N is not a perfect square — pull out the square factor.
         if (auto ext = try_sqrt_factor_extraction(base, exp); ext.has_value()) {
             return *ext;
+        }
+        // √(−a) = I·√a for a negative numeric base.
+        if (auto neg = try_sqrt_of_negative(base, exp); neg.has_value()) {
+            return *neg;
         }
     }
 
