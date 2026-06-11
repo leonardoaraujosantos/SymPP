@@ -22,6 +22,7 @@
 #include <sympp/core/expand.hpp>
 #include <sympp/simplify/simplify.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/special.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
@@ -254,6 +255,12 @@ namespace {
 // coefficients, zero linear term, and positive constant term.
 [[nodiscard]] std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ exp(c·x²) dx for a concrete negative c (a real Gaussian) → the error
+// function: with a = −c > 0, √π·erf(√a·x)/(2√a). Returns nullopt unless the
+// exponent is a pure quadratic (no linear/constant term) with negative
+// rational leading coefficient.
+[[nodiscard]] std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var);
+
 }  // namespace
 
 // Recursion-depth backstop. Integration by parts recurses through
@@ -304,6 +311,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_gaussian(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
@@ -767,6 +777,29 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     }
     // a < 0, c ≤ 0 (radicand has no positive region) and c == 0 fall through.
     return std::nullopt;
+}
+
+std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*expr);
+    if (fn.function_id() != FunctionId::Exp || fn.args().size() != 1) {
+        return std::nullopt;
+    }
+    Poly p(expand(fn.args()[0]), var);
+    if (p.degree() != 2) return std::nullopt;
+    const Expr& c0 = p.coeffs()[0];
+    const Expr& c1 = p.coeffs()[1];
+    const Expr& c2 = p.coeffs()[2];
+    // Pure c·x² only (no linear or constant term — a linear/constant part needs
+    // completing the square, out of scope), with c a negative rational so the
+    // result is the real-valued erf (a positive c would need erfi).
+    if (!(c0 == S::Zero()) || !(c1 == S::Zero())) return std::nullopt;
+    if (is_rational(c2) != true || is_negative(c2) != true) return std::nullopt;
+
+    // ∫ exp(−a·x²) dx = √π·erf(√a·x) / (2·√a),  a = −c₂ > 0.
+    Expr a = mul(S::NegativeOne(), c2);
+    Expr sa = sqrt(a);
+    return simplify(sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa));
 }
 
 }  // namespace

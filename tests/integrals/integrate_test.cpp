@@ -422,6 +422,28 @@ TEST_CASE("integrate: ∫1/(x*log(x)^2) dx = -1/log(x)",
     REQUIRE(simplify(diff(F, x) - f) == S::Zero());
 }
 
+// ----- Gaussian integral → erf (regression, INT-11) -------------------------
+// ∫exp(−a·x²) dx = √π·erf(√a·x)/(2√a) — the error-function antiderivative.
+// Verified by differentiation (erf' was fixed in DIFF-2).
+TEST_CASE("integrate: ∫exp(-x^2) dx = sqrt(pi)*erf(x)/2",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto f = exp(mul(S::NegativeOne(), pow(x, integer(2))));
+    auto F = integrate(f, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(F->str(), "sqrt(pi)*erf(x)/2"));
+}
+
+TEST_CASE("integrate: ∫2*exp(-x^2)/sqrt(pi) dx = erf(x)",
+          "[7][integrate][erf][regression]") {
+    auto x = symbol("x");
+    auto f = exp(mul(S::NegativeOne(), pow(x, integer(2))));
+    auto F = integrate(f, x);
+    // d/dx of the result is the integrand.
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by

@@ -356,6 +356,20 @@ truth and links the issue number.
   (not yet a function type) and stay at 0; `sign`/`floor`/`re`/`im`/`conjugate`
   match SymPy in keeping an unevaluated/zero derivative.
 
+### INT-11 — `integrate(exp(-a·x²))` (Gaussian) returned the marker
+- **Input:** `integrate(exp(-x**2))`, `integrate(exp(-x**2/2))`,
+  `integrate(2*exp(-x**2)/sqrt(pi))`.
+- **Was:** `Integral(exp(-x**2), x)` — no error-function path.
+- **Expected (SymPy):** `sqrt(pi)*erf(x)/2`, `sqrt(2*pi)*erf(sqrt(2)*x/2)/2`,
+  `erf(x)`.
+- **Fix:** added `try_gaussian`: for `exp(c·x²)` with a concrete negative
+  rational `c`, `∫ = √π·erf(√a·x)/(2√a)`, `a = −c`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[erf][regression]`.
+- **Scope:** pure `c·x²` exponent (no linear/constant term — completing the
+  square is out of scope); positive `c` would need `erfi` (no such function
+  type). Pairs with DIFF-2 (the `erf` derivative).
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
