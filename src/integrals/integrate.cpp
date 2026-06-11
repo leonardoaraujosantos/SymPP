@@ -459,6 +459,32 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+// True if `e` is a polynomial in `var` (only non-negative integer powers of
+// var). Such a `u` differentiates to zero in finitely many steps, so using it
+// as the `u` factor of integration by parts terminates. A factor like x^(-1)
+// is NOT a polynomial — its derivatives x^(-2), x^(-3), … grow without bound,
+// so by parts would recurse forever (e.g. ∫exp(x)/x, which is non-elementary).
+[[nodiscard]] bool is_polynomial_in(const Expr& e, const Expr& var) {
+    if (!depends_on(e, var)) return true;
+    if (e == var) return true;
+    switch (e->type_id()) {
+        case TypeId::Add:
+        case TypeId::Mul:
+            for (const auto& a : e->args()) {
+                if (!is_polynomial_in(a, var)) return false;
+            }
+            return true;
+        case TypeId::Pow: {
+            const Expr& exp = e->args()[1];
+            if (exp->type_id() != TypeId::Integer) return false;
+            if (static_cast<const Integer&>(*exp).is_negative()) return false;
+            return is_polynomial_in(e->args()[0], var);
+        }
+        default:
+            return false;  // a function of var, a fractional power, etc.
+    }
+}
+
 // True if `f` is log(affine-in-var) or a positive-integer power of one.
 // Used to drive integration by parts over log and log^n factors.
 [[nodiscard]] bool is_log_or_log_power(const Expr& f, const Expr& var) {
@@ -617,6 +643,11 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
 
     Expr u = mul(rest_factors);
     if (!depends_on(u, var)) return std::nullopt;
+    // u must be a polynomial in var so that differentiating it (du each step)
+    // terminates. A non-polynomial u like x^(-1) makes by parts recurse on
+    // ∫v·u' with an ever-growing negative power (∫exp(x)/x → ∫exp(x)/x² → …),
+    // which is non-elementary — bail to the marker instead of looping.
+    if (!is_polynomial_in(u, var)) return std::nullopt;
 
     Expr v = integrate(target, var);
     if (is_integral_marker(v)) return std::nullopt;

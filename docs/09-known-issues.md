@@ -440,6 +440,26 @@ truth and links the issue number.
   may stay symbolic — the remaining `∫x·log**(n-1)/(ax+b)` does not always
   close, in which case the marker guard leaves it unevaluated.
 
+### INT-15 — `integrate(exp(x)/x)` hung (non-elementary by-parts)
+- **Input:** `integrate(exp(x)/x, x)` (the non-elementary `Ei(x)`).
+- **Was:** infinite loop. Integration by parts took `u = x^(-1)`,
+  `dv = exp(x) dx`, producing `∫exp(x)/x = exp(x)/x + ∫exp(x)/x²`, then
+  `∫exp(x)/x²`, `∫exp(x)/x³`, … — each step *raises* the negative power, so the
+  recursion never terminated (the depth guard only bounds a single chain; the
+  branching across `try_*` made it effectively hang).
+- **Expected (SymPy):** `Ei(x)`. SymPP has no `Ei`, so the correct fallback is
+  the unevaluated `Integral` marker — and crucially it must *terminate*.
+- **Fix:** the poly×{exp,sin,cos,sinh,cosh} by-parts branch now requires the
+  `u` factor to be a polynomial in `var` (`is_polynomial_in`), so its
+  derivative chain reaches zero in finitely many steps. A non-polynomial `u`
+  like `x^(-1)` (derivatives `x^(-2)`, `x^(-3)`, … grow) is rejected and the
+  integral returns the marker (`src/integrals/integrate.cpp`).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][parts][regression]`.
+- **Scope:** poly·exp/trig/hyperbolic by parts is unchanged (`u` is a genuine
+  polynomial). Recognising `Ei`/`Si`/`Ci` special-function antiderivatives is a
+  separate feature.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

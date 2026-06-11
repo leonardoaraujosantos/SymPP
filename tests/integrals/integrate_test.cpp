@@ -779,6 +779,19 @@ TEST_CASE("integrate: ∫log(2x)² dx (affine argument, b = 0)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-15 (regression): ∫exp(x)/x is non-elementary (Ei). Integration by parts
+// used to recurse exp(x)/x → exp(x)/x² → … forever (u = x^(-1) is not a
+// polynomial, so du grows). It must terminate at the unevaluated marker. The
+// test completing at all proves termination; we also assert it is the marker.
+TEST_CASE("integrate: ∫exp(x)/x terminates at the Integral marker (INT-15)",
+          "[7][integrate][parts][regression]") {
+    auto x = symbol("x");
+    auto e = exp(x) / x;
+    auto r = integrate(e, x);
+    REQUIRE(r->type_id() == TypeId::Function);  // unevaluated Integral(...)
+    REQUIRE(r->str().rfind("Integral(", 0) == 0);
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",
