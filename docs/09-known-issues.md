@@ -370,6 +370,21 @@ truth and links the issue number.
   square is out of scope); positive `c` would need `erfi` (no such function
   type). Pairs with DIFF-2 (the `erf` derivative).
 
+### INT-12 — `integrate(tanh / 1/cosh² / 1/sinh²)` returned the marker
+- **Input:** `integrate(tanh(x))`, `integrate(1/cosh(x)**2)`,
+  `integrate(1/sinh(x)**2)`, and affine-argument variants.
+- **Was:** `Integral(tanh(x), x)`, … — the hyperbolic counterparts of INT-3
+  were missing (only `sinh`/`cosh` of an affine argument were tabulated).
+- **Expected (SymPy):** `log(cosh(x))`, `tanh(x)`, `-cosh(x)/sinh(x)` (= −coth).
+- **Fix:** added a `Tanh` case to the affine-argument function table
+  (`∫tanh(ax+b) = log(cosh(ax+b))/a`) and `Cosh`/`Sinh` reciprocal-square cases
+  to the `Pow` branch (`∫1/cosh²(ax+b) = tanh(ax+b)/a`,
+  `∫1/sinh²(ax+b) = -cosh/(a·sinh)`).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[hyperbolic][regression]`.
+- **Scope:** `coth`/`sech`/`csch` are not distinct function types, so results
+  are spelled with `cosh`/`sinh`.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

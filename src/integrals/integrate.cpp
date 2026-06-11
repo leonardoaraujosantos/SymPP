@@ -127,6 +127,15 @@ namespace {
                     if (bfn.function_id() == FunctionId::Sin) {
                         return mul(S::NegativeOne(), cos(inner)) / mul(a, sin(inner));
                     }
+                    // Hyperbolic counterparts:
+                    //   ∫ 1/cosh²(ax+b) dx =  tanh(ax+b)/a   (sech² → tanh)
+                    //   ∫ 1/sinh²(ax+b) dx = -cosh(ax+b)/(a·sinh(ax+b))  (−coth/a)
+                    if (bfn.function_id() == FunctionId::Cosh) {
+                        return tanh(inner) / a;
+                    }
+                    if (bfn.function_id() == FunctionId::Sinh) {
+                        return mul(S::NegativeOne(), cosh(inner)) / mul(a, sinh(inner));
+                    }
                 }
             }
         }
@@ -159,6 +168,9 @@ namespace {
                     case FunctionId::Cosh:
                         // ∫cosh(ax+b) dx = sinh(ax+b)/a
                         return sinh(inner) / a;
+                    case FunctionId::Tanh:
+                        // ∫tanh(ax+b) dx = log(cosh(ax+b))/a
+                        return log(cosh(inner)) / a;
                     default:
                         break;
                 }
