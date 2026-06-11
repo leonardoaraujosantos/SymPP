@@ -137,9 +137,16 @@ Expr abs(const Expr& arg) {
     // Abs(x) for nonpositive x → -x.
     if (is_nonpositive(arg) == true) return mul(S::NegativeOne(), arg);
 
-    // Abs(-x) = Abs(x).
-    if (auto pos = strip_neg_factor(arg); pos.has_value()) {
-        return make<Abs>(*pos);
+    // Abs(c·rest) = |c|·Abs(rest) for a numeric coefficient c. In canonical
+    // form a numeric factor sorts first, so this also covers Abs(-x) = Abs(x)
+    // (c = −1) and Abs(x/2) = Abs(x)/2. |·| is multiplicative, so it holds for
+    // a complex coefficient too (e.g. Abs(I·x) = Abs(x)).
+    if (arg->type_id() == TypeId::Mul) {
+        const auto& factors = arg->args();
+        if (factors.size() >= 2 && is_number(factors[0])) {
+            std::vector<Expr> rest(factors.begin() + 1, factors.end());
+            return mul(abs(factors[0]), abs(mul(std::move(rest))));
+        }
     }
 
     return make<Abs>(arg);

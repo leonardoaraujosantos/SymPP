@@ -296,6 +296,22 @@ truth and links the issue number.
 - **Scope:** principal branch; general complex `log(a+b·I)` (off the axes) is
   not auto-evaluated, matching SymPy.
 
+### ABS-1 — `Abs(c·x)` did not pull out a numeric coefficient
+- **Input:** `abs(-2*x)`, `abs(2*x)`, `abs(x/2)`, `abs(-x/3)`, `abs(-2*x*y)`.
+- **Was:** `Abs(-2*x)`, … — only a leading `−1` was stripped (`Abs(-x)=Abs(x)`);
+  any other numeric coefficient stayed inside.
+- **Expected (SymPy):** `2*Abs(x)`, `2*Abs(x)`, `Abs(x)/2`, `Abs(x)/3`,
+  `2*Abs(x*y)`.
+- **Fix:** in the `abs` factory, `Abs(c·rest) = |c|·Abs(rest)` for a numeric
+  leading factor `c` (canonical Mul sorts a number first). Subsumes the old
+  `−1` rule and matches SymPy. `|·|` is multiplicative, so it is valid for any
+  coefficient.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[abs][regression]`.
+- **Scope:** the imaginary unit `I` sorts last in a Mul, so `Abs(I·x)` stays
+  `Abs(x·I)` (correct, equal to `Abs(x)`, just not folded). `Sign`/`Re`/`Im`
+  keep their existing `−1`-only handling.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

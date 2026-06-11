@@ -132,6 +132,20 @@ TEST_CASE("Abs(-x) = Abs(x)", "[3d][abs]") {
     REQUIRE(abs(neg) == abs(x));
 }
 
+// Regression (ABS-1): Abs(c·rest) = |c|·Abs(rest) for a numeric coefficient.
+// Previously only a leading −1 was pulled out; Abs(−2·x) etc. stayed put.
+TEST_CASE("Abs: pulls out a numeric coefficient", "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(abs(mul(integer(-2), x))->str(), "2*Abs(x)"));
+    REQUIRE(oracle.equivalent(abs(mul(integer(2), x))->str(), "2*Abs(x)"));
+    REQUIRE(oracle.equivalent(abs(mul(rational(1, 2), x))->str(), "Abs(x)/2"));
+    REQUIRE(oracle.equivalent(abs(mul(rational(-1, 3), x))->str(), "Abs(x)/3"));
+    REQUIRE(oracle.equivalent(abs(mul(integer(-2), mul(x, y)))->str(),
+                              "2*Abs(x*y)"));
+}
+
 TEST_CASE("Abs: stays unevaluated for unknown sign", "[3d][abs]") {
     auto x = symbol("x");
     auto e = abs(x);
