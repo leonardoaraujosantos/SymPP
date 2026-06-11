@@ -507,6 +507,22 @@ truth and links the issue number.
   first evaluates to `2·sqrt(3)`, leaving a product `1/(2·sqrt(3))` — needs
   `radsimp`-style product-denominator rationalisation and stays as written.
 
+### POW-RAT — `a^(p/q)` of a perfect power was not folded (p ≠ 1)
+- **Input:** `8**(2/3)`, `16**(3/4)`, `4**(3/2)`, `32**(2/5)`,
+  `(8/27)**(2/3)`, `8**(-2/3)`.
+- **Was:** `8**(2/3)`, … — `try_perfect_root` bailed unless the exponent
+  numerator was 1, so only `1/q` roots (`27**(1/3)=3`) folded.
+- **Expected (SymPy):** `4`, `8`, `8`, `4`, `4/9`, `1/4`.
+- **Fix:** `try_perfect_root` (`src/core/pow.cpp`) now handles any numerator
+  `p`: it takes the exact `q`-th root of a non-negative Integer/Rational base
+  and raises it to `p` (`a^(p/q) = (a^(1/q))^p`); `pow` then folds the
+  integer/rational power (negative `p` → Rational). A non-exact root stays an
+  irreducible `Pow`.
+- **Regression test:** `tests/core/arithmetic_test.cpp` — `[pow][regression]`.
+- **Scope:** the base must be a perfect `q`-th power. `12**(2/3)` (no exact
+  cube root) stays symbolic — SymPy extracts `2*18**(1/3)` via n-th-root factor
+  extraction, a separate feature not yet implemented.
+
 ### LOG-1 — `log` of a negative / imaginary argument not evaluated
 - **Input:** `log(-1)`, `log(-2)`, `log(-E)`, `log(I)`, `log(-I)`, `log(2*I)`.
 - **Was:** `log(-1)`, … — left unevaluated.
