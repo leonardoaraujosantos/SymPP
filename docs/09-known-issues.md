@@ -263,6 +263,19 @@ truth and links the issue number.
 - **Scope:** integer multiples of π only. Half-integer shifts (the co-function
   `sin(x+π/2)=cos(x)`) stay symbolic — a separate follow-up.
 
+### TRIG-4 — `sin`/`cos` did not apply the half-integer-π co-function shift
+- **Input:** `sin(x+pi/2)`, `cos(x+pi/2)`, `sin(x-pi/2)`, `cos(x+3*pi/2)`.
+- **Was:** `sin(x + pi/2)`, … — TRIG-3 reduced only integer π multiples;
+  half-integer shifts stayed symbolic.
+- **Expected (SymPy):** `cos(x)`, `-sin(x)`, `-cos(x)`, `sin(x)`.
+- **Fix:** extended the `split_pi_term` reduction with the `C = m/2` (m odd)
+  case: `sin(rest+(m/2)π) = ±cos(rest)`, `cos(rest+(m/2)π) = ∓sin(rest)`,
+  the sign from `m mod 4`.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][regression]`.
+- **Scope:** `tan(x+π/2) = −cot(x)` is left symbolic — SymPP has no `cot`
+  function type.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

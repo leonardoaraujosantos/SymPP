@@ -116,11 +116,25 @@ TEST_CASE("sin: multivariate π-shift reduces", "[3b][trig][oracle][regression]"
     REQUIRE(oracle.equivalent(r->str(), "-sin(x + y)"));
 }
 
-TEST_CASE("sin: half-integer π shift stays symbolic (co-function, out of scope)",
-          "[3b][trig][regression]") {
+// ----- Half-integer π co-function shifts (regression, TRIG-4) ----------------
+// sin(x+(m/2)π) = ±cos(x), cos(x+(m/2)π) = ∓sin(x) for odd m.
+TEST_CASE("sin/cos: half-integer π co-function shift", "[3b][trig][regression]") {
     auto x = symbol("x");
-    auto r = sin(x + mul(rational(1, 2), S::Pi()));
-    REQUIRE(r->type_id() == TypeId::Function);  // not folded to cos(x) yet
+    auto pi = S::Pi();
+    REQUIRE(sin(x + mul(rational(1, 2), pi)) == cos(x));
+    REQUIRE(sin(x + mul(rational(-1, 2), pi)) == mul(S::NegativeOne(), cos(x)));
+    REQUIRE(sin(x + mul(rational(3, 2), pi)) == mul(S::NegativeOne(), cos(x)));
+    REQUIRE(cos(x + mul(rational(1, 2), pi)) == mul(S::NegativeOne(), sin(x)));
+    REQUIRE(cos(x + mul(rational(-1, 2), pi)) == sin(x));
+    REQUIRE(cos(x + mul(rational(3, 2), pi)) == sin(x));
+}
+
+TEST_CASE("tan: half-integer π shift stays symbolic (−cot, no cot type)",
+          "[3b][trig][tan][regression]") {
+    // tan(x+π/2) = −cot(x); SymPP has no cot, so it is left unevaluated.
+    auto x = symbol("x");
+    auto r = tan(x + mul(rational(1, 2), S::Pi()));
+    REQUIRE(r->type_id() == TypeId::Function);
 }
 
 TEST_CASE("sin: odd identity sin(-x) = -sin(x)", "[3b][trig][sin]") {
