@@ -399,6 +399,29 @@ TEST_CASE("integrate: ∫1/(4x^2+4x+1) dx = -1/(2(2x+1))",
     REQUIRE(oracle.equivalent(r->str(), "-1/(4*x + 2)"));
 }
 
+// ----- Heurisch u-substitution with a nested inner function (INT-10) ---------
+// ∫1/(x·log(x)) = log(log(x)) via u = log(x). Heurisch only collected function
+// *args* and Pow *bases* as candidates, so a function buried as a Mul factor
+// (here log(x) inside the (x·log(x))⁻¹ base) was never tried. Now the function
+// application itself is a candidate.
+TEST_CASE("integrate: ∫1/(x*log(x)) dx = log(log(x))",
+          "[7][integrate][heurisch][regression]") {
+    auto x = symbol("x");
+    auto f = pow(x * log(x), integer(-1));
+    auto F = integrate(f, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
+TEST_CASE("integrate: ∫1/(x*log(x)^2) dx = -1/log(x)",
+          "[7][integrate][heurisch][regression]") {
+    auto x = symbol("x");
+    auto f = pow(x * pow(log(x), integer(2)), integer(-1));
+    auto F = integrate(f, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by
