@@ -175,6 +175,20 @@ truth and links the issue number.
 - **Scope:** a linear term under the root, and the `a < 0, c < 0` case
   (radicand never positive), still fall through.
 
+### INT-8 — `integrate(tan(x)**2)` returned the unevaluated marker
+- **Input:** `integrate(tan(x)**2)`, `integrate(tan(2*x+1)**2)`.
+- **Was:** `Integral(tan(x)**2, x)` — only `sin²`/`cos²` had a trig-reduction
+  rewrite; `tan²` fell through.
+- **Expected (SymPy):** `-x + sin(x)/cos(x)` (= `tan(x) - x`).
+- **Fix:** added a `tan²(u) → 1/cos²(u) − 1` (Pythagorean) rewrite to
+  `try_trig_reduction`, guarded to an affine `u` so the recursion lands on the
+  tabulated `∫1/cos²(u)` (INT-3). Result: `tan(u)/a − u`, spelled with
+  `sin/cos` and confirmed equivalent to SymPy via the oracle.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[trig][regression]`.
+- **Scope:** non-affine arguments, and higher powers (`tan⁴`, `sec⁴`), are not
+  handled.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

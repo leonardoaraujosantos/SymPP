@@ -354,6 +354,27 @@ TEST_CASE("integrate: ∫1/sqrt(4x^2-9) dx = log(2x + sqrt(4x^2-9))/2",
     REQUIRE(oracle.equivalent(r->str(), "log(2*x + sqrt(4*x**2 - 9))/2"));
 }
 
+// ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
+// ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
+// tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP
+// spells tan(u) as sin(u)/cos(u); the oracle confirms equivalence.
+TEST_CASE("integrate: ∫tan(x)^2 dx = tan(x) - x",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(tan(x), integer(2)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "tan(x) - x"));
+}
+
+TEST_CASE("integrate: ∫tan(2x+1)^2 dx = tan(2x+1)/2 - x",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(tan(integer(2) * x + integer(1)), integer(2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "tan(2*x + 1)/2 - x"));
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by

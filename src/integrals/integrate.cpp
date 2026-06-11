@@ -589,6 +589,13 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
                                      / integer(2);
                     return integrate(rewritten, var);
                 }
+                // tan²(u) → 1/cos²(u) − 1 (Pythagorean). Only for an affine u,
+                // where ∫1/cos²(u) is tabulated; otherwise fall through.
+                if (fn.function_id() == FunctionId::Tan
+                    && as_affine(u, var)) {
+                    Expr rewritten = pow(cos(u), integer(-2)) - integer(1);
+                    return integrate(rewritten, var);
+                }
             }
         }
     }
