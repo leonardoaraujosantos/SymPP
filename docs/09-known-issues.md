@@ -161,6 +161,23 @@ truth and links the issue number.
   is a further SymPy behaviour still not implemented; non-perfect-square
   rationals stay a symbolic `Pow`.
 
+### SQRT-2 — `sqrt` did not extract square factors or rationalise
+- **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
+  `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
+- **Was:** `8**(1/2)`, `(1/2)**(1/2)`, … — left fully under the root.
+- **Expected (SymPy):** `2*sqrt(2)`, `2*sqrt(3)`, `sqrt(2)/2`, `sqrt(6)/3`,
+  `2*sqrt(2)/3`.
+- **Fix:** added `try_sqrt_factor_extraction` in `src/core/pow.cpp`, dispatched
+  after `try_perfect_root` (SQRT-1). It pulls the largest square factor out of
+  the radicand and, for a rational `p/q`, rationalises via
+  `√(p/q) = √(p·q)/q`. Trial division is bounded (radicand ≤ 1e12) so a huge
+  radicand can never hang.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[sqrt][regression]` (incl. a prime-radicand `√7` no-op guard).
+- **Scope:** square roots only — n-th-root factor extraction
+  (`cbrt(16) → 2·cbrt(2)`) is not yet implemented. Radicands above the trial-
+  division bound stay symbolic.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

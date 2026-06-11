@@ -50,13 +50,26 @@ TEST_CASE("sqrt: perfect-square rationals fold to rationals",
     REQUIRE(sqrt(rational(16, 1)) == integer(4));
 }
 
-TEST_CASE("sqrt: non-perfect-square rational stays symbolic",
+// Regression (SQRT-2): square-factor extraction / denominator rationalisation.
+// √8 → 2√2, √(1/2) → √2/2, √(2/3) → √6/3, √(8/9) → 2√2/3. A prime radicand
+// (√7) and a square-free rational stay put in radical form (but rationalised).
+TEST_CASE("sqrt: pulls out square factors and rationalises",
+          "[3d][sqrt][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(sqrt(integer(8))->str(), "2*sqrt(2)"));
+    REQUIRE(oracle.equivalent(sqrt(integer(12))->str(), "2*sqrt(3)"));
+    REQUIRE(oracle.equivalent(sqrt(integer(50))->str(), "5*sqrt(2)"));
+    REQUIRE(oracle.equivalent(sqrt(rational(1, 2))->str(), "sqrt(2)/2"));
+    REQUIRE(oracle.equivalent(sqrt(rational(8, 9))->str(), "2*sqrt(2)/3"));
+    REQUIRE(oracle.equivalent(sqrt(rational(2, 3))->str(), "sqrt(6)/3"));
+}
+
+TEST_CASE("sqrt: prime radicand stays an irreducible Pow",
           "[3d][sqrt][regression]") {
-    // 1/2 is not a perfect square in numerator and denominator; factor
-    // extraction (sqrt(1/2) -> sqrt(2)/2) is a separate, not-yet-implemented
-    // behaviour, so the form must stay a Pow rather than silently mis-fold.
-    auto e = sqrt(rational(1, 2));
+    // Nothing to pull out of √7 — it must remain symbolic, not loop or mis-fold.
+    auto e = sqrt(integer(7));
     REQUIRE(e->type_id() == TypeId::Pow);
+    REQUIRE(e->str() == "7**(1/2)");
 }
 
 TEST_CASE("sqrt: non-square integer stays as Pow(_, 1/2)", "[3d][sqrt]") {
