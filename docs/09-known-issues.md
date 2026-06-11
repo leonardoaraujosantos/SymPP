@@ -342,6 +342,20 @@ truth and links the issue number.
   form. The `acosh` cases use `√(x−1)·√(x+1)`, the form SymPy prints.
 - **Regression test:** `tests/functions/hyperbolic_test.cpp` — `[regression]`.
 
+### DIFF-2 — `diff(erf/erfc/Heaviside)` returned 0
+- **Input:** `diff(erf(x), x)`, `diff(erfc(x), x)`, `diff(Heaviside(x), x)`.
+- **Was:** `0` — these classes had no `diff_arg` override, so they fell through
+  to `Function::diff_arg`'s default of `0` (the same root cause as DIFF-1/Abs).
+- **Expected (SymPy):** `2*exp(-x**2)/sqrt(pi)`, `-2*exp(-x**2)/sqrt(pi)`,
+  `DiracDelta(x)`.
+- **Fix:** added `diff_arg` to `Erf`, `Erfc`, `HeavisideFn` —
+  `erf' = 2·exp(−x²)/√π`, `erfc' = −that`, `Heaviside' = DiracDelta(x)`. The
+  chain rule supplies the `arg'` factor (so `diff(erf(2x)) = 4·exp(−4x²)/√π`).
+- **Regression test:** `tests/functions/special_test.cpp` — `[diff][regression]`.
+- **Scope:** `gamma`/`loggamma` derivatives need `digamma`/`polygamma`
+  (not yet a function type) and stay at 0; `sign`/`floor`/`re`/`im`/`conjugate`
+  match SymPy in keeping an unevaluated/zero derivative.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
