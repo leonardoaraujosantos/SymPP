@@ -444,6 +444,43 @@ TEST_CASE("integrate: ∫2*exp(-x^2)/sqrt(pi) dx = erf(x)",
     REQUIRE(simplify(diff(F, x) - f) == S::Zero());
 }
 
+// ----- Hyperbolic table integrals (regression, INT-12) -----------------------
+// Hyperbolic analogues of INT-3: ∫tanh = log(cosh), ∫1/cosh² = tanh,
+// ∫1/sinh² = −cosh/sinh (= −coth), of an affine argument. Oracle-checked
+// (SymPP spells −coth as −cosh/sinh).
+TEST_CASE("integrate: ∫tanh(x) dx = log(cosh(x))",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(tanh(x), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "log(cosh(x))"));
+}
+
+TEST_CASE("integrate: ∫1/cosh(x)^2 dx = tanh(x)",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(cosh(x), integer(-2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "tanh(x)"));
+}
+
+TEST_CASE("integrate: ∫1/sinh(x)^2 dx = -cosh(x)/sinh(x)",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(sinh(x), integer(-2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "-cosh(x)/sinh(x)"));
+}
+
+TEST_CASE("integrate: ∫tanh(2x+1) dx = log(cosh(2x+1))/2",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(tanh(integer(2) * x + integer(1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "log(cosh(2*x + 1))/2"));
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by
