@@ -280,10 +280,18 @@ Expr sin(const Expr& arg) {
         if (auto v = sin_pi(*r); v.has_value()) return *v;
     }
 
-    // Periodicity / π-shift: sin(rest + k·π) = (−1)^k·sin(rest) for integer k.
-    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
-        bool odd = mpz_odd_p(c.get_num_mpz_t());
-        return odd ? mul(S::NegativeOne(), sin(rest)) : sin(rest);
+    // Argument reduction by π multiples of the additive part:
+    //   integer k:    sin(rest + k·π)     = (−1)^k·sin(rest)
+    //   half-integer: sin(rest + (m/2)·π) = ±cos(rest)  (m odd, co-function)
+    if (auto [c, rest] = split_pi_term(arg); c != 0) {
+        if (c.get_den() == 1) {
+            bool odd = mpz_odd_p(c.get_num_mpz_t());
+            return odd ? mul(S::NegativeOne(), sin(rest)) : sin(rest);
+        }
+        if (c.get_den() == 2) {  // m odd; sin(mπ/2) = +1 (m≡1) / −1 (m≡3 mod 4)
+            mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+            return (m4 == 1) ? cos(rest) : mul(S::NegativeOne(), cos(rest));
+        }
     }
 
     // Odd: sin(-x) = -sin(x)
@@ -309,10 +317,18 @@ Expr cos(const Expr& arg) {
         if (auto v = cos_pi(*r); v.has_value()) return *v;
     }
 
-    // Periodicity / π-shift: cos(rest + k·π) = (−1)^k·cos(rest) for integer k.
-    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
-        bool odd = mpz_odd_p(c.get_num_mpz_t());
-        return odd ? mul(S::NegativeOne(), cos(rest)) : cos(rest);
+    // Argument reduction by π multiples of the additive part:
+    //   integer k:    cos(rest + k·π)     = (−1)^k·cos(rest)
+    //   half-integer: cos(rest + (m/2)·π) = ∓sin(rest)  (m odd, co-function)
+    if (auto [c, rest] = split_pi_term(arg); c != 0) {
+        if (c.get_den() == 1) {
+            bool odd = mpz_odd_p(c.get_num_mpz_t());
+            return odd ? mul(S::NegativeOne(), cos(rest)) : cos(rest);
+        }
+        if (c.get_den() == 2) {  // cos(rest + mπ/2) = −sin(mπ/2)·sin(rest)
+            mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+            return (m4 == 1) ? mul(S::NegativeOne(), sin(rest)) : sin(rest);
+        }
     }
 
     // Even: cos(-x) = cos(x)
