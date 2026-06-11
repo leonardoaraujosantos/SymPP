@@ -68,6 +68,34 @@ TEST_CASE("log: log(E) = 1", "[3c][log]") {
     REQUIRE(log(S::E()) == S::One());
 }
 
+// ----- log of negative / imaginary arguments (regression, LOG-1) -------------
+// log(−x) = log(x) + Iπ and log(b·I) = log(|b|) + sign(b)·Iπ/2 used to stay
+// unevaluated. The inverse counterpart to EXP-1; pairs with SQRT-3.
+TEST_CASE("log: negative real → log|x| + Iπ", "[3c][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(log(integer(-1))->str(), "I*pi"));
+    REQUIRE(oracle.equivalent(log(integer(-2))->str(), "log(2) + I*pi"));
+    REQUIRE(oracle.equivalent(log(mul(S::NegativeOne(), S::E()))->str(),
+                              "1 + I*pi"));
+}
+
+TEST_CASE("log: imaginary axis → log|b| + sign·Iπ/2",
+          "[3c][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(log(S::I())->str(), "I*pi/2"));
+    REQUIRE(oracle.equivalent(log(mul(S::NegativeOne(), S::I()))->str(),
+                              "-I*pi/2"));
+    REQUIRE(oracle.equivalent(log(mul(integer(2), S::I()))->str(),
+                              "log(2) + I*pi/2"));
+}
+
+TEST_CASE("log: positive and symbolic args unaffected", "[3c][log][regression]") {
+    auto x = symbol("x");
+    REQUIRE(log(S::One()) == S::Zero());
+    REQUIRE(log(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(log(x)->str() == "log(x)");
+}
+
 TEST_CASE("exp: stays unevaluated on a generic symbol", "[3c][exp]") {
     auto x = symbol("x");
     auto e = exp(x);
