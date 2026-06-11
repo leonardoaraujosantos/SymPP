@@ -46,6 +46,21 @@ truth and links the issue number.
 - **Scope:** multivariate cancellation (e.g. (x²-y²)/(x-y) → x+y) is
   deliberately deferred until CANCEL-1 is fixed.
 
+### INT-1 — `integrate(exp(x)*sin(x))` segfaulted ([#7])
+- **Input:** `integrate(exp(x)*sin(x), x)` (and `exp·cos`, `exp(2x)·sin(3x)`, …).
+- **Was:** **SIGSEGV** — integration by parts recursed
+  `exp·sin → exp·cos → exp·sin → …` without bound and overflowed the stack.
+- **Expected (SymPy):** `exp(x)*sin(x)/2 - exp(x)*cos(x)/2`.
+- **Fix:** (1) a dedicated closed-form rule for `c·e^(a x+·)·sin/cos(g x+·)`
+  — `∫E·S = E(aS−gC)/(a²+g²)`, `∫E·C = E(aC+gS)/(a²+g²)`; (2) a
+  recursion-depth backstop in `integrate()` (limit 64) so any *other*
+  cyclic integrand degrades to the unevaluated `Integral(...)` marker
+  instead of crashing.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[byparts][regression]` (exp·sin, exp·cos, exp(2x)·sin(3x), and x²·exp
+  to confirm polynomial by-parts still works), each verified by
+  differentiating the result back to the integrand.
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
@@ -85,3 +100,4 @@ truth and links the issue number.
 [#3]: https://github.com/leonardoaraujosantos/SymPP/issues/3
 [#4]: https://github.com/leonardoaraujosantos/SymPP/pull/4
 [#5]: https://github.com/leonardoaraujosantos/SymPP/issues/5
+[#7]: https://github.com/leonardoaraujosantos/SymPP/issues/7
