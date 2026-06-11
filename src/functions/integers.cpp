@@ -14,6 +14,7 @@
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 
 namespace sympp {
@@ -53,6 +54,37 @@ namespace {
     auto out = make<Float>(static_cast<mpfr_srcptr>(r), f.precision_dps());
     mpfr_clear(r);
     return out;
+}
+
+// floor/ceiling of a constant real expression (pi, E, 2*pi, EulerGamma, …):
+// evalf at high precision and round the resulting Float to an exact Integer.
+// A boundary guard refuses to fold when the value sits within ~1e-40 of an
+// integer (so a constant that is really an integer in disguise can't be
+// mis-rounded); such cases stay symbolic.
+[[nodiscard]] std::optional<Expr> constant_floor_ceiling(const Expr& arg,
+                                                         bool is_ceiling) {
+    if (!free_symbols(arg).empty()) return std::nullopt;
+    // A real numeric constant evalfs to a Float; a complex or infinite value
+    // does not, so the Float check both confirms reality and excludes I/oo.
+    Expr v = evalf(arg, 60);
+    if (v->type_id() != TypeId::Float) return std::nullopt;
+    mpfr_srcptr val = static_cast<const Float&>(*v).value();
+    if (mpfr_number_p(val) == 0) return std::nullopt;  // inf/nan guard
+
+    // Distance to the nearest integer; bail if too close to call.
+    mpfr_t nearest, diff;
+    mpfr_init2(nearest, dps_to_prec(60));
+    mpfr_init2(diff, dps_to_prec(60));
+    mpfr_round(nearest, val);
+    mpfr_sub(diff, val, nearest, MPFR_RNDN);
+    mpfr_abs(diff, diff, MPFR_RNDN);
+    const bool on_boundary = mpfr_cmp_d(diff, 1e-40) < 0;
+    mpfr_clears(nearest, diff, static_cast<mpfr_ptr>(nullptr));
+    if (on_boundary) return std::nullopt;
+
+    mpz_class r;
+    mpfr_get_z(r.get_mpz_t(), val, is_ceiling ? MPFR_RNDU : MPFR_RNDD);
+    return make<Integer>(std::move(r));
 }
 
 [[nodiscard]] std::optional<bool> int_ask(AssumptionKey k, const Expr& a) noexcept {
@@ -104,6 +136,8 @@ Expr floor(const Expr& arg) {
     }
     // Symbol with integer assumption -> identity.
     if (is_integer(arg) == true) return arg;
+    // Constant real (pi, E, 2*pi, …): evaluate numerically.
+    if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/false)) return *v;
     return make<Floor>(arg);
 }
 
@@ -116,6 +150,8 @@ Expr ceiling(const Expr& arg) {
         return ceiling_float(static_cast<const Float&>(*arg));
     }
     if (is_integer(arg) == true) return arg;
+    // Constant real (pi, E, 2*pi, …): evaluate numerically.
+    if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/true)) return *v;
     return make<Ceiling>(arg);
 }
 

@@ -10,10 +10,15 @@
 
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
+#include <sympp/core/function.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/polys/rootof.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/rational.hpp>
+#include <vector>
 
 namespace sympp {
 
@@ -261,8 +266,33 @@ Expr evalf(const Expr& e, int dps) {
             if (auto v = r.try_evalf(dps)) return *v;
             return e;
         }
+        case TypeId::Add: {
+            std::vector<Expr> terms;
+            terms.reserve(e->args().size());
+            for (const auto& a : e->args()) terms.push_back(evalf(a, dps));
+            return add(std::move(terms));
+        }
+        case TypeId::Mul: {
+            std::vector<Expr> factors;
+            factors.reserve(e->args().size());
+            for (const auto& a : e->args()) factors.push_back(evalf(a, dps));
+            return mul(std::move(factors));
+        }
+        case TypeId::Pow:
+            return pow(evalf(e->args()[0], dps), evalf(e->args()[1], dps));
+        case TypeId::Function:
+        case TypeId::ElementaryFunction:
+        case TypeId::SpecialFunction: {
+            // Evaluate the arguments; the function factory (via rebuild) then
+            // folds a now-numeric argument to a Float (e.g. sin(pi)→sin(Float)).
+            const auto& fn = static_cast<const Function&>(*e);
+            std::vector<Expr> args;
+            args.reserve(e->args().size());
+            for (const auto& a : e->args()) args.push_back(evalf(a, dps));
+            return fn.rebuild(std::move(args));
+        }
         default:
-            // Non-numeric — identity. Phase 1f will recurse into Add/Mul/Pow.
+            // Symbols, infinities, booleans, … — identity.
             return e;
     }
 }

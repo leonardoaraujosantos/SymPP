@@ -8,7 +8,9 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -50,6 +52,23 @@ TEST_CASE("floor: integer-tagged symbol is identity",
 TEST_CASE("floor: stays unevaluated on a generic symbol", "[3g][floor]") {
     auto x = symbol("x");
     REQUIRE(floor(x)->str() == "floor(x)");
+}
+
+// Regression (FLOOR-CONST): floor/ceiling of a real constant expression
+// evaluate numerically — floor(pi)=3, floor(2*pi)=6, floor(sqrt(2))=1.
+TEST_CASE("floor/ceiling: real constants evaluate numerically",
+          "[3g][floor][ceiling][regression]") {
+    REQUIRE(floor(S::Pi()) == integer(3));
+    REQUIRE(ceiling(S::Pi()) == integer(4));
+    REQUIRE(floor(S::E()) == integer(2));
+    REQUIRE(floor(integer(2) * S::Pi()) == integer(6));
+    REQUIRE(floor(mul(integer(-1), S::Pi())) == integer(-4));
+    REQUIRE(ceiling(mul(integer(-1), S::Pi())) == integer(-3));
+    REQUIRE(floor(pow(integer(2), rational(1, 2))) == integer(1));
+    REQUIRE(ceiling(pow(integer(2), rational(1, 2))) == integer(2));
+    // Imaginary / infinite arguments must NOT fold.
+    REQUIRE(floor(S::I())->str() == "floor(I)");
+    REQUIRE(floor(S::Infinity())->str() == "floor(oo)");
 }
 
 // ----- ceiling ---------------------------------------------------------------

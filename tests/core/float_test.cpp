@@ -10,8 +10,12 @@
 
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/type_id.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -106,6 +110,20 @@ TEST_CASE("evalf: Symbol passes through unchanged", "[1][evalf]") {
     Expr xe = x;
     auto out = evalf(xe, 15);
     REQUIRE(out == xe);
+}
+
+// Regression (EVALF-1): evalf now recurses into Add/Mul/Pow so compound
+// numeric constants reduce to a Float (previously 2*pi came back unevaluated).
+TEST_CASE("evalf: recurses into Add/Mul/Pow", "[1][evalf][regression]") {
+    auto& oracle = Oracle::instance();
+    auto two_pi = integer(2) * S::Pi();
+    auto r = evalf(two_pi, 30);
+    REQUIRE(r->type_id() == TypeId::Float);
+    REQUIRE(oracle.equivalent(r->str(), oracle.evalf("2*pi", 30)));
+
+    auto root2 = evalf(pow(integer(2), rational(1, 2)), 30);
+    REQUIRE(root2->type_id() == TypeId::Float);
+    REQUIRE(oracle.equivalent(root2->str(), oracle.evalf("sqrt(2)", 30)));
 }
 
 // ----- Oracle-validated tests --------------------------------------------------
