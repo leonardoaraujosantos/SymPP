@@ -291,6 +291,36 @@ TEST_CASE("integrate: ∫1/(x^2-1) dx stays a log (reducible, unaffected)",
     REQUIRE(r->str().find("log") != std::string::npos);
 }
 
+// ----- Linear over irreducible quadratic (INT-16) ----------------------------
+// ∫(p·x+q)/(a·x²+b·x+c) splits into (p/2a)·log(quadratic) + remainder·atan.
+TEST_CASE("integrate: ∫(linear)/(irreducible quadratic)",
+          "[7][integrate][rational][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](Expr e) { return pow(e, integer(2)); };
+    // Numerator ∝ d(denom): pure log, no atan term.
+    REQUIRE(oracle.equivalent(
+        integrate((x + integer(1)) / (sq(x) + integer(2) * x + integer(5)), x)
+            ->str(),
+        "log(x**2 + 2*x + 5)/2"));
+    // log + atan.
+    REQUIRE(oracle.equivalent(
+        integrate((integer(2) * x + integer(3)) / (sq(x) + integer(1)), x)
+            ->str(),
+        "log(x**2 + 1) + 3*atan(x)"));
+    REQUIRE(oracle.equivalent(
+        integrate((integer(3) * x + integer(5)) / (sq(x) + integer(4)), x)
+            ->str(),
+        "3*log(x**2 + 4)/2 + 5*atan(x/2)/2"));
+    // Completed-square denominator with a linear numerator.
+    REQUIRE(oracle.equivalent(
+        integrate(x / (sq(x) + integer(2) * x + integer(5)), x)->str(),
+        "log(x**2 + 2*x + 5)/2 - atan(x/2 + 1/2)/2"));
+    // Cleaned-up log (previously emitted the spurious 1/2*log(2*(x²+1))).
+    REQUIRE(oracle.equivalent(integrate(x / (sq(x) + integer(1)), x)->str(),
+                              "log(x**2 + 1)/2"));
+}
+
 // ----- Arc-sine / arc-sinh of a quadratic radicand (regression, INT-6) -------
 // ∫1/√(a·x²+c) dx (pure quadratic radicand, c>0) used to fall through. It now
 // returns asinh (a>0) or asin (a<0). The x²−1 case (acosh/log) stays deferred.

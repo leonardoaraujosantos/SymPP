@@ -260,6 +260,14 @@ namespace {
 // var with numeric coefficients and positive discriminant.
 [[nodiscard]] std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ (p·x + q)/(a·x² + b·x + c) dx for an irreducible quadratic denominator:
+// split the numerator into the part proportional to the denominator's
+// derivative (→ log) plus a constant remainder (→ the arctangent rule). E.g.
+// ∫(2x+3)/(x²+1) = log(x²+1) + 3·atan(x). Reducible / repeated-root quadratics
+// are left to try_rational; constant numerators to try_arctan_quadratic.
+[[nodiscard]] std::optional<Expr> try_linear_over_quadratic(const Expr& expr,
+                                                            const Expr& var);
+
 // ∫ 1/√(a·x² + c) dx for a pure quadratic under the root (no linear term)
 // with c > 0:  a > 0 → asinh(x·√(a/c))/√a ;  a < 0 → asin(x·√(−a/c))/√(−a).
 // A linear term, or c ≤ 0 (the acosh / log forms), is out of scope. Returns
@@ -317,6 +325,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_arctan_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_linear_over_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sqrt_quadratic(expr, var); r.has_value()) {
@@ -814,6 +825,59 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     Expr root_d = sqrt(disc);
     Expr arg = (integer(2) * a * var + b) / root_d;
     return simplify(integer(2) * atan(arg) / root_d);
+}
+
+std::optional<Expr> try_linear_over_quadratic(const Expr& expr,
+                                              const Expr& var) {
+    // Match num · den^(-1) where den is a quadratic and num is linear in var.
+    Expr num;
+    Expr den;
+    if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_factors;
+        for (const auto& f : expr->args()) {
+            if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+                if (den) return std::nullopt;  // more than one denominator
+                den = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
+        }
+        if (!den) return std::nullopt;
+        num = mul(num_factors);
+    } else {
+        return std::nullopt;  // a constant numerator is try_arctan_quadratic's job
+    }
+    if (!depends_on(den, var)) return std::nullopt;
+
+    Poly dp(expand(den), var);
+    Poly np(expand(num), var);
+    if (dp.degree() != 2 || np.degree() != 1) return std::nullopt;
+    const Expr& c = dp.coeffs()[0];
+    const Expr& b = dp.coeffs()[1];
+    const Expr& a = dp.coeffs()[2];
+    const Expr& q = np.coeffs()[0];
+    const Expr& p = np.coeffs()[1];
+    // Numeric coefficients only (irreducibility is decided from the sign of D).
+    for (const auto& e : {a, b, c, p, q}) {
+        if (is_rational(e) != true) return std::nullopt;
+    }
+    // Only the irreducible case (D = 4ac − b² > 0). Reducible / repeated-root
+    // denominators are split by try_rational into partial fractions.
+    Expr disc = integer(4) * a * c - b * b;
+    if (is_positive(disc) != true) return std::nullopt;
+
+    // p·x + q = (p/2a)·(2a·x + b) + (q − p·b/2a):
+    //   ∫ = (p/2a)·log(a·x²+b·x+c) + (q − p·b/2a)·∫ 1/(a·x²+b·x+c) dx.
+    Expr two_a = integer(2) * a;
+    Expr log_coeff = p / two_a;
+    Expr remainder = q - p * b / two_a;
+    Expr result = mul(log_coeff, log(dp.as_expr()));
+    if (!(simplify(remainder) == S::Zero())) {
+        auto inv = try_arctan_quadratic(pow(den, S::NegativeOne()), var);
+        if (!inv) return std::nullopt;  // shouldn't happen given D > 0
+        result = result + remainder * (*inv);
+    }
+    return simplify(result);
 }
 
 std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {

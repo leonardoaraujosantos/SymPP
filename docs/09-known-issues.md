@@ -460,6 +460,29 @@ truth and links the issue number.
   polynomial). Recognising `Ei`/`Si`/`Ci` special-function antiderivatives is a
   separate feature.
 
+### INT-16 — `integrate((linear)/(irreducible quadratic))` returned the marker
+- **Input:** `∫(x+1)/(x²+2x+5)`, `∫(2x+3)/(x²+1)`, `∫(3x+5)/(x²+4)`,
+  `∫x/(x²+2x+5)`, `∫x/(x²+1)`.
+- **Was:** the marker, or — for `∫x/(x²+1)` via the logarithmic-derivative
+  heuristic — the spurious `1/2*log(2*(x²+1))` (extra factor inside the log).
+  `try_arctan_quadratic` only handled a *constant* numerator (`1/quad`).
+- **Expected (SymPy):** `log(x²+2x+5)/2`, `log(x²+1)+3*atan(x)`,
+  `3*log(x²+4)/2 + 5*atan(x/2)/2`, `log(x²+2x+5)/2 − atan(x/2+1/2)/2`,
+  `log(x²+1)/2`.
+- **Fix:** added `try_linear_over_quadratic` (`src/integrals/integrate.cpp`):
+  for `(p·x+q)/(a·x²+b·x+c)` over an irreducible quadratic (`4ac−b² > 0`), split
+  `p·x+q = (p/2a)(2a·x+b) + (q−pb/2a)` ⇒
+  `(p/2a)·log(a·x²+b·x+c) + (q−pb/2a)·∫1/(a·x²+b·x+c)` (reusing the arctangent
+  rule for the second term). Dispatched right after `try_arctan_quadratic`, so
+  it also produces the clean `log(x²+1)/2` for `∫x/(x²+1)`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[rational][arctan][regression]`.
+- **Scope:** irreducible quadratic denominators with a degree-≤1 numerator and
+  rational coefficients. Reducible / repeated-root denominators stay with
+  `try_rational` (partial fractions → logs); higher-degree denominators such as
+  `∫1/(x³+1)` need full partial-fraction decomposition over irreducible factors
+  (a separate task).
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
