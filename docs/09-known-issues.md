@@ -207,6 +207,22 @@ truth and links the issue number.
 - **Scope:** denominators outside {1,2,3,4,6} (e.g. `π/12`, `π/5`) stay
   symbolic — SymPy expands those to nested radicals, not yet implemented.
 
+### TRIG-2 — `asin`/`acos`/`atan` not evaluated at special arguments
+- **Input:** `asin(1/2)`, `acos(1/2)`, `atan(sqrt(3))`, `asin(sqrt(2)/2)`,
+  `acos(-1/2)`, `atan(sqrt(3)/3)`.
+- **Was:** `asin(1/2)`, … — only the trivial `0`, `±1` arguments folded.
+- **Expected (SymPy):** `pi/6`, `pi/3`, `pi/3`, `pi/4`, `2*pi/3`, `pi/6`.
+- **Fix:** `asin_special` / `atan_special` reverse-lookup tables (matching the
+  same radical constants the forward TRIG-1 table emits, so structural
+  equality fires), with oddness routed through the factory so negatives fold.
+  `acos(x) = π/2 − asin(x)`, adopted only when `asin` produced an exact angle
+  (otherwise `acos(x)` stays unevaluated, as SymPy does).
+- **Regression test:** `tests/functions/inverse_trig_test.cpp`
+  — `[asin]/[acos]/[atan][regression]` (incl. negative args and a
+  non-special `acos(1/3)` guard).
+- **Scope:** mirrors TRIG-1 — only the {1,2,3,4,6}-denominator angles; other
+  arguments (e.g. `asin(1/3)`) stay symbolic.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

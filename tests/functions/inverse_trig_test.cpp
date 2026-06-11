@@ -46,6 +46,45 @@ TEST_CASE("asin: stays unevaluated on a generic symbol", "[3e][asin]") {
     REQUIRE(asin(x)->str() == "asin(x)");
 }
 
+// ----- Exact inverse values at special arguments (regression, TRIG-2) --------
+// asin/acos/atan at 1/2, √2/2, √3/2, 1, √3, √3/3 used to stay unevaluated
+// (only the trivial 0/±1 args folded). Reference: SymPy's exact-value table.
+TEST_CASE("asin: exact special arguments", "[3e][asin][regression]") {
+    REQUIRE(asin(S::Half()) == mul(rational(1, 6), S::Pi()));
+    REQUIRE(asin(mul(S::NegativeOne(), S::Half()))
+            == mul(rational(-1, 6), S::Pi()));
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(asin(pow(integer(2), rational(1, 2)) / integer(2))->str(),
+                              "pi/4"));
+}
+
+TEST_CASE("acos: exact special arguments (via π/2 − asin)",
+          "[3e][acos][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(acos(S::Half())->str(), "pi/3"));
+    REQUIRE(oracle.equivalent(acos(mul(S::NegativeOne(), S::Half()))->str(),
+                              "2*pi/3"));
+    REQUIRE(oracle.equivalent(
+        acos(pow(integer(3), rational(1, 2)) / integer(2))->str(), "pi/6"));
+}
+
+TEST_CASE("atan: exact special arguments", "[3e][atan][regression]") {
+    REQUIRE(atan(S::One()) == mul(rational(1, 4), S::Pi()));
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(atan(pow(integer(3), rational(1, 2)))->str(),
+                              "pi/3"));
+    REQUIRE(oracle.equivalent(
+        atan(pow(integer(3), rational(1, 2)) / integer(3))->str(), "pi/6"));
+}
+
+TEST_CASE("acos: stays unevaluated on a non-special argument",
+          "[3e][acos][regression]") {
+    auto x = symbol("x");
+    REQUIRE(acos(x)->type_id() == TypeId::Function);
+    // 1/3 is not a special cosine value — must not fold.
+    REQUIRE(acos(rational(1, 3))->type_id() == TypeId::Function);
+}
+
 // ----- acos ------------------------------------------------------------------
 
 TEST_CASE("acos: canonical values", "[3e][acos]") {

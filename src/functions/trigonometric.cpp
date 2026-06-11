@@ -403,49 +403,93 @@ namespace {
     return trig_evalf(op, arg);
 }
 
+// √2/2 and √3/2 — built with the same constructors the forward trig table
+// emits, so structural equality matches an incoming argument.
+[[nodiscard]] Expr sqrt2_over_2() {
+    return mul(pow(integer(2), rational(1, 2)), S::Half());
+}
+[[nodiscard]] Expr sqrt3_over_2() {
+    return mul(pow(integer(3), rational(1, 2)), S::Half());
+}
+
+// asin of a non-negative special value → angle in [0, π/2], else nullopt.
+[[nodiscard]] std::optional<Expr> asin_special(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    if (arg == S::Half()) return mul(rational(1, 6), S::Pi());
+    if (arg == sqrt2_over_2()) return mul(rational(1, 4), S::Pi());
+    if (arg == sqrt3_over_2()) return mul(rational(1, 3), S::Pi());
+    if (arg == S::One()) return mul(S::Half(), S::Pi());
+    return std::nullopt;
+}
+
+// atan of a non-negative special value → angle in [0, π/2), else nullopt.
+[[nodiscard]] std::optional<Expr> atan_special(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    // √3/3 = tan(π/6)
+    if (arg == mul(pow(integer(3), rational(1, 2)), rational(1, 3))) {
+        return mul(rational(1, 6), S::Pi());
+    }
+    if (arg == S::One()) return mul(rational(1, 4), S::Pi());
+    if (arg == pow(integer(3), rational(1, 2))) {  // √3 = tan(π/3)
+        return mul(rational(1, 3), S::Pi());
+    }
+    return std::nullopt;
+}
+
+// True if `e` is an unevaluated Asin(...) or −Asin(...) — used so acos only
+// folds via π/2 − asin when asin actually produced an exact angle.
+[[nodiscard]] bool is_unevaluated_asin(const Expr& e) {
+    auto is_asin = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Asin;
+    };
+    if (is_asin(e)) return true;
+    if (e->type_id() == TypeId::Mul) {
+        for (const auto& f : e->args()) {
+            if (is_asin(f)) return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 Expr asin(const Expr& arg) {
-    if (arg == S::Zero()) return S::Zero();
-    if (arg == S::One()) return mul(S::Half(), S::Pi());
-    if (arg == S::NegativeOne()) return mul(S::NegativeOne(), mul(S::Half(), S::Pi()));
-
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_asin, arg);
     }
-
+    // Odd: asin(-x) = -asin(x). Recurse through the factory so the positive
+    // part still gets the special-value table.
     if (auto pos = strip_neg(arg); pos.has_value()) {
-        return mul(S::NegativeOne(), make<Asin>(*pos));
+        return mul(S::NegativeOne(), asin(*pos));
     }
-
+    if (auto v = asin_special(arg); v.has_value()) return *v;
     return make<Asin>(arg);
 }
 
 Expr acos(const Expr& arg) {
-    if (arg == S::Zero()) return mul(S::Half(), S::Pi());
-    if (arg == S::One()) return S::Zero();
-    if (arg == S::NegativeOne()) return S::Pi();
-
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_acos, arg);
     }
-
+    // acos(x) = π/2 − asin(x), but only adopt it when asin produced an exact
+    // angle (otherwise keep acos(x) unevaluated, as SymPy does).
+    Expr a = asin(arg);
+    if (!is_unevaluated_asin(a)) {
+        return add(mul(S::Half(), S::Pi()), mul(S::NegativeOne(), a));
+    }
     return make<Acos>(arg);
 }
 
 Expr atan(const Expr& arg) {
-    if (arg == S::Zero()) return S::Zero();
-    if (arg == S::One()) return mul(rational(1, 4), S::Pi());
-    if (arg == S::NegativeOne()) return mul(rational(-1, 4), S::Pi());
-
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_atan, arg);
     }
-
+    // Odd: atan(-x) = -atan(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
-        return mul(S::NegativeOne(), make<Atan>(*pos));
+        return mul(S::NegativeOne(), atan(*pos));
     }
-
+    if (auto v = atan_special(arg); v.has_value()) return *v;
     return make<Atan>(arg);
 }
 
