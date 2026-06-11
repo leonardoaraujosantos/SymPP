@@ -241,6 +241,56 @@ TEST_CASE("integrate: ∫x*log(2x+1) dx (affine log argument)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), "x*log(2*x + 1)"));
 }
 
+// ----- Arctangent of an irreducible quadratic (regression, INT-5) ------------
+// ∫1/(a·x²+b·x+c) dx with negative discriminant used to fall through (the
+// rational path only decomposes denominators with real roots). It now returns
+// the arctangent closed form. Reducible denominators (e.g. 1/(x²−1)) keep
+// going through try_rational and are unaffected.
+TEST_CASE("integrate: ∫1/(1+x^2) dx = atan(x)",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(2)) + integer(1), integer(-1)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "atan(x)"));
+}
+
+TEST_CASE("integrate: ∫1/(x^2+4) dx = atan(x/2)/2",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(2)) + integer(4), integer(-1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "atan(x/2)/2"));
+}
+
+TEST_CASE("integrate: ∫1/(4x^2+9) dx = atan(2x/3)/6",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto den = integer(4) * pow(x, integer(2)) + integer(9);
+    auto r = integrate(pow(den, integer(-1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "atan(2*x/3)/6"));
+}
+
+TEST_CASE("integrate: ∫1/(x^2+2x+5) dx = atan((x+1)/2)/2 (completed square)",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto den = pow(x, integer(2)) + integer(2) * x + integer(5);
+    auto r = integrate(pow(den, integer(-1)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "atan((x+1)/2)/2"));
+}
+
+TEST_CASE("integrate: ∫1/(x^2-1) dx stays a log (reducible, unaffected)",
+          "[7][integrate][arctan][regression]") {
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(2)) - integer(1), integer(-1)), x);
+    // Real roots -> partial fractions / logs, NOT atan.
+    REQUIRE(r->str().find("atan") == std::string::npos);
+    REQUIRE(r->str().find("log") != std::string::npos);
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by
