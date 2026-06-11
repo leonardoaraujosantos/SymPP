@@ -318,6 +318,19 @@ truth and links the issue number.
   (e.g. `asin(sin(x))`) stays unevaluated — it is `x` only on a restricted
   range, matching SymPy.
 
+### FUNC-2 — cross-function inverse compositions not simplified
+- **Input:** `cos(asin(x))`, `sin(acos(x))`, `tan(asin(x))`, `cos(atan(x))`,
+  `sin(atan(x))`, `tan(acos(x))`.
+- **Was:** `cos(asin(x))`, … — left unevaluated.
+- **Expected (SymPy):** `√(1−x²)`, `√(1−x²)`, `x/√(1−x²)`, `1/√(1+x²)`,
+  `x/√(1+x²)`, `√(1−x²)/x`.
+- **Fix:** the `sin`/`cos`/`tan` factories now recognise a different inverse-trig
+  argument (via `arg_of`) and emit the corresponding algebraic form. Extends
+  FUNC-1 (the same-function `f(f⁻¹)` collapse).
+- **Regression test:** `tests/functions/inverse_trig_test.cpp` — `[regression]`.
+- **Scope:** the trig × inverse-trig table; hyperbolic cross-compositions
+  (`cosh(asinh(x)) = √(x²+1)`, …) are a follow-up.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
