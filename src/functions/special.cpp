@@ -8,6 +8,7 @@
 
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -83,6 +84,9 @@ std::optional<bool> Erf::ask(AssumptionKey k) const noexcept {
 
 Expr erf(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // erf(±oo) = ±1.
+    if (arg->type_id() == TypeId::Infinity) return S::One();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeOne();
     if (arg->type_id() == TypeId::Float) {
         return float_unary_op(mpfr_erf, arg);
     }
@@ -115,6 +119,9 @@ std::optional<bool> Erfc::ask(AssumptionKey k) const noexcept {
 
 Expr erfc(const Expr& arg) {
     if (arg == S::Zero()) return S::One();
+    // erfc(oo) = 0, erfc(-oo) = 2.
+    if (arg->type_id() == TypeId::Infinity) return S::Zero();
+    if (arg->type_id() == TypeId::NegativeInfinity) return integer(2);
     if (arg->type_id() == TypeId::Float) {
         return float_unary_op(mpfr_erfc, arg);
     }

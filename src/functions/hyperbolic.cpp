@@ -9,6 +9,7 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -177,6 +178,9 @@ std::optional<bool> Atanh::ask(AssumptionKey /*k*/) const noexcept {
 
 Expr sinh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // sinh(±oo) = ±oo.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeInfinity();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_sinh, arg);
     }
@@ -198,6 +202,11 @@ Expr sinh(const Expr& arg) {
 
 Expr cosh(const Expr& arg) {
     if (arg == S::Zero()) return S::One();
+    // cosh(±oo) = oo (even, both directions grow without bound).
+    if (arg->type_id() == TypeId::Infinity
+        || arg->type_id() == TypeId::NegativeInfinity) {
+        return S::Infinity();
+    }
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_cosh, arg);
     }
@@ -219,6 +228,9 @@ Expr cosh(const Expr& arg) {
 
 Expr tanh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // tanh(±oo) = ±1.
+    if (arg->type_id() == TypeId::Infinity) return S::One();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeOne();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_tanh, arg);
     }
@@ -240,6 +252,9 @@ Expr tanh(const Expr& arg) {
 
 Expr asinh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // asinh(±oo) = ±oo.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeInfinity();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_asinh, arg);
     }
@@ -251,6 +266,11 @@ Expr asinh(const Expr& arg) {
 
 Expr acosh(const Expr& arg) {
     if (arg == S::One()) return S::Zero();
+    // acosh(±oo) = oo.
+    if (arg->type_id() == TypeId::Infinity
+        || arg->type_id() == TypeId::NegativeInfinity) {
+        return S::Infinity();
+    }
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_acosh, arg);
     }

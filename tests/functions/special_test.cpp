@@ -60,6 +60,14 @@ TEST_CASE("erfc: erfc(0) = 1", "[3j][erfc]") {
     REQUIRE(erfc(S::Zero()) == S::One());
 }
 
+// Regression (FUNC-INF): erf/erfc at ±oo.
+TEST_CASE("erf/erfc: values at infinity", "[3j][erf][erfc][infinity][regression]") {
+    REQUIRE(erf(S::Infinity()) == S::One());
+    REQUIRE(erf(S::NegativeInfinity()) == S::NegativeOne());
+    REQUIRE(erfc(S::Infinity()) == S::Zero());
+    REQUIRE(erfc(S::NegativeInfinity()) == integer(2));
+}
+
 TEST_CASE("erfc: numeric matches mpfr_erfc", "[3j][erfc]") {
     auto e = erfc(float_value(1.0));
     REQUIRE(e->type_id() == TypeId::Float);

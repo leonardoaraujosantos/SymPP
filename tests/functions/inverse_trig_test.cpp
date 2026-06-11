@@ -135,6 +135,12 @@ TEST_CASE("atan: canonical values", "[3e][atan]") {
     REQUIRE(atan(S::NegativeOne()) == mul(rational(-1, 4), S::Pi()));
 }
 
+// Regression (FUNC-INF): atan(±oo) = ±pi/2.
+TEST_CASE("atan: values at infinity", "[3e][atan][infinity][regression]") {
+    REQUIRE(atan(S::Infinity()) == mul(S::Half(), S::Pi()));
+    REQUIRE(atan(S::NegativeInfinity()) == mul(rational(-1, 2), S::Pi()));
+}
+
 TEST_CASE("atan: odd identity", "[3e][atan]") {
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);

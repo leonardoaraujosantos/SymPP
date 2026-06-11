@@ -35,6 +35,21 @@ TEST_CASE("tanh: canonical values", "[3f][tanh]") {
     REQUIRE(tanh(S::Zero()) == S::Zero());
 }
 
+// Regression (FUNC-INF): hyperbolic functions at ±oo.
+TEST_CASE("hyperbolic: values at infinity", "[3f][infinity][regression]") {
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    REQUIRE(sinh(oo) == oo);
+    REQUIRE(sinh(noo) == noo);
+    REQUIRE(cosh(oo) == oo);
+    REQUIRE(cosh(noo) == oo);
+    REQUIRE(tanh(oo) == S::One());
+    REQUIRE(tanh(noo) == S::NegativeOne());
+    REQUIRE(asinh(oo) == oo);
+    REQUIRE(asinh(noo) == noo);
+    REQUIRE(acosh(oo) == oo);
+}
+
 TEST_CASE("sinh: odd identity sinh(-x) = -sinh(x)", "[3f][sinh]") {
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);
