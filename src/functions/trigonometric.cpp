@@ -655,6 +655,23 @@ Expr atan2(const Expr& y, const Expr& x) {
         }
     }
 
+    // General reduction: atan2(y, x) = atan(y/x) with a quadrant correction,
+    // applied when x has a known sign and y is real. atan then folds the
+    // special values (atan(1) = pi/4, atan(sqrt(3)) = pi/3, …). Matches SymPy.
+    if (is_real(y) == true) {
+        Expr q = mul(y, pow(x, S::NegativeOne()));
+        if (is_positive(x) == true) {
+            return atan(q);
+        }
+        if (is_negative(x) == true) {
+            // x < 0: add pi when y ≥ 0, subtract pi when y < 0.
+            if (is_nonnegative(y) == true) return add(atan(q), S::Pi());
+            if (is_negative(y) == true) {
+                return add(atan(q), mul(S::NegativeOne(), S::Pi()));
+            }
+        }
+    }
+
     return make<Atan2>(y, x);
 }
 

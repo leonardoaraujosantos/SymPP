@@ -17,6 +17,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
 #include "oracle/oracle.hpp"
@@ -171,6 +172,25 @@ TEST_CASE("atan2(0, 0) stays unevaluated", "[3e][atan2]") {
     auto e = atan2(S::Zero(), S::Zero());
     REQUIRE(e->type_id() == TypeId::Function);
     REQUIRE(e->str() == "atan2(0, 0)");
+}
+
+// Regression (ATAN2-1): atan2 of nonzero numeric args reduced only on the axes;
+// the general quadrant cases stayed unevaluated. atan2(y, x) = atan(y/x) with a
+// quadrant correction now folds them (and atan folds the special values).
+TEST_CASE("atan2: general quadrant reductions match SymPy",
+          "[3e][atan2][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(atan2(integer(1), integer(1))->str(), "pi/4"));
+    REQUIRE(oracle.equivalent(atan2(integer(-1), integer(1))->str(), "-pi/4"));
+    REQUIRE(oracle.equivalent(atan2(integer(1), integer(-1))->str(), "3*pi/4"));
+    REQUIRE(
+        oracle.equivalent(atan2(integer(-1), integer(-1))->str(), "-3*pi/4"));
+    // First quadrant with an irrational denominator (atan rewrite is faithful
+    // even where atan's own table does not fold the argument).
+    REQUIRE(oracle.equivalent(atan2(integer(1), sqrt(integer(3)))->str(),
+                              "pi/6"));
+    // Non-special ratio: stays as atan(2), matching SymPy.
+    REQUIRE(oracle.equivalent(atan2(integer(2), integer(1))->str(), "atan(2)"));
 }
 
 // ----- Numeric evalf ---------------------------------------------------------
