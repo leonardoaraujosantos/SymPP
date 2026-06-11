@@ -171,6 +171,24 @@ namespace {
     return sign < 0 ? mul(S::NegativeOne(), *base) : *base;
 }
 
+// Split an additive argument `arg = rest + C·π`: returns the total rational
+// π-coefficient C and the π-free remainder `rest`. Only fires for a true Add
+// (a pure r·π Mul is left to pi_coefficient / the special-value tables).
+[[nodiscard]] std::pair<mpq_class, Expr> split_pi_term(const Expr& arg) {
+    if (arg->type_id() != TypeId::Add) return {mpq_class(0), arg};
+    mpq_class total(0);
+    std::vector<Expr> rest;
+    for (const auto& term : arg->args()) {
+        if (auto c = pi_coefficient(term); c.has_value()) {
+            total += *c;
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (rest.empty()) return {total, S::Zero()};
+    return {total, add(std::move(rest))};
+}
+
 }  // namespace
 
 // ----- Sin -------------------------------------------------------------------
@@ -262,6 +280,12 @@ Expr sin(const Expr& arg) {
         if (auto v = sin_pi(*r); v.has_value()) return *v;
     }
 
+    // Periodicity / π-shift: sin(rest + k·π) = (−1)^k·sin(rest) for integer k.
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        bool odd = mpz_odd_p(c.get_num_mpz_t());
+        return odd ? mul(S::NegativeOne(), sin(rest)) : sin(rest);
+    }
+
     // Odd: sin(-x) = -sin(x)
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Sin>(*pos));
@@ -285,6 +309,12 @@ Expr cos(const Expr& arg) {
         if (auto v = cos_pi(*r); v.has_value()) return *v;
     }
 
+    // Periodicity / π-shift: cos(rest + k·π) = (−1)^k·cos(rest) for integer k.
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        bool odd = mpz_odd_p(c.get_num_mpz_t());
+        return odd ? mul(S::NegativeOne(), cos(rest)) : cos(rest);
+    }
+
     // Even: cos(-x) = cos(x)
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return make<Cos>(*pos);
@@ -306,6 +336,11 @@ Expr tan(const Expr& arg) {
     // out-of-table denominators are left unevaluated.
     if (auto r = pi_coefficient(arg); r.has_value()) {
         if (auto v = tan_pi(*r); v.has_value()) return *v;
+    }
+
+    // Period π: tan(rest + k·π) = tan(rest) for any integer k.
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        return tan(rest);
     }
 
     // Odd: tan(-x) = -tan(x)
