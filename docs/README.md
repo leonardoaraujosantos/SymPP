@@ -20,6 +20,7 @@ and structural test.
 | 06 | [Build and Tooling](06-build-and-tooling.md)        | CMake layout, dependencies, CI |
 | 07 | [Coding Standards](07-coding-standards.md)          | C++20 conventions, style, error model |
 | 08 | [Tutorial](08-tutorial.md)                          | Worked examples covering each shipped phase |
+| 09 | [Known Issues](09-known-issues.md)                  | SymPy-parity bug log (open + fixed) |
 
 ## Status
 
