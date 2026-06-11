@@ -97,6 +97,20 @@ TEST_CASE("trig: f(inverse(x)) collapses to x", "[3e][regression]") {
     REQUIRE(asin(sin(x))->type_id() == TypeId::Function);
 }
 
+// ----- Cross-function inverse compositions (regression, FUNC-2) --------------
+// cos(asin(x)) = √(1−x²) and the rest of the trig × inverse-trig table.
+TEST_CASE("trig: cross-function inverse compositions",
+          "[3e][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(cos(asin(x))->str(), "sqrt(1 - x**2)"));
+    REQUIRE(oracle.equivalent(sin(acos(x))->str(), "sqrt(1 - x**2)"));
+    REQUIRE(oracle.equivalent(tan(asin(x))->str(), "x/sqrt(1 - x**2)"));
+    REQUIRE(oracle.equivalent(cos(atan(x))->str(), "1/sqrt(1 + x**2)"));
+    REQUIRE(oracle.equivalent(sin(atan(x))->str(), "x/sqrt(1 + x**2)"));
+    REQUIRE(oracle.equivalent(tan(acos(x))->str(), "sqrt(1 - x**2)/x"));
+}
+
 // ----- acos ------------------------------------------------------------------
 
 TEST_CASE("acos: canonical values", "[3e][acos]") {

@@ -285,6 +285,15 @@ Expr sin(const Expr& arg) {
 
     // sin(asin(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Asin); v.has_value()) return *v;
+    // sin(acos(x)) = √(1 − x²).
+    if (auto v = arg_of(arg, FunctionId::Acos); v.has_value()) {
+        return pow(add(S::One(), mul(S::NegativeOne(), pow(*v, integer(2)))),
+                   rational(1, 2));
+    }
+    // sin(atan(x)) = x / √(1 + x²).
+    if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) {
+        return mul(*v, pow(add(S::One(), pow(*v, integer(2))), rational(-1, 2)));
+    }
 
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
     // π and all their quadrant images).
@@ -325,6 +334,15 @@ Expr cos(const Expr& arg) {
 
     // cos(acos(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Acos); v.has_value()) return *v;
+    // cos(asin(x)) = √(1 − x²).
+    if (auto v = arg_of(arg, FunctionId::Asin); v.has_value()) {
+        return pow(add(S::One(), mul(S::NegativeOne(), pow(*v, integer(2)))),
+                   rational(1, 2));
+    }
+    // cos(atan(x)) = 1 / √(1 + x²).
+    if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) {
+        return pow(add(S::One(), pow(*v, integer(2))), rational(-1, 2));
+    }
 
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
     // π and all their quadrant images).
@@ -365,6 +383,17 @@ Expr tan(const Expr& arg) {
 
     // tan(atan(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) return *v;
+    // tan(asin(x)) = x / √(1 − x²).
+    if (auto v = arg_of(arg, FunctionId::Asin); v.has_value()) {
+        return mul(*v, pow(add(S::One(), mul(S::NegativeOne(), pow(*v, integer(2)))),
+                           rational(-1, 2)));
+    }
+    // tan(acos(x)) = √(1 − x²) / x.
+    if (auto v = arg_of(arg, FunctionId::Acos); v.has_value()) {
+        return mul(pow(add(S::One(), mul(S::NegativeOne(), pow(*v, integer(2)))),
+                       rational(1, 2)),
+                   pow(*v, integer(-1)));
+    }
 
     // Exact value at a rational multiple of π. Poles (π/2 + kπ) and
     // out-of-table denominators are left unevaluated.
