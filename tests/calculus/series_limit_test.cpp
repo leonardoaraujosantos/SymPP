@@ -206,6 +206,26 @@ TEST_CASE("summation: geometric Σ 2^k from 0 to n → 2^(n+1) - 1",
     REQUIRE(oracle.equivalent(s->str(), "2**(n+1) - 1"));
 }
 
+// Regression (SUM-2): arithmetic-geometric Σ k·r^k (k times a geometric term)
+// used to fall through — a Mul of two var-dependent factors isn't pulled apart
+// by the constant-extraction path.
+TEST_CASE("summation: arithmetic-geometric Σ k·2^k from 0 to n",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto s = summation(k * pow(integer(2), k), k, integer(0), n);
+    REQUIRE(s->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(s->str(), "2*2**n*n - 2*2**n + 2"));
+}
+
+TEST_CASE("summation: Σ k·2^k from 1 to 3 → 34 (numeric)",
+          "[6][summation][regression]") {
+    auto k = symbol("k");
+    auto s = summation(k * pow(integer(2), k), k, integer(1), integer(3));
+    REQUIRE(s == integer(34));
+}
+
 // Regression: geometric detection used to require the exponent to be
 // *exactly* the summation variable, so Σ 2^(-k) (which canonicalizes to
 // base 2, exponent -k) and Σ 2^(2k) fell through and returned the summand

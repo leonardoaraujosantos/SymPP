@@ -7,6 +7,7 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
+#include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
@@ -99,6 +100,49 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                     Expr num = pow(ratio, lo) - pow(ratio, hi + integer(1));
                     Expr den = integer(1) - ratio;
                     return simplify(prefactor * num / den);
+                }
+            }
+        }
+    }
+
+    // Arithmetic-geometric: Σ k·r^k where r = base^c is a concrete numeric
+    // ratio ≠ 1 (k times a geometric term). Restricted to a numeric base so the
+    // result is the plain closed form, matching SymPy (a symbolic ratio would
+    // need a Piecewise on r = 1). Higher-degree P(k)·r^k stays unevaluated.
+    if (expr->type_id() == TypeId::Mul && expr->args().size() == 2) {
+        const Expr& f0 = expr->args()[0];
+        const Expr& f1 = expr->args()[1];
+        // Identify the bare `var` factor and the geometric `base^(c·var+d)`.
+        const Expr* geo = nullptr;
+        if (f0 == var && f1->type_id() == TypeId::Pow) {
+            geo = &f1;
+        } else if (f1 == var && f0->type_id() == TypeId::Pow) {
+            geo = &f0;
+        }
+        if (geo != nullptr) {
+            const Expr& base = (*geo)->args()[0];
+            const Expr& exponent = (*geo)->args()[1];
+            if (is_number(base) && has(exponent, var)) {
+                Expr c = diff(exponent, var);
+                if (!has(c, var)) {  // exponent linear in var
+                    Expr d = simplify(exponent - c * var);
+                    Expr ratio = pow(base, c);
+                    if (!has(d, var) && is_number(ratio)
+                        && !(ratio == S::One())) {
+                        // Σ_{k=0}^{N} k·r^k = r(1 − (N+1)r^N + N·r^{N+1})/(1−r)².
+                        // The base^d prefactor of the geometric term factors out.
+                        Expr prefactor = pow(base, d);
+                        Expr one_minus_r_sq =
+                            pow(integer(1) - ratio, integer(2));
+                        auto partial = [&](const Expr& n) -> Expr {
+                            return ratio
+                                   * (integer(1) - (n + integer(1)) * pow(ratio, n)
+                                      + n * pow(ratio, n + integer(1)))
+                                   / one_minus_r_sq;
+                        };
+                        Expr s = partial(hi) - partial(lo - integer(1));
+                        return simplify(prefactor * s);
+                    }
                 }
             }
         }
