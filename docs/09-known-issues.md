@@ -366,6 +366,19 @@ truth and links the issue number.
   `gamma`, `erf`, …) already print lowercase, matching both the parser and
   SymPy, so they round-trip unchanged.
 
+### PARSE-2 — parser did not recognise `Min`/`Max`
+- **Input:** `parse("Min(3, 5)")`, `parse(min(x,y)->str())` (= `"Min(x, y)"`).
+- **Was:** an undefined function `Min(...)` — the parser's two-argument table
+  had no `Min`/`Max` entry, so `parse(e->str())` did not round-trip.
+- **Expected (SymPy):** `Min(3,5) → 3`, `Max(3,5) → 5`, and `parse(e->str()) == e`.
+- **Fix:** added `Min`/`Max` (the names `str()` emits) to the two-argument
+  function table, bound to the binary `min`/`max` overloads.
+- **Regression test:** `tests/parsing/parser_test.cpp`
+  — `[parser][regression]`.
+- **Scope:** the parser dispatches only 1- and 2-argument calls, so 3+-argument
+  `Min`/`Max` still parse to an undefined function (a pre-existing parser
+  limitation, not specific to Min/Max).
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

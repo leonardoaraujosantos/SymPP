@@ -164,6 +164,11 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
     static const std::map<std::string, TwoArgFn> table = {
         {"atan2", &atan2},
         {"binomial", &binomial},
+        // SymPy's canonical Min/Max (the names str() emits). Only the binary
+        // form round-trips here — the parser dispatches 1- and 2-argument
+        // calls; 3+-argument Min/Max remain undefined functions.
+        {"Min", static_cast<TwoArgFn>(&min)},
+        {"Max", static_cast<TwoArgFn>(&max)},
     };
     return table;
 }
