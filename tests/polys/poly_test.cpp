@@ -529,6 +529,33 @@ TEST_CASE("Poly: factor x^2 - 1", "[4][poly][factor][oracle]") {
     REQUIRE(oracle.equivalent(f->str(), "(x - 1)*(x + 1)"));
 }
 
+// Regression (CANCEL-1): cancel()/factor() used to hang on polynomials with
+// symbolic (multivariate) coefficients — the divmod GCD loop never terminated
+// because (b+b²) − (b+b²) did not fold to a structural zero. divmod now expands
+// the coefficient subtraction (and has a degree-decrease backstop), and factor
+// bails to the input when coefficients are non-numeric.
+TEST_CASE("Poly: cancel/factor terminate on symbolic coefficients (CANCEL-1)",
+          "[4][poly][cancel][factor][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto a = symbol("a");
+    auto b = symbol("b");
+    // Multivariate cancel now reduces instead of hanging.
+    REQUIRE(oracle.equivalent(
+        cancel((pow(x, integer(2)) - pow(y, integer(2))) / (x - y), x)->str(),
+        "x + y"));
+    REQUIRE(oracle.equivalent(
+        cancel((pow(a, integer(2)) - pow(b, integer(2))) / (a + b), a)->str(),
+        "a - b"));
+    // The documented hang case terminates and stays equivalent.
+    auto c = cancel((b - a + integer(1)) * (a + b) / integer(2), a);
+    REQUIRE(oracle.equivalent(c->str(), "(b - a + 1)*(a + b)/2"));
+    // factor over a symbolic coefficient no longer hangs (returns unfactored).
+    auto f = factor(pow(x, integer(2)) - pow(y, integer(2)), x);
+    REQUIRE(oracle.equivalent(f->str(), "x**2 - y**2"));
+}
+
 TEST_CASE("Poly: factor x^2 + 2x + 1 = (x+1)^2", "[4][poly][factor][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
