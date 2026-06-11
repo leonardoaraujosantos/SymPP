@@ -499,6 +499,22 @@ truth and links the issue number.
   `Abs(x·I)` (correct, equal to `Abs(x)`, just not folded). `Sign`/`Re`/`Im`
   keep their existing `−1`-only handling.
 
+### ABS-2 — `Abs` of a numeric complex number stayed symbolic
+- **Input:** `Abs(3+4*I)`, `Abs(1+I)`, `Abs(2+3*I)`, `Abs(2*I)`, `Abs(I)`,
+  `Abs(-3-4*I)`.
+- **Was:** `Abs(4*I + 3)`, … — only real numbers reduced; a complex literal
+  fell through to the symbolic node.
+- **Expected (SymPy):** `5`, `sqrt(2)`, `sqrt(13)`, `2`, `1`, `5`.
+- **Fix:** in the `abs` factory, a value that parses as `a + b·I` with rational
+  real and imaginary parts (`rational_complex`) returns the modulus
+  `sqrt(a² + b²)`. `rational_imag_coeff` extracts the coefficient of a
+  pure-imaginary term; the existing `sqrt` then reduces perfect squares
+  (`sqrt(25)=5`). Purely real / symbolic inputs are untouched.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[abs][regression]`.
+- **Scope:** rational real/imaginary parts only — a symbolic or irrational
+  component (`Abs(x+I)`, `Abs(sqrt(2)+I)`) stays unevaluated.
+
 ### BINOM-1 — `binomial(n, 1)` not simplified to `n`
 - **Input:** `binomial(n, 1)`.
 - **Was:** `binomial(n, 1)` — kept symbolic (only `binomial(n,0)=1` and the

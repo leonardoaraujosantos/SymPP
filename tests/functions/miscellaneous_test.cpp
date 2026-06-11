@@ -146,6 +146,21 @@ TEST_CASE("Abs: pulls out a numeric coefficient", "[3d][abs][oracle][regression]
                               "2*Abs(x*y)"));
 }
 
+// Regression (ABS-2): Abs of a numeric complex number a+b·I → sqrt(a²+b²).
+// Previously only real numbers reduced; a complex literal stayed symbolic.
+TEST_CASE("Abs: complex modulus of a numeric a+b·I",
+          "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(abs(integer(3) + integer(4) * S::I())->str(), "5"));
+    REQUIRE(oracle.equivalent(abs(integer(1) + S::I())->str(), "sqrt(2)"));
+    REQUIRE(oracle.equivalent(abs(integer(2) + integer(3) * S::I())->str(),
+                              "sqrt(13)"));
+    REQUIRE(oracle.equivalent(abs(integer(2) * S::I())->str(), "2"));
+    REQUIRE(oracle.equivalent(abs(S::I())->str(), "1"));
+    REQUIRE(oracle.equivalent(
+        abs(integer(-3) - integer(4) * S::I())->str(), "5"));
+}
+
 TEST_CASE("Abs: stays unevaluated for unknown sign", "[3d][abs]") {
     auto x = symbol("x");
     auto e = abs(x);
