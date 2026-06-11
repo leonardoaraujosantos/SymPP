@@ -304,6 +304,26 @@ truth and links the issue number.
 - **Scope:** numeric ratio only (a symbolic `r` would need a Piecewise on
   `r = 1`, as SymPy emits); higher-degree `P(k)·r^k` still defers.
 
+### SUM-3 — an unrecognised sum collapsed to its bare summand
+- **Input:** `summation(1/k**2, k, 1, oo)`, `summation(1/k, k, 1, oo)`,
+  `summation(1/factorial(k), k, 0, oo)`.
+- **Was:** `k**(-2)`, … — the fallback `return expr` handed back the summand,
+  so `Σ_{k=1}^∞ 1/k²` came out as `1/k²` (the summation silently dropped).
+- **Expected (SymPy):** a closed form where one exists, otherwise an
+  unevaluated `Sum`. SymPP does not yet close `ζ(2)` / exponential series, so
+  it should at least preserve the sum.
+- **Fix:** the no-closed-form fallback now returns an unevaluated
+  `Sum(expr, var, lo, hi)` marker (an `UndefinedFunction`, mirroring the
+  `Integral(_, _)` marker), never the bare summand. Also added the
+  single-term range rule `Σ_{k=a}^{a} f(k) = f(a)`. Infinite *geometric* series
+  already close (the `ratio^oo → 0` fold from the Infinity work):
+  `Σ (1/2)^k = 2`, and divergent `Σ k = oo`.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[summation][regression]`.
+- **Scope:** convergent non-geometric series (`Σ 1/k² = π²/6`, `Σ 1/k! = E`)
+  stay as `Sum` markers — closing them needs `zeta` / series recognition,
+  deferred. The fix guarantees correctness (no dropped sum), not closure.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.
