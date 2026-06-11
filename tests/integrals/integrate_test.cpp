@@ -124,6 +124,44 @@ TEST_CASE("integrate / diff round-trip on polynomial",
     REQUIRE(simplify(fp - f) == S::Zero());
 }
 
+// ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
+// ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
+// bound and SEGFAULT the process. It now returns a closed form (verified by
+// differentiation) and never crashes.
+TEST_CASE("integrate: ∫exp(x)*sin(x) dx (cyclic by parts, was segfault)",
+          "[7][integrate][byparts][regression]") {
+    auto x = symbol("x");
+    auto f = exp(x) * sin(x);
+    auto F = integrate(f, x);
+    // Must be actually evaluated, not the unevaluated Integral(...) marker.
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
+TEST_CASE("integrate: ∫exp(x)*cos(x) dx (cyclic by parts)",
+          "[7][integrate][byparts][regression]") {
+    auto x = symbol("x");
+    auto f = exp(x) * cos(x);
+    auto F = integrate(f, x);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
+TEST_CASE("integrate: ∫exp(2x)*sin(3x) dx (distinct linear coefficients)",
+          "[7][integrate][byparts][regression]") {
+    auto x = symbol("x");
+    auto f = exp(integer(2) * x) * sin(integer(3) * x);
+    auto F = integrate(f, x);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
+TEST_CASE("integrate: ∫x^2*exp(x) dx still works (polynomial by parts intact)",
+          "[7][integrate][byparts][regression]") {
+    auto x = symbol("x");
+    auto f = pow(x, integer(2)) * exp(x);
+    auto F = integrate(f, x);
+    REQUIRE(simplify(diff(F, x) - f) == S::Zero());
+}
+
 // ----- Linear u-substitution & rational integration --------------------------
 
 TEST_CASE("integrate: ∫sin(2x+1) dx = -cos(2x+1)/2",

@@ -213,8 +213,27 @@ namespace {
 
 }  // namespace
 
+// Recursion-depth backstop. Integration by parts recurses through
+// integrate(); cyclic integrands (e.g. exp(x)*sin(x), where the original
+// integral reappears) would otherwise recurse without bound and overflow
+// the stack. When the limit is hit we bail to the unevaluated Integral
+// marker instead of crashing. The limit is far above any legitimate
+// closed-form nesting depth.
+constexpr int kMaxIntegrateDepth = 64;
+thread_local int g_integrate_depth = 0;
+
+struct IntegrateDepthGuard {
+    IntegrateDepthGuard() { ++g_integrate_depth; }
+    ~IntegrateDepthGuard() { --g_integrate_depth; }
+};
+
 Expr integrate(const Expr& expr, const Expr& var) {
     if (!expr || !var) return S::Zero();
+
+    if (g_integrate_depth >= kMaxIntegrateDepth) {
+        return function_symbol("Integral")(expr, var);
+    }
+    IntegrateDepthGuard depth_guard;
 
     // Linearity: split Add into per-term integrals.
     if (expr->type_id() == TypeId::Add) {
@@ -378,6 +397,55 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                 // ∫log(ax+b) dx = x*log(ax+b) + (b/a)*log(ax+b) - x
                 return var * log(inner) + (b / a) * log(inner) - var;
             }
+        }
+    }
+
+    // Cyclic case: ∫ c·e^(a·x+·)·sin/cos(g·x+·) dx. Generic by-parts would
+    // recurse exp·sin → exp·cos → exp·sin … forever, so solve it in closed
+    // form. With E = e^(arg_e), S = sin(arg_t), C = cos(arg_t), and a, g the
+    // x-coefficients of arg_e, arg_t:
+    //   ∫ E·S dx = E·(a·S − g·C)/(a²+g²)
+    //   ∫ E·C dx = E·(a·C + g·S)/(a²+g²)
+    if (expr->type_id() == TypeId::Mul) {
+        Expr exp_factor, trig_factor;
+        std::vector<Expr> consts;
+        bool ok = true;
+        for (const auto& f : expr->args()) {
+            if (!exp_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1
+                    && as_affine(fn.args()[0], var)) {
+                    exp_factor = f;
+                    continue;
+                }
+            }
+            if (!trig_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if ((fn.function_id() == FunctionId::Sin
+                     || fn.function_id() == FunctionId::Cos)
+                    && fn.args().size() == 1 && as_affine(fn.args()[0], var)) {
+                    trig_factor = f;
+                    continue;
+                }
+            }
+            // Any leftover factor must be constant w.r.t. var.
+            if (depends_on(f, var)) { ok = false; break; }
+            consts.push_back(f);
+        }
+        if (ok && exp_factor && trig_factor) {
+            const auto& tfn = static_cast<const Function&>(*trig_factor);
+            Expr arg_e = exp_factor->args()[0];
+            Expr arg_t = trig_factor->args()[0];
+            Expr a = as_affine(arg_e, var)->first;  // x-coefficient of exp arg
+            Expr g = as_affine(arg_t, var)->first;  // x-coefficient of trig arg
+            Expr denom = a * a + g * g;
+            Expr S = sin(arg_t);
+            Expr C = cos(arg_t);
+            Expr core = (tfn.function_id() == FunctionId::Sin)
+                            ? exp_factor * (a * S - g * C) / denom
+                            : exp_factor * (a * C + g * S) / denom;
+            if (!consts.empty()) core = mul(consts) * core;
+            return simplify(core);
         }
     }
 
