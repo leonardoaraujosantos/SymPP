@@ -375,6 +375,30 @@ TEST_CASE("integrate: ∫tan(2x+1)^2 dx = tan(2x+1)/2 - x",
     REQUIRE(oracle.equivalent(r->str(), "tan(2*x + 1)/2 - x"));
 }
 
+// ----- Repeated-root quadratic denominator (regression, INT-9) ---------------
+// ∫1/(a·x²+b·x+c) with discriminant 0 = a perfect square a·(x−r)². try_rational
+// (apart) didn't decompose the repeated root and the arctan branch needs D>0,
+// so it fell through. Now returns −2/(2ax+b). Distinct-real-root and
+// irreducible cases are unaffected.
+TEST_CASE("integrate: ∫1/(x^2+2x+1) dx = -1/(x+1)",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto den = pow(x, integer(2)) + integer(2) * x + integer(1);
+    auto r = integrate(pow(den, integer(-1)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "-1/(x + 1)"));
+}
+
+TEST_CASE("integrate: ∫1/(4x^2+4x+1) dx = -1/(2(2x+1))",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto den = integer(4) * pow(x, integer(2)) + integer(4) * x + integer(1);
+    auto r = integrate(pow(den, integer(-1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "-1/(4*x + 2)"));
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by

@@ -709,9 +709,16 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
         return std::nullopt;
     }
 
-    // D = 4ac − b². D > 0 ⇒ no real roots ⇒ arctangent. D ≤ 0 ⇒ real roots,
-    // which try_rational already splits into logs, so leave those alone.
+    // D = 4ac − b². D > 0 ⇒ no real roots ⇒ arctangent. D = 0 ⇒ a repeated
+    // real root. D < 0 ⇒ distinct real roots, which try_rational splits into
+    // logs, so leave those alone.
     Expr disc = integer(4) * a * c - b * b;
+
+    if (disc == S::Zero()) {
+        // a·x² + b·x + c = a·(x − r)², r = −b/(2a):
+        //   ∫ 1/(a·(x − r)²) dx = −2/(2a·x + b).
+        return integer(-2) / (integer(2) * a * var + b);
+    }
     if (is_positive(disc) != true) return std::nullopt;
 
     // ∫ 1/(a·x² + b·x + c) dx = 2·atan((2a·x + b)/√D) / √D.

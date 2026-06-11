@@ -236,6 +236,19 @@ truth and links the issue number.
 - **Scope:** only half-integer coefficients; `exp(I·x)` for symbolic `x` is not
   expanded to `cos + I·sin` (that is `expand_complex`/`rewrite`, not auto-eval).
 
+### INT-9 — `integrate(1/(a·x²+b·x+c))` (repeated root) returned the marker
+- **Input:** `integrate(1/(x**2+2*x+1))`, `integrate(1/(4*x**2+4*x+1))`.
+- **Was:** `Integral((x**2 + 2*x + 1)**(-1), x)` — the denominator is a perfect
+  square `a·(x−r)²` (discriminant 0); `apart` did not decompose the repeated
+  root and the arctan branch (INT-5) needs `D > 0`.
+- **Expected (SymPy):** `-1/(x + 1)`, `-1/(2*(2*x + 1))`.
+- **Fix:** added the `D = 0` case to `try_arctan_quadratic`:
+  `∫1/(a·(x−r)²) = −2/(2ax+b)`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[arctan][regression]`.
+- **Scope:** distinct-real-root (`D < 0`) denominators still go through
+  `try_rational` (logs); irreducible (`D > 0`) through the arctan branch.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
