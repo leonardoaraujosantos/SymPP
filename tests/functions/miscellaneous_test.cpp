@@ -64,6 +64,19 @@ TEST_CASE("sqrt: pulls out square factors and rationalises",
     REQUIRE(oracle.equivalent(sqrt(rational(2, 3))->str(), "sqrt(6)/3"));
 }
 
+// Regression (SQRT-3): principal square root of a negative number is
+// imaginary — √(−a) = I·√a. SQRT-1/SQRT-2 deferred negative bases; this
+// handles them for the ½ power, reusing the magnitude reduction.
+TEST_CASE("sqrt: negative numbers fold to imaginary",
+          "[3d][sqrt][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(sqrt(integer(-1))->str(), "I"));
+    REQUIRE(oracle.equivalent(sqrt(integer(-4))->str(), "2*I"));
+    REQUIRE(oracle.equivalent(sqrt(integer(-8))->str(), "2*sqrt(2)*I"));
+    REQUIRE(oracle.equivalent(sqrt(rational(-1, 4))->str(), "I/2"));
+    REQUIRE(oracle.equivalent(sqrt(rational(-2, 3))->str(), "sqrt(6)*I/3"));
+}
+
 TEST_CASE("sqrt: prime radicand stays an irreducible Pow",
           "[3d][sqrt][regression]") {
     // Nothing to pull out of √7 — it must remain symbolic, not loop or mis-fold.
