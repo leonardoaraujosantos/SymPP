@@ -22,6 +22,7 @@
 #include <sympp/core/expand.hpp>
 #include <sympp/simplify/simplify.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
@@ -129,6 +130,12 @@ namespace {
                         return sin(inner) / a;
                     case FunctionId::Exp:
                         return exp(inner) / a;
+                    case FunctionId::Sinh:
+                        // ∫sinh(ax+b) dx = cosh(ax+b)/a
+                        return cosh(inner) / a;
+                    case FunctionId::Cosh:
+                        // ∫cosh(ax+b) dx = sinh(ax+b)/a
+                        return sinh(inner) / a;
                     default:
                         break;
                 }

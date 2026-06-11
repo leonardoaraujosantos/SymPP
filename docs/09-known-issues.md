@@ -61,6 +61,17 @@ truth and links the issue number.
   to confirm polynomial by-parts still works), each verified by
   differentiating the result back to the integrand.
 
+### INT-2 — `integrate(sinh/cosh)` returned the unevaluated marker ([#9])
+- **Input:** `integrate(sinh(x))`, `integrate(cosh(3*x))`, …
+- **Was:** `Integral(sinh(x), x)` (table fell through).
+- **Expected (SymPy):** `cosh(x)`, `sinh(3*x)/3`, …
+- **Fix:** added `Sinh`/`Cosh` cases to the affine-argument table:
+  `∫sinh(ax+b) = cosh(ax+b)/a`, `∫cosh(ax+b) = sinh(ax+b)/a`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[hyperbolic][regression]`.
+- **Scope:** polynomial × hyperbolic (e.g. `∫x·cosh(x)`) still deferred —
+  the by-parts target set is `{exp,sin,cos}`.
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
@@ -101,3 +112,4 @@ truth and links the issue number.
 [#4]: https://github.com/leonardoaraujosantos/SymPP/pull/4
 [#5]: https://github.com/leonardoaraujosantos/SymPP/issues/5
 [#7]: https://github.com/leonardoaraujosantos/SymPP/issues/7
+[#9]: https://github.com/leonardoaraujosantos/SymPP/issues/9

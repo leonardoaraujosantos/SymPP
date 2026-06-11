@@ -12,6 +12,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/integrate.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -122,6 +123,35 @@ TEST_CASE("integrate / diff round-trip on polynomial",
     auto F = integrate(f, x);
     auto fp = diff(F, x);
     REQUIRE(simplify(fp - f) == S::Zero());
+}
+
+// ----- Hyperbolic integration (regression, issue #9 / INT-2) -----------------
+// ∫sinh(ax+b) and ∫cosh(ax+b) used to fall through the table and return the
+// unevaluated Integral(...) marker.
+TEST_CASE("integrate: ∫sinh(x) dx = cosh(x)", "[7][integrate][hyperbolic][regression]") {
+    auto x = symbol("x");
+    REQUIRE(integrate(sinh(x), x) == cosh(x));
+}
+
+TEST_CASE("integrate: ∫cosh(x) dx = sinh(x)", "[7][integrate][hyperbolic][regression]") {
+    auto x = symbol("x");
+    REQUIRE(integrate(cosh(x), x) == sinh(x));
+}
+
+TEST_CASE("integrate: ∫sinh(2x+1) dx = cosh(2x+1)/2",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(sinh(integer(2) * x + integer(1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "cosh(2*x + 1)/2"));
+}
+
+TEST_CASE("integrate: ∫cosh(3x) dx = sinh(3x)/3",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(cosh(integer(3) * x), x);
+    REQUIRE(oracle.equivalent(r->str(), "sinh(3*x)/3"));
 }
 
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
