@@ -141,19 +141,25 @@ truth and links the issue number.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[invtrig][regression]`.
 - **Scope:** a linear term under the root, or `c ≤ 0` (the `∫1/√(x²−1) =
-  acosh`/log family), is out of scope and still defers. Output carries an
-  unreduced `√(perfect-square rational)` (e.g. `√(4/9)` instead of `2/3`) —
-  see SQRT-1.
+  acosh`/log family), is out of scope and still defers. (The perfect-square
+  coefficients now print reduced thanks to SQRT-1.)
 
-### SQRT-1 — `sqrt` of a perfect-square *rational* is not reduced
+### SQRT-1 — `sqrt` of a perfect-square *rational* was not reduced
 - **Input:** `sqrt(rational(1,4))`, `sqrt(rational(9,4))`.
-- **Was:** `(1/4)**(1/2)`, `(9/4)**(1/2)` — left symbolic.
-- **Expected (SymPy):** `1/2`, `3/2`. Note `sqrt(integer(4))` *does* reduce
-  to `2`, so the integer and rational paths are inconsistent.
-- **Status:** open. Surfaces as cosmetically unreduced coefficients in the
-  arctan/asin/asinh integration results (INT-5, INT-6); the values are
-  correct. Perfect-square *factor extraction* (`√8 → 2√2`, `√(1/2) → √2/2`)
-  is a further SymPy behaviour also not yet implemented.
+- **Was:** `(1/4)**(1/2)`, `(9/4)**(1/2)` — left symbolic, even though
+  `sqrt(integer(4))` reduced to `2`. The integer and rational paths were
+  inconsistent.
+- **Expected (SymPy):** `1/2`, `3/2`.
+- **Fix:** generalised `try_integer_perfect_root` → `try_perfect_root` in
+  `src/core/pow.cpp` to accept a non-negative Rational base, rooting numerator
+  and denominator independently (`√(9/4) = √9/√4 = 3/2`). This also cleans up
+  the previously unreduced coefficients in the arctan/asin/asinh integration
+  results (INT-5, INT-6) — e.g. `asin(2*x/3)/2` now prints directly.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[sqrt][regression]`.
+- **Scope:** perfect-square *factor extraction* (`√8 → 2√2`, `√(1/2) → √2/2`)
+  is a further SymPy behaviour still not implemented; non-perfect-square
+  rationals stay a symbolic `Pow`.
 
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
