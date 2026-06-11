@@ -70,6 +70,16 @@ TEST_CASE("binomial(n, 0) = 1", "[3i][binomial]") {
     REQUIRE(binomial(n, S::Zero()) == S::One());
 }
 
+// Regression (BINOM-1): binomial(n, 1) = n for any n (SymPy auto-evaluates it;
+// SymPP previously kept it symbolic).
+TEST_CASE("binomial(n, 1) = n", "[3i][binomial][regression]") {
+    auto n = symbol("n");
+    REQUIRE(binomial(n, S::One()) == n);
+    REQUIRE(binomial(integer(5), S::One()) == integer(5));
+    // binomial(n, 2) is not a special identity — must stay symbolic.
+    REQUIRE(binomial(n, integer(2))->type_id() == TypeId::Function);
+}
+
 // ----- gamma -----------------------------------------------------------------
 
 TEST_CASE("gamma: positive integer reduces to factorial", "[3i][gamma]") {

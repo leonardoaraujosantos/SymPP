@@ -312,6 +312,18 @@ truth and links the issue number.
   `Abs(x·I)` (correct, equal to `Abs(x)`, just not folded). `Sign`/`Re`/`Im`
   keep their existing `−1`-only handling.
 
+### BINOM-1 — `binomial(n, 1)` not simplified to `n`
+- **Input:** `binomial(n, 1)`.
+- **Was:** `binomial(n, 1)` — kept symbolic (only `binomial(n,0)=1` and the
+  numeric / `n==n` cases were handled).
+- **Expected (SymPy):** `n` (valid for any `n`).
+- **Fix:** added `binomial(n, 1) = n` to the factory.
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[binomial][regression]` (incl. a `binomial(n,2)` stays-symbolic guard).
+- **Note:** `binomial(n, n)` for a plain symbol is *not* auto-simplified — SymPy
+  keeps it too, so SymPP matches by leaving it (it only folds when `n` is a
+  known nonnegative integer).
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

@@ -129,6 +129,8 @@ Expr binomial(const Expr& n, const Expr& k) {
     }
     // binomial(n, 0) = 1
     if (k == S::Zero()) return S::One();
+    // binomial(n, 1) = n  (valid for any n)
+    if (k == S::One()) return n;
     // binomial(n, n) = 1 when both same and known nonneg integer
     if (n == k && is_integer(n) == true && is_nonnegative(n) == true) {
         return S::One();
