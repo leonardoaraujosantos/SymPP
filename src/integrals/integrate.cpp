@@ -110,6 +110,25 @@ namespace {
                 return pow(base, n_plus_1) / (aff->first * n_plus_1);
             }
         }
+        // Reciprocal-square trig of an affine argument:
+        //   ∫ 1/cos²(ax+b) dx =  sin(ax+b)/(a·cos(ax+b))   (= tan/a)
+        //   ∫ 1/sin²(ax+b) dx = -cos(ax+b)/(a·sin(ax+b))   (= -cot/a)
+        if (exp == integer(-2) && base->type_id() == TypeId::Function) {
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.args().size() == 1) {
+                const auto& inner = bfn.args()[0];
+                auto inner_aff = as_affine(inner, var);
+                if (inner_aff && !(inner_aff->first == S::Zero())) {
+                    const Expr& a = inner_aff->first;
+                    if (bfn.function_id() == FunctionId::Cos) {
+                        return sin(inner) / mul(a, cos(inner));
+                    }
+                    if (bfn.function_id() == FunctionId::Sin) {
+                        return mul(S::NegativeOne(), cos(inner)) / mul(a, sin(inner));
+                    }
+                }
+            }
+        }
     }
 
     // 1/x: ∫ 1/x dx = log(x). 1/x is Pow(x, -1) — caught above.
@@ -128,6 +147,9 @@ namespace {
                         return mul(S::NegativeOne(), cos(inner)) / a;
                     case FunctionId::Cos:
                         return sin(inner) / a;
+                    case FunctionId::Tan:
+                        // ∫tan(ax+b) dx = -log(cos(ax+b))/a
+                        return mul(S::NegativeOne(), log(cos(inner))) / a;
                     case FunctionId::Exp:
                         return exp(inner) / a;
                     case FunctionId::Sinh:
