@@ -670,6 +670,22 @@ truth and links the issue number.
   (`limit(x - x**2, x, oo)`, needs dominant-term extraction); both stay
   unevaluated rather than returning a wrong value.
 
+### FUNC-INF — elementary functions did not evaluate at ±oo
+- **Input:** `atan(oo)`, `tanh(oo)`, `sinh(oo)`, `cosh(-oo)`, `asinh(-oo)`,
+  `acosh(oo)`, `erf(oo)`, `erfc(-oo)`.
+- **Was:** `atan(oo)`, … — left unevaluated (the builders only handled finite
+  arguments), so e.g. `limit(atan(x), x, oo)` returned `atan(oo)`.
+- **Expected (SymPy):** `pi/2`, `1`, `oo`, `oo`, `-oo`, `oo`, `1`, `2`.
+- **Fix:** added the infinite-argument limits to the function factories —
+  `atan(±oo)=±pi/2` (`trigonometric.cpp`); `sinh(±oo)=±oo`, `cosh(±oo)=oo`,
+  `tanh(±oo)=±1`, `asinh(±oo)=±oo`, `acosh(±oo)=oo` (`hyperbolic.cpp`);
+  `erf(±oo)=±1`, `erfc(oo)=0`, `erfc(-oo)=2` (`special.cpp`). This also makes
+  the corresponding limits resolve directly (`limit(atan(x),x,oo)=pi/2`).
+- **Regression test:** `tests/functions/{inverse_trig,hyperbolic,special}_test.cpp`
+  and `tests/calculus/series_limit_test.cpp` (`[infinity][regression]`).
+- **Scope:** oscillatory `sin(oo)`/`cos(oo)` stay unevaluated (no real limit —
+  SymPy returns `AccumBounds`, not modeled here).
+
 ## Open
 
 ### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])

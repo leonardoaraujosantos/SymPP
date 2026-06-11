@@ -10,6 +10,7 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -580,6 +581,11 @@ Expr acos(const Expr& arg) {
 }
 
 Expr atan(const Expr& arg) {
+    // atan(±oo) = ±pi/2.
+    if (arg->type_id() == TypeId::Infinity) return mul(S::Half(), S::Pi());
+    if (arg->type_id() == TypeId::NegativeInfinity) {
+        return mul(rational(-1, 2), S::Pi());
+    }
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_atan, arg);
     }

@@ -10,6 +10,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -166,6 +167,16 @@ TEST_CASE("limit: at -oo", "[6][limit][infinity][oracle][regression]") {
     REQUIRE(limit(exp(x), x, S::NegativeInfinity()) == S::Zero());
     REQUIRE(limit(pow(x, integer(3)), x, S::NegativeInfinity())
             == S::NegativeInfinity());
+}
+
+// Bounded/monotone functions at infinity now fold (FUNC-INF), so their limits
+// resolve directly: atan(x) → pi/2, tanh(x) → 1.
+TEST_CASE("limit: bounded functions at oo (atan, tanh)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(limit(atan(x), x, S::Infinity())->str(), "pi/2"));
+    REQUIRE(limit(tanh(x), x, S::Infinity()) == S::One());
 }
 
 #include <sympp/calculus/order.hpp>
