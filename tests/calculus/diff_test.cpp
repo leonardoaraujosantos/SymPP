@@ -107,6 +107,27 @@ TEST_CASE("diff: log(x) = 1/x", "[6a][diff][log]") {
     REQUIRE(d == expected);
 }
 
+// Regression (issue #13 / DIFF-1): diff(Abs(x)) returned 0 because Abs had
+// no diff_arg override and fell through to the default. d/dx|x| = sign(x).
+TEST_CASE("diff: Abs(x) = sign(x)", "[6a][diff][abs][regression]") {
+    auto x = symbol("x");
+    REQUIRE(diff(abs(x), x) == sign(x));
+}
+
+TEST_CASE("diff: Abs(2x+1) = 2*sign(2x+1) (chain rule)",
+          "[6a][diff][abs][chain][regression]") {
+    auto x = symbol("x");
+    auto d = diff(abs(integer(2) * x + integer(1)), x);
+    REQUIRE(d == integer(2) * sign(integer(2) * x + integer(1)));
+}
+
+TEST_CASE("diff: x*Abs(x) = x*sign(x) + Abs(x) (product rule)",
+          "[6a][diff][abs][mul][regression]") {
+    auto x = symbol("x");
+    auto d = diff(x * abs(x), x);
+    REQUIRE(d == x * sign(x) + abs(x));
+}
+
 // Chain rule
 TEST_CASE("diff: sin(2x) = 2*cos(2x)", "[6a][diff][trig][chain]") {
     auto x = symbol("x");

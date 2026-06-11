@@ -85,6 +85,12 @@ Expr Abs::rebuild(std::vector<Expr> new_args) const {
     return abs(new_args[0]);
 }
 
+// d/darg |arg| = sign(arg). diff() applies the chain rule, multiplying this
+// by darg/dvar. (For real arg; matches SymPy's Abs(x).diff(x) == sign(x).)
+Expr Abs::diff_arg(std::size_t /*i*/) const {
+    return sign(args_[0]);
+}
+
 std::optional<bool> Abs::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
