@@ -10,12 +10,14 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 
 namespace sympp {
 
@@ -31,6 +33,25 @@ namespace {
     auto out = make<Float>(static_cast<mpfr_srcptr>(r), dps);
     mpfr_clear(r);
     return out;
+}
+
+// Exact rational coefficient C such that gamma(z) = C·sqrt(pi) for a
+// half-integer z (odd numerator over 2). Reduces to the base gamma(1/2) via
+// gamma(z) = (z-1)·gamma(z-1) when z > 1/2 and its inverse gamma(z) =
+// gamma(z+1)/z when z < 1/2.
+[[nodiscard]] mpq_class half_integer_gamma_coeff(mpq_class z) {
+    const mpq_class half(1, 2);
+    mpq_class coeff(1);
+    while (z > half) {
+        mpq_class z_minus_1 = z - 1;
+        coeff *= z_minus_1;
+        z = z_minus_1;
+    }
+    while (z < half) {
+        coeff /= z;
+        z += 1;
+    }
+    return coeff;
 }
 
 }  // namespace
@@ -179,6 +200,21 @@ Expr gamma(const Expr& arg) {
             }
         }
         // gamma(0) and gamma(negative integer) = pole; keep symbolic.
+    }
+    // Half-integer: gamma(p/2) = C·sqrt(pi) with C exact rational.
+    // Bound the recurrence so a huge numerator can never spin.
+    if (arg->type_id() == TypeId::Rational) {
+        const auto& q = static_cast<const Rational&>(*arg);
+        if (q.denominator() == 2) {
+            const mpz_class& num = q.numerator();  // odd
+            if (num >= -100'001 && num <= 100'001) {
+                mpq_class coeff =
+                    half_integer_gamma_coeff(mpq_class(num, 2));
+                coeff.canonicalize();
+                return mul(rational(coeff.get_num(), coeff.get_den()),
+                           sqrt(S::Pi()));
+            }
+        }
     }
     if (arg->type_id() == TypeId::Float) {
         return float_unary_op(mpfr_gamma, arg);

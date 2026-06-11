@@ -420,6 +420,22 @@ truth and links the issue number.
   may stay symbolic — the remaining `∫x·log**(n-1)/(ax+b)` does not always
   close, in which case the marker guard leaves it unevaluated.
 
+### GAMMA-1 — `gamma` at a half-integer stayed symbolic
+- **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
+  `gamma(-1/2)`, `gamma(-3/2)`.
+- **Was:** `gamma(1/2)`, … — only positive *integer* arguments reduced (to
+  `(n-1)!`); rational arguments fell straight through to the symbolic node.
+- **Expected (SymPy):** `sqrt(pi)`, `sqrt(pi)/2`, `3*sqrt(pi)/4`,
+  `15*sqrt(pi)/8`, `-2*sqrt(pi)`, `4*sqrt(pi)/3`.
+- **Fix:** in `gamma` (`src/functions/combinatorial.cpp`), a `Rational` with
+  denominator 2 reduces to the base `gamma(1/2) = sqrt(pi)` via the recurrence
+  `gamma(z) = (z-1)·gamma(z-1)` (and its inverse `gamma(z) = gamma(z+1)/z` for
+  `z < 1/2`), accumulating an exact rational coefficient
+  (`half_integer_gamma_coeff`). The numerator is bounded (±100001) so the
+  recurrence can never spin.
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[gamma][regression]`.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
