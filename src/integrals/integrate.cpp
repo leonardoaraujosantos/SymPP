@@ -726,22 +726,28 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     const Expr& b = p.coeffs()[1];
     const Expr& a = p.coeffs()[2];
 
-    // Pure quadratic only (no linear term), with rational coefficients and a
-    // positive constant term. Other shapes (linear term, c ≤ 0) are out of
-    // scope and left to fall through.
+    // Pure quadratic only (no linear term), with rational coefficients. A
+    // linear term is out of scope and left to fall through.
     if (!(b == S::Zero())) return std::nullopt;
     if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
-    if (is_positive(c) != true) return std::nullopt;
 
-    if (is_positive(a) == true) {
+    if (is_positive(a) == true && is_positive(c) == true) {
         // ∫ 1/√(a·x² + c) dx = asinh(x·√(a/c)) / √a.
         return simplify(asinh(var * sqrt(a / c)) / sqrt(a));
     }
-    if (is_negative(a) == true) {
+    if (is_negative(a) == true && is_positive(c) == true) {
         // a < 0: ∫ 1/√(c − |a|·x²) dx = asin(x·√(|a|/c)) / √|a|.
         Expr a_pos = mul(S::NegativeOne(), a);
         return simplify(asin(var * sqrt(a_pos / c)) / sqrt(a_pos));
     }
+    if (is_positive(a) == true && is_negative(c) == true) {
+        // a > 0, c < 0: ∫ 1/√(a·x² + c) dx = log(√a·x + √(a·x²+c)) / √a.
+        // (acosh-equivalent; this is the form SymPy prints.) The radicand
+        // √(a·x²+c) is real only where a·x²+c ≥ 0, as usual for this integral.
+        Expr sa = sqrt(a);
+        return simplify(log(sa * var + pow(base, rational(1, 2))) / sa);
+    }
+    // a < 0, c ≤ 0 (radicand has no positive region) and c == 0 fall through.
     return std::nullopt;
 }
 

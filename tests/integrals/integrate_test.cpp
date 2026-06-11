@@ -330,12 +330,28 @@ TEST_CASE("integrate: ∫1/sqrt(4x^2+9) dx = asinh(2x/3)/2",
     REQUIRE(oracle.equivalent(r->str(), "asinh(2*x/3)/2"));
 }
 
-TEST_CASE("integrate: ∫1/sqrt(x^2-1) dx stays deferred (acosh, out of scope)",
-          "[7][integrate][invtrig][regression]") {
+// ----- Logarithmic form of 1/sqrt(a*x^2+c), c<0 (regression, INT-7) ----------
+// The a>0, c<0 case: ∫1/√(a·x²+c) = log(√a·x + √(a·x²+c))/√a (acosh-equivalent,
+// the form SymPy prints). Verified by differentiation (valid up to a constant).
+TEST_CASE("integrate: ∫1/sqrt(x^2-1) dx = log(x + sqrt(x^2-1))",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
     auto x = symbol("x");
-    auto r = integrate(pow(pow(x, integer(2)) - integer(1), rational(-1, 2)), x);
-    // c < 0 here -> acosh/log form, deliberately not handled.
-    REQUIRE(r->str().find("Integral(") != std::string::npos);
+    auto f = pow(pow(x, integer(2)) - integer(1), rational(-1, 2));
+    auto F = integrate(f, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    // SymPP's simplify can't reduce the radical algebra to 0, so confirm the
+    // derivative equals the integrand through the oracle instead.
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), "1/sqrt(x**2 - 1)"));
+}
+
+TEST_CASE("integrate: ∫1/sqrt(4x^2-9) dx = log(2x + sqrt(4x^2-9))/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto rad = integer(4) * pow(x, integer(2)) - integer(9);
+    auto r = integrate(pow(rad, rational(-1, 2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "log(2*x + sqrt(4*x**2 - 9))/2"));
 }
 
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------

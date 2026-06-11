@@ -140,8 +140,8 @@ truth and links the issue number.
   `a < 0 → asin(x·√(−a/c))/√(−a)`.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[invtrig][regression]`.
-- **Scope:** a linear term under the root, or `c ≤ 0` (the `∫1/√(x²−1) =
-  acosh`/log family), is out of scope and still defers. (The perfect-square
+- **Scope:** a linear term under the root is out of scope; the `c < 0`
+  (acosh/log) family is handled by INT-7. (The perfect-square
   coefficients now print reduced thanks to SQRT-1.)
 
 ### SQRT-1 — `sqrt` of a perfect-square *rational* was not reduced
@@ -160,6 +160,20 @@ truth and links the issue number.
 - **Scope:** perfect-square *factor extraction* (`√8 → 2√2`, `√(1/2) → √2/2`)
   is a further SymPy behaviour still not implemented; non-perfect-square
   rationals stay a symbolic `Pow`.
+
+### INT-7 — `integrate(1/sqrt(a·x²+c))` with `c < 0` returned the marker
+- **Input:** `integrate(1/sqrt(x**2-1))`, `integrate(1/sqrt(4*x**2-9))`.
+- **Was:** `Integral((x**2 - 1)**(-1/2), x)` — INT-6 only covered `c > 0`
+  (asin / asinh); the `a > 0, c < 0` case was explicitly deferred.
+- **Expected (SymPy):** `log(x + sqrt(x**2 - 1))`,
+  `log(2*x + sqrt(4*x**2 - 9))/2`.
+- **Fix:** extended `try_sqrt_quadratic` with the `a > 0, c < 0` branch:
+  `∫1/√(a·x²+c) = log(√a·x + √(a·x²+c))/√a` (acosh-equivalent, the form SymPy
+  prints — and `√a` now reduces for perfect-square `a`, cf. SQRT-1/SQRT-2).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[invtrig][regression]`.
+- **Scope:** a linear term under the root, and the `a < 0, c < 0` case
+  (radicand never positive), still fall through.
 
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
