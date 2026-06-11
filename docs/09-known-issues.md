@@ -29,7 +29,37 @@ truth and links the issue number.
   — `[summation][regression]` cases (Σ 2^(-k), Σ 2^(-k) 0..3, Σ 2^(2k)).
 - **Commit:** see git log for `fix(calculus): geometric summation …`.
 
+### SIMP-1 — `simplify` could return a *more complex* expression ([#3])
+- **Input:** `simplify((x**2 - 1)/(x - 1))`
+- **Was:** `((x - 1)*x**2 - (x - 1))*(x - 1)**(-2)` (worse than input).
+- **Expected (SymPy):** `x + 1`.
+- **Cause:** the `simplify` pipeline never reduced `n/d` by polynomial GCD.
+- **Fix:** added a rational-cancellation step that calls `cancel()` and
+  adopts the result only when strictly fewer nodes. Restricted to
+  *univariate* rational functions with a symbol-dependent denominator —
+  `cancel()` hangs on transcendental and on multivariate-symbolic input
+  (see CANCEL-1), and the strictly-simpler guard means `simplify` never
+  returns something larger than the pipeline already produced.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[simplify][regression]` cases ((x²-1)/(x-1), (x²+2x+1)/(x+1),
+  multivariate-terminates, sin²+cos² no-hang guard).
+- **Scope:** multivariate cancellation (e.g. (x²-y²)/(x-y) → x+y) is
+  deliberately deferred until CANCEL-1 is fixed.
+
 ## Open
+
+### CANCEL-1 — `cancel()`/`Poly` GCD hangs on symbolic coefficients ([#5])
+- **Input:** `cancel((b - a + 1)*(a + b)/2, a)` (and any multivariate
+  polynomial whose coefficients in the cancel variable are symbolic).
+- **Is:** infinite loop — never returns.
+- **Expected (SymPy):** returns the already-reduced expression immediately.
+- **Cause:** the polynomial-remainder-sequence GCD does not terminate when
+  the leading coefficient is itself symbolic and the other operand is a
+  degree-0 constant.
+- **Impact:** reached via `simplify`/`summation`; `simplify` now guards
+  against it (univariate-only cancel — see SIMP-1). The root `cancel()`
+  loop is still open.
+- **Status:** open. Regression test to be added with the fix.
 
 ### LIM-1 — limit of the classic `e` definition returns garbage ([#2])
 - **Input:** `limit((1 + 1/x)**x, x, oo)`
@@ -39,15 +69,6 @@ truth and links the issue number.
   detecting the `1^∞` indeterminate form (needs `exp(limit(x*log(1+1/x)))`
   rewrite). Partly blocked by the missing `Infinity` singleton — `oo` is
   currently parsed as a plain symbol.
-- **Status:** open. Regression test to be added with the fix.
-
-### SIMP-1 — `simplify` can return a *more complex* expression ([#3])
-- **Input:** `simplify((x**2 - 1)/(x - 1))`
-- **Is:** `((x - 1)*x**2 - (x - 1))*(x - 1)**(-2)` (worse than input).
-- **Expected (SymPy):** `x + 1`.
-- **Notes:** rational-function cancellation (`cancel`) is not invoked /
-  not effective inside the `simplify` orchestrator for this shape; the
-  result should never be structurally larger than the input.
 - **Status:** open. Regression test to be added with the fix.
 
 ### Missing auto-simplifications (lower priority)
@@ -63,3 +84,4 @@ truth and links the issue number.
 [#2]: https://github.com/leonardoaraujosantos/SymPP/issues/2
 [#3]: https://github.com/leonardoaraujosantos/SymPP/issues/3
 [#4]: https://github.com/leonardoaraujosantos/SymPP/pull/4
+[#5]: https://github.com/leonardoaraujosantos/SymPP/issues/5
