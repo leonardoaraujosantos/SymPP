@@ -459,6 +459,25 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+// True if `f` is log(affine-in-var) or a positive-integer power of one.
+// Used to drive integration by parts over log and log^n factors.
+[[nodiscard]] bool is_log_or_log_power(const Expr& f, const Expr& var) {
+    auto is_log_affine = [&](const Expr& g) {
+        if (g->type_id() != TypeId::Function) return false;
+        const auto& fn = static_cast<const Function&>(*g);
+        return fn.function_id() == FunctionId::Log && fn.args().size() == 1
+               && as_affine(fn.args()[0], var).has_value();
+    };
+    if (is_log_affine(f)) return true;
+    if (f->type_id() == TypeId::Pow) {
+        const auto& e = f->args()[1];
+        return e->type_id() == TypeId::Integer
+               && static_cast<const Integer&>(*e).is_positive()
+               && is_log_affine(f->args()[0]);
+    }
+    return false;
+}
+
 std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) {
     // Standalone log(affine).
     if (expr->type_id() == TypeId::Function) {
@@ -472,6 +491,19 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                 // ∫log(ax+b) dx = x*log(ax+b) + (b/a)*log(ax+b) - x
                 return var * log(inner) + (b / a) * log(inner) - var;
             }
+        }
+    }
+
+    // Standalone log(affine)^n (n ≥ 2): by parts with u = log^n, dv = dx, v = x.
+    //   ∫ log^n dx = x·log^n − ∫ x·(log^n)' dx.
+    // For log(c·x) the remaining x·(log^n)' collapses to n·log^(n-1), so it
+    // recurses down to ∫log = the case above. The marker guard bails on
+    // anything that does not reduce, so a stray case never loops or emits a
+    // wrong closed form.
+    if (expr->type_id() == TypeId::Pow && is_log_or_log_power(expr, var)) {
+        Expr remaining = integrate(var * diff(expr, var), var);
+        if (!is_integral_marker(remaining)) {
+            return expand(var * expr - remaining);
         }
     }
 
@@ -533,13 +565,9 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         Expr log_factor;
         std::vector<Expr> rest_factors;
         for (const auto& f : expr->args()) {
-            if (!log_factor && f->type_id() == TypeId::Function) {
-                const auto& fn = static_cast<const Function&>(*f);
-                if (fn.function_id() == FunctionId::Log && fn.args().size() == 1
-                    && as_affine(fn.args()[0], var)) {
-                    log_factor = f;
-                    continue;
-                }
+            if (!log_factor && is_log_or_log_power(f, var)) {
+                log_factor = f;
+                continue;
             }
             rest_factors.push_back(f);
         }

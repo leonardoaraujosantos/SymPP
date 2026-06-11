@@ -739,6 +739,46 @@ TEST_CASE("integrate: ∫x*cosh(2x+1) dx (parts with affine)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-14: ∫log(x)^n and ∫poly·log(x)^n fell through to the unevaluated
+// Integral — by parts only handled a single (power-1) log factor. log^n now
+// integrates by repeated parts (u = log^n, dv = rest dx), recursing down to
+// the ∫log case.
+TEST_CASE("integrate: ∫log(x)² dx = x*log(x)² - 2x*log(x) + 2x",
+          "[7][integrate][parts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(log(x), integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(r->str(), "x*log(x)**2 - 2*x*log(x) + 2*x"));
+}
+
+TEST_CASE("integrate: ∫log(x)³ dx (repeated parts)",
+          "[7][integrate][parts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(log(x), integer(3));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*log(x)² dx (poly times log power)",
+          "[7][integrate][parts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * pow(log(x), integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫log(2x)² dx (affine argument, b = 0)",
+          "[7][integrate][parts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(log(integer(2) * x), integer(2));
+    auto r = integrate(e, x);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",

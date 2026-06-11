@@ -400,6 +400,26 @@ truth and links the issue number.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[parts][hyperbolic][regression]`.
 
+### INT-14 — `integrate(log(x)**n)` / `integrate(poly·log(x)**n)` returned the marker
+- **Input:** `integrate(log(x)**2)`, `integrate(log(x)**3)`,
+  `integrate(x*log(x)**2)`, `integrate(log(2*x)**2)`.
+- **Was:** `Integral(log(x)**2, x)`, … — integration by parts only recognised a
+  single power-1 `log(affine)` factor (INT-4), so any `log` raised to an
+  integer power fell through to the unevaluated marker.
+- **Expected (SymPy):** `x*log(x)**2 - 2*x*log(x) + 2*x`, etc.
+- **Fix:** added `is_log_or_log_power` (accepts `log(affine)` or a positive
+  integer power of one) in `src/integrals/integrate.cpp`, a standalone
+  `log(affine)**n` by-parts branch (`u = log**n, dv = dx, v = x`), and relaxed
+  the existing polynomial×log branch to use the same predicate. By parts
+  reduces the exponent each step (`(log**n)' = n·log**(n-1)·a/(ax+b)`), so it
+  recurses down to the `∫log` case; the marker guard bails on anything that
+  does not reduce, so it never loops or emits a wrong closed form.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[parts][log][regression]`.
+- **Scope:** affine arguments with a non-zero constant term (`log(2x+1)**2`)
+  may stay symbolic — the remaining `∫x·log**(n-1)/(ax+b)` does not always
+  close, in which case the marker guard leaves it unevaluated.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
