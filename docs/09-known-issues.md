@@ -468,6 +468,25 @@ truth and links the issue number.
   of a negative base (`(-8)^(1/3)`) need full branch-cut handling and stay
   symbolic.
 
+### SQRT-4 — inverse square root left the denominator irrational
+- **Input:** `3**(-1/2)`, `2**(-1/2)`, `12**(-1/2)`, `(2/3)**(-1/2)`,
+  `atan(1/sqrt(3))`.
+- **Was:** `3**(-1/2)`, … — `try_sqrt_factor_extraction` only handled the `+½`
+  power, so a `−½` power stayed unrationalised. SymPy rationalises
+  `n^(-1/2) = sqrt(n)/n`.
+- **Expected (SymPy):** `sqrt(3)/3`, `sqrt(2)/2`, `sqrt(3)/6`, `sqrt(6)/2`,
+  and the knock-on `atan(1/sqrt(3)) = pi/6`.
+- **Fix:** added `try_inverse_sqrt` in `src/core/pow.cpp` — for a `−½` power of
+  a positive Integer/Rational, returns `pow(reciprocal, 1/2)`, which the
+  existing `+½` factor-extraction path then rationalises. The inverse-trig
+  table already recognises the resulting `sqrt(3)/3` form, so `atan(1/sqrt(3))`
+  now folds to `pi/6`.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[sqrt][regression]`.
+- **Scope:** the direct power form `n^(-1/2)`. `1/sqrt(12)` — where `sqrt(12)`
+  first evaluates to `2·sqrt(3)`, leaving a product `1/(2·sqrt(3))` — needs
+  `radsimp`-style product-denominator rationalisation and stays as written.
+
 ### LOG-1 — `log` of a negative / imaginary argument not evaluated
 - **Input:** `log(-1)`, `log(-2)`, `log(-E)`, `log(I)`, `log(-I)`, `log(2*I)`.
 - **Was:** `log(-1)`, … — left unevaluated.

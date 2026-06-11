@@ -269,6 +269,28 @@ namespace {
     return mul(S::I(), pow(magnitude, exp));
 }
 
+// Rationalise an inverse square root: base^(-1/2) → sqrt of the reciprocal,
+// which the positive-½ factor-extraction path then reduces. Examples:
+// 3^(-1/2) = sqrt(1/3) = sqrt(3)/3, (2/3)^(-1/2) = sqrt(3/2) = sqrt(6)/2,
+// 12^(-1/2) = sqrt(1/12) = sqrt(3)/6. Positive Integer/Rational bases only;
+// a negative base needs branch-cut handling and is left symbolic.
+[[nodiscard]] std::optional<Expr> try_inverse_sqrt(const Expr& base,
+                                                   const Expr& exp) {
+    if (!(exp == rational(-1, 2))) return std::nullopt;
+    if (base->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*base);
+        if (sgn(z.value()) <= 0) return std::nullopt;
+        return pow(rational(mpz_class(1), z.value()), rational(1, 2));
+    }
+    if (base->type_id() == TypeId::Rational) {
+        const auto& r = static_cast<const Rational&>(*base);
+        if (r.is_negative() || r.numerator() == 0) return std::nullopt;
+        // Reciprocal den/num, then the positive-½ path rationalises it.
+        return pow(rational(r.denominator(), r.numerator()), rational(1, 2));
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 Expr pow(const Expr& base, const Expr& exp) {
@@ -322,6 +344,10 @@ Expr pow(const Expr& base, const Expr& exp) {
         // √(−a) = I·√a for a negative numeric base.
         if (auto neg = try_sqrt_of_negative(base, exp); neg.has_value()) {
             return *neg;
+        }
+        // base^(-1/2) → rationalised sqrt of the reciprocal (1/√3 = √3/3).
+        if (auto inv = try_inverse_sqrt(base, exp); inv.has_value()) {
+            return *inv;
         }
     }
 

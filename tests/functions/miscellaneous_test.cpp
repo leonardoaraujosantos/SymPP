@@ -16,6 +16,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -83,6 +84,25 @@ TEST_CASE("sqrt: prime radicand stays an irreducible Pow",
     auto e = sqrt(integer(7));
     REQUIRE(e->type_id() == TypeId::Pow);
     REQUIRE(e->str() == "7**(1/2)");
+}
+
+// Regression (SQRT-4): inverse square root rationalises the denominator.
+// n^(-1/2) = sqrt(n)/n, with square-factor extraction (12^(-1/2) = sqrt(3)/6).
+// Knock-on: atan(1/sqrt(3)) now folds to pi/6 (the argument is rationalised
+// to the form the inverse-trig table recognises).
+TEST_CASE("sqrt: inverse square root is rationalised",
+          "[3d][sqrt][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(pow(integer(3), rational(-1, 2))->str(),
+                              "sqrt(3)/3"));
+    REQUIRE(oracle.equivalent(pow(integer(2), rational(-1, 2))->str(),
+                              "sqrt(2)/2"));
+    REQUIRE(oracle.equivalent(pow(integer(12), rational(-1, 2))->str(),
+                              "sqrt(3)/6"));
+    REQUIRE(oracle.equivalent(pow(rational(2, 3), rational(-1, 2))->str(),
+                              "sqrt(6)/2"));
+    REQUIRE(oracle.equivalent(atan(pow(integer(3), rational(-1, 2)))->str(),
+                              "pi/6"));
 }
 
 TEST_CASE("sqrt: non-square integer stays as Pow(_, 1/2)", "[3d][sqrt]") {
