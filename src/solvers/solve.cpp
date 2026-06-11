@@ -38,9 +38,43 @@
 
 namespace sympp {
 
-std::vector<Expr> solve(const Expr& expr, const Expr& var) {
+namespace {
+
+// Polynomial-only root finder. This is the original solve() body; it is
+// kept separate so solveset()'s internal fallback can use it WITHOUT
+// re-entering the transcendental solveset path below (which would recurse).
+[[nodiscard]] std::vector<Expr> solve_poly(const Expr& expr, const Expr& var) {
     Poly p(expr, var);
     return p.roots();
+}
+
+// Does `expr` contain a function (log, exp, sin, …) that depends on `var`?
+// Used to decide whether the transcendental solveset fallback is worth a try.
+[[nodiscard]] bool has_function_of_var(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Function && has(e, var)) return true;
+    for (const auto& a : e->args()) {
+        if (has_function_of_var(a, var)) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+std::vector<Expr> solve(const Expr& expr, const Expr& var) {
+    auto roots = solve_poly(expr, var);
+    if (!roots.empty()) return roots;
+    // The polynomial path can't see through log/exp/sinh/… so transcendental
+    // equations like log(x) - 1 = 0 come back empty. solveset() has the
+    // _invert chain; route through it and surface any finite solution set as
+    // a root vector. (Infinite/periodic solution sets, e.g. sin(x)=0, stay
+    // the domain of solveset and yield no finite vector here.)
+    if (has_function_of_var(expr, var)) {
+        SetPtr s = solveset(expr, var);
+        if (s && s->kind() == SetKind::FiniteSet) {
+            return static_cast<const FiniteSet&>(*s).elements();
+        }
+    }
+    return roots;
 }
 
 std::vector<Expr> solve(const Expr& lhs, const Expr& rhs, const Expr& var) {
@@ -245,7 +279,9 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain) {
         if (domain->kind() == SetKind::Reals) return *inv;
         return set_intersection(*inv, domain);
     }
-    auto roots = solve(expr, var);
+    // Polynomial-only fallback. Must NOT call the public solve(), which would
+    // re-enter solveset() for transcendental input and recurse without bound.
+    auto roots = solve_poly(expr, var);
     if (roots.empty()) return empty_set();
     std::vector<Expr> kept;
     kept.reserve(roots.size());
