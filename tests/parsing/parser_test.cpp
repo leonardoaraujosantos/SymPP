@@ -273,3 +273,16 @@ TEST_CASE("parse: round-trips Abs/Heaviside/DiracDelta str()",
     REQUIRE(parse(heaviside(x)->str()) == heaviside(x));
     REQUIRE(parse(dirac_delta(x)->str()) == dirac_delta(x));
 }
+
+// ----- Min/Max canonical-name parsing (regression, PARSE-2) ------------------
+// str() emits Min/Max (SymPy's names); the parser had no entry, so parse of a
+// printed Min/Max produced an undefined function and broke round-trip.
+TEST_CASE("parse: binary Min/Max round-trip and evaluate",
+          "[15][parser][regression]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(parse(min(x, y)->str()) == min(x, y));
+    REQUIRE(parse(max(x, y)->str()) == max(x, y));
+    REQUIRE(parse("Min(3, 5)") == integer(3));
+    REQUIRE(parse("Max(3, 5)") == integer(5));
+}
