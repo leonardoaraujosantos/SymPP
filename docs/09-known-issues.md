@@ -550,6 +550,21 @@ truth and links the issue number.
 - **Scope:** applies when `x`'s sign is decidable and `y` is real; fully
   symbolic arguments stay unevaluated.
 
+### REIM-1 — `re`/`im`/`conjugate` of a numeric complex stayed unevaluated
+- **Input:** `re(3+4*I)`, `im(3+4*I)`, `conjugate(3+4*I)`, `conjugate(2*I)`,
+  `conjugate(1/2+I/3)`.
+- **Was:** `re(4*I + 3)`, … — only real arguments reduced (`re(x)=x` for real
+  `x`); a numeric complex fell through (the code noted "no Complex type yet").
+- **Expected (SymPy):** `3`, `4`, `3 - 4*I`, `-2*I`, `1/2 - I/3`.
+- **Fix:** `re`/`im`/`conjugate` (`src/functions/miscellaneous.cpp`) now use the
+  `rational_complex` helper (shared with ABS-2) to split `a + b·I` into rational
+  real/imaginary parts: `re → a`, `im → b`, `conjugate → a − b·I`. Real and
+  symbolic arguments are untouched.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[complex][regression]`.
+- **Scope:** rational real/imaginary parts only — a symbolic component
+  (`re(x+I)`) stays unevaluated.
+
 ### BINOM-1 — `binomial(n, 1)` not simplified to `n`
 - **Input:** `binomial(n, 1)`.
 - **Was:** `binomial(n, 1)` — kept symbolic (only `binomial(n,0)=1` and the

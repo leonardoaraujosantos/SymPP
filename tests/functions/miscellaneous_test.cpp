@@ -289,6 +289,26 @@ TEST_CASE("conjugate: real arg passes through; involution otherwise",
     REQUIRE(e == y);
 }
 
+// Regression (REIM-1): re/im/conjugate of a numeric complex a+b·I were left
+// unevaluated (no Complex type). They now split the rational real/imaginary
+// parts: re→a, im→b, conjugate→a−b·I.
+TEST_CASE("re/im/conjugate: numeric complex a+b·I",
+          "[3h][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto z = integer(3) + integer(4) * S::I();
+    REQUIRE(oracle.equivalent(re(z)->str(), "3"));
+    REQUIRE(oracle.equivalent(im(z)->str(), "4"));
+    REQUIRE(oracle.equivalent(conjugate(z)->str(), "3 - 4*I"));
+    // Pure imaginary.
+    REQUIRE(oracle.equivalent(re(integer(2) * S::I())->str(), "0"));
+    REQUIRE(oracle.equivalent(im(integer(2) * S::I())->str(), "2"));
+    REQUIRE(oracle.equivalent(conjugate(integer(2) * S::I())->str(), "-2*I"));
+    // Rational parts.
+    auto w = rational(1, 2) + rational(1, 3) * S::I();
+    REQUIRE(oracle.equivalent(re(w)->str(), "1/2"));
+    REQUIRE(oracle.equivalent(conjugate(w)->str(), "1/2 - I/3"));
+}
+
 TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));
     auto n = symbol("n", AssumptionMask{}.set_negative(true));

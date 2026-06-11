@@ -328,8 +328,10 @@ std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
 }
 
 Expr re(const Expr& arg) {
-    // Numeric: real -> identity; (no Complex type yet, so no a+bi case)
+    // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
+    // Numeric complex a + b·I → a.
+    if (auto z = rational_complex(arg); z.has_value()) return z->first;
     // Linearity: re(-x) = -re(x)
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Re>(*p));
@@ -339,6 +341,8 @@ Expr re(const Expr& arg) {
 
 Expr im(const Expr& arg) {
     if (is_real(arg) == true) return S::Zero();
+    // Numeric complex a + b·I → b.
+    if (auto z = rational_complex(arg); z.has_value()) return z->second;
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Im>(*p));
     }
@@ -347,6 +351,10 @@ Expr im(const Expr& arg) {
 
 Expr conjugate(const Expr& arg) {
     if (is_real(arg) == true) return arg;
+    // Numeric complex a + b·I → a - b·I.
+    if (auto z = rational_complex(arg); z.has_value()) {
+        return add(z->first, mul(mul(S::NegativeOne(), z->second), S::I()));
+    }
     // conjugate(conjugate(x)) = x
     if (arg->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*arg);
