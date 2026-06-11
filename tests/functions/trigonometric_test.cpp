@@ -44,6 +44,50 @@ TEST_CASE("tan: canonical angles", "[3b][trig][tan]") {
     REQUIRE(tan(S::Pi()) == S::Zero());
 }
 
+// ----- Exact values at rational multiples of π (regression, TRIG-1) ----------
+// sin/cos/tan at multiples of π/6, π/4, π/3 used to stay unevaluated (only
+// 0, π/2, π were special-cased). Now evaluated via a π-coefficient table with
+// full quadrant/period reduction. Reference: SymPy's exact-value table.
+TEST_CASE("sin/cos: exact rational values (π/6, π/3)",
+          "[3b][trig][regression]") {
+    auto pi = S::Pi();
+    REQUIRE(sin(mul(rational(1, 6), pi)) == S::Half());
+    REQUIRE(cos(mul(rational(1, 3), pi)) == S::Half());
+    REQUIRE(sin(mul(rational(7, 6), pi)) == mul(S::NegativeOne(), S::Half()));
+}
+
+TEST_CASE("tan: exact rational values (π/4, π/3, π/6)",
+          "[3b][trig][tan][regression]") {
+    auto pi = S::Pi();
+    REQUIRE(tan(mul(rational(1, 4), pi)) == S::One());
+    REQUIRE(tan(mul(rational(3, 4), pi)) == S::NegativeOne());
+    REQUIRE(tan(mul(rational(1, 3), pi)) == pow(integer(3), rational(1, 2)));
+}
+
+TEST_CASE("sin/cos: radical exact values match SymPy",
+          "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(sin(mul(rational(1, 4), pi))->str(), "sqrt(2)/2"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 6), pi))->str(), "sqrt(3)/2"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 6), pi))->str(), "sqrt(3)/3"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(5, 6), pi))->str(), "-sqrt(3)/2"));
+}
+
+TEST_CASE("tan: pole at π/2 stays unevaluated",
+          "[3b][trig][tan][regression]") {
+    // cos = 0 there → tan is a pole; must not fold to a bogus value.
+    auto r = tan(mul(S::Half(), S::Pi()));
+    REQUIRE(r->type_id() == TypeId::Function);
+}
+
+TEST_CASE("sin: out-of-table angle (π/12) stays unevaluated",
+          "[3b][trig][regression]") {
+    // Denominator 12 is a nested radical — deliberately not in the table.
+    auto r = sin(mul(rational(1, 12), S::Pi()));
+    REQUIRE(r->type_id() == TypeId::Function);
+}
+
 TEST_CASE("sin: odd identity sin(-x) = -sin(x)", "[3b][trig][sin]") {
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);

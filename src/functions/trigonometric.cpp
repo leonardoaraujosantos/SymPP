@@ -67,6 +67,110 @@ namespace {
     return out;
 }
 
+// ----- Exact values at rational multiples of π -------------------------------
+// If `arg` is r·π for a rational r (including π itself), return r; else nullopt.
+[[nodiscard]] std::optional<mpq_class> pi_coefficient(const Expr& arg) {
+    if (arg == S::Pi()) return mpq_class(1);
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    bool has_pi = false;
+    Expr coeff = S::One();
+    for (const auto& f : arg->args()) {
+        if (f == S::Pi()) {
+            if (has_pi) return std::nullopt;  // π² etc. — not linear in π
+            has_pi = true;
+        } else if (is_number(f)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;  // a non-numeric, non-π factor
+        }
+    }
+    if (!has_pi) return std::nullopt;
+    if (coeff->type_id() == TypeId::Integer) {
+        return mpq_class(static_cast<const Integer&>(*coeff).value());
+    }
+    if (coeff->type_id() == TypeId::Rational) {
+        return static_cast<const Rational&>(*coeff).value();
+    }
+    return std::nullopt;
+}
+
+// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6}.
+// Returns nullopt for any other denominator (e.g. π/12 — a nested radical).
+[[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
+    const mpz_class& num = r.get_num();
+    const mpz_class& den = r.get_den();  // canonical: den > 0, gcd(num,den)=1
+    if (num == 0) return S::One();                 // cos(0)        = 1
+    if (num == 1 && den == 2) return S::Zero();     // cos(π/2)      = 0
+    if (num == 1 && den == 3) return S::Half();      // cos(π/3)      = 1/2
+    if (num == 1 && den == 4) {                      // cos(π/4)      = √2/2
+        return mul(pow(integer(2), rational(1, 2)), S::Half());
+    }
+    if (num == 1 && den == 6) {                      // cos(π/6)      = √3/2
+        return mul(pow(integer(3), rational(1, 2)), S::Half());
+    }
+    return std::nullopt;
+}
+
+// cos(r·π) for any rational r, via period (2) and reflection symmetry.
+[[nodiscard]] std::optional<Expr> cos_pi(mpq_class r) {
+    // Reduce modulo 2 into [0, 2): r -= 2·⌊r/2⌋.
+    mpq_class half_r = r / 2;
+    mpz_class k;
+    mpz_fdiv_q(k.get_mpz_t(), half_r.get_num_mpz_t(), half_r.get_den_mpz_t());
+    r -= 2 * mpq_class(k);
+    // Fold [1, 2) → [0, 1] via cos(rπ) = cos((2−r)π).
+    if (r.get_num() > r.get_den()) r = 2 - r;
+    // Fold (1/2, 1] → [0, 1/2) with a sign flip: cos(rπ) = −cos((1−r)π).
+    int sign = 1;
+    if (2 * r.get_num() > r.get_den()) {
+        sign = -1;
+        r = 1 - r;
+    }
+    auto base = base_cos_pi(r);
+    if (!base) return std::nullopt;
+    return sign < 0 ? mul(S::NegativeOne(), *base) : *base;
+}
+
+// sin(r·π) = cos((1/2 − r)·π).
+[[nodiscard]] std::optional<Expr> sin_pi(const mpq_class& r) {
+    mpq_class half(1, 2);
+    half.canonicalize();
+    return cos_pi(half - r);
+}
+
+// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,6}.
+// Computed from a dedicated table (rather than sin/cos) for a clean result.
+[[nodiscard]] std::optional<Expr> base_tan_pi(const mpq_class& r) {
+    const mpz_class& num = r.get_num();
+    const mpz_class& den = r.get_den();
+    if (num == 0) return S::Zero();              // tan(0)   = 0
+    if (num == 1 && den == 6) {                  // tan(π/6) = √3/3
+        return mul(pow(integer(3), rational(1, 2)), rational(1, 3));
+    }
+    if (num == 1 && den == 4) return S::One();    // tan(π/4) = 1
+    if (num == 1 && den == 3) {                  // tan(π/3) = √3
+        return pow(integer(3), rational(1, 2));
+    }
+    return std::nullopt;
+}
+
+// tan(r·π) for any rational r, via period (1) and tan(π−x) = −tan(x). Returns
+// nullopt at a pole (r ≡ 1/2 mod 1) or an out-of-table denominator.
+[[nodiscard]] std::optional<Expr> tan_pi(mpq_class r) {
+    mpz_class k;
+    mpz_fdiv_q(k.get_mpz_t(), r.get_num_mpz_t(), r.get_den_mpz_t());
+    r -= mpq_class(k);  // reduce modulo 1 into [0, 1)
+    if (2 * r.get_num() == r.get_den()) return std::nullopt;  // pole at π/2
+    int sign = 1;
+    if (2 * r.get_num() > r.get_den()) {  // r > 1/2: tan(rπ) = −tan((1−r)π)
+        sign = -1;
+        r = 1 - r;
+    }
+    auto base = base_tan_pi(r);
+    if (!base) return std::nullopt;
+    return sign < 0 ? mul(S::NegativeOne(), *base) : *base;
+}
+
 }  // namespace
 
 // ----- Sin -------------------------------------------------------------------
@@ -152,15 +256,10 @@ Expr sin(const Expr& arg) {
         return trig_evalf(mpfr_sin, arg);
     }
 
-    // sin(pi) = 0
-    if (arg == S::Pi()) return S::Zero();
-
-    // sin(pi/2) = 1
-    if (arg->type_id() == TypeId::Mul) {
-        const auto& a = arg->args();
-        if (a.size() == 2 && a[0] == S::Half() && a[1] == S::Pi()) {
-            return S::One();
-        }
+    // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
+    // π and all their quadrant images).
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        if (auto v = sin_pi(*r); v.has_value()) return *v;
     }
 
     // Odd: sin(-x) = -sin(x)
@@ -180,15 +279,10 @@ Expr cos(const Expr& arg) {
         return trig_evalf(mpfr_cos, arg);
     }
 
-    // cos(pi) = -1
-    if (arg == S::Pi()) return S::NegativeOne();
-
-    // cos(pi/2) = 0
-    if (arg->type_id() == TypeId::Mul) {
-        const auto& a = arg->args();
-        if (a.size() == 2 && a[0] == S::Half() && a[1] == S::Pi()) {
-            return S::Zero();
-        }
+    // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
+    // π and all their quadrant images).
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        if (auto v = cos_pi(*r); v.has_value()) return *v;
     }
 
     // Even: cos(-x) = cos(x)
@@ -208,8 +302,11 @@ Expr tan(const Expr& arg) {
         return trig_evalf(mpfr_tan, arg);
     }
 
-    // tan(pi) = 0
-    if (arg == S::Pi()) return S::Zero();
+    // Exact value at a rational multiple of π. Poles (π/2 + kπ) and
+    // out-of-table denominators are left unevaluated.
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        if (auto v = tan_pi(*r); v.has_value()) return *v;
+    }
 
     // Odd: tan(-x) = -tan(x)
     if (auto pos = strip_neg(arg); pos.has_value()) {

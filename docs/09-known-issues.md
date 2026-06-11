@@ -189,6 +189,24 @@ truth and links the issue number.
 - **Scope:** non-affine arguments, and higher powers (`tan⁴`, `sec⁴`), are not
   handled.
 
+### TRIG-1 — `sin`/`cos`/`tan` not evaluated at rational multiples of π
+- **Input:** `sin(pi/6)`, `cos(pi/3)`, `tan(pi/4)`, `sin(2*pi/3)`,
+  `cos(5*pi/6)`, …
+- **Was:** `sin(1/6*pi)`, … — only `0`, `π/2`, `π` were special-cased (the
+  `π/2` case via a brittle two-factor `Mul` match).
+- **Expected (SymPy):** `1/2`, `1/2`, `1`, `sqrt(3)/2`, `-sqrt(3)/2`, …
+- **Fix:** added a `pi_coefficient` helper (recognises `r·π` for rational `r`)
+  plus exact-value tables with full period/quadrant reduction:
+  `cos_pi`/`sin_pi` (denominators 1,2,3,4,6) and a dedicated `tan_pi` (clean
+  `√3/3`, `√3`, `1`). Poles (`tan(π/2)`) and out-of-table denominators
+  (`sin(π/12)`) are left unevaluated. The old `π/2` `Mul`-match special cases
+  were removed — the helper subsumes them.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][regression]` (rational + radical values, quadrant images, pole and
+  out-of-table guards).
+- **Scope:** denominators outside {1,2,3,4,6} (e.g. `π/12`, `π/5`) stay
+  symbolic — SymPy expands those to nested radicals, not yet implemented.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
