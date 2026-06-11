@@ -3,6 +3,7 @@
 #include <utility>
 #include <vector>
 
+#include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -79,14 +80,27 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
-    // Geometric: r^var with r independent of var.
-    if (expr->type_id() == TypeId::Pow && expr->args()[1] == var) {
-        const Expr& r = expr->args()[0];
-        if (!has(r, var)) {
-            // (r^lo - r^(hi+1)) / (1 - r)
-            Expr num = pow(r, lo) - pow(r, hi + integer(1));
-            Expr den = integer(1) - r;
-            return simplify(num / den);
+    // Geometric: base^(c*var + d) with base, c, d all independent of var.
+    // Rewrites as base^d * (base^c)^var = A * ratio^var, a geometric series
+    // with ratio = base^c and constant prefactor A = base^d. This subsumes
+    // the plain base^var case (c=1, d=0) and also handles base^(-var),
+    // base^(2*var), etc. — exponents the previous exact-match check missed.
+    if (expr->type_id() == TypeId::Pow) {
+        const Expr& base = expr->args()[0];
+        const Expr& exponent = expr->args()[1];
+        if (!has(base, var) && has(exponent, var)) {
+            Expr c = diff(exponent, var);
+            if (!has(c, var)) {  // exponent is linear in var
+                Expr d = simplify(exponent - c * var);
+                if (!has(d, var)) {
+                    Expr ratio = pow(base, c);
+                    Expr prefactor = pow(base, d);
+                    // A * (ratio^lo - ratio^(hi+1)) / (1 - ratio)
+                    Expr num = pow(ratio, lo) - pow(ratio, hi + integer(1));
+                    Expr den = integer(1) - ratio;
+                    return simplify(prefactor * num / den);
+                }
+            }
         }
     }
 

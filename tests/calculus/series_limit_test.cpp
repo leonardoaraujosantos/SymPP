@@ -146,6 +146,7 @@ TEST_CASE("Order: with explicit point prints (var, point)", "[6][order]") {
 }
 
 #include <sympp/calculus/summation.hpp>
+#include <sympp/core/traversal.hpp>
 
 // ----- summation -------------------------------------------------------------
 
@@ -203,6 +204,42 @@ TEST_CASE("summation: geometric Σ 2^k from 0 to n → 2^(n+1) - 1",
     auto e = pow(integer(2), k);
     auto s = summation(e, k, integer(0), n);
     REQUIRE(oracle.equivalent(s->str(), "2**(n+1) - 1"));
+}
+
+// Regression: geometric detection used to require the exponent to be
+// *exactly* the summation variable, so Σ 2^(-k) (which canonicalizes to
+// base 2, exponent -k) and Σ 2^(2k) fell through and returned the summand
+// with the bound variable still free. See known-issues "summation
+// geometric exponent linear in index".
+TEST_CASE("summation: geometric Σ 2^(-k) from 0 to n (negated index)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto e = pow(integer(2), -k);  // 2**(-k)
+    auto s = summation(e, k, integer(0), n);
+    REQUIRE_FALSE(has(s, k));  // bound variable must not leak free
+    REQUIRE(oracle.equivalent(s->str(), "2 - 2*2**(-n - 1)"));
+}
+
+TEST_CASE("summation: geometric Σ 2^(-k) from 0 to 3 → 15/8",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto e = pow(integer(2), -k);
+    auto s = summation(e, k, integer(0), integer(3));
+    REQUIRE(oracle.equivalent(s->str(), "15/8"));
+}
+
+TEST_CASE("summation: geometric Σ 2^(2k) from 0 to n (scaled index)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto e = pow(integer(2), integer(2) * k);  // 2**(2*k)
+    auto s = summation(e, k, integer(0), n);
+    REQUIRE_FALSE(has(s, k));
+    REQUIRE(oracle.equivalent(s->str(), "4**(n + 1)/3 - 1/3"));
 }
 
 TEST_CASE("summation: Σ from a to b uses telescoping",
