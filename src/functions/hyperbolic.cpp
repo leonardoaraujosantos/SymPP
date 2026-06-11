@@ -56,6 +56,21 @@ namespace {
     return std::nullopt;
 }
 
+// √e and 1/√e, for the cross-function inverse-composition algebraic forms.
+[[nodiscard]] Expr sqrtp(const Expr& e) { return pow(e, rational(1, 2)); }
+[[nodiscard]] Expr invsqrt(const Expr& e) { return pow(e, rational(-1, 2)); }
+// x² + 1 and 1 − x².
+[[nodiscard]] Expr x2_plus_1(const Expr& x) {
+    return add(pow(x, integer(2)), S::One());
+}
+[[nodiscard]] Expr one_minus_x2(const Expr& x) {
+    return add(S::One(), mul(S::NegativeOne(), pow(x, integer(2))));
+}
+// √(x−1)·√(x+1) — the form SymPy emits for the acosh compositions.
+[[nodiscard]] Expr sqrt_x2_minus_1(const Expr& x) {
+    return mul(sqrtp(add(x, S::NegativeOne())), sqrtp(add(x, S::One())));
+}
+
 [[nodiscard]] Expr unary_evalf(int (*op)(mpfr_ptr, mpfr_srcptr, mpfr_rnd_t),
                                const Expr& arg) {
     const auto& f = static_cast<const Float&>(*arg);
@@ -167,6 +182,14 @@ Expr sinh(const Expr& arg) {
     }
     // sinh(asinh(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Asinh); v.has_value()) return *v;
+    // sinh(acosh(x)) = √(x−1)·√(x+1).
+    if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) {
+        return sqrt_x2_minus_1(*v);
+    }
+    // sinh(atanh(x)) = x / √(1 − x²).
+    if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
+        return mul(*v, invsqrt(one_minus_x2(*v)));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Sinh>(*pos));
     }
@@ -180,6 +203,14 @@ Expr cosh(const Expr& arg) {
     }
     // cosh(acosh(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) return *v;
+    // cosh(asinh(x)) = √(x² + 1).
+    if (auto v = arg_of(arg, FunctionId::Asinh); v.has_value()) {
+        return sqrtp(x2_plus_1(*v));
+    }
+    // cosh(atanh(x)) = 1 / √(1 − x²).
+    if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
+        return invsqrt(one_minus_x2(*v));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return make<Cosh>(*pos);  // even
     }
@@ -193,6 +224,14 @@ Expr tanh(const Expr& arg) {
     }
     // tanh(atanh(x)) = x.
     if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) return *v;
+    // tanh(asinh(x)) = x / √(x² + 1).
+    if (auto v = arg_of(arg, FunctionId::Asinh); v.has_value()) {
+        return mul(*v, invsqrt(x2_plus_1(*v)));
+    }
+    // tanh(acosh(x)) = √(x−1)·√(x+1) / x.
+    if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) {
+        return mul(sqrt_x2_minus_1(*v), pow(*v, integer(-1)));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Tanh>(*pos));
     }

@@ -331,6 +331,17 @@ truth and links the issue number.
 - **Scope:** the trig × inverse-trig table; hyperbolic cross-compositions
   (`cosh(asinh(x)) = √(x²+1)`, …) are a follow-up.
 
+### FUNC-3 — hyperbolic cross-function inverse compositions not simplified
+- **Input:** `cosh(asinh(x))`, `sinh(acosh(x))`, `tanh(asinh(x))`,
+  `cosh(atanh(x))`, `sinh(atanh(x))`, `tanh(acosh(x))`.
+- **Was:** `cosh(asinh(x))`, … — left unevaluated.
+- **Expected (SymPy):** `√(x²+1)`, `√(x−1)·√(x+1)`, `x/√(x²+1)`, `1/√(1−x²)`,
+  `x/√(1−x²)`, `√(x−1)·√(x+1)/x`.
+- **Fix:** the hyperbolic analogue of FUNC-2 — `sinh`/`cosh`/`tanh` recognise a
+  different inverse-hyperbolic argument (via `arg_of`) and emit the algebraic
+  form. The `acosh` cases use `√(x−1)·√(x+1)`, the form SymPy prints.
+- **Regression test:** `tests/functions/hyperbolic_test.cpp` — `[regression]`.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
