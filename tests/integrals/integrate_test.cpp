@@ -199,6 +199,48 @@ TEST_CASE("integrate: ∫1/cos(3x)^2 dx = tan(3x)/3",
     REQUIRE(oracle.equivalent(r->str(), "tan(3*x)/3"));
 }
 
+// ----- Polynomial × log integration by parts (regression, INT-4) -------------
+// ∫xⁿ·log(ax+b) dx fell through: by-parts only used sin/cos/exp as the dv
+// factor, never log. Now u = log(ax+b), dv = poly dx. Verified by the oracle
+// and by differentiation (forms are valid up to an additive constant).
+TEST_CASE("integrate: ∫x*log(x) dx = x^2*log(x)/2 - x^2/4",
+          "[7][integrate][byparts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(x * log(x), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(r->str(), "x**2*log(x)/2 - x**2/4"));
+}
+
+TEST_CASE("integrate: ∫x^2*log(x) dx = x^3*log(x)/3 - x^3/9",
+          "[7][integrate][byparts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(x, integer(2)) * log(x), x);
+    REQUIRE(oracle.equivalent(r->str(), "x**3*log(x)/3 - x**3/9"));
+}
+
+TEST_CASE("integrate: ∫(x+1)*log(x) dx",
+          "[7][integrate][byparts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate((x + integer(1)) * log(x), x);
+    REQUIRE(oracle.equivalent(r->str(),
+                              "(x**2/2 + x)*log(x) - x**2/4 - x"));
+}
+
+TEST_CASE("integrate: ∫x*log(2x+1) dx (affine log argument)",
+          "[7][integrate][byparts][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto f = x * log(integer(2) * x + integer(1));
+    auto F = integrate(f, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    // SymPP's antiderivative differs from SymPy's by an additive constant
+    // (log(x+1/2) vs log(2x+1)), so compare derivatives, not the primitives.
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), "x*log(2*x + 1)"));
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by

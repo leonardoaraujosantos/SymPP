@@ -478,6 +478,42 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
+    // Polynomial × log(affine), by parts with u = log(ax+b), dv = rest dx:
+    //   ∫ rest·log(ax+b) dx = log(ax+b)·∫rest − ∫(∫rest)·a/(ax+b) dx.
+    // The remaining integral is rational (∫rest is polynomial, du = a/(ax+b)),
+    // so try_rational closes it. The marker/depth guards bail on anything that
+    // does not reduce, so a stray log in `rest` can't loop.
+    if (expr->type_id() == TypeId::Mul) {
+        Expr log_factor;
+        std::vector<Expr> rest_factors;
+        for (const auto& f : expr->args()) {
+            if (!log_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Log && fn.args().size() == 1
+                    && as_affine(fn.args()[0], var)) {
+                    log_factor = f;
+                    continue;
+                }
+            }
+            rest_factors.push_back(f);
+        }
+        if (log_factor && !rest_factors.empty()) {
+            Expr rest = mul(rest_factors);
+            if (depends_on(rest, var)) {
+                Expr v = integrate(rest, var);
+                if (!is_integral_marker(v)) {
+                    Expr remaining = integrate(v * diff(log_factor, var), var);
+                    if (!is_integral_marker(remaining)) {
+                        // expand (not simplify) keeps the polynomial terms
+                        // distributed: x²·log(x)/2 − x²/4 rather than a
+                        // common-factor-wrapped 1/8·(…).
+                        return expand(log_factor * v - remaining);
+                    }
+                }
+            }
+        }
+    }
+
     // Mul with one factor being sin/cos/exp(affine) and the rest forming
     // a non-trivial u that depends on var.
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
