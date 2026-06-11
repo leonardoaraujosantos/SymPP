@@ -740,6 +740,25 @@ TEST_CASE("apart: improper fraction extracts polynomial part",
     REQUIRE(oracle.equivalent(a->str(), "x + 1/(x - 1)"));
 }
 
+// Regression (APART-1): partial fractions over irreducible quadratic factors.
+// apart() previously bailed (returned the input) when the denominator had a
+// non-linear irreducible factor; it now decomposes the squarefree case.
+TEST_CASE("apart: decomposes over irreducible quadratic factors",
+          "[4][apart][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // 1/(x³+1) = 1/(3(x+1)) − (x−2)/(3(x²−x+1)).
+    auto a1 = apart(pow(pow(x, integer(3)) + integer(1), integer(-1)), x);
+    REQUIRE(oracle.equivalent(
+        a1->str(), "1/(3*(x+1)) - (x-2)/(3*(x**2-x+1))"));
+    // The decomposition recombines to the original fraction.
+    REQUIRE(oracle.equivalent(a1->str(), "1/(x**3+1)"));
+    // 1/(x⁴−1) mixes linear and irreducible-quadratic factors.
+    auto a2 = apart(pow(pow(x, integer(4)) - integer(1), integer(-1)), x);
+    REQUIRE(oracle.equivalent(a2->str(), "1/(x**4-1)"));
+    REQUIRE(a2->str().find("x**2 + 1") != std::string::npos);  // has the quad term
+}
+
 TEST_CASE("horner: 2x^3 + 3x^2 + x + 5 = x*(x*(2*x + 3) + 1) + 5",
           "[4][horner][oracle]") {
     auto& oracle = Oracle::instance();

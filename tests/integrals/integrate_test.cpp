@@ -291,6 +291,30 @@ TEST_CASE("integrate: ∫1/(x^2-1) dx stays a log (reducible, unaffected)",
     REQUIRE(r->str().find("log") != std::string::npos);
 }
 
+// ----- Partial fractions over irreducible factors (INT-17) -------------------
+// apart() now decomposes over irreducible quadratics (squarefree), so rational
+// integrals with such factors close: ∫1/(x³+1), ∫1/(x⁴-1).
+TEST_CASE("integrate: ∫1/(x^3+1) via partial fractions (log + atan)",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(3)) + integer(1), integer(-1)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(
+        r->str(),
+        "log(x+1)/3 - log(x**2-x+1)/6 + sqrt(3)*atan(2*sqrt(3)*x/3 - sqrt(3)/3)/3"));
+}
+
+TEST_CASE("integrate: ∫1/(x^4-1) via partial fractions",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(pow(x, integer(4)) - integer(1), integer(-1)), x);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(
+        r->str(), "log(x-1)/4 - log(x+1)/4 - atan(x)/2"));
+}
+
 // ----- Linear over irreducible quadratic (INT-16) ----------------------------
 // ∫(p·x+q)/(a·x²+b·x+c) splits into (p/2a)·log(quadratic) + remainder·atan.
 TEST_CASE("integrate: ∫(linear)/(irreducible quadratic)",
