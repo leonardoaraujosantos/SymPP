@@ -247,6 +247,13 @@ namespace {
 // var with numeric coefficients and positive discriminant.
 [[nodiscard]] std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ 1/√(a·x² + c) dx for a pure quadratic under the root (no linear term)
+// with c > 0:  a > 0 → asinh(x·√(a/c))/√a ;  a < 0 → asin(x·√(−a/c))/√(−a).
+// A linear term, or c ≤ 0 (the acosh / log forms), is out of scope. Returns
+// nullopt unless the radicand is a degree-2 polynomial with rational
+// coefficients, zero linear term, and positive constant term.
+[[nodiscard]] std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var);
+
 }  // namespace
 
 // Recursion-depth backstop. Integration by parts recurses through
@@ -291,6 +298,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_arctan_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_sqrt_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
@@ -701,6 +711,38 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     Expr root_d = sqrt(disc);
     Expr arg = (integer(2) * a * var + b) / root_d;
     return simplify(integer(2) * atan(arg) / root_d);
+}
+
+std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
+    // Match 1/√(quadratic): a Pow with exponent −1/2.
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    if (!(expr->args()[1] == rational(-1, 2))) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    if (!depends_on(base, var)) return std::nullopt;
+
+    Poly p(expand(base), var);
+    if (p.degree() != 2) return std::nullopt;
+    const Expr& c = p.coeffs()[0];
+    const Expr& b = p.coeffs()[1];
+    const Expr& a = p.coeffs()[2];
+
+    // Pure quadratic only (no linear term), with rational coefficients and a
+    // positive constant term. Other shapes (linear term, c ≤ 0) are out of
+    // scope and left to fall through.
+    if (!(b == S::Zero())) return std::nullopt;
+    if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+    if (is_positive(c) != true) return std::nullopt;
+
+    if (is_positive(a) == true) {
+        // ∫ 1/√(a·x² + c) dx = asinh(x·√(a/c)) / √a.
+        return simplify(asinh(var * sqrt(a / c)) / sqrt(a));
+    }
+    if (is_negative(a) == true) {
+        // a < 0: ∫ 1/√(c − |a|·x²) dx = asin(x·√(|a|/c)) / √|a|.
+        Expr a_pos = mul(S::NegativeOne(), a);
+        return simplify(asin(var * sqrt(a_pos / c)) / sqrt(a_pos));
+    }
+    return std::nullopt;
 }
 
 }  // namespace
