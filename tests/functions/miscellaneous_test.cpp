@@ -36,6 +36,29 @@ TEST_CASE("sqrt: perfect squares fold to integers", "[3d][sqrt]") {
     REQUIRE(sqrt(integer(100)) == integer(10));
 }
 
+// Regression (SQRT-1): a perfect-square *rational* must reduce the same way a
+// perfect-square integer does. sqrt(4)==2 already worked, but sqrt(1/4) used to
+// stay as the unevaluated (1/4)**(1/2).
+TEST_CASE("sqrt: perfect-square rationals fold to rationals",
+          "[3d][sqrt][regression]") {
+    // Reference: sympy.sqrt(Rational(1,4)) == Rational(1,2),
+    //            sympy.sqrt(Rational(9,4)) == Rational(3,2).
+    REQUIRE(sqrt(rational(1, 4)) == rational(1, 2));
+    REQUIRE(sqrt(rational(9, 4)) == rational(3, 2));
+    REQUIRE(sqrt(rational(9, 16)) == rational(3, 4));
+    // Denominator becomes 1 → collapses to an Integer.
+    REQUIRE(sqrt(rational(16, 1)) == integer(4));
+}
+
+TEST_CASE("sqrt: non-perfect-square rational stays symbolic",
+          "[3d][sqrt][regression]") {
+    // 1/2 is not a perfect square in numerator and denominator; factor
+    // extraction (sqrt(1/2) -> sqrt(2)/2) is a separate, not-yet-implemented
+    // behaviour, so the form must stay a Pow rather than silently mis-fold.
+    auto e = sqrt(rational(1, 2));
+    REQUIRE(e->type_id() == TypeId::Pow);
+}
+
 TEST_CASE("sqrt: non-square integer stays as Pow(_, 1/2)", "[3d][sqrt]") {
     auto e = sqrt(integer(2));
     REQUIRE(e->type_id() == TypeId::Pow);

@@ -151,30 +151,48 @@ std::string Pow::str() const {
 
 namespace {
 
-// Detect Integer^Rational(1, n) collapsing to a perfect n-th root. Returns
-// the simplified Expr, or std::nullopt if no exact root exists.
+// Detect base^Rational(1, n) collapsing to a perfect n-th root, for a
+// non-negative Integer or Rational base. For a rational p/q the numerator and
+// denominator are rooted independently (so √(9/4) → 3/2). Returns the
+// simplified Expr, or std::nullopt if no exact root exists.
 //
 // Reference: sympy/core/power.py — Pow.__new__ / _eval_power for unit
-// numerator rational exponents on integer bases.
-[[nodiscard]] std::optional<Expr> try_integer_perfect_root(const Expr& base,
-                                                           const Expr& exp) {
-    if (base->type_id() != TypeId::Integer) return std::nullopt;
+// numerator rational exponents on integer / rational bases.
+[[nodiscard]] std::optional<Expr> try_perfect_root(const Expr& base,
+                                                   const Expr& exp) {
     if (exp->type_id() != TypeId::Rational) return std::nullopt;
-
-    const auto& z = static_cast<const Integer&>(*base);
     const auto& q = static_cast<const Rational&>(*exp);
-    if (z.is_negative()) return std::nullopt;  // branch handling — defer
     if (q.numerator() != 1) return std::nullopt;  // only 1/n for now
     auto den = q.denominator();
     if (!den.fits_ulong_p()) return std::nullopt;
     auto n = den.get_ui();
     if (n < 2) return std::nullopt;
 
-    mpz_class root;
-    mpz_class rem;
-    mpz_rootrem(root.get_mpz_t(), rem.get_mpz_t(), z.value().get_mpz_t(), n);
-    if (sgn(rem) != 0) return std::nullopt;
-    return make<Integer>(std::move(root));
+    // Exact n-th root of a non-negative integer, or nullopt.
+    auto exact_root = [n](const mpz_class& z) -> std::optional<mpz_class> {
+        mpz_class root, rem;
+        mpz_rootrem(root.get_mpz_t(), rem.get_mpz_t(), z.get_mpz_t(), n);
+        if (sgn(rem) != 0) return std::nullopt;
+        return root;
+    };
+
+    if (base->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*base);
+        if (z.is_negative()) return std::nullopt;  // branch handling — defer
+        if (auto r = exact_root(z.value())) return make<Integer>(std::move(*r));
+        return std::nullopt;
+    }
+    if (base->type_id() == TypeId::Rational) {
+        const auto& r = static_cast<const Rational&>(*base);
+        if (r.is_negative()) return std::nullopt;  // branch handling — defer
+        // Denominator is always positive (Rational invariant), numerator ≥ 0
+        // here, so both roots are over non-negative integers.
+        auto rn = exact_root(r.numerator());
+        auto rd = exact_root(r.denominator());
+        if (rn && rd) return rational(*rn, *rd);
+        return std::nullopt;
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -219,8 +237,8 @@ Expr pow(const Expr& base, const Expr& exp) {
         auto r = number_pow(static_cast<const Number&>(*base),
                            static_cast<const Number&>(*exp));
         if (r) return *r;
-        // Fallback: Integer base ^ Rational(1, n) — perfect n-th root.
-        if (auto root = try_integer_perfect_root(base, exp); root.has_value()) {
+        // Fallback: Integer / Rational base ^ Rational(1, n) — perfect n-th root.
+        if (auto root = try_perfect_root(base, exp); root.has_value()) {
             return *root;
         }
     }
