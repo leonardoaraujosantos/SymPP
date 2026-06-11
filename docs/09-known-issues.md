@@ -276,6 +276,19 @@ truth and links the issue number.
 - **Scope:** `tan(x+π/2) = −cot(x)` is left symbolic — SymPP has no `cot`
   function type.
 
+### INT-10 — heurisch missed a u-sub when the inner function was a Mul factor
+- **Input:** `integrate(1/(x*log(x)))`, `integrate(1/(x*log(x)**2))`.
+- **Was:** `Integral((x*log(x))**(-1), x)` — heurisch only collected function
+  *arguments* and `Pow` *bases* as substitution candidates, so `log(x)` buried
+  as a factor of the `Pow` base `x·log(x)` was never tried.
+- **Expected (SymPy):** `log(log(x))`, `-1/log(x)`.
+- **Fix:** the candidate `walk` now also adds the function application itself
+  (e.g. `log(x)`), so `u = log(x)` is considered.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[heurisch][regression]`.
+- **Scope:** still single-substitution heurisch; integrands needing erf/erfi
+  (`∫exp(x²)`) remain unevaluated (no `erfi` function type).
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

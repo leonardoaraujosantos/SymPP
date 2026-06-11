@@ -349,6 +349,10 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
     auto walk = [&](auto&& self, const Expr& e) -> void {
         if (!e) return;
         if (e->type_id() == TypeId::Function) {
+            // The function application itself is a candidate inner g — e.g.
+            // g = log(x) for ∫1/(x·log(x)). Without this, a function buried as
+            // a Mul factor would never be considered (only its args were).
+            add_candidate(e);
             for (const auto& a : e->args()) {
                 add_candidate(a);
                 self(self, a);
