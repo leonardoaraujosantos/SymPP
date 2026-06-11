@@ -33,6 +33,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "erf"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Erfc final : public Function {
@@ -42,6 +43,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "erfc"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT HeavisideFn final : public Function {
@@ -53,6 +55,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "Heaviside"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT DiracDeltaFn final : public Function {

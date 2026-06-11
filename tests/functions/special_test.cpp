@@ -15,6 +15,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/special.hpp>
 
 #include "oracle/oracle.hpp"
@@ -131,4 +132,25 @@ TEST_CASE("special functions: structural output matches SymPy",
     REQUIRE(oracle.equivalent(erfc(x)->str(), "erfc(x)"));
     REQUIRE(oracle.equivalent(heaviside(x)->str(), "Heaviside(x)"));
     REQUIRE(oracle.equivalent(dirac_delta(x)->str(), "DiracDelta(x)"));
+}
+
+// ----- Derivatives (regression, DIFF-2) --------------------------------------
+// erf/erfc/Heaviside had no diff_arg override, so diff() returned 0 — the same
+// class of bug as DIFF-1 (Abs). Now: erf' = 2·exp(−x²)/√π, erfc' = −that,
+// Heaviside' = DiracDelta(x).
+TEST_CASE("erf/erfc: derivative is the Gaussian", "[3j][erf][diff][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(diff(erf(x), x)->str(), "2*exp(-x**2)/sqrt(pi)"));
+    REQUIRE(oracle.equivalent(diff(erfc(x), x)->str(), "-2*exp(-x**2)/sqrt(pi)"));
+    // Chain rule still applies.
+    REQUIRE(oracle.equivalent(diff(erf(integer(2) * x), x)->str(),
+                              "4*exp(-4*x**2)/sqrt(pi)"));
+}
+
+TEST_CASE("Heaviside: derivative is DiracDelta", "[3j][diff][regression]") {
+    auto x = symbol("x");
+    auto d = diff(heaviside(x), x);
+    REQUIRE(d->type_id() == TypeId::Function);
+    REQUIRE(d->str() == "DiracDelta(x)");
 }

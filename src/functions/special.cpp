@@ -12,10 +12,12 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/exponential.hpp>
 
 namespace sympp {
 
@@ -177,6 +179,30 @@ std::optional<bool> DiracDeltaFn::ask(AssumptionKey k) const noexcept {
 Expr dirac_delta(const Expr& arg) {
     if (is_nonzero(arg) == true) return S::Zero();
     return make<DiracDeltaFn>(arg);
+}
+
+// ----- Derivatives -----------------------------------------------------------
+// diff()'s chain rule supplies the arg' factor; diff_arg returns ∂f/∂(arg).
+
+Expr Erf::diff_arg(std::size_t /*i*/) const {
+    // d/dx erf(x) = 2·exp(−x²)/√π.
+    const Expr& a = args_[0];
+    return mul(integer(2),
+               mul(exp(mul(S::NegativeOne(), pow(a, integer(2)))),
+                   pow(S::Pi(), rational(-1, 2))));
+}
+
+Expr Erfc::diff_arg(std::size_t /*i*/) const {
+    // d/dx erfc(x) = −2·exp(−x²)/√π.
+    const Expr& a = args_[0];
+    return mul(integer(-2),
+               mul(exp(mul(S::NegativeOne(), pow(a, integer(2)))),
+                   pow(S::Pi(), rational(-1, 2))));
+}
+
+Expr HeavisideFn::diff_arg(std::size_t /*i*/) const {
+    // d/dx Heaviside(x) = DiracDelta(x).
+    return dirac_delta(args_[0]);
 }
 
 }  // namespace sympp
