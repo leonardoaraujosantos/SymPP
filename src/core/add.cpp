@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <sympp/core/basic.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -169,6 +170,40 @@ Expr add(std::vector<Expr> args) {
     std::vector<Expr> flat;
     flat.reserve(args.size());
     for (auto& a : args) flatten_into(a, flat);
+
+    // ---- Step 1b: infinity / nan pre-pass ----
+    // A single oo / -oo / zoo absorbs every finite numeric term; finite numbers
+    // are dropped, symbolic terms coexist (oo + x). Contradictions (oo - oo,
+    // zoo + oo, zoo + zoo, any nan) collapse to nan. When the result is just the
+    // infinity it returns directly; otherwise the reduced list (symbolic
+    // terms + one infinity) flows through the normal pipeline below.
+    if (std::any_of(flat.begin(), flat.end(), [](const Expr& a) {
+            return is_infinity(a) || a->type_id() == TypeId::NaN;
+        })) {
+        bool pinf = false, ninf = false;
+        int zoo_count = 0;
+        std::vector<Expr> keep;
+        for (auto& a : flat) {
+            switch (a->type_id()) {
+                case TypeId::NaN: return S::NaN();
+                case TypeId::Infinity: pinf = true; break;
+                case TypeId::NegativeInfinity: ninf = true; break;
+                case TypeId::ComplexInfinity: ++zoo_count; break;
+                default:
+                    if (!is_number(a)) keep.push_back(a);  // numbers absorbed
+            }
+        }
+        if ((pinf && ninf) || (zoo_count > 0 && (pinf || ninf))
+            || zoo_count > 1) {
+            return S::NaN();
+        }
+        Expr chosen = zoo_count    ? S::ComplexInfinity()
+                      : pinf       ? S::Infinity()
+                                   : S::NegativeInfinity();
+        if (keep.empty()) return chosen;
+        keep.push_back(std::move(chosen));
+        flat = std::move(keep);
+    }
 
     // ---- Step 2: separate numerics, accumulate numeric sum ----
     Expr running_sum;

@@ -16,6 +16,7 @@ target_sources(sympp_tests
         core/expr_cache_test.cpp
         core/float_test.cpp
         core/imaginary_unit_test.cpp
+        core/infinity_test.cpp
         core/piecewise_test.cpp
         core/integer_test.cpp
         core/rational_test.cpp

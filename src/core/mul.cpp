@@ -10,10 +10,12 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
@@ -183,6 +185,49 @@ Expr mul(std::vector<Expr> args) {
     std::vector<Expr> flat;
     flat.reserve(args.size());
     for (auto& a : args) flatten_into(a, flat);
+
+    // ---- Step 1b: infinity / nan pre-pass ----
+    // An infinity factor makes the product an infinity whose sign is the
+    // product of the signs of the finite/known factors (oo*pos=oo, oo*neg=-oo).
+    // A literal zero factor gives nan (oo*0). zoo absorbs everything nonzero.
+    // Unknown-sign symbolic factors coexist (oo*x). Numbers and known-sign
+    // symbols are absorbed into the sign.
+    if (std::any_of(flat.begin(), flat.end(), [](const Expr& a) {
+            return is_infinity(a) || a->type_id() == TypeId::NaN;
+        })) {
+        bool has_zoo = false, has_zero = false;
+        int real_inf = 0;
+        int sign = 1;
+        std::vector<Expr> keep;
+        for (auto& a : flat) {
+            switch (a->type_id()) {
+                case TypeId::NaN: return S::NaN();
+                case TypeId::Infinity: ++real_inf; break;
+                case TypeId::NegativeInfinity: ++real_inf; sign = -sign; break;
+                case TypeId::ComplexInfinity: has_zoo = true; break;
+                default:
+                    if (is_number(a)) {
+                        const auto& n = static_cast<const Number&>(*a);
+                        if (n.is_zero()) has_zero = true;
+                        else if (n.is_negative()) sign = -sign;
+                    } else if (is_negative(a) == true) {
+                        sign = -sign;  // known-negative symbol absorbed
+                    } else if (is_positive(a) == true) {
+                        // known-positive symbol absorbed (sign unchanged)
+                    } else {
+                        keep.push_back(a);  // unknown sign coexists (oo*x)
+                    }
+            }
+        }
+        if (has_zero) return S::NaN();  // 0 * oo (or 0 * zoo) = nan
+        Expr chosen = has_zoo ? S::ComplexInfinity()
+                      : (sign > 0) ? S::Infinity()
+                                   : S::NegativeInfinity();
+        (void)real_inf;
+        if (keep.empty()) return chosen;
+        keep.push_back(std::move(chosen));
+        flat = std::move(keep);
+    }
 
     // ---- Step 2: combine numerics, short-circuit zero ----
     Expr running_prod;
