@@ -289,6 +289,21 @@ truth and links the issue number.
 - **Scope:** still single-substitution heurisch; integrands needing erf/erfi
   (`∫exp(x²)`) remain unevaluated (no `erfi` function type).
 
+### SUM-2 — arithmetic-geometric `Σ k·r^k` returned the summand unchanged
+- **Input:** `summation(k*2**k, k, 0, n)`, `summation(k*3**k, k, 0, n)`.
+- **Was:** `k*2**k` — a `Mul` of two var-dependent factors isn't split by the
+  constant-extraction path, and the geometric handler only matched a pure
+  `base^(linear·k)`.
+- **Expected (SymPy):** `2*2**n*n - 2*2**n + 2`, ….
+- **Fix:** added an arithmetic-geometric case `Σ k·r^k` for a numeric ratio
+  `r = base^c ≠ 1`, using the closed form
+  `Σ_{k=0}^{N} k·r^k = r(1 − (N+1)r^N + N·r^{N+1})/(1−r)²` with telescoping for
+  general bounds; the `base^d` prefactor factors out.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[summation][regression]`.
+- **Scope:** numeric ratio only (a symbolic `r` would need a Piecewise on
+  `r = 1`, as SymPy emits); higher-degree `P(k)·r^k` still defers.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
