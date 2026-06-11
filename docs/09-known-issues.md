@@ -480,8 +480,32 @@ truth and links the issue number.
 - **Scope:** irreducible quadratic denominators with a degree-≤1 numerator and
   rational coefficients. Reducible / repeated-root denominators stay with
   `try_rational` (partial fractions → logs); higher-degree denominators such as
-  `∫1/(x³+1)` need full partial-fraction decomposition over irreducible factors
-  (a separate task).
+  `∫1/(x³+1)` were addressed by APART-1 / INT-17 below.
+
+### APART-1 — `apart` did not decompose over irreducible quadratic factors
+- **Input:** `apart(1/(x³+1))`, `apart(1/(x⁴-1))`.
+- **Was:** the input fraction unchanged — `apart` only did Heaviside cover-up
+  over distinct *linear* (rational-root) factors and bailed when an irreducible
+  quadratic (or higher) factor was present.
+- **Expected (SymPy):** `1/(3(x+1)) − (x−2)/(3(x²−x+1))`, etc.
+- **Fix:** added `partial_fractions_squarefree` (`src/polys/poly.cpp`) —
+  factor the denominator (`factor_list`), then solve the undetermined-
+  coefficients identity `num = Σ Pᵢ·(den/fᵢ)` (an N×N rational linear system,
+  N = deg den) via `Matrix::rref`, giving `Σ Pᵢ/fᵢ` with `deg Pᵢ < deg fᵢ`.
+- **Regression test:** `tests/polys/poly_test.cpp` — `[apart][regression]`.
+- **Scope:** squarefree denominators (distinct factors, multiplicity 1) with
+  rational coefficients, `deg ≤ 10`. Repeated factors `(x−1)²` still defer.
+
+### INT-17 — `integrate(1/(x³+1))` / rational with irreducible quadratic denominator
+- **Input:** `∫1/(x³+1)`, `∫1/(x⁴-1)`.
+- **Was:** the unevaluated marker — `try_rational` relied on `apart`, which
+  could not split an irreducible quadratic factor (APART-1).
+- **Expected (SymPy):** `log(x+1)/3 − log(x²−x+1)/6 + √3·atan(...)/3`, etc.
+- **Fix:** with APART-1, `apart` now produces `(linear)/(irreducible quadratic)`
+  terms which `integrate` closes via INT-16 (log + atan) plus the linear terms
+  (logs). No integration code changed — the fix is entirely in `apart`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][rational][regression]`.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,

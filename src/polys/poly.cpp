@@ -966,6 +966,87 @@ Expr cancel(const Expr& expr, const Expr& var) {
     return reduced_num.as_expr() / reduced_den.as_expr();
 }
 
+namespace {
+
+// Partial-fraction decomposition of num/den over the squarefree irreducible
+// factorization of den (multiplicity-1 factors, e.g. (x+1)(x²−x+1) for x³+1).
+// Returns Σ Pᵢ/fᵢ with deg(Pᵢ) < deg(fᵢ), found by undetermined coefficients:
+// num = Σ Pᵢ·(den/fᵢ) is an N×N rational linear system (N = deg den), solved
+// via rref. Returns nullopt for a repeated factor, non-rational coefficients,
+// a single irreducible factor (nothing to split), or an impractical degree.
+[[nodiscard]] std::optional<Expr> partial_fractions_squarefree(
+    const Poly& num_p, const Poly& den_p, const Expr& var) {
+    constexpr std::size_t kMaxDegree = 10;
+    const std::size_t N = den_p.degree();
+    if (N < 2 || N > kMaxDegree) return std::nullopt;
+    if (!poly_coeffs_as_mpq(den_p)) return std::nullopt;
+
+    FactorList fl = factor_list(den_p);
+    if (fl.factors.size() < 2) return std::nullopt;  // nothing to separate
+    for (const auto& [f, m] : fl.factors) {
+        if (m != 1) return std::nullopt;  // repeated factor — deferred
+    }
+
+    // One unknown per coefficient of each Pᵢ (degree deg(fᵢ)−1). The basis
+    // polynomial for coefficient j of factor i is x^j · (den/fᵢ).
+    struct Unknown { std::size_t factor; std::size_t power; };
+    std::vector<Unknown> unknowns;
+    std::vector<std::vector<Expr>> basis;  // per unknown: coeff vector, low→high
+    for (std::size_t i = 0; i < fl.factors.size(); ++i) {
+        const Poly& f = fl.factors[i].first;
+        auto [cofactor, rem] = den_p.divmod(f);
+        if (!rem.is_zero()) return std::nullopt;  // f must divide den exactly
+        const auto& cc = cofactor.coeffs();
+        for (std::size_t j = 0; j < f.degree(); ++j) {
+            unknowns.push_back({i, j});
+            std::vector<Expr> col(N, S::Zero());
+            for (std::size_t k = 0; k < cc.size() && j + k < N; ++k) {
+                col[j + k] = cc[k];
+            }
+            basis.push_back(std::move(col));
+        }
+    }
+    if (unknowns.size() != N) return std::nullopt;
+
+    // Solve the augmented system [M | num] by rref; M column = basis vector.
+    Matrix aug = Matrix::zeros(N, N + 1);
+    for (std::size_t col = 0; col < N; ++col) {
+        for (std::size_t row = 0; row < N; ++row) {
+            aug.set(row, col, basis[col][row]);
+        }
+    }
+    const auto& nc = num_p.coeffs();
+    for (std::size_t row = 0; row < N; ++row) {
+        aug.set(row, N, row < nc.size() ? nc[row] : S::Zero());
+    }
+    auto [R, pivots] = aug.rref();
+    if (pivots.size() != N) return std::nullopt;  // singular — bail
+    for (std::size_t k = 0; k < N; ++k) {
+        if (pivots[k] != k) return std::nullopt;  // not a clean identity block
+    }
+
+    // Reassemble each Pᵢ from the solution column and build Σ Pᵢ/fᵢ.
+    std::vector<std::vector<Expr>> p_coeffs(fl.factors.size());
+    for (std::size_t i = 0; i < fl.factors.size(); ++i) {
+        p_coeffs[i].assign(fl.factors[i].first.degree(), S::Zero());
+    }
+    for (std::size_t k = 0; k < N; ++k) {
+        p_coeffs[unknowns[k].factor][unknowns[k].power] = R.at(k, N);
+    }
+    std::vector<Expr> terms;
+    for (std::size_t i = 0; i < fl.factors.size(); ++i) {
+        Poly numer(std::move(p_coeffs[i]), var);
+        Expr ne = numer.as_expr();
+        if (ne == S::Zero()) continue;
+        terms.push_back(ne / fl.factors[i].first.as_expr());
+    }
+    if (terms.empty()) return S::Zero();
+    if (terms.size() == 1) return terms[0];
+    return add(std::move(terms));
+}
+
+}  // namespace
+
 Expr apart(const Expr& expr, const Expr& var) {
     Expr canceled = cancel(expr, var);
     auto nd = as_numer_denom(canceled);
@@ -996,8 +1077,12 @@ Expr apart(const Expr& expr, const Expr& var) {
         distinct.push_back(r);
     }
     if (any_repeat || distinct.size() != den_p.degree()) {
-        // Repeated roots or irreducible higher-degree factor present —
-        // outside the minimal apart() scope.
+        // An irreducible quadratic (or higher) factor is present: try full
+        // partial fractions over the squarefree factorization.
+        if (auto pf = partial_fractions_squarefree(num_p, den_p, var)) {
+            return poly_part == S::Zero() ? *pf : poly_part + *pf;
+        }
+        // Repeated roots, or otherwise outside scope — return unreduced.
         if (poly_part == S::Zero()) return num_p.as_expr() / den_p.as_expr();
         return poly_part + num_p.as_expr() / den_p.as_expr();
     }
