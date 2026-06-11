@@ -249,6 +249,20 @@ truth and links the issue number.
 - **Scope:** distinct-real-root (`D < 0`) denominators still go through
   `try_rational` (logs); irreducible (`D > 0`) through the arctan branch.
 
+### TRIG-3 — `sin`/`cos`/`tan` did not reduce arguments by π multiples
+- **Input:** `sin(x+2*pi)`, `sin(x+pi)`, `cos(x+pi)`, `tan(x+pi)`,
+  `sin(x+y+pi)`.
+- **Was:** `sin(x + 2*pi)`, … — left unevaluated.
+- **Expected (SymPy):** `sin(x)`, `-sin(x)`, `-cos(x)`, `tan(x)`, `-sin(x+y)`.
+- **Fix:** a `split_pi_term` helper sums the rational π-coefficient `C` across
+  an additive argument; when `C` is a nonzero integer `k`,
+  `sin(rest+kπ)=(−1)^k sin(rest)`, `cos` likewise, and `tan(rest+kπ)=tan(rest)`
+  (period π).
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][regression]`.
+- **Scope:** integer multiples of π only. Half-integer shifts (the co-function
+  `sin(x+π/2)=cos(x)`) stay symbolic — a separate follow-up.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.

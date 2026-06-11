@@ -88,6 +88,41 @@ TEST_CASE("sin: out-of-table angle (π/12) stays unevaluated",
     REQUIRE(r->type_id() == TypeId::Function);
 }
 
+// ----- Periodicity / π-shift argument reduction (regression, TRIG-3) ---------
+// sin(x+kπ)=(−1)^k sin(x), cos(x+kπ)=(−1)^k cos(x), tan(x+kπ)=tan(x) for an
+// integer k. Half-integer shifts (the co-function π/2 case) stay symbolic.
+TEST_CASE("sin/cos: integer-π argument reduction", "[3b][trig][regression]") {
+    auto x = symbol("x");
+    auto pi = S::Pi();
+    REQUIRE(sin(x + integer(2) * pi) == sin(x));
+    REQUIRE(sin(x + pi) == mul(S::NegativeOne(), sin(x)));
+    REQUIRE(sin(x + integer(3) * pi) == mul(S::NegativeOne(), sin(x)));
+    REQUIRE(cos(x + pi) == mul(S::NegativeOne(), cos(x)));
+    REQUIRE(cos(x + integer(4) * pi) == cos(x));
+}
+
+TEST_CASE("tan: period-π argument reduction", "[3b][trig][tan][regression]") {
+    auto x = symbol("x");
+    auto pi = S::Pi();
+    REQUIRE(tan(x + pi) == tan(x));
+    REQUIRE(tan(x + integer(5) * pi) == tan(x));
+}
+
+TEST_CASE("sin: multivariate π-shift reduces", "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto r = sin(x + y + S::Pi());
+    REQUIRE(oracle.equivalent(r->str(), "-sin(x + y)"));
+}
+
+TEST_CASE("sin: half-integer π shift stays symbolic (co-function, out of scope)",
+          "[3b][trig][regression]") {
+    auto x = symbol("x");
+    auto r = sin(x + mul(rational(1, 2), S::Pi()));
+    REQUIRE(r->type_id() == TypeId::Function);  // not folded to cos(x) yet
+}
+
 TEST_CASE("sin: odd identity sin(-x) = -sin(x)", "[3b][trig][sin]") {
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);
