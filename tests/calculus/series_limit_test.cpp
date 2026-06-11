@@ -10,6 +10,8 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/core/rational.hpp>
+#include <sympp/core/type_id.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -340,6 +342,44 @@ TEST_CASE("summation: Σ from a to b uses telescoping",
     auto b = symbol("b");
     auto s = summation(k, k, a, b);
     REQUIRE(oracle.equivalent(s->str(), "(b - a + 1)*(a + b)/2"));
+}
+
+// Infinite geometric series now close (the ratio^oo → 0 fold from the
+// Infinity feature): Σ (1/2)^k = 2, Σ 2^-k from 1 = 1.
+TEST_CASE("summation: infinite geometric series",
+          "[6][summation][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    REQUIRE(oracle.equivalent(
+        summation(pow(rational(1, 2), k), k, integer(0), oo)->str(), "2"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2), integer(-1) * k), k, integer(1), oo)->str(),
+        "1"));
+    // Divergent Σ k from 1 to oo → oo.
+    REQUIRE(summation(k, k, integer(1), oo) == oo);
+}
+
+// Regression (SUM-3): an unrecognised sum must return an unevaluated Sum
+// marker, never the bare summand (Σ 1/k² used to collapse to 1/k²).
+TEST_CASE("summation: unrecognised sum stays an unevaluated Sum",
+          "[6][summation][regression]") {
+    auto k = symbol("k");
+    auto e = pow(k, integer(-2));
+    auto s = summation(e, k, integer(1), S::Infinity());
+    REQUIRE(s->type_id() == TypeId::Function);   // undefined-function marker
+    REQUIRE(s->str().rfind("Sum(", 0) == 0);     // starts with "Sum("
+    REQUIRE_FALSE(s == e);                       // not the bare summand
+}
+
+// Single-term range Σ_{k=a}^{a} f(k) = f(a).
+TEST_CASE("summation: single-term range substitutes the bound",
+          "[6][summation][regression]") {
+    auto k = symbol("k");
+    REQUIRE(summation(pow(k, integer(-2)), k, integer(3), integer(3))
+            == rational(1, 9));
+    REQUIRE(summation(pow(k, integer(2)), k, integer(5), integer(5))
+            == integer(25));
 }
 
 #include <sympp/calculus/pade.hpp>

@@ -13,12 +13,28 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
 
+namespace {
+
+// Unevaluated sum marker — an UndefinedFunction `Sum(expr, var, lo, hi)`,
+// mirroring the `Integral(_, _)` marker. Returned when no closed form is
+// found, so a sum is never silently dropped to its bare summand.
+[[nodiscard]] Expr sum_marker(const Expr& expr, const Expr& var,
+                              const Expr& lo, const Expr& hi) {
+    return function_symbol("Sum")(std::vector<Expr>{expr, var, lo, hi});
+}
+
+}  // namespace
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
+
+    // Single-term range (hi == lo): Σ_{k=a}^{a} f(k) = f(a).
+    if (hi == lo) return simplify(subs(expr, var, lo));
 
     // Linearity: split Add into separate sums.
     if (expr->type_id() == TypeId::Add) {
@@ -148,8 +164,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
-    // Could not recognize. Return unchanged.
-    return expr;
+    // No closed form found — return the unevaluated Sum marker rather than the
+    // bare summand (Σ 1/k² must not collapse to 1/k²).
+    return sum_marker(expr, var, lo, hi);
 }
 
 }  // namespace sympp
