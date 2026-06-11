@@ -515,6 +515,22 @@ truth and links the issue number.
 - **Scope:** rational real/imaginary parts only — a symbolic or irrational
   component (`Abs(x+I)`, `Abs(sqrt(2)+I)`) stays unevaluated.
 
+### ATAN2-1 — `atan2` only reduced on the axes
+- **Input:** `atan2(1,1)`, `atan2(-1,1)`, `atan2(1,-1)`, `atan2(-1,-1)`,
+  `atan2(1,sqrt(3))`, `atan2(2,1)`.
+- **Was:** `atan2(1, 1)`, … — only the axis cases (`y=0` or `x=0`) reduced; a
+  general quadrant stayed unevaluated.
+- **Expected (SymPy):** `pi/4`, `-pi/4`, `3*pi/4`, `-3*pi/4`, `pi/6`, `atan(2)`.
+- **Fix:** in `atan2` (`src/functions/trigonometric.cpp`), when `x` has a known
+  sign and `y` is real, rewrite `atan2(y, x) = atan(y/x)` with a quadrant
+  correction (`+pi` for `x<0, y≥0`; `-pi` for `x<0, y<0`). `atan` then folds the
+  special values (`atan(1)=pi/4`, `atan(sqrt(3))=pi/3`). The rewrite is faithful
+  even when `atan` cannot fold the argument (`atan2(2,1)=atan(2)`).
+- **Regression test:** `tests/functions/inverse_trig_test.cpp`
+  — `[atan2][regression]`.
+- **Scope:** applies when `x`'s sign is decidable and `y` is real; fully
+  symbolic arguments stay unevaluated.
+
 ### BINOM-1 — `binomial(n, 1)` not simplified to `n`
 - **Input:** `binomial(n, 1)`.
 - **Was:** `binomial(n, 1)` — kept symbolic (only `binomial(n,0)=1` and the
