@@ -195,6 +195,59 @@ namespace {
     return std::nullopt;
 }
 
+// Square-root factor extraction for a positive Integer or Rational radicand
+// that is NOT a perfect square: √N = s·√m with N = s²·m. For a rational p/q it
+// uses √(p/q) = √(p·q)/q, yielding SymPy's rationalised form (√(2/3) = √6/3,
+// √(8/9) = 2√2/3). Scoped to square roots; returns nullopt when nothing pulls
+// out (s == 1) or the radicand is too large to factor cheaply.
+[[nodiscard]] std::optional<Expr> try_sqrt_factor_extraction(const Expr& base,
+                                                             const Expr& exp) {
+    if (exp->type_id() != TypeId::Rational) return std::nullopt;
+    const auto& q = static_cast<const Rational&>(*exp);
+    if (!(q.numerator() == 1 && q.denominator() == 2)) return std::nullopt;
+
+    mpz_class num, den(1);
+    if (base->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*base);
+        if (sgn(z.value()) <= 0) return std::nullopt;
+        num = z.value();
+    } else if (base->type_id() == TypeId::Rational) {
+        const auto& r = static_cast<const Rational&>(*base);
+        if (r.is_negative()) return std::nullopt;
+        num = r.numerator();
+        den = r.denominator();
+    } else {
+        return std::nullopt;
+    }
+
+    // Radicand under a single root: √(num/den) = √(num·den)/den.
+    mpz_class radicand = num * den;
+
+    // Bound the trial division so a huge radicand can never hang the process.
+    constexpr unsigned long kMaxRadicand = 1000000000000UL;  // 1e12 → ≤1e6 iters
+    if (mpz_cmp_ui(radicand.get_mpz_t(), kMaxRadicand) > 0) return std::nullopt;
+
+    // Pull out the largest square factor: radicand = s² · m, m square-free.
+    mpz_class s(1), m(radicand);
+    for (mpz_class d(2); d * d <= m; ++d) {
+        mpz_class d2 = d * d;
+        while (mpz_divisible_p(m.get_mpz_t(), d2.get_mpz_t())) {
+            s *= d;
+            m /= d2;
+        }
+    }
+    // For an integer radicand (den == 1) with no square factor (s == 1) there
+    // is nothing to do — leave it symbolic. A rational radicand still gets
+    // rationalised even when s == 1 (√(2/3) = √6/3), so only the integer case
+    // bails here.
+    if (s == 1 && den == 1) return std::nullopt;
+
+    // (s / den) · √m.  den == 1 for an integer radicand → plain s·√m. √m stays
+    // symbolic: m is square-free, so this recursion bottoms out immediately.
+    Expr radical = pow(make<Integer>(m), exp);
+    return mul(rational(s, den), radical);
+}
+
 }  // namespace
 
 Expr pow(const Expr& base, const Expr& exp) {
@@ -240,6 +293,10 @@ Expr pow(const Expr& base, const Expr& exp) {
         // Fallback: Integer / Rational base ^ Rational(1, n) — perfect n-th root.
         if (auto root = try_perfect_root(base, exp); root.has_value()) {
             return *root;
+        }
+        // √N where N is not a perfect square — pull out the square factor.
+        if (auto ext = try_sqrt_factor_extraction(base, exp); ext.has_value()) {
+            return *ext;
         }
     }
 
