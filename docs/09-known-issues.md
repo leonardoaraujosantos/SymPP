@@ -72,6 +72,23 @@ truth and links the issue number.
 - **Scope:** polynomial × hyperbolic (e.g. `∫x·cosh(x)`) still deferred —
   the by-parts target set is `{exp,sin,cos}`.
 
+### INT-3 — `integrate(tan / 1/cos² / 1/sin²)` returned the unevaluated marker
+- **Input:** `integrate(tan(x))`, `integrate(1/cos(x)**2)`,
+  `integrate(1/sin(x)**2)`, and their affine-argument variants.
+- **Was:** `Integral(tan(x), x)`, `Integral(cos(x)**(-2), x)`, … (table fell
+  through — only `sin`/`cos`/`exp`/`sinh`/`cosh` of an affine argument were
+  tabulated, and the `Pow` branch only handled affine bases).
+- **Expected (SymPy):** `-log(cos(x))`, `tan(x)`, `-cot(x)`, …
+- **Fix:** added a `Tan` case to the affine-argument function table
+  (`∫tan(ax+b) = -log(cos(ax+b))/a`) and a reciprocal-square trig case to the
+  `Pow` branch (`∫1/cos²(ax+b) = sin/(a·cos)`, `∫1/sin²(ax+b) = -cos/(a·sin)`).
+  SymPP emits the `sin/cos` forms, equivalent to SymPy's `tan`/`-cot`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[trig][regression]`.
+- **Scope:** `sec`/`csc`/`cot` are not distinct function types in SymPP, so
+  results are spelled with `sin`/`cos`. Inverse-trig antiderivatives
+  (`∫1/(1+x²) = atan`, `∫1/√(1-x²) = asin`) remain deferred.
+
 ### SOLVE-1 — `solve()` returned empty for transcendental equations ([#11])
 - **Input:** `solve(log(x) - 1, x)`, `solve(exp(x) - 2, x)`, …
 - **Was:** `[]` — the vector `solve` was polynomial-only (`Poly.roots()`),

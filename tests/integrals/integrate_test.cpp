@@ -154,6 +154,51 @@ TEST_CASE("integrate: ∫cosh(3x) dx = sinh(3x)/3",
     REQUIRE(oracle.equivalent(r->str(), "sinh(3*x)/3"));
 }
 
+// ----- Basic trig integration (regression, INT-3) ----------------------------
+// ∫tan, ∫1/cos² (sec²) and ∫1/sin² (csc²) of an affine argument used to fall
+// through the table and return the unevaluated Integral(...) marker. Forms are
+// cross-checked against SymPy via the oracle (SymPP emits sin/cos rather than
+// the tan/cot SymPy uses; the oracle confirms they are equivalent).
+TEST_CASE("integrate: ∫tan(x) dx = -log(cos(x))",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(tan(x), x);
+    REQUIRE(oracle.equivalent(r->str(), "-log(cos(x))"));
+}
+
+TEST_CASE("integrate: ∫1/cos(x)^2 dx = tan(x)",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(cos(x), integer(-2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "tan(x)"));
+}
+
+TEST_CASE("integrate: ∫1/sin(x)^2 dx = -cot(x)",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(sin(x), integer(-2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "-cot(x)"));
+}
+
+TEST_CASE("integrate: ∫tan(2x+1) dx = -log(cos(2x+1))/2",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(tan(integer(2) * x + integer(1)), x);
+    REQUIRE(oracle.equivalent(r->str(), "-log(cos(2*x + 1))/2"));
+}
+
+TEST_CASE("integrate: ∫1/cos(3x)^2 dx = tan(3x)/3",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto r = integrate(pow(cos(integer(3) * x), integer(-2)), x);
+    REQUIRE(oracle.equivalent(r->str(), "tan(3*x)/3"));
+}
+
 // ----- Cyclic integration by parts (regression, issue #7 / INT-1) ------------
 // ∫exp(x)*sin(x) dx used to recurse exp·sin → exp·cos → exp·sin … without
 // bound and SEGFAULT the process. It now returns a closed form (verified by
