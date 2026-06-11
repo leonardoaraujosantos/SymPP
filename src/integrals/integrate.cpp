@@ -560,8 +560,10 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
-    // Mul with one factor being sin/cos/exp(affine) and the rest forming
-    // a non-trivial u that depends on var.
+    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) and the rest
+    // forming a non-trivial u that depends on var. The polynomial rest is
+    // differentiated down each step, so the recursion terminates (the depth
+    // guard backs it up); sinh/cosh don't cycle the way exp·sin/cos does.
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr target;
     std::vector<Expr> rest_factors;
@@ -573,7 +575,9 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                 if (aff && !(aff->first == S::Zero())
                     && (fn.function_id() == FunctionId::Exp
                         || fn.function_id() == FunctionId::Sin
-                        || fn.function_id() == FunctionId::Cos)) {
+                        || fn.function_id() == FunctionId::Cos
+                        || fn.function_id() == FunctionId::Sinh
+                        || fn.function_id() == FunctionId::Cosh)) {
                     target = f;
                     continue;
                 }

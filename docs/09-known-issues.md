@@ -385,6 +385,21 @@ truth and links the issue number.
 - **Scope:** `coth`/`sech`/`csch` are not distinct function types, so results
   are spelled with `cosh`/`sinh`.
 
+### INT-13 — `integrate(poly·cosh / poly·sinh)` returned the marker
+- **Input:** `integrate(x*cosh(x))`, `integrate(x*sinh(x))`,
+  `integrate(x**2*cosh(x))`, `integrate(x*cosh(2*x+1))`.
+- **Was:** `Integral(x*cosh(x), x)`, … — integration by parts only recognised
+  `{exp, sin, cos}` of an affine argument as the `dv` factor, so a polynomial
+  times `sinh`/`cosh` fell through to the unevaluated marker.
+- **Expected (SymPy):** `x*sinh(x) - cosh(x)`, `x*cosh(x) - sinh(x)`, etc.
+- **Fix:** added `FunctionId::Sinh` and `FunctionId::Cosh` to the by-parts
+  target-set condition in `try_integration_by_parts`
+  (`src/integrals/integrate.cpp`). The polynomial `u` is differentiated down
+  each step, so the recursion terminates — `sinh`/`cosh` don't cycle the way
+  `exp·sin/cos` does.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[parts][hyperbolic][regression]`.
+
 ### SQRT-2 — `sqrt` did not extract square factors or rationalise
 - **Input:** `sqrt(8)`, `sqrt(12)`, `sqrt(rational(1,2))`,
   `sqrt(rational(2,3))`, `sqrt(rational(8,9))`.
