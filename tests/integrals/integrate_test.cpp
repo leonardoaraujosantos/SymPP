@@ -608,6 +608,61 @@ TEST_CASE("integrate: ∫x*exp(2x)*sin(3x) dx (non-unit exp and trig rates)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- cot / sec / csc antiderivatives (regression, INT-24) ------------------
+// With cot/sec/csc now distinct function types (TRIG-RECIP), the integrate_term
+// affine-function switch gains their table entries: ∫cot=log(sin),
+// ∫sec=(log(sin+1)-log(sin-1))/2, ∫csc=(log(cos-1)-log(cos+1))/2, each scaled
+// by 1/a for an affine argument. Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫cot(x) dx = log(sin(x))",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = cot(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sec(x) dx (logarithmic form)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sec(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csc(x) dx (logarithmic form)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = csc(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cot(2x+1) dx (affine argument scaling)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = cot(integer(2) * x + integer(1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sec(3x) dx (affine argument scaling)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sec(integer(3) * x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP

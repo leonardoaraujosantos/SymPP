@@ -160,6 +160,22 @@ namespace {
                     case FunctionId::Tan:
                         // ∫tan(ax+b) dx = -log(cos(ax+b))/a
                         return mul(S::NegativeOne(), log(cos(inner))) / a;
+                    case FunctionId::Cot:
+                        // ∫cot(ax+b) dx = log(sin(ax+b))/a
+                        return log(sin(inner)) / a;
+                    case FunctionId::Sec: {
+                        // ∫sec(ax+b) dx = (log(sin+1) − log(sin−1)) / (2a),
+                        // the half-angle log form SymPy prints (≡ log|sec+tan|).
+                        Expr s = sin(inner);
+                        return (log(s + S::One()) - log(s - S::One()))
+                               / (integer(2) * a);
+                    }
+                    case FunctionId::Csc: {
+                        // ∫csc(ax+b) dx = (log(cos−1) − log(cos+1)) / (2a).
+                        Expr c = cos(inner);
+                        return (log(c - S::One()) - log(c + S::One()))
+                               / (integer(2) * a);
+                    }
                     case FunctionId::Exp:
                         return exp(inner) / a;
                     case FunctionId::Sinh:
