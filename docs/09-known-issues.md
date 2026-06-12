@@ -1065,8 +1065,26 @@ truth and links the issue number.
   — `[acot]`, `[asec]`, `[acsc]` (canonical values, poles, parity, derivatives,
   parse round-trip).
 - **Scope:** the inverse-reciprocal *hyperbolic* analogues
-  (`acoth`/`asech`/`acsch`) are a separate follow-up; `asec`/`acsc` real-domain
+  (`acoth`/`asech`/`acsch`) ship in HYP-AINV-RECIP; `asec`/`acsc` real-domain
   assumptions (|x|≥1) stay agnostic.
+
+### HYP-AINV-RECIP — `acoth`, `asech`, `acsch` were not function types
+- **Input:** `acoth(oo)`, `asech(1)`, `acsch(0)`, `acoth(-x)`, `diff(acoth(x))`.
+- **Was:** the parser made generic undefined-function nodes — no evaluation.
+- **Now:** three distinct inverse-reciprocal hyperbolic types (`Acoth`/`Asech`/
+  `Acsch` in `functions/hyperbolic.{hpp,cpp}`, new `FunctionId` values) — the
+  hyperbolic mirror of AINV-RECIP. Fold via the reciprocal-arg identity:
+  `acoth(x)=atanh(1/x)` (odd), `asech(x)=acosh(1/x)` (`asech(0)=oo`),
+  `acsch(x)=asinh(1/x)` (`acsch(0)=zoo`, odd), keeping the node when the inner
+  inverse stays unevaluated. Clean folded values: `acoth(±oo)=0`, `asech(1)=0`,
+  `acsch(±oo)=0`. Derivatives: `acoth'=1/(1-x²)`, `asech'=-1/(x√(1-x²))`,
+  `acsch'=-1/(x²√(1+1/x²))`. Parser + LaTeX updated; `str()` round-trips.
+- **Regression test:** `tests/functions/hyperbolic_test.cpp` — `[reciprocal]`
+  (values/poles, odd parity, derivatives, parse round-trip).
+- **Scope:** SymPP's minimal inverse-hyperbolics mean complex/log special values
+  (`acoth(0)=iπ/2`, `asech(2)=iπ/3`, `acsch(1)=log(1+√2)`) stay unevaluated —
+  correct (just less reduced than SymPy). This completes the full trig +
+  hyperbolic function family (forward, reciprocal, and both inverse sets).
 
 ### PARSE-1 — parser rejected the capitalised names `str()` emits
 - **Input:** `parse("Abs(-3)")`, `parse(abs(x)->str())` (= `parse("Abs(x)")`),

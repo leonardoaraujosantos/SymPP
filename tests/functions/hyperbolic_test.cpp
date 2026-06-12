@@ -252,3 +252,48 @@ TEST_CASE("coth/sech/csch: numeric Float arg evalf matches SymPy",
     REQUIRE(e->type_id() == TypeId::Float);
     REQUIRE(oracle.equivalent(e->str(), oracle.evalf("coth(Rational(3, 2))", 30)));
 }
+
+// ----- Inverse reciprocal trio: acoth, asech, acsch (HYP-AINV-RECIP) ---------
+
+TEST_CASE("acoth/asech/acsch: canonical values and poles", "[3f][reciprocal]") {
+    // acoth(±oo) = 0; asech(0) = oo, asech(1) = 0; acsch(0) = zoo, acsch(oo) = 0.
+    REQUIRE(acoth(S::Infinity()) == S::Zero());
+    REQUIRE(acoth(S::NegativeInfinity()) == S::Zero());
+    REQUIRE(asech(S::Zero()) == S::Infinity());
+    REQUIRE(asech(S::One()) == S::Zero());
+    REQUIRE(acsch(S::Zero()) == S::ComplexInfinity());
+    REQUIRE(acsch(S::Infinity()) == S::Zero());
+    // Non-special integer args stay unevaluated (SymPy keeps them too / gives
+    // complex or log forms SymPP doesn't model).
+    auto x = symbol("x");
+    REQUIRE(acoth(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(acoth(x)->type_id() == TypeId::Function);
+    REQUIRE(asech(x)->type_id() == TypeId::Function);
+    REQUIRE(acsch(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("acoth/acsch: odd parity (asech has none)", "[3f][reciprocal]") {
+    auto x = symbol("x");
+    REQUIRE(acoth(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), acoth(x)));
+    REQUIRE(acsch(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), acsch(x)));
+}
+
+TEST_CASE("acoth/asech/acsch: derivatives match SymPy",
+          "[3f][reciprocal][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(diff(acoth(x), x)->str(), "1/(1 - x**2)"));
+    REQUIRE(oracle.equivalent(diff(asech(x), x)->str(), "-1/(x*sqrt(1 - x**2))"));
+    REQUIRE(oracle.equivalent(diff(acsch(x), x)->str(),
+                              "-1/(x**2*sqrt(1 + 1/x**2))"));
+}
+
+TEST_CASE("acoth/asech/acsch: parse round-trip", "[3f][reciprocal][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("acoth(x)") == acoth(x));
+    REQUIRE(parsing::parse("asech(x)") == asech(x));
+    REQUIRE(parsing::parse("acsch(x)") == acsch(x));
+    REQUIRE(acoth(x)->str() == "acoth(x)");
+    REQUIRE(asech(x)->str() == "asech(x)");
+    REQUIRE(acsch(x)->str() == "acsch(x)");
+}

@@ -96,6 +96,24 @@ namespace {
     }
 }
 
+// True if `e` still contains a bare application of inverse function `id` (the
+// underlying factory left it unevaluated, possibly under a leading −1). Drives
+// the acoth/asech/acsch factories — fold to the computed value when the inner
+// inverse simplified, else keep the reciprocal node.
+[[nodiscard]] bool is_bare_inverse(const Expr& e, FunctionId id) {
+    auto is_it = [id](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id() == id;
+    };
+    if (is_it(e)) return true;
+    if (e->type_id() == TypeId::Mul) {
+        for (const auto& f : e->args()) {
+            if (is_it(f)) return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 // ----- Sinh ------------------------------------------------------------------
@@ -203,6 +221,34 @@ Atanh::Atanh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 }
 Expr Atanh::rebuild(std::vector<Expr> new_args) const { return atanh(new_args[0]); }
 std::optional<bool> Atanh::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+
+// ----- Inverse reciprocal trio: acoth / asech / acsch ------------------------
+// Domain-restricted (acoth: |x|>1, asech: 0<x≤1, acsch: x≠0), so ask stays
+// agnostic.
+
+Acoth::Acoth(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Acoth);
+}
+Expr Acoth::rebuild(std::vector<Expr> new_args) const { return acoth(new_args[0]); }
+std::optional<bool> Acoth::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+
+Asech::Asech(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Asech);
+}
+Expr Asech::rebuild(std::vector<Expr> new_args) const { return asech(new_args[0]); }
+std::optional<bool> Asech::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+
+Acsch::Acsch(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Acsch);
+}
+Expr Acsch::rebuild(std::vector<Expr> new_args) const { return acsch(new_args[0]); }
+std::optional<bool> Acsch::ask(AssumptionKey /*k*/) const noexcept {
     return std::nullopt;
 }
 
@@ -378,6 +424,36 @@ Expr atanh(const Expr& arg) {
     return make<Atanh>(arg);
 }
 
+// acoth(x) = atanh(1/x) [odd]. asech(x) = acosh(1/x) [asech(0)=oo]. acsch(x) =
+// asinh(1/x) [acsch(0)=zoo, odd]. Each computes via the reciprocal-argument
+// identity and keeps its own node when the inner inverse stays unevaluated.
+
+Expr acoth(const Expr& arg) {
+    if (auto pos = strip_neg(arg); pos.has_value()) {       // odd
+        return mul(S::NegativeOne(), acoth(*pos));
+    }
+    Expr t = atanh(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(t, FunctionId::Atanh)) return t;
+    return make<Acoth>(arg);
+}
+
+Expr asech(const Expr& arg) {
+    if (arg == S::Zero()) return S::Infinity();             // asech(0) = oo
+    Expr c = acosh(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(c, FunctionId::Acosh)) return c;
+    return make<Asech>(arg);
+}
+
+Expr acsch(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();      // acsch(0) = zoo
+    if (auto pos = strip_neg(arg); pos.has_value()) {       // odd
+        return mul(S::NegativeOne(), acsch(*pos));
+    }
+    Expr s = asinh(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(s, FunctionId::Asinh)) return s;
+    return make<Acsch>(arg);
+}
+
 // ----- Derivatives ----------------------------------------------------------
 
 Expr Sinh::diff_arg(std::size_t /*i*/) const {
@@ -417,6 +493,23 @@ Expr Atanh::diff_arg(std::size_t /*i*/) const {
     // 1 / (1 - x^2)
     auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
     return pow(one_minus_xsq, S::NegativeOne());
+}
+Expr Acoth::diff_arg(std::size_t /*i*/) const {
+    // d/dx acoth(x) = 1/(1 - x²)  (same form as atanh').
+    auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
+    return pow(one_minus_xsq, S::NegativeOne());
+}
+Expr Asech::diff_arg(std::size_t /*i*/) const {
+    // d/dx asech(x) = -1/(x·√(1 - x²)).
+    auto one_minus_xsq = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(2))));
+    auto denom = mul(args_[0], pow(one_minus_xsq, rational(1, 2)));
+    return mul(S::NegativeOne(), pow(denom, S::NegativeOne()));
+}
+Expr Acsch::diff_arg(std::size_t /*i*/) const {
+    // d/dx acsch(x) = -1/(x²·√(1 + 1/x²)).
+    auto inner = add(S::One(), pow(args_[0], integer(-2)));
+    auto denom = mul(pow(args_[0], integer(2)), pow(inner, rational(1, 2)));
+    return mul(S::NegativeOne(), pow(denom, S::NegativeOne()));
 }
 
 }  // namespace sympp

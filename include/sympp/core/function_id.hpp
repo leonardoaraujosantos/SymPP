@@ -39,6 +39,9 @@ enum class FunctionId : std::uint16_t {
     Asinh,
     Acosh,
     Atanh,
+    Acoth,
+    Asech,
+    Acsch,
 
     // -- Exponential / log -------------------------------------------------
     Exp = 300,
