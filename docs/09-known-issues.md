@@ -14,6 +14,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-2 — `simplify` didn't combine exponential products
+- **Input:** `simplify(eˣ·eʸ)`, `eˣ·e⁻ˣ`, `(eˣ)²·eʸ`, `e²·e³`.
+- **Was:** unchanged (`exp(x)*exp(y)`) — the canonical `Mul` keeps `exp` factors
+  separate (SymPP models `exp` as a `Function`, not `Pow(E, ·)`, so the same-base
+  power-merge never fires).
+- **Expected (SymPy):** `eˣ⁺ʸ`, `1`, `e^(2x+y)`, `e⁵`.
+- **Fix (`src/simplify/simplify.cpp`):** new `combine_exp` pass (after `powsimp`):
+  in a product, sum the arguments of all `exp(a)` / `(exp(a))^k` factors into a
+  single `exp(Σ)`; `e⁰` folds to `1`.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[simplify][oracle][regression]` (verified against the oracle).
+- **Scope:** `simplify`-level (matches SymPy's `simplify`/`powsimp`); the core
+  `Mul` still keeps `exp` products separate by default.
+
 ### ASSUME-14 — `Mod(n, 1)` not simplified for integer `n`
 - **Input:** `Mod(n, 1)` for an integer symbol `n`.
 - **Was:** unevaluated — `mod` folded numeric arguments and `Mod(0,q)`/`Mod(x,x)`,

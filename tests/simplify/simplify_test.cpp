@@ -12,6 +12,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/exponential.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 #include "oracle/oracle.hpp"
@@ -111,6 +112,19 @@ TEST_CASE("simplify: Abs(x)^(even) uses assumptions (ASSUME-3)",
     REQUIRE(simplify(pow(abs(xr), integer(4))) == pow(xr, integer(4)));
     REQUIRE(simplify(pow(abs(xr), integer(3)))->str() == "Abs(x)**3");
     REQUIRE(simplify(pow(abs(xg), integer(2)))->str() == "Abs(x)**2");
+}
+
+TEST_CASE("simplify: combines exponential products (SIMP-2)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // e^a · e^b → e^(a+b); e^x · e^(-x) → 1; (e^x)^2 · e^y → e^(2x+y).
+    REQUIRE(oracle.equivalent(simplify(exp(x) * exp(y))->str(), "exp(x + y)"));
+    REQUIRE(simplify(exp(x) * exp(mul(S::NegativeOne(), x))) == S::One());
+    REQUIRE(oracle.equivalent(
+        simplify(pow(exp(x), integer(2)) * exp(y))->str(), "exp(2*x + y)"));
+    REQUIRE(simplify(exp(integer(2)) * exp(integer(3))) == exp(integer(5)));
 }
 
 TEST_CASE("collect: groups powers of var", "[5][collect][oracle]") {
