@@ -124,6 +124,19 @@ TEST_CASE("exp(log(x)) stays unevaluated for unknown x", "[3c][exp][log]") {
     REQUIRE(e->str() == "exp(log(x))");
 }
 
+TEST_CASE("exp(c*log(p)) = p^c for positive p (ASSUME-6)",
+          "[3c][exp][log][assumptions][regression]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto x = symbol("x");
+    // p > 0: exp(c·log p) = p^c for any exponent c.
+    REQUIRE(exp(integer(2) * log(p)) == pow(p, integer(2)));
+    REQUIRE(exp(log(p) / integer(2)) == pow(p, rational(1, 2)));
+    REQUIRE(exp(mul(S::NegativeOne(), log(p))) == pow(p, integer(-1)));
+    REQUIRE(exp(x * log(p)) == pow(p, x));
+    // Generic (non-positive) base stays unevaluated (branch-cut conservative).
+    REQUIRE(exp(integer(2) * log(x))->str() == "exp(2*log(x))");
+}
+
 TEST_CASE("log(exp(x)) = x for real x", "[3c][exp][log]") {
     auto x = symbol("x", AssumptionMask{}.set_real(true));
     REQUIRE(log(exp(x)) == x);

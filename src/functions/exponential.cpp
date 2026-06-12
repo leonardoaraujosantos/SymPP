@@ -165,6 +165,27 @@ Expr exp(const Expr& arg) {
         }
     }
 
+    // exp(c·log(p)) = p^c for positive p (any real exponent c). Same positivity
+    // gate as exp(log p) above — for non-positive p this is branch-cut sensitive.
+    if (arg->type_id() == TypeId::Mul) {
+        Expr log_inner;
+        std::vector<Expr> coeff_factors;
+        for (const auto& f : arg->args()) {
+            if (!log_inner && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Log && fn.args().size() == 1) {
+                    log_inner = fn.args()[0];
+                    continue;
+                }
+            }
+            coeff_factors.push_back(f);
+        }
+        if (log_inner && !coeff_factors.empty()
+            && is_positive(log_inner) == true) {
+            return pow(log_inner, mul(std::move(coeff_factors)));
+        }
+    }
+
     // Euler: exp(r·I·π) = i^(2r) when 2r is an integer (q ∈ {1,2}: ±1, ±I).
     // Matches SymPy, which keeps π/3, π/4, … exponents symbolic. pow(I, n)
     // already cycles I^n through {1, I, -1, -I}.
