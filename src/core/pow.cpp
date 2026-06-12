@@ -428,57 +428,6 @@ namespace {
 
 }  // namespace
 
-// Structural parity of an integer-valued expression. Conservative: reports
-// even/odd only when it is provable from the form — so 2·n (n a known integer)
-// is even and 2·n+1 is odd, while a bare integer symbol has unknown parity.
-// Used for (−1)^k = ±1.
-[[nodiscard]] bool provably_even(const Expr& e);
-
-[[nodiscard]] bool provably_odd(const Expr& e) {
-    if (e->type_id() == TypeId::Integer) {
-        return mpz_odd_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
-    }
-    if (e->type_id() == TypeId::Mul) {
-        for (const auto& f : e->args()) {
-            if (!provably_odd(f)) return false;  // product of odds is odd
-        }
-        return true;
-    }
-    if (e->type_id() == TypeId::Add) {
-        int odd_terms = 0;
-        for (const auto& f : e->args()) {
-            if (provably_even(f)) continue;
-            if (provably_odd(f)) { ++odd_terms; continue; }
-            return false;  // a term of unknown parity
-        }
-        return (odd_terms % 2) == 1;
-    }
-    return false;
-}
-
-[[nodiscard]] bool provably_even(const Expr& e) {
-    if (e->type_id() == TypeId::Integer) {
-        return mpz_even_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
-    }
-    if (e->type_id() == TypeId::Mul) {
-        // Product of integers with at least one even factor → even.
-        bool all_integer = true;
-        bool has_even = false;
-        for (const auto& f : e->args()) {
-            if (is_integer(f) != true) all_integer = false;
-            if (provably_even(f)) has_even = true;
-        }
-        return all_integer && has_even;
-    }
-    if (e->type_id() == TypeId::Add) {
-        for (const auto& f : e->args()) {
-            if (!provably_even(f)) return false;  // sum of evens is even
-        }
-        return true;
-    }
-    return false;
-}
-
 Expr pow(const Expr& base, const Expr& exp) {
     // ---- universal identity rules ----
     // x^1 → x
@@ -520,8 +469,8 @@ Expr pow(const Expr& base, const Expr& exp) {
     // ---- (−1)^k = 1 (k even) / −1 (k odd) for a provably-parity exponent ----
     // Closes (−1)^(2n) = 1, (−1)^(2n+1) = −1 for a known integer n.
     if (base == S::NegativeOne()) {
-        if (provably_even(exp)) return S::One();
-        if (provably_odd(exp)) return S::NegativeOne();
+        if (is_provably_even(exp)) return S::One();
+        if (is_provably_odd(exp)) return S::NegativeOne();
     }
 
     // ---- numeric base & numeric exp ----

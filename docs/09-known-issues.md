@@ -14,6 +14,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-9 — `cos((2n+1)*pi/2)` / `sin((2n+1)*pi/2)` weren't evaluated
+- **Input:** `cos((2n+1)·π/2)`, `sin((2n+1)·π/2)` for integer `n`.
+- **Was:** unevaluated — only integer multiples of π (ASSUME-7) and numeric
+  rational multiples were handled; an odd half-integer multiple fell through.
+- **Expected (SymPy):** `cos = 0`, `sin = (−1)^n`.
+- **Fix:** lifted the structural parity helpers from ASSUME-8 into
+  `core/queries` as `is_provably_even` / `is_provably_odd` (and refactored
+  `pow.cpp` to use them). In `sin`/`cos`, when the π-coefficient `k` has `2k` a
+  provable odd integer (an odd half-integer), `cos(kπ)=0` and
+  `sin(kπ)=(−1)^(k−1/2)` (the exponent `expand`s to `n`).
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][assumptions][regression]` (cos=0, sin=(−1)^n; literal `π/2`, `3π/2`
+  still precise).
+- **Scope:** odd half-integer multiples of π with a structurally-odd numerator.
+
 ### ASSUME-8 — `(-1)**(2*n)` wasn't folded for an integer `n`
 - **Input:** `(−1)^(2n)`, `(−1)^(2n+1)`, `(−1)^(4n+3)` for integer `n`.
 - **Was:** unevaluated — only a *literal* integer exponent folded (via
