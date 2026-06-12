@@ -1051,12 +1051,21 @@ truth and links the issue number.
   `t = tan(x/2)`. Dispatched **last**, after by-parts: its `tan(x/2)` output is
   uglier than the dedicated trig integrators, which still win for `∫sin`, `∫tan`,
   `∫sin²`, etc.
-- **Follow-up fix (hang):** the substituted integrand must be *rational* in `t`
+- **Follow-up fix 1 (hang):** the substituted integrand must be *rational* in `t`
   before integrating it — otherwise a non-rational trig integrand such as
   `√(tan x)` substitutes to `√(2t/(1−t²))`, a non-elementary algebraic integral
   that sent `integrate` into an unbounded search (a true hang, worse than the
   marker). Added an `is_rational_in(integrand, t)` guard; non-rational cases now
   bail to the marker. Regression: `∫√(tan x)`, `∫√(sin x)` must terminate.
+- **Follow-up fix 2 (hang):** a *trig function raised to a power* (`∫1/(1+tan²x)`,
+  `∫sec²x/(1+tan²x)`) substitutes to a high-degree nested rational in `t` whose
+  normalisation (`cancel`) or integration (`try_rational`'s Poly GCD, cf. the
+  CANCEL-1 family) runs away — `is_rational_in` passes it through because it *is*
+  structurally rational. Added a `has_trig_power_of(expr, var)` guard that
+  excludes any integrand containing `sin/cos/tan/cot/sec/csc(…var…)` as the base
+  of a `Pow`; trig appearing only to the first power inside a polynomial
+  denominator (the classic family, and `∫1/(1+tan x)`) is unaffected.
+  Regression: `∫1/(1+tan²x)`, `∫sec²x/(1+tan²x)` must terminate.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[integrate][weierstrass][regression]` (six denominators spanning the atan,
   log, and rational sub-cases, verified by differentiation against the oracle;
@@ -1133,8 +1142,8 @@ truth and links the issue number.
   `∫1/(eˣ+e⁻ˣ)` and `∫x/(x⁴+1)` still return the marker — there the substitution
   itself fails because SymPP does not fold `e^(2x)`/`e^(−x)` to `(eˣ)²`/`(eˣ)⁻¹`
   (the `exp(a)·exp(b)` non-combination gap) nor recognise `x⁴` as `(x²)²`, so the
-  substituted integrand still depends on `x`. **Separately, `∫sec²x/(1+tan²x)`
-  hangs (pre-existing, independent of this change) — to be triaged.**
+  substituted integrand still depends on `x`. (The `∫sec²x/(1+tan²x)` hang noted
+  here earlier is fixed by INT-33 follow-up fix 2 above — it now bails cleanly.)
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,

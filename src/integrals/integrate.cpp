@@ -1548,8 +1548,41 @@ std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
     }
 }
 
+// True if `e` contains a trig function of var raised to a power (i.e. a Pow node
+// whose base is sin/cos/tan/cot/sec/csc(…var…)). The Weierstrass substitution
+// turns such powers into high-degree nested rationals in t whose normalisation
+// (cancel) or integration (try_rational's Poly GCD) can run away, so they are
+// excluded; trig appearing only to the first power inside a polynomial
+// denominator (the classic ∫1/(a+b·cos x) family) is fine.
+[[nodiscard]] bool has_trig_power_of(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& base = e->args()[0];
+        if (base->type_id() == TypeId::Function && depends_on(base, var)) {
+            switch (static_cast<const Function&>(*base).function_id()) {
+                case FunctionId::Sin:
+                case FunctionId::Cos:
+                case FunctionId::Tan:
+                case FunctionId::Cot:
+                case FunctionId::Sec:
+                case FunctionId::Csc:
+                    return true;
+                default:
+                    break;
+            }
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_trig_power_of(a, var)) return true;
+    }
+    return false;
+}
+
 std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
+    // Exclude integrands with a trig function raised to a power — their
+    // substituted form can send cancel()/try_rational into a runaway. The common
+    // rational-trig integrals (denominator linear in sin/cos) have no such power.
+    if (has_trig_power_of(expr, var)) return std::nullopt;
     Expr t = symbol("_weierstrass_t");
 
     // Rewrite the reciprocal/quotient trig functions of var into sin/cos(var),
@@ -1573,13 +1606,13 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     // affine trig argument like sin(2x), or exp/log of var) — bail.
     if (depends_on(e, var)) return std::nullopt;
 
-    // dx = 2/(1+t²) dt.
+    // dx = 2/(1+t²) dt; bring to a single fraction.
     Expr integrand = together(e * integer(2) / one_pt2);
 
-    // Only proceed when the substitution yields a genuinely rational function of
-    // t. A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would otherwise
-    // hand `integrate` a non-elementary algebraic integral that can loop.
+    // A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would hand
+    // `integrate` a non-elementary algebraic integral that can loop — bail.
     if (!is_rational_in(integrand, t)) return std::nullopt;
+
     Expr antideriv = integrate(integrand, t);
     if (is_integral_marker(antideriv)) return std::nullopt;
 
