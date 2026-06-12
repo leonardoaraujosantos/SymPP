@@ -249,6 +249,14 @@ namespace {
 // polynomial; both even → half-angle reduction, recursing via integrate.
 [[nodiscard]] std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var);
 
+// ∫ tan(g)^n dx (n ≥ 2 integer, g affine) via the reduction
+// ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
+[[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
+
+// ∫ sinh(g)^m · cosh(g)^n dx — the hyperbolic analogue of try_trig_power,
+// using cosh²−sinh²=1 and the half-angle forms of cosh(2g).
+[[nodiscard]] std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var);
+
 // Try to integrate `expr` as a rational function in var. Uses
 // polynomial division for the improper part and apart() for the proper
 // part. Returns nullopt when:
@@ -327,6 +335,12 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_trig_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_tan_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_hyperbolic_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_rational(expr, var); r.has_value()) {
@@ -825,6 +839,112 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     Expr two_g = mul(integer(2), g);
     Expr s2 = (integer(1) - cos(two_g)) / integer(2);
     Expr c2 = (integer(1) + cos(two_g)) / integer(2);
+    Expr rewritten = pow(s2, integer(m / 2)) * pow(c2, integer(n / 2));
+    return integrate(expand(rewritten), var);
+}
+
+std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& e = expr->args()[1];
+    if (e->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*e);
+    if (!z.fits_long()) return std::nullopt;
+    const long n = z.to_long();
+    if (n < 2 || n > 24) return std::nullopt;  // n=1 is the table case
+    if (base->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*base);
+    if (fn.function_id() != FunctionId::Tan || fn.args().size() != 1) {
+        return std::nullopt;
+    }
+    const Expr& g = fn.args()[0];
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;
+
+    // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2).
+    Expr first = pow(tan(g), integer(n - 1)) / (integer(n - 1) * a);
+    Expr rest = integrate(pow(tan(g), integer(n - 2)), var);
+    if (is_integral_marker(rest)) return std::nullopt;
+    return first - rest;
+}
+
+namespace {
+
+// sinh(g)^m · cosh(g)^n parser, the hyperbolic analogue of
+// parse_sin_cos_powers.
+[[nodiscard]] std::optional<SinCosPowers> parse_sinh_cosh_powers(
+    const Expr& expr) {
+    Expr g;
+    long m = 0;
+    long n = 0;
+    auto take = [&](const Expr& f) -> bool {
+        Expr base = f;
+        long k = 1;
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& e = f->args()[1];
+            if (e->type_id() != TypeId::Integer) return false;
+            const auto& z = static_cast<const Integer&>(*e);
+            if (!z.is_positive() || !z.fits_long()) return false;
+            k = z.to_long();
+            base = f->args()[0];
+        }
+        if (base->type_id() != TypeId::Function) return false;
+        const auto& fn = static_cast<const Function&>(*base);
+        if (fn.args().size() != 1) return false;
+        const FunctionId id = fn.function_id();
+        if (id != FunctionId::Sinh && id != FunctionId::Cosh) return false;
+        if (g && !(fn.args()[0] == g)) return false;
+        g = fn.args()[0];
+        if (id == FunctionId::Sinh) m += k; else n += k;
+        return true;
+    };
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!take(f)) return std::nullopt;
+        }
+    } else if (!take(expr)) {
+        return std::nullopt;
+    }
+    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    return SinCosPowers{g, m, n};
+}
+
+}  // namespace
+
+std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var) {
+    auto parsed = parse_sinh_cosh_powers(expr);
+    if (!parsed) return std::nullopt;
+    const Expr& g = parsed->g;
+    const long m = parsed->m;
+    const long n = parsed->n;
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;
+
+    Expr u = symbol("_u_hyppow");
+    // Odd cosh power: u = sinh(g), cosh^(n-1) = (1+u²)^k, cosh·dx = du/a.
+    if (n % 2 == 1) {
+        long k = (n - 1) / 2;
+        Expr poly = expand(pow(u, integer(m))
+                           * pow(integer(1) + pow(u, integer(2)), integer(k)));
+        Expr anti = integrate(poly, u);
+        if (is_integral_marker(anti)) return std::nullopt;
+        return expand(subs(anti, u, sinh(g)) / a);
+    }
+    // Odd sinh power: u = cosh(g), sinh^(m-1) = (u²−1)^k, sinh·dx = du/a.
+    if (m % 2 == 1) {
+        long k = (m - 1) / 2;
+        Expr poly = expand(pow(pow(u, integer(2)) - integer(1), integer(k))
+                           * pow(u, integer(n)));
+        Expr anti = integrate(poly, u);
+        if (is_integral_marker(anti)) return std::nullopt;
+        return expand(subs(anti, u, cosh(g)) / a);
+    }
+    // Both even: sinh²(g) = (cosh2g−1)/2, cosh²(g) = (cosh2g+1)/2; recurse.
+    Expr two_g = mul(integer(2), g);
+    Expr s2 = (cosh(two_g) - integer(1)) / integer(2);
+    Expr c2 = (cosh(two_g) + integer(1)) / integer(2);
     Expr rewritten = pow(s2, integer(m / 2)) * pow(c2, integer(n / 2));
     return integrate(expand(rewritten), var);
 }

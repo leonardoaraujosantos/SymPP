@@ -709,6 +709,35 @@ TEST_CASE("integrate: even-power trig (sin²cos², sin⁴) via half-angle",
     REQUIRE(db(pow(cos(x), integer(4))));
 }
 
+// ----- tan powers and hyperbolic powers (INT-19) -----------------------------
+TEST_CASE("integrate: tan(x)^n via reduction",
+          "[7][integrate][tan_power][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        return oracle.equivalent(diff(integrate(e, x), x)->str(), e->str());
+    };
+    REQUIRE(db(pow(tan(x), integer(3))));
+    REQUIRE(db(pow(tan(x), integer(4))));
+    REQUIRE(db(pow(tan(x), integer(5))));
+    REQUIRE(db(pow(tan(integer(2) * x), integer(3))));  // affine argument
+}
+
+TEST_CASE("integrate: sinh^m * cosh^n powers",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        return oracle.equivalent(diff(integrate(e, x), x)->str(), e->str());
+    };
+    REQUIRE(db(pow(sinh(x), integer(2))));
+    REQUIRE(db(pow(cosh(x), integer(2))));
+    REQUIRE(db(pow(sinh(x), integer(3))));
+    REQUIRE(db(pow(cosh(x), integer(3))));
+    REQUIRE(db(pow(sinh(x), integer(2)) * pow(cosh(x), integer(2))));
+    REQUIRE(db(pow(sinh(integer(2) * x), integer(2))));  // affine argument
+}
+
 TEST_CASE("integrate: ∫sin²(2x+1) dx — affine inside reduction",
           "[7][integrate][trig_reduction]") {
     // SymPy's plain simplify can't always reduce cos(2*(2x+1)) ↔ cos(4x+2),
