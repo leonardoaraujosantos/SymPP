@@ -418,6 +418,21 @@ truth and links the issue number.
   `tests/integrals/integrate_test.cpp` — `[integrate][expint][regression]`.
 - **Scope:** monomial argument `c·x`, as for EXPINT.
 
+### POLYLOG — `polylog` (polylogarithm) was not a function type
+- **Input:** `polylog(s,0)`, `polylog(s,1)`, `polylog(2,1)`, `polylog(2,-1)`,
+  `polylog(2,z)`, `diff(polylog(s,z), z)`.
+- **Was:** the parser made a generic node — no evaluation.
+- **Now:** a two-argument `Polylog` type (`functions/special.{hpp,cpp}`, new
+  `FunctionId`). `Li_s(0)=0`, `Li_s(1)=ζ(s)` (routed through the `zeta`
+  function — so `Li_2(1)=π²/6`, `Li_3(1)=zeta(3)`), `Li_2(-1)=-π²/12`; other
+  arguments stay symbolic (`Li_1(z)` is *not* folded to `-log(1-z)`, matching
+  SymPy). The z-derivative is `Li_{s-1}(z)/z`. Parser accepts `polylog`; `str()`
+  round-trips.
+- **Regression test:** `tests/functions/special_test.cpp` — `[polylog]`.
+- **Scope:** the clean special values + z-derivative. `∫log(1-x)/x` is *not*
+  wired (SymPy's own answer is branch-cut-sensitive); the order-derivative
+  (`d/ds`), `Li_2(1/2)`, and series expansion stay deferred.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.

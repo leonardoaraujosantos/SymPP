@@ -94,6 +94,18 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+// Polylogarithm Li_s(z). Li_s(0)=0, Li_s(1)=ζ(s), Li_2(-1)=-π²/12; the
+// z-derivative is Li_{s-1}(z)/z. Other arguments stay symbolic.
+class SYMPP_EXPORT Polylog final : public Function {
+public:
+    Polylog(Expr s, Expr z);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Polylog; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "polylog"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 // Exponential / sine / cosine integrals — the antiderivatives of eˣ/x,
 // sin(x)/x, cos(x)/x. Ei'(x)=eˣ/x, Si'(x)=sin(x)/x, Ci'(x)=cos(x)/x. Si is odd
 // with Si(0)=0, Si(∞)=π/2; Ci/Ei stay symbolic for most arguments.
@@ -158,5 +170,6 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr cosint(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr sinhint(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr coshint(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr polylog(const Expr& s, const Expr& z);
 
 }  // namespace sympp

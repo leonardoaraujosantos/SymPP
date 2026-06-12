@@ -405,4 +405,38 @@ Expr coshint(const Expr& arg) {
     return make<Chi>(arg);
 }
 
+// ----- Polylogarithm ---------------------------------------------------------
+
+Polylog::Polylog(Expr s, Expr z)
+    : Function(std::vector<Expr>{std::move(s), std::move(z)}) {
+    compute_hash(FunctionId::Polylog);
+}
+Expr Polylog::rebuild(std::vector<Expr> new_args) const {
+    return polylog(new_args[0], new_args[1]);
+}
+std::optional<bool> Polylog::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+Expr Polylog::diff_arg(std::size_t i) const {
+    // d/dz Li_s(z) = Li_{s-1}(z)/z. The order-derivative (i==0) has no
+    // elementary form; return 0 (consistent with the discrete-order convention).
+    if (i == 1) {
+        const Expr& s = args_[0];
+        const Expr& z = args_[1];
+        return mul(polylog(add(s, S::NegativeOne()), z),
+                   pow(z, S::NegativeOne()));
+    }
+    return S::Zero();
+}
+
+Expr polylog(const Expr& s, const Expr& z) {
+    if (z == S::Zero()) return S::Zero();          // Li_s(0) = 0
+    if (z == S::One()) return zeta(s);             // Li_s(1) = ζ(s)
+    // Li_2(-1) = -π²/12.
+    if (s == integer(2) && z == S::NegativeOne()) {
+        return mul(rational(-1, 12), pow(S::Pi(), integer(2)));
+    }
+    return make<Polylog>(s, z);
+}
+
 }  // namespace sympp

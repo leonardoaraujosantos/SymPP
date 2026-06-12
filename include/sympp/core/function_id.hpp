@@ -98,6 +98,7 @@ enum class FunctionId : std::uint16_t {
     Ci,
     Shi,
     Chi,
+    Polylog,
 
     // -- Hypergeometric ----------------------------------------------------
     Hyper = 1100,

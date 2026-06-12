@@ -252,3 +252,29 @@ TEST_CASE("Shi/Chi: special values and derivatives", "[3h][expint][oracle]") {
     REQUIRE(parsing::parse("Chi(x)") == coshint(x));
     REQUIRE(sinhint(x)->str() == "Shi(x)");
 }
+
+// ----- Polylogarithm (POLYLOG) -----------------------------------------------
+TEST_CASE("polylog: special values", "[3h][polylog][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto s = symbol("s");
+    auto z = symbol("z");
+    REQUIRE(polylog(s, S::Zero()) == S::Zero());        // Li_s(0)=0
+    REQUIRE(polylog(s, S::One()) == zeta(s));           // Li_s(1)=zeta(s)
+    REQUIRE(oracle.equivalent(polylog(integer(2), S::One())->str(), "pi**2/6"));
+    REQUIRE(oracle.equivalent(polylog(integer(2), S::NegativeOne())->str(),
+                              "-pi**2/12"));
+    // Generic args stay symbolic.
+    REQUIRE(polylog(integer(2), z)->type_id() == TypeId::Function);
+    REQUIRE(polylog(integer(1), z)->type_id() == TypeId::Function);  // not folded
+}
+
+TEST_CASE("polylog: z-derivative and round-trip", "[3h][polylog][oracle][parser]") {
+    auto& oracle = Oracle::instance();
+    auto s = symbol("s");
+    auto z = symbol("z");
+    // d/dz Li_s(z) = Li_{s-1}(z)/z.
+    REQUIRE(oracle.equivalent(diff(polylog(s, z), z)->str(),
+                              "polylog(s - 1, z)/z"));
+    REQUIRE(parsing::parse("polylog(2, z)") == polylog(integer(2), z));
+    REQUIRE(polylog(integer(2), z)->str() == "polylog(2, z)");
+}
