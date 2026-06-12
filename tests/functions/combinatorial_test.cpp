@@ -204,3 +204,37 @@ TEST_CASE("fibonacci/catalan: values match SymPy", "[3i][fibonacci][catalan][ora
     REQUIRE(oracle.equivalent(fibonacci(integer(15))->str(), "fibonacci(15)"));
     REQUIRE(oracle.equivalent(catalan(integer(7))->str(), "catalan(7)"));
 }
+
+// ----- gcd / lcm (GCD-LCM) ---------------------------------------------------
+
+TEST_CASE("gcd: integer values", "[3i][gcd]") {
+    REQUIRE(gcd(integer(12), integer(18)) == integer(6));
+    REQUIRE(gcd(integer(17), integer(5)) == integer(1));
+    REQUIRE(gcd(integer(-12), integer(8)) == integer(4));  // non-negative result
+    REQUIRE(gcd(integer(0), integer(5)) == integer(5));
+    REQUIRE(gcd(integer(0), integer(0)) == integer(0));
+    // Symbolic args stay unevaluated.
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(gcd(x, y)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("lcm: integer values", "[3i][lcm]") {
+    REQUIRE(lcm(integer(4), integer(6)) == integer(12));
+    REQUIRE(lcm(integer(21), integer(6)) == integer(42));
+    REQUIRE(lcm(integer(0), integer(5)) == integer(0));
+    REQUIRE(lcm(integer(7), integer(5)) == integer(35));
+    auto x = symbol("x");
+    REQUIRE(lcm(x, integer(4))->type_id() == TypeId::Function);
+}
+
+TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(parsing::parse("gcd(x, y)") == gcd(x, y));
+    REQUIRE(parsing::parse("lcm(x, y)") == lcm(x, y));
+    REQUIRE(gcd(x, y)->str() == "gcd(x, y)");
+    REQUIRE(lcm(x, y)->str() == "lcm(x, y)");
+    REQUIRE(subs(gcd(x, integer(18)), x, integer(12)) == integer(6));
+    REQUIRE(subs(lcm(x, integer(6)), x, integer(4)) == integer(12));
+}
