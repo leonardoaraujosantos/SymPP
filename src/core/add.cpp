@@ -137,10 +137,21 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
         // defer Zero / Nonzero queries on Add.
         case AssumptionKey::Zero:
         case AssumptionKey::Nonzero:
-        // Parity of a sum is left to the structural is_provably_even/odd helper.
-        case AssumptionKey::Even:
-        case AssumptionKey::Odd:
             return std::nullopt;
+
+        // Parity of a sum: fold the terms' parities (XOR). Every term must have
+        // a known parity, else Unknown.
+        case AssumptionKey::Even:
+        case AssumptionKey::Odd: {
+            int odd_terms = 0;
+            for (const auto& a : args_) {
+                if (a->ask(AssumptionKey::Even) == true) continue;
+                if (a->ask(AssumptionKey::Odd) == true) { ++odd_terms; continue; }
+                return std::nullopt;  // a term of unknown parity
+            }
+            const bool sum_even = (odd_terms % 2) == 0;
+            return (k == AssumptionKey::Even) ? sum_even : !sum_even;
+        }
     }
     return std::nullopt;
 }
