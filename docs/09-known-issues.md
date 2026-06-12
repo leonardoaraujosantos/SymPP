@@ -1223,6 +1223,20 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/integers_test.cpp`
   — `[floor][ceiling][regression]`.
 
+### FRAC-1 — `frac` (fractional part) had an enum value but no implementation
+- **Input:** `frac(7/2)`, `frac(-7/2)`, `frac(5)`, `frac(pi)`, `frac(x)`.
+- **Was:** `FunctionId::Frac` existed but had no class/factory/parser entry, so
+  the parser produced a generic undefined-function node.
+- **Now:** a `Frac` function type (`functions/integers.{hpp,cpp}`) for the
+  fractional part `frac(x)=x−floor(x)`, always in `[0,1)`: `frac(7/2)=1/2`,
+  `frac(-7/2)=1/2` (not `−1/2`), `frac(int)=0`, `frac(pi)=pi−3`. Reuses `floor`'s
+  numeric/constant folding — when `floor` evaluates, returns `x−floor(x)`, else
+  keeps `Frac`. Parser accepts `frac`; `str()` round-trips. `frac(real)` is real
+  and nonnegative.
+- **Regression test:** `tests/functions/integers_test.cpp` — `[frac]`.
+- **Scope:** numeric/constant args fold; the derivative is left unevaluated
+  (matching SymPy, which returns `Derivative(frac(x), x)`).
+
 ### MOD-1 — `Mod` was not a function type
 - **Input:** `Mod(7,3)`, `Mod(-7,3)`, `Mod(7,-3)`, `Mod(1/2,1/3)`, `Mod(x,x)`,
   `Mod(x,0)`.

@@ -120,6 +120,26 @@ TEST_CASE("floor / ceiling: structural and value match SymPy",
     REQUIRE(oracle.equivalent(ceiling(rational(-7, 2))->str(), "-3"));
 }
 
+// ----- Frac (fractional part, FRAC-1) ----------------------------------------
+// frac(x) = x − floor(x), always in [0, 1): frac(7/2)=1/2, frac(-7/2)=1/2,
+// frac(int)=0, frac(pi)=pi−3. Symbolic args stay unevaluated.
+TEST_CASE("frac: rational and integer args", "[3g][frac]") {
+    REQUIRE(frac(rational(7, 2)) == rational(1, 2));
+    REQUIRE(frac(rational(-7, 2)) == rational(1, 2));  // in [0,1), not -1/2
+    REQUIRE(frac(integer(5)) == integer(0));
+    REQUIRE(frac(integer(-3)) == integer(0));
+    REQUIRE(frac(rational(1, 3)) == rational(1, 3));
+}
+
+TEST_CASE("frac: real constant and symbolic", "[3g][frac][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(frac(S::Pi())->str(), "-3 + pi"));  // pi - 3
+    REQUIRE(frac(x)->type_id() == TypeId::Function);
+    REQUIRE(parsing::parse("frac(x)") == frac(x));
+    REQUIRE(frac(x)->str() == "frac(x)");
+}
+
 // ----- Mod (floored modulo, MOD-1) -------------------------------------------
 // Mod(p,q) = p − q·floor(p/q); the result takes the sign of q (floored, not
 // truncated): Mod(-7,3)=2, Mod(7,-3)=-2. Integer and rational args evaluate;

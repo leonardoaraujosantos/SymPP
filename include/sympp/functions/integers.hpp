@@ -47,6 +47,15 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT Frac final : public Function {
+public:
+    explicit Frac(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Frac; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "frac"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Mod final : public Function {
 public:
     Mod(Expr p, Expr q);
@@ -58,6 +67,7 @@ public:
 
 [[nodiscard]] SYMPP_EXPORT Expr floor(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr ceiling(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr frac(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr mod(const Expr& p, const Expr& q);
 
 }  // namespace sympp
