@@ -25,6 +25,7 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
@@ -625,8 +626,92 @@ as_trig_square_term(const Expr& term) {
     return mul(std::move(rest));
 }
 
+// Hyperbolic Pythagorean: a·sinh²(x) + b·cosh²(x) using cosh² − sinh² = 1.
+// Two equivalent rewrites — pick whichever (with the rest of the Add) is
+// smallest, matching SymPy: cosh²−sinh² → 1, and 1+sinh² → cosh².
+//   sinh form: b + (a+b)·sinh²(x)        (cosh² = 1 + sinh²)
+//   cosh form: −a + (a+b)·cosh²(x)       (sinh² = cosh² − 1)
+[[nodiscard]] Expr hypsimp_add(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    auto detect = [](const Expr& f) -> std::optional<std::pair<bool, Expr>> {
+        if (f->type_id() != TypeId::Pow || !(f->args()[1] == integer(2))) {
+            return std::nullopt;
+        }
+        const Expr& base = f->args()[0];
+        if (base->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*base);
+        if (fn.function_id() == FunctionId::Sinh) {
+            return std::pair{true, base->args()[0]};
+        }
+        if (fn.function_id() == FunctionId::Cosh) {
+            return std::pair{false, base->args()[0]};
+        }
+        return std::nullopt;
+    };
+    auto as_term = [&](const Expr& term)
+        -> std::optional<std::tuple<bool, Expr, Expr>> {
+        if (auto r = detect(term)) return std::make_tuple(r->first, r->second, S::One());
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<std::pair<bool, Expr>> hyp;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (auto r = detect(f)) {
+                    if (hyp) return std::nullopt;
+                    hyp = r;
+                } else {
+                    coef.push_back(f);
+                }
+            }
+            if (hyp) return std::make_tuple(hyp->first, hyp->second, mul(coef));
+        }
+        return std::nullopt;
+    };
+
+    struct CP { Expr sinh_c = S::Zero(); Expr cosh_c = S::Zero(); };
+    std::vector<std::pair<Expr, CP>> by_arg;
+    std::vector<Expr> non_hyp;
+    auto find_or_create = [&](const Expr& a) -> CP& {
+        for (auto& [x, p] : by_arg) if (x == a) return p;
+        by_arg.push_back({a, CP{}});
+        return by_arg.back().second;
+    };
+    for (const auto& term : e->args()) {
+        if (auto t = as_term(term)) {
+            auto& cp = find_or_create(std::get<1>(*t));
+            if (std::get<0>(*t)) cp.sinh_c = add(cp.sinh_c, std::get<2>(*t));
+            else cp.cosh_c = add(cp.cosh_c, std::get<2>(*t));
+        } else {
+            non_hyp.push_back(term);
+        }
+    }
+    if (by_arg.empty()) return e;
+
+    auto build = [&](bool sinh_form) {
+        std::vector<Expr> out = non_hyp;
+        for (auto& [arg, cp] : by_arg) {
+            Expr sum = cp.sinh_c + cp.cosh_c;
+            if (sinh_form) {
+                out.push_back(cp.cosh_c);
+                if (!(sum == S::Zero())) out.push_back(sum * pow(sinh(arg), integer(2)));
+            } else {
+                out.push_back(mul(S::NegativeOne(), cp.sinh_c));
+                if (!(sum == S::Zero())) out.push_back(sum * pow(cosh(arg), integer(2)));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    };
+    Expr sinh_form = build(true);
+    Expr cosh_form = build(false);
+    Expr best = count_leaves(cosh_form) < count_leaves(sinh_form)
+                    ? cosh_form : sinh_form;
+    return count_leaves(best) < count_leaves(e) ? best : e;
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
+    cur = hypsimp_add(cur);
     cur = trigsimp_mul(cur);
     return cur;
 }

@@ -14,6 +14,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-HYP-1 — `trigsimp` didn't apply the hyperbolic Pythagorean identity
+- **Input:** `cosh²x − sinh²x`, `1 + sinh²x`, `cosh²x − 1`, `3cosh²x − 3sinh²x`.
+- **Was:** unchanged — `trigsimp` collapsed `sin² + cos² → 1` but had no
+  hyperbolic analogue, so `cosh² − sinh²` stayed a two-term sum.
+- **Expected (SymPy):** `1`, `cosh²x`, `sinh²x`, `3`.
+- **Fix (`src/simplify/simplify.cpp`):** new `hypsimp_add` (run inside
+  `trigsimp_node`) collects `a·sinh²(x) + b·cosh²(x)` per argument and, via
+  `cosh² − sinh² = 1`, produces both the sinh form `b + (a+b)·sinh²` and the cosh
+  form `−a + (a+b)·cosh²`, keeping whichever (with the rest of the sum) has the
+  fewest leaves.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[trigsimp][oracle][regression]`.
+- **Scope:** the hyperbolic Pythagorean and its scaled forms; the trig
+  Pythagorean (`sin²+cos²`) path is unchanged.
+
 ### SIMP-3 — `simplify` didn't pull `log` of a positive base out of `exp`
 - **Input:** `exp(x + log p)`, `exp(2·log p + x)`, `exp(log p + log q + x)` for
   positive `p, q`.
