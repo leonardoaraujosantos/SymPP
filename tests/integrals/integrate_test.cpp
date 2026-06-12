@@ -518,6 +518,51 @@ TEST_CASE("integrate: ∫x*(x+1)^(1/3) dx (cube root)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- Rational function of exp(x) via u = exp(x) (regression, INT-22) -------
+// ∫1/(1+exp(x)) and friends fell through: try_heurisch found g = exp(x) but its
+// inner integration was table-only, so the substituted rational integrand
+// 1/(u·(1+u)) wasn't decomposed. heurisch now hands a substituted-but-rational
+// integrand to try_rational (partial fractions). Verified by differentiation.
+TEST_CASE("integrate: ∫1/(1+exp(x)) dx = x - log(1+exp(x))",
+          "[7][integrate][heurisch][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(1) + exp(x), integer(-1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫exp(x)/(1+exp(x)) dx = log(1+exp(x))",
+          "[7][integrate][heurisch][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = exp(x) * pow(integer(1) + exp(x), integer(-1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫1/(exp(x)-1) dx (rational in exp, pole at 0)",
+          "[7][integrate][heurisch][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(exp(x) - integer(1), integer(-1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫1/(1+exp(2x)) dx (rational in exp(2x))",
+          "[7][integrate][heurisch][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(1) + exp(integer(2) * x), integer(-1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP

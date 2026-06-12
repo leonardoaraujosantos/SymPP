@@ -480,6 +480,12 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         } else {
             integrated_opt = integrate_term(q_sub, u);
         }
+        // When the table can't close it, q_sub may still be a rational function
+        // of u — e.g. g = exp(x) turns ∫1/(1+exp(x)) into ∫1/(u·(1+u)). Hand
+        // that to try_rational (partial fractions), which decomposes into
+        // strictly simpler pieces and so terminates; the depth guard backstops
+        // any pathological recursion through its internal integrate() calls.
+        if (!integrated_opt) integrated_opt = try_rational(q_sub, u);
         if (!integrated_opt) continue;
         Expr integrated = *integrated_opt;
         if (is_integral_marker(integrated)) continue;

@@ -583,6 +583,28 @@ truth and links the issue number.
   *quadratic* (genuine trig/hyperbolic substitution) and products of two
   distinct algebraic radicals remain out of scope.
 
+### INT-22 — `integrate(rational(exp(x)))` returned the marker
+- **Input:** `∫1/(1+exp(x))`, `∫exp(x)/(1+exp(x))`, `∫1/(exp(x)−1)`,
+  `∫1/(1+exp(2x))`.
+- **Was:** the marker — `try_heurisch` *did* pick `g = exp(x)` and substitute
+  it out, but its inner integration was table-only, so the resulting rational
+  integrand (e.g. `1/(u·(1+u))`) was never decomposed into partial fractions.
+- **Expected (SymPy):** `x − log(exp(x)+1)`, `log(exp(x)+1)`,
+  `x − log(...)`-style log combinations (SymPP keeps `log(exp(x))` rather than
+  folding it to `x`, but the antiderivatives are equal).
+- **Fix (`src/integrals/integrate.cpp`):** in `try_heurisch`, when the table
+  can't close the substituted integrand `q_sub`, fall back to
+  `try_rational(q_sub, u)`. `try_rational` decomposes via `apart` into strictly
+  simpler pieces (so it terminates), and the existing depth guard backstops its
+  internal `integrate()` calls. This generalises beyond `exp`: any substitution
+  that yields a rational function in `u` now closes.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][heurisch][regression]` (four cases, verified by differentiation
+  against the oracle).
+- **Scope:** integrands that become a *rational function* of the substituted
+  variable. `∫1/(a+b·exp(x)+c·exp(2x))`-style cases work when `apart` can split
+  the denominator.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
