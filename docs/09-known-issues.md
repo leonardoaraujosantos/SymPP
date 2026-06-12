@@ -1034,6 +1034,32 @@ truth and links the issue number.
   still bail (the remaining `∫P/√(quad)` or `∫P·e^(−x²)` needs trig-sub /
   Gaussian-moment reductions not yet implemented).
 
+### INT-33 — `∫1/(a + b·cos x)`, `∫1/(a + b·sin x)` and other rational-in-trig integrands returned the marker
+- **Input:** `∫1/(2+cos x)`, `∫1/(3+5cos x)`, `∫1/(1+sin x)`,
+  `∫1/(2+cos x+sin x)`, etc.
+- **Was:** the marker — there was no general strategy for a rational function of
+  `sin x` / `cos x`; only the specific table forms and the power-reduction
+  helpers were tried.
+- **Expected (SymPy):** e.g. `∫1/(2+cos x) = (2√3/3)·atan(√3·tan(x/2)/3)`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_weierstrass`, the half-angle
+  substitution `t = tan(x/2)` (`sin x = 2t/(1+t²)`, `cos x = (1−t²)/(1+t²)`,
+  `dx = 2/(1+t²) dt`). It first rewrites `tan/cot/sec/csc(x)` into `sin/cos(x)`,
+  substitutes the half-angle forms, and — if no `var` survives (confirming the
+  integrand was rational in the trig functions of the *bare* argument) —
+  integrates the resulting rational function of `t` (closed by `try_rational`,
+  including the INT-32 improper/irreducible-quadratic fix) and back-substitutes
+  `t = tan(x/2)`. Dispatched **last**, after by-parts: its `tan(x/2)` output is
+  uglier than the dedicated trig integrators, which still win for `∫sin`, `∫tan`,
+  `∫sin²`, etc.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][weierstrass][regression]` (six denominators spanning the atan,
+  log, and rational sub-cases, verified by differentiation against the oracle).
+- **Scope:** rational functions of `sin x`/`cos x`/`tan x`/`cot x`/`sec x`/`csc x`
+  with the **bare** argument `x` (affine arguments like `sin 2x`, and any
+  polynomial factor, bail). Many results are correct but print in a `tan(x/2)`
+  form whose derivative SymPy's `simplify` cannot reduce to the integrand, so
+  the regression set is the oracle-confirmable subset.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

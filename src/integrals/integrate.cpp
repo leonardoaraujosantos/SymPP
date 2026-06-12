@@ -311,6 +311,13 @@ namespace {
 //     beyond what apart handles in this build).
 [[nodiscard]] std::optional<Expr> try_rational(const Expr& expr, const Expr& var);
 
+// Weierstrass (half-angle) substitution t = tan(var/2): a rational function of
+// sin(var)/cos(var)/tan(var)/cot(var)/sec(var)/csc(var) becomes a rational
+// function of t, which try_rational closes. Last-resort fallback — its tan(x/2)
+// output is uglier than the dedicated trig integrators, so it runs only after
+// everything else. Requires the bare argument `var` (affine arguments bail).
+[[nodiscard]] std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var);
+
 // ∫ 1/(a·x² + b·x + c) dx for an irreducible quadratic (discriminant
 // 4ac − b² > 0): the arctangent rule  2·atan((2ax+b)/√D)/√D. Reducible
 // denominators (real roots) are left to try_rational, which splits them into
@@ -442,6 +449,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_weierstrass(expr, var); r.has_value()) {
         return *r;
     }
 
@@ -1374,6 +1384,40 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     }
 
     return integrate(q.as_expr(), var) + proper_int;
+}
+
+std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
+    if (!depends_on(expr, var)) return std::nullopt;
+    Expr t = symbol("_weierstrass_t");
+
+    // Rewrite the reciprocal/quotient trig functions of var into sin/cos(var),
+    // then apply the half-angle substitution. Each subs is a no-op when that
+    // function is absent.
+    Expr e = expr;
+    e = subs(e, tan(var), sin(var) / cos(var));
+    e = subs(e, cot(var), cos(var) / sin(var));
+    e = subs(e, sec(var), pow(cos(var), S::NegativeOne()));
+    e = subs(e, csc(var), pow(sin(var), S::NegativeOne()));
+
+    // sin(var) = 2t/(1+t²), cos(var) = (1−t²)/(1+t²).
+    Expr one_pt2 = integer(1) + pow(t, integer(2));
+    Expr sin_sub = integer(2) * t / one_pt2;
+    Expr cos_sub = (integer(1) - pow(t, integer(2))) / one_pt2;
+    e = subs(e, sin(var), sin_sub);
+    e = subs(e, cos(var), cos_sub);
+
+    // Any surviving var means the integrand was not a rational function of the
+    // trig functions of the bare argument var (e.g. a polynomial factor, an
+    // affine trig argument like sin(2x), or exp/log of var) — bail.
+    if (depends_on(e, var)) return std::nullopt;
+
+    // dx = 2/(1+t²) dt.
+    Expr integrand = together(e * integer(2) / one_pt2);
+    Expr antideriv = integrate(integrand, t);
+    if (is_integral_marker(antideriv)) return std::nullopt;
+
+    // Back-substitute t = tan(var/2).
+    return simplify(subs(antideriv, t, tan(var / integer(2))));
 }
 
 std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {

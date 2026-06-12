@@ -1636,6 +1636,29 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     REQUIRE(db((x + integer(1)) * atan(x)));      // (x+1)·atan
 }
 
+TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
+          "[7][integrate][weierstrass][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // ∫1/(a + b·cos x), ∫1/(a + b·sin x), and a mixed denominator. The
+    // half-angle output stresses SymPy's simplify, so these are the subset the
+    // oracle reliably confirms (others integrate correctly — verified by direct
+    // numeric sampling — but SymPy can't reduce their tan(x/2) derivative form).
+    REQUIRE(db(pow(integer(2) + cos(x), integer(-1))));               // a²>b²: atan
+    REQUIRE(db(pow(integer(3) + integer(5) * cos(x), integer(-1))));  // a²<b²: log
+    REQUIRE(db(pow(integer(2) - cos(x), integer(-1))));               // negated b
+    REQUIRE(db(pow(integer(1) + sin(x), integer(-1))));               // a=b: rational
+    REQUIRE(db(pow(integer(4) + integer(5) * sin(x), integer(-1))));  // a²<b²
+    REQUIRE(db(pow(integer(2) + cos(x) + sin(x), integer(-1))));      // sin+cos
+    // The dedicated integrators still win for simple trig (not Weierstrass).
+    REQUIRE(integrate(sin(x), x)->str() == "-cos(x)");
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",
