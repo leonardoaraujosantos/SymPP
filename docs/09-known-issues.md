@@ -1223,6 +1223,23 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/integers_test.cpp`
   — `[floor][ceiling][regression]`.
 
+### MOD-1 — `Mod` was not a function type
+- **Input:** `Mod(7,3)`, `Mod(-7,3)`, `Mod(7,-3)`, `Mod(1/2,1/3)`, `Mod(x,x)`,
+  `Mod(x,0)`.
+- **Was:** the parser made a generic undefined-function node — no evaluation.
+- **Now:** a two-argument `Mod` function type (`FunctionId::Mod` in the integer-
+  rounding 500-block) implementing **floored** modulo `Mod(p,q)=p−q·⌊p/q⌋`, so
+  the result takes the divisor's sign: `Mod(-7,3)=2`, `Mod(7,-3)=-2`,
+  `Mod(-7,-3)=-1` (matching SymPy, not C's truncated `%`). Integer and rational
+  pairs evaluate (via `mpz_fdiv_q` on `p/q`); the identities `Mod(0,q)=0`,
+  `Mod(x,x)=0` fold symbolically; `Mod(x,0)` is kept unevaluated (SymPy raises —
+  we avoid throwing). Parser accepts `Mod` and `mod`; `str()` emits `Mod(p, q)`
+  and round-trips.
+- **Regression test:** `tests/functions/integers_test.cpp` — `[mod]` (sign
+  cases, rationals, identities, zero-divisor guard, parse round-trip).
+- **Scope:** integer/rational arguments. `Mod` of floats and richer symbolic
+  reductions (e.g. `Mod(2x, x)`) stay deferred.
+
 ### CANCEL-1 — `cancel()`/`Poly` GCD hung on symbolic coefficients ([#5])
 - **Input:** `cancel((b - a + 1)*(a + b)/2, a)`, `factor(x**2 - y**2, x)` (and
   any polynomial whose coefficients in the working variable are symbolic).

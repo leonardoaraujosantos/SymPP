@@ -61,6 +61,7 @@ enum class FunctionId : std::uint16_t {
     Ceiling,
     Frac,
     Round,
+    Mod,
 
     // -- Misc --------------------------------------------------------------
     Min = 600,

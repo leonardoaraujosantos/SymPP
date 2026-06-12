@@ -171,6 +171,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"binomial", &binomial},
         {"gcd", &gcd},
         {"lcm", &lcm},
+        {"Mod", &mod},
+        {"mod", &mod},
     };
     return table;
 }

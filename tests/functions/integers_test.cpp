@@ -17,6 +17,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/functions/integers.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -117,4 +118,40 @@ TEST_CASE("floor / ceiling: structural and value match SymPy",
     REQUIRE(oracle.equivalent(ceiling(rational(7, 2))->str(), "4"));
     REQUIRE(oracle.equivalent(floor(rational(-7, 2))->str(), "-4"));
     REQUIRE(oracle.equivalent(ceiling(rational(-7, 2))->str(), "-3"));
+}
+
+// ----- Mod (floored modulo, MOD-1) -------------------------------------------
+// Mod(p,q) = p − q·floor(p/q); the result takes the sign of q (floored, not
+// truncated): Mod(-7,3)=2, Mod(7,-3)=-2. Integer and rational args evaluate;
+// Mod(0,q)=0, Mod(x,x)=0; q==0 stays unevaluated (no throw).
+TEST_CASE("mod: integer floored modulo", "[3g][mod]") {
+    REQUIRE(mod(integer(7), integer(3)) == integer(1));
+    REQUIRE(mod(integer(-7), integer(3)) == integer(2));     // sign of divisor
+    REQUIRE(mod(integer(7), integer(-3)) == integer(-2));
+    REQUIRE(mod(integer(-7), integer(-3)) == integer(-1));
+    REQUIRE(mod(integer(0), integer(3)) == integer(0));
+    REQUIRE(mod(integer(10), integer(5)) == integer(0));
+}
+
+TEST_CASE("mod: rational args", "[3g][mod]") {
+    REQUIRE(mod(rational(1, 2), rational(1, 3)) == rational(1, 6));
+}
+
+TEST_CASE("mod: structural identities and zero divisor", "[3g][mod]") {
+    auto x = symbol("x");
+    REQUIRE(mod(integer(0), x) == integer(0));   // Mod(0, q) = 0
+    REQUIRE(mod(x, x) == integer(0));            // Mod(x, x) = 0
+    // q == 0 is undefined — kept unevaluated rather than throwing.
+    REQUIRE(mod(x, integer(0))->type_id() == TypeId::Function);
+    // Generic symbolic args stay unevaluated.
+    REQUIRE(mod(x, integer(3))->type_id() == TypeId::Function);
+}
+
+TEST_CASE("mod: parse round-trip and SymPy agreement", "[3g][mod][parser][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("Mod(x, 3)") == mod(x, integer(3)));
+    REQUIRE(mod(x, integer(3))->str() == "Mod(x, 3)");
+    REQUIRE(oracle.equivalent(mod(integer(-7), integer(3))->str(), "Mod(-7, 3)"));
+    REQUIRE(oracle.equivalent(mod(integer(7), integer(-3))->str(), "Mod(7, -3)"));
 }
