@@ -321,6 +321,24 @@ TEST_CASE("Pow: integer base ^ nonneg integer exp is integer",
     REQUIRE(is_rational(e) == true);
 }
 
+TEST_CASE("Pow: real base ^ even integer exp is nonnegative (ASSUME-2)",
+          "[2b][assumptions][pow][regression]") {
+    auto r = symbol("r", AssumptionMask{}.set_real(true));
+    // x² ≥ 0 for real x, but not provably > 0 (could be 0) and not nonpositive.
+    REQUIRE(is_nonnegative(pow(r, integer(2))) == true);
+    REQUIRE(!is_positive(pow(r, integer(2))).has_value());
+    REQUIRE(is_nonnegative(pow(r, integer(4))) == true);
+    // Cascades through Add: x² + 1 > 0 for real x.
+    REQUIRE(is_positive(pow(r, integer(2)) + integer(1)) == true);
+    // Real nonzero (zero=false) base ⇒ even power is strictly positive.
+    auto rn = symbol("r", AssumptionMask{}.set_real(true).set_zero(false));
+    REQUIRE(is_positive(pow(rn, integer(2))) == true);
+    // Odd exponent: sign unknown. Generic (maybe complex) base: nothing inferred.
+    REQUIRE(!is_nonnegative(pow(r, integer(3))).has_value());
+    auto z = symbol("z");
+    REQUIRE(!is_nonnegative(pow(z, integer(2))).has_value());
+}
+
 TEST_CASE("Pow: rational base ^ integer exp is rational",
           "[2b][assumptions][pow]") {
     // "nonzero" is encoded as zero=false on the mask.
