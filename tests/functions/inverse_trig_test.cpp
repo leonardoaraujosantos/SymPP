@@ -17,8 +17,10 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -246,4 +248,57 @@ TEST_CASE("inverse trig: structural output matches SymPy",
     REQUIRE(oracle.equivalent(asin(S::One())->str(), "pi/2"));
     REQUIRE(oracle.equivalent(acos(S::NegativeOne())->str(), "pi"));
     REQUIRE(oracle.equivalent(atan(S::One())->str(), "pi/4"));
+}
+
+// ----- Inverse reciprocal trio: acot / asec / acsc (AINV-RECIP) --------------
+
+TEST_CASE("acot: canonical values and odd parity", "[3e][acot]") {
+    auto pi = S::Pi();
+    REQUIRE(acot(S::Zero()) == mul(S::Half(), pi));      // acot(0) = pi/2
+    REQUIRE(acot(S::One()) == mul(rational(1, 4), pi));   // acot(1) = pi/4
+    REQUIRE(acot(S::NegativeOne()) == mul(rational(-1, 4), pi));  // odd
+    REQUIRE(acot(pow(integer(3), rational(1, 2))) == mul(rational(1, 6), pi));
+    REQUIRE(acot(S::Infinity()) == S::Zero());            // acot(oo) = 0
+    auto x = symbol("x");
+    REQUIRE(acot(integer(2))->type_id() == TypeId::Function);  // not a table angle
+    REQUIRE(acot(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("asec: canonical values, pole, no simple parity", "[3e][asec]") {
+    auto pi = S::Pi();
+    REQUIRE(asec(S::One()) == S::Zero());                 // asec(1) = 0
+    REQUIRE(asec(integer(2)) == mul(rational(1, 3), pi));  // asec(2) = pi/3
+    REQUIRE(asec(pow(integer(2), rational(1, 2))) == mul(rational(1, 4), pi));
+    REQUIRE(asec(S::NegativeOne()) == pi);                // asec(-1) = pi
+    REQUIRE(asec(S::Zero()) == S::ComplexInfinity());     // asec(0) = zoo
+    auto x = symbol("x");
+    REQUIRE(asec(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("acsc: canonical values and odd parity", "[3e][acsc]") {
+    auto pi = S::Pi();
+    REQUIRE(acsc(S::One()) == mul(S::Half(), pi));        // acsc(1) = pi/2
+    REQUIRE(acsc(integer(2)) == mul(rational(1, 6), pi));  // acsc(2) = pi/6
+    REQUIRE(acsc(S::NegativeOne()) == mul(rational(-1, 2), pi));  // odd
+    REQUIRE(acsc(S::Zero()) == S::ComplexInfinity());     // acsc(0) = zoo
+    auto x = symbol("x");
+    REQUIRE(acsc(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("acot/asec/acsc: derivatives match SymPy", "[3e][acot][asec][acsc][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(diff(acot(x), x)->str(), "-1/(1 + x**2)"));
+    REQUIRE(oracle.equivalent(diff(asec(x), x)->str(), "1/(x**2*sqrt(1 - 1/x**2))"));
+    REQUIRE(oracle.equivalent(diff(acsc(x), x)->str(), "-1/(x**2*sqrt(1 - 1/x**2))"));
+}
+
+TEST_CASE("acot/asec/acsc: parse round-trip", "[3e][acot][asec][acsc][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("acot(x)") == acot(x));
+    REQUIRE(parsing::parse("asec(x)") == asec(x));
+    REQUIRE(parsing::parse("acsc(x)") == acsc(x));
+    REQUIRE(acot(x)->str() == "acot(x)");
+    REQUIRE(asec(x)->str() == "asec(x)");
+    REQUIRE(acsc(x)->str() == "acsc(x)");
 }

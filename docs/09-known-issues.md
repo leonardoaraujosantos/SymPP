@@ -1047,6 +1047,27 @@ truth and links the issue number.
 - **Scope:** integer arguments. Rational `gcd` (`gcd(1/2,1/3)=1/6`) and
   polynomial/symbolic gcd stay deferred (the latter is CANCEL-1 territory).
 
+### AINV-RECIP — `acot`, `asec`, `acsc` were not function types
+- **Input:** `acot(1)`, `asec(2)`, `acsc(2)`, `acot(0)`, `asec(0)`, `acot(x)`,
+  `diff(acot(x))`.
+- **Was:** the parser made generic undefined-function nodes — no evaluation,
+  no derivatives.
+- **Now:** three distinct inverse-reciprocal function types (`Acot`/`Asec`/
+  `Acsc` in `functions/trigonometric.{hpp,cpp}`, new `FunctionId` values).
+  Each folds exact values through the reciprocal-argument identity —
+  `acot(x)=atan(1/x)` (`acot(0)=π/2`, odd), `asec(x)=acos(1/x)` (`asec(0)=zoo`),
+  `acsc(x)=asin(1/x)` (`acsc(0)=zoo`, odd) — keeping its own node when the inner
+  inverse stays unevaluated (so `acot(2)`, `asec(√3)` print symbolically, as in
+  SymPy). Derivatives: `acot'=-1/(1+x²)`, `asec'=1/(x²√(1-1/x²))`,
+  `acsc'=-1/(x²√(1-1/x²))`. Numeric args evalf through the inner inverse. Parser
+  + LaTeX (`\operatorname{acot}`/…) updated; `str()` round-trips.
+- **Regression test:** `tests/functions/inverse_trig_test.cpp`
+  — `[acot]`, `[asec]`, `[acsc]` (canonical values, poles, parity, derivatives,
+  parse round-trip).
+- **Scope:** the inverse-reciprocal *hyperbolic* analogues
+  (`acoth`/`asech`/`acsch`) are a separate follow-up; `asec`/`acsc` real-domain
+  assumptions (|x|≥1) stay agnostic.
+
 ### PARSE-1 — parser rejected the capitalised names `str()` emits
 - **Input:** `parse("Abs(-3)")`, `parse(abs(x)->str())` (= `parse("Abs(x)")`),
   same for `Heaviside`, `DiracDelta`.
