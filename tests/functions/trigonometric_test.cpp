@@ -362,3 +362,18 @@ TEST_CASE("cot/sec/csc: numeric Float arg evalf matches SymPy",
     auto sympy_value = oracle.evalf("cot(Rational(3, 2))", 30);
     REQUIRE(oracle.equivalent(e->str(), sympy_value));
 }
+
+TEST_CASE("sin/cos/tan at an integer multiple of pi (ASSUME-7)",
+          "[3b][trig][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto x = symbol("x");  // generic
+    // sin(kπ)=0, tan(kπ)=0, cos(kπ)=(-1)^k for an integer k.
+    REQUIRE(sin(n * S::Pi()) == S::Zero());
+    REQUIRE(tan(n * S::Pi()) == S::Zero());
+    REQUIRE(cos(n * S::Pi()) == pow(S::NegativeOne(), n));
+    REQUIRE(sin(integer(2) * n * S::Pi()) == S::Zero());          // 2n integer
+    REQUIRE(cos((n + integer(1)) * S::Pi())
+            == pow(S::NegativeOne(), n + integer(1)));
+    // A non-integer (generic) coefficient stays unevaluated.
+    REQUIRE(sin(x * S::Pi())->str() == "sin(x*pi)");
+}

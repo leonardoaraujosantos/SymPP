@@ -104,6 +104,26 @@ namespace {
     return std::nullopt;
 }
 
+// Returns the coefficient k when arg == k·π (k an arbitrary, typically
+// non-numeric expression), else nullopt. Used for the integer-multiple
+// identities sin(kπ)=0, cos(kπ)=(−1)^k, tan(kπ)=0 when k is a known integer
+// (pi_coefficient above only handles a numeric k).
+[[nodiscard]] std::optional<Expr> pi_factor(const Expr& arg) {
+    if (arg == S::Pi()) return S::One();
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    bool has_pi = false;
+    std::vector<Expr> rest;
+    for (const auto& f : arg->args()) {
+        if (f == S::Pi() && !has_pi) {
+            has_pi = true;
+            continue;
+        }
+        rest.push_back(f);
+    }
+    if (!has_pi || rest.empty()) return std::nullopt;
+    return mul(std::move(rest));
+}
+
 // cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6,12}.
 // Returns nullopt for any other denominator (e.g. π/8 — a nested radical).
 [[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
@@ -372,6 +392,11 @@ Expr sin(const Expr& arg) {
         if (auto v = sin_pi(*r); v.has_value()) return *v;
     }
 
+    // sin(k·π) = 0 for a symbolic integer k (e.g. sin(n·π), sin(2n·π)).
+    if (auto k = pi_factor(arg); k.has_value() && is_integer(*k) == true) {
+        return S::Zero();
+    }
+
     // Argument reduction by π multiples of the additive part:
     //   integer k:    sin(rest + k·π)     = (−1)^k·sin(rest)
     //   half-integer: sin(rest + (m/2)·π) = ±cos(rest)  (m odd, co-function)
@@ -419,6 +444,11 @@ Expr cos(const Expr& arg) {
     // π and all their quadrant images).
     if (auto r = pi_coefficient(arg); r.has_value()) {
         if (auto v = cos_pi(*r); v.has_value()) return *v;
+    }
+
+    // cos(k·π) = (−1)^k for a symbolic integer k.
+    if (auto k = pi_factor(arg); k.has_value() && is_integer(*k) == true) {
+        return pow(S::NegativeOne(), *k);
     }
 
     // Argument reduction by π multiples of the additive part:
@@ -470,6 +500,11 @@ Expr tan(const Expr& arg) {
     // out-of-table denominators are left unevaluated.
     if (auto r = pi_coefficient(arg); r.has_value()) {
         if (auto v = tan_pi(*r); v.has_value()) return *v;
+    }
+
+    // tan(k·π) = 0 for a symbolic integer k.
+    if (auto k = pi_factor(arg); k.has_value() && is_integer(*k) == true) {
+        return S::Zero();
     }
 
     // Period π: tan(rest + k·π) = tan(rest) for any integer k.

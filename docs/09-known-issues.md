@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-7 — `sin(n*pi)` / `cos(n*pi)` / `tan(n*pi)` weren't evaluated for integer `n`
+- **Input:** `sin(n·π)`, `cos(n·π)`, `tan(n·π)`, `sin(2n·π)` for integer `n`.
+- **Was:** unevaluated — the trig factories reduced only a *numeric* rational
+  multiple of π (`pi_coefficient`), so a symbolic integer coefficient fell
+  through.
+- **Expected (SymPy):** `sin(n·π)=0`, `tan(n·π)=0`, `cos(n·π)=(−1)^n`; a
+  non-integer / generic coefficient stays unevaluated.
+- **Fix (`src/functions/trigonometric.cpp`):** new `pi_factor` helper returns the
+  (possibly symbolic) coefficient `k` of `k·π`; when `is_integer(k)` the
+  factories return `0` (sin/tan) or `(−1)^k` (cos). Covers `2n·π` etc. since `2n`
+  is integer.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][assumptions][regression]` (integer `n`, `2n`, `n+1`; generic
+  coefficient stays).
+- **Scope:** integer-valued coefficient of π; numeric multiples keep their exact
+  special-value path.
+
 ### ASSUME-6 — `exp(c*log(p))` didn't fold to `p^c` for positive `p`
 - **Input:** `exp(2·log p)`, `exp(log(p)/2)`, `exp(−log p)`, `exp(x·log p)` for
   positive `p`.
