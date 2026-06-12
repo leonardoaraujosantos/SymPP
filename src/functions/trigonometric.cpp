@@ -104,8 +104,8 @@ namespace {
     return std::nullopt;
 }
 
-// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6}.
-// Returns nullopt for any other denominator (e.g. π/12 — a nested radical).
+// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6,12}.
+// Returns nullopt for any other denominator (e.g. π/8 — a nested radical).
 [[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
     const mpz_class& den = r.get_den();  // canonical: den > 0, gcd(num,den)=1
@@ -117,6 +117,17 @@ namespace {
     }
     if (num == 1 && den == 6) {                      // cos(π/6)      = √3/2
         return mul(pow(integer(3), rational(1, 2)), S::Half());
+    }
+    // π/12 family (15°): cos(π/12) = (√6+√2)/4, cos(5π/12) = (√6−√2)/4. All 24
+    // multiples of π/12 reduce here through cos_pi's period/reflection folds.
+    if (num == 1 && den == 12) {                     // cos(π/12)  = (√6+√2)/4
+        return mul(rational(1, 4), add(pow(integer(6), rational(1, 2)),
+                                       pow(integer(2), rational(1, 2))));
+    }
+    if (num == 5 && den == 12) {                     // cos(5π/12) = (√6−√2)/4
+        return mul(rational(1, 4),
+                   add(pow(integer(6), rational(1, 2)),
+                       mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))));
     }
     return std::nullopt;
 }
@@ -160,6 +171,12 @@ namespace {
     if (num == 1 && den == 4) return S::One();    // tan(π/4) = 1
     if (num == 1 && den == 3) {                  // tan(π/3) = √3
         return pow(integer(3), rational(1, 2));
+    }
+    if (num == 1 && den == 12) {                 // tan(π/12)  = 2 − √3
+        return add(integer(2), mul(S::NegativeOne(), pow(integer(3), rational(1, 2))));
+    }
+    if (num == 5 && den == 12) {                 // tan(5π/12) = 2 + √3
+        return add(integer(2), pow(integer(3), rational(1, 2)));
     }
     return std::nullopt;
 }

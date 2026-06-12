@@ -83,10 +83,31 @@ TEST_CASE("tan: pole at π/2 stays unevaluated",
     REQUIRE(r->type_id() == TypeId::Function);
 }
 
-TEST_CASE("sin: out-of-table angle (π/12) stays unevaluated",
+// ----- π/12 family exact values (regression, TRIG-PI12) ----------------------
+// The 15° angles fold to clean sums of radicals (not nested): cos(π/12) =
+// (√6+√2)/4, sin(π/12) = (√6−√2)/4, tan(π/12) = 2−√3. All 24 multiples of π/12
+// reduce through cos_pi's period/reflection folds. π/8 (genuinely nested) stays
+// symbolic.
+TEST_CASE("sin/cos/tan: π/12 family exact values", "[3b][trig][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 12), pi))->str(),
+                              "sqrt(6)/4 + sqrt(2)/4"));
+    REQUIRE(oracle.equivalent(sin(mul(rational(1, 12), pi))->str(),
+                              "sqrt(6)/4 - sqrt(2)/4"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 12), pi))->str(), "2 - sqrt(3)"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(5, 12), pi))->str(),
+                              "sqrt(6)/4 - sqrt(2)/4"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(5, 12), pi))->str(), "2 + sqrt(3)"));
+    // A higher multiple reduces by symmetry.
+    REQUIRE(oracle.equivalent(cos(mul(rational(7, 12), pi))->str(),
+                              "-sqrt(6)/4 + sqrt(2)/4"));
+}
+
+TEST_CASE("cos: π/8 (genuinely nested radical) stays unevaluated",
           "[3b][trig][regression]") {
-    // Denominator 12 is a nested radical — deliberately not in the table.
-    auto r = sin(mul(rational(1, 12), S::Pi()));
+    // cos(π/8) = √(2+√2)/2 — a nested radical, deliberately not in the table.
+    auto r = cos(mul(rational(1, 8), S::Pi()));
     REQUIRE(r->type_id() == TypeId::Function);
 }
 
