@@ -109,6 +109,10 @@ namespace {
     }
 }
 
+// Forward declarations; defined below, used by the simplify pipeline.
+[[nodiscard]] Expr pow_of_pow_node(const Expr& e);
+[[nodiscard]] Expr pow_of_pow(const Expr& e);
+
 }  // namespace
 
 Expr simplify(const Expr& e) {
@@ -122,6 +126,7 @@ Expr simplify(const Expr& e) {
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
     current = powsimp(current);
+    current = pow_of_pow(current);
     current = combsimp(current);
     current = gammasimp(current);
     current = radsimp(current);
@@ -239,6 +244,28 @@ namespace {
     return mul(std::move(out));
 }
 
+// Assumptions-gated power-of-power: (bᵖ)^q. SymPP's canonical Pow deliberately
+// leaves these alone (branch cuts), but symbol assumptions make specific cases
+// safe — matching SymPy's `sqrt(x**2) == Abs(x)` (real) / `== x` (nonnegative).
+[[nodiscard]] Expr pow_of_pow_node(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return e;
+    const Expr& inner = e->args()[0];
+    const Expr& q = e->args()[1];
+    if (inner->type_id() != TypeId::Pow) return e;
+    const Expr& base = inner->args()[0];
+    const Expr& p = inner->args()[1];
+
+    // b ≥ 0: (bᵖ)^q = b^(p·q) holds for all real p, q.
+    if (is_nonnegative(base) == true) {
+        return pow(base, mul(p, q));
+    }
+    // b real: √(b²) = |b|. (b not known nonnegative here.)
+    if (is_real(base) == true && p == integer(2) && q == rational(1, 2)) {
+        return abs(base);
+    }
+    return e;
+}
+
 }  // namespace
 
 Expr powsimp(const Expr& e) {
@@ -303,6 +330,8 @@ template <typename NodeFn>
     for (const auto& a : args) new_args.push_back(apply_recursive(a, fn));
     return fn(rebuild_node(e, std::move(new_args)));
 }
+
+Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 
 }  // namespace
 

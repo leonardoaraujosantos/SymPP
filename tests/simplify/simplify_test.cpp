@@ -88,6 +88,20 @@ TEST_CASE("simplify: sin^2 + cos^2 still collapses to 1 (no cancel hang)",
     REQUIRE(simplify(e) == integer(1));
 }
 
+TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
+          "[5][simplify][assumptions][regression]") {
+    auto xp = symbol("x", AssumptionMask{}.set_positive(true));
+    auto xr = symbol("x", AssumptionMask{}.set_real(true));
+    auto xg = symbol("x");
+    // √(x²) = x for x ≥ 0, = |x| for x real, stays for a generic (maybe complex) x.
+    REQUIRE(simplify(pow(pow(xp, integer(2)), rational(1, 2))) == xp);
+    REQUIRE(simplify(pow(pow(xr, integer(2)), rational(1, 2))) == abs(xr));
+    REQUIRE(simplify(pow(pow(xg, integer(2)), rational(1, 2)))->str()
+            == "(x**2)**(1/2)");
+    // Power-of-power for a nonnegative base folds the exponents.
+    REQUIRE(simplify(pow(pow(xp, rational(2, 3)), integer(3))) == pow(xp, integer(2)));
+}
+
 TEST_CASE("collect: groups powers of var", "[5][collect][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
