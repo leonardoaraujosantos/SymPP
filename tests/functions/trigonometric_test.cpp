@@ -389,3 +389,17 @@ TEST_CASE("sin/cos at an odd half-integer multiple of pi (ASSUME-9)",
     REQUIRE(cos(S::Pi() / integer(2)) == S::Zero());
     REQUIRE(sin(integer(3) * S::Pi() / integer(2)) == S::NegativeOne());
 }
+
+TEST_CASE("cot/sec/csc at integer / half-integer multiples of pi (ASSUME-10)",
+          "[3b][trig][reciprocal][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    Expr half = (integer(2) * n + integer(1)) * S::Pi() / integer(2);
+    // Integer k·π: cot/csc are poles (sin=0); sec = (-1)^k (1/cos).
+    REQUIRE(cot(n * S::Pi()) == S::ComplexInfinity());
+    REQUIRE(csc(n * S::Pi()) == S::ComplexInfinity());
+    REQUIRE(sec(n * S::Pi()) == pow(S::NegativeOne(), n));
+    // Odd half-integer: sec is a pole (cos=0); cot=0; csc = (-1)^n (1/sin).
+    REQUIRE(sec(half) == S::ComplexInfinity());
+    REQUIRE(cot(half) == S::Zero());
+    REQUIRE(csc(half) == pow(S::NegativeOne(), n));
+}
