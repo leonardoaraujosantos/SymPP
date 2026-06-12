@@ -465,6 +465,24 @@ truth and links the issue number.
   numerically equal to SymPy's, so the oracle agrees.) The derivative
   (digamma-based) stays deferred.
 
+### EXPINT-BYPARTS — ∫ of a special-integral function (erf, Si, Ei, …)
+- **Input:** `∫erf(x)`, `∫erfi(x)`, `∫erfc(x)`, `∫Si(x)`, `∫Ci(x)`, `∫Ei(x)`,
+  `∫Shi(x)`, `∫Chi(x)`.
+- **Was:** the unevaluated `Integral` marker — by-parts had no standalone-function
+  rule beyond `log`.
+- **Now:** a whitelisted by-parts branch in `try_integration_by_parts`: for a
+  standalone `f(affine)` with `f ∈ {erf, erfc, erfi, Si, Ci, Ei, Shi, Chi}`,
+  `∫f dx = x·f − ∫x·f'`. Each `x·f'` is elementary (`x·erf' = 2x·e^(−x²)/√π`
+  integrates; `x·Si' = sin(x)`; `x·Ei' = eˣ`; …), so it closes:
+  `∫erf = x·erf + e^(−x²)/√π`, `∫Si = x·Si + cos(x)`, `∫Ei = x·Ei − eˣ`, etc.
+  The whitelist is essential — a function with the default 0-derivative (gamma,
+  zeta, …) would otherwise yield a bogus `x·f`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][expint][regression]`.
+- **Scope:** the eight special-integral functions with affine argument. The
+  inverse-trig analogues (`∫asin`, `∫atan`, …) would work by the same identity
+  but are not yet whitelisted.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.

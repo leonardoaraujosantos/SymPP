@@ -621,6 +621,30 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
+    // Standalone special-integral function f(affine): by parts with u = f,
+    // dv = dx, v = x → ∫f dx = x·f − ∫x·f'. Closes because x·f' is elementary
+    // for these (erf' = 2e^(−x²)/√π so x·erf' integrates, Si' = sin(x)/x so
+    // x·Si' = sin(x), etc.). Whitelisted to functions with a correct derivative
+    // — a function left with the default 0-derivative would yield a bogus x·f.
+    if (expr->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*expr);
+        const FunctionId id = fn.function_id();
+        const bool by_parts_fn =
+            id == FunctionId::Erf || id == FunctionId::Erfc
+            || id == FunctionId::Erfi || id == FunctionId::Si
+            || id == FunctionId::Ci || id == FunctionId::Ei
+            || id == FunctionId::Shi || id == FunctionId::Chi;
+        if (by_parts_fn && fn.args().size() == 1) {
+            auto aff = as_affine(fn.args()[0], var);
+            if (aff && !(aff->first == S::Zero())) {
+                Expr remaining = integrate(var * diff(expr, var), var);
+                if (!is_integral_marker(remaining)) {
+                    return expand(var * expr - remaining);
+                }
+            }
+        }
+    }
+
     // Standalone log(affine)^n (n ≥ 2): by parts with u = log^n, dv = dx, v = x.
     //   ∫ log^n dx = x·log^n − ∫ x·(log^n)' dx.
     // For log(c·x) the remaining x·(log^n)' collapses to n·log^(n-1), so it
