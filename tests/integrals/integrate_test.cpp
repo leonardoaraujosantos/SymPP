@@ -1603,6 +1603,39 @@ TEST_CASE("integrate: completing the square for √-quadratics (INT-31)",
     REQUIRE(db((x - integer(1)) * pow(q3, rational(-1, 2))));
 }
 
+TEST_CASE("integrate: improper rational over an irreducible quadratic (INT-32)",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    Expr d = pow(x, integer(2)) + integer(1);   // irreducible x²+1
+    // Polynomial division leaves a proper part apart() can't split further.
+    REQUIRE(db(pow(x, integer(2)) / d));         // ∫x²/(x²+1) = x − atan(x)
+    REQUIRE(db(pow(x, integer(3)) / d));         // ∫x³/(x²+1)
+    REQUIRE(db(pow(x, integer(4)) / d));
+    REQUIRE(db((pow(x, integer(2)) + integer(2)) / d));
+}
+
+TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(x * atan(x)));                     // x·atan
+    REQUIRE(db(pow(x, integer(2)) * atan(x)));    // x²·atan
+    REQUIRE(db(x * atanh(x)));                     // x·atanh
+    REQUIRE(db(x * acot(x)));                      // x·acot
+    REQUIRE(db((x + integer(1)) * atan(x)));      // (x+1)·atan
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",

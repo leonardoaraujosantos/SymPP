@@ -1001,6 +1001,39 @@ truth and links the issue number.
   from under the radical, e.g. `√(4/3·Q) = (2/√3)√Q`), but the oracle's numeric
   fallback confirms equivalence.
 
+### INT-32 — improper rational over an irreducible quadratic, and `∫P(x)·atan/atanh/acot` returned the marker
+- **Input:** `∫x²/(x²+1)`, `∫x³/(x²+1)`, `∫x·atan(x)`, `∫x²·atan(x)`,
+  `∫x·atanh(x)`, `∫x·acot(x)`, `∫(x+1)·atan(x)`.
+- **Was:** the marker. Two linked causes:
+  1. `try_rational` did polynomial division, but if the *proper* remainder's
+     `apart()` could not split further (a single irreducible quadratic, e.g.
+     `−1/(x²+1)`), it dropped the **whole** result — so `∫x²/(x²+1)` failed even
+     though the quotient `1` and remainder `−1/(x²+1)` are each integrable.
+     (`∫x²/(1−x²)` worked only because `1−x²` factors over ℝ.)
+  2. Integration by parts had no `polynomial × inverse-function` branch, so
+     `∫x·atan(x)` fell through — and even with the branch, its remaining
+     `∫(x²/2)/(1+x²)` is exactly the improper-rational case above.
+- **Expected (SymPy):** `∫x²/(x²+1) = x − atan(x)`,
+  `∫x·atan(x) = x²·atan(x)/2 − x/2 + atan(x)/2`, etc.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - `try_rational`: when `apart` leaves the proper part intact *and* the quotient
+    is non-zero (improper input), integrate the remainder directly via the
+    quadratic helpers — `try_arctan_quadratic` for a constant numerator,
+    `try_linear_over_quadratic` for a linear one — rather than bailing. The bare
+    proper case (`q == 0`) still defers downstream, avoiding re-entry.
+  - New `polynomial × f` by-parts branch (`u = f`, `dv = rest dx`), reusing the
+    `is_by_parts_fn` whitelist (factored out of the standalone branch). For
+    atan/acot/atanh the remaining integral is rational; for asin/acos/asinh/acosh
+    it is a polynomial over `√(quadratic)`, closed when low-degree, else the
+    marker guard bails.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][rational][regression]` (improper rationals over `x²+1`) and
+  `[integrate][invtrig][regression]` (poly × atan/atanh/acot), verified by
+  differentiation against the oracle.
+- **Scope:** `∫P(x)·asin/acos/asinh/acosh` for `deg P ≥ 1` and `∫P(x)·erf/Si/…`
+  still bail (the remaining `∫P/√(quad)` or `∫P·e^(−x²)` needs trig-sub /
+  Gaussian-moment reductions not yet implemented).
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
