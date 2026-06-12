@@ -6,11 +6,15 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/function.hpp>
+#include <sympp/core/function_id.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/exponential.hpp>
 
 namespace sympp {
 
@@ -109,6 +113,33 @@ namespace {
 
 }  // namespace
 
+// log(arg) expansion, gated on positivity to match SymPy's `expand` (force=False):
+//   log(∏ aᵢ) → Σ log(aᵢ)  when every factor aᵢ is positive
+//   log(b^k)  → k·log(b)    when b is positive
+// Without provable positivity the split is invalid (e.g. log((−1)(−1)) ≠
+// log(−1)+log(−1)), so it is left intact.
+[[nodiscard]] Expr expand_log_arg(const Expr& arg) {
+    auto split_factor = [](const Expr& f) -> Expr {
+        if (f->type_id() == TypeId::Pow && is_positive(f->args()[0]) == true) {
+            return mul(f->args()[1], log(f->args()[0]));
+        }
+        return log(f);
+    };
+    if (arg->type_id() == TypeId::Mul) {
+        for (const auto& f : arg->args()) {
+            if (is_positive(f) != true) return log(arg);  // can't safely split
+        }
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& f : arg->args()) terms.push_back(split_factor(f));
+        return add(std::move(terms));
+    }
+    if (arg->type_id() == TypeId::Pow && is_positive(arg->args()[0]) == true) {
+        return mul(arg->args()[1], log(arg->args()[0]));
+    }
+    return log(arg);
+}
+
 Expr expand(const Expr& e) {
     if (!e) return e;
 
@@ -134,7 +165,13 @@ Expr expand(const Expr& e) {
             return add(std::move(new_args));
         }
         default:
-            // Other compound types (none yet in Phase 1) — return as-is.
+            // log of a positive product / power expands (assumption-gated).
+            if (e->type_id() == TypeId::Function && new_args.size() == 1) {
+                const auto& fn = static_cast<const Function&>(*e);
+                if (fn.function_id() == FunctionId::Log) {
+                    return expand_log_arg(new_args[0]);
+                }
+            }
             return e;
     }
 }

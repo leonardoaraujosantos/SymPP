@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-4 — `expand(log(x*y))` didn't split for positive symbols
+- **Input:** `expand(log(p·q))`, `expand(log(p³))` for positive `p, q`.
+- **Was:** unchanged (`log(p*q)`) — `expand` only distributed `Mul`/`Pow`/`Add`
+  and never touched `log`. SymPy's `expand` (with `force=False`) splits a log
+  whose argument is provably positive.
+- **Expected (SymPy):** `log(p)+log(q)`, `3·log(p)`; unchanged when any factor is
+  not provably positive (e.g. `log(p·z)` with generic `z`).
+- **Fix (`src/core/expand.cpp`):** new `expand_log_arg`, gated on positivity —
+  `log(∏ aᵢ) → Σ log(aᵢ)` when every factor is positive, `log(b^k) → k·log(b)`
+  when `b` is positive. Without provable positivity it is left intact (e.g.
+  `log((−1)(−1)) ≠ log(−1)+log(−1)`).
+- **Regression test:** `tests/core/expand_test.cpp`
+  — `[expand][assumptions][regression]` (positive product/power split; generic
+  factor blocks the split).
+- **Scope:** `expand` of `log` of a positive product/power. (`logcombine` — the
+  reverse direction — remains a separate follow-up.)
+
 ### ASSUME-3 — `simplify(Abs(x)**2)` stayed `Abs(x)**2` for a real symbol
 - **Input:** `simplify(|x|²)`, `simplify(|x|⁴)` for a real `x`.
 - **Was:** unchanged — the power-of-power rule only handled `(bᵖ)^q`, not a power
