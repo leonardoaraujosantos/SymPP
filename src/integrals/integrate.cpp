@@ -561,9 +561,14 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
               });
 
     auto u = symbol("__heurisch_u");
-    for (const auto& g : candidates) {
-        Expr gp = simplify(diff(g, var));
-        if (gp == S::Zero()) continue;
+    // Attempt the substitution u = g for one specific form of g'. Returns the
+    // antiderivative when it closes, else nullopt. We try both simplify(g') and
+    // the raw diff(g): simplify can rewrite g' into a form no longer expressed
+    // in g (e.g. d/dx tan x = 1 + tan²x, which simplify turns into cos⁻²x — that
+    // breaks the subs g → u, since cos²x then survives and depends_on(var) is
+    // true). The raw derivative keeps the tan form, so g = tan x still works.
+    auto try_with_gp = [&](const Expr& g, const Expr& gp) -> std::optional<Expr> {
+        if (gp == S::Zero()) return std::nullopt;
         // q = expr / g'. Substitute g → u first so the symbolic structure
         // collapses (e.g. exp(x²) → exp(u)). Apply expand_power_base so
         // patterns like (2x)^(-1) split into 2^(-1) * x^(-1), letting
@@ -571,7 +576,7 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         Expr q = expr / gp;
         Expr q_sub = subs(q, g, u);
         q_sub = simplify(expand_power_base(q_sub));
-        if (depends_on(q_sub, var)) continue;
+        if (depends_on(q_sub, var)) return std::nullopt;
         // Try to integrate q_sub against u via the table only — calling
         // the full integrate() here would loop back into try_heurisch.
         // Linearity over Add is handled inline; the rest is integrate_term.
@@ -623,9 +628,9 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
             if (!qr) qr = try_linear_over_quadratic(core, u);
             if (qr) integrated_opt = mul(coeff, qr.value());
         }
-        if (!integrated_opt) continue;
+        if (!integrated_opt) return std::nullopt;
         Expr integrated = *integrated_opt;
-        if (is_integral_marker(integrated)) continue;
+        if (is_integral_marker(integrated)) return std::nullopt;
         // Walk the result to ensure it didn't smuggle an Integral marker.
         bool has_marker = false;
         auto rec_check = [&](auto&& self, const Expr& e) -> void {
@@ -637,10 +642,18 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
             }
         };
         rec_check(rec_check, integrated);
-        if (has_marker) continue;
+        if (has_marker) return std::nullopt;
         // Substitute u back to g.
         Expr result = subs(integrated, u, g);
         return simplify(result);
+    };
+    for (const auto& g : candidates) {
+        Expr gp_simplified = simplify(diff(g, var));
+        if (auto r = try_with_gp(g, gp_simplified)) return *r;
+        Expr gp_raw = diff(g, var);
+        if (!(gp_raw == gp_simplified)) {
+            if (auto r = try_with_gp(g, gp_raw)) return *r;
+        }
     }
     return std::nullopt;
 }

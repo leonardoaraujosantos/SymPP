@@ -823,6 +823,114 @@ as_trig_square_term(const Expr& term) {
     return term_count(rebuilt) < e->args().size() ? rebuilt : e;
 }
 
+// Additive trig Pythagorean identities (the analogue of tanh_coth_pyth_add, with
+// the opposite sign since sec² − tan² = 1, csc² − cot² = 1). Each squared
+// tan/cot/sec/csc term is rewritten into the cos⁻²/sin⁻² basis via
+// tan² = cos⁻² − 1, cot² = sin⁻² − 1, sec² = cos⁻², csc² = sin⁻², accumulating a
+// constant; kept only when it shrinks the number of additive terms:
+//   1 + tan²x → cos⁻²x,  sec²x − tan²x → 1,  csc²x − cot²x → 1,
+//   1 + cot²x → sin⁻²x,  tan²x − sec²x → −1.
+// A bare tan²x (or 2 + tan²x, where the constant survives) is left untouched.
+[[nodiscard]] Expr trig_pyth_add(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    auto detect = [](const Expr& f)
+        -> std::optional<std::pair<FunctionId, Expr>> {
+        if (f->type_id() != TypeId::Pow || !(f->args()[1] == integer(2))) {
+            return std::nullopt;
+        }
+        const Expr& base = f->args()[0];
+        if (base->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*base);
+        switch (fn.function_id()) {
+            case FunctionId::Tan:
+            case FunctionId::Cot:
+            case FunctionId::Sec:
+            case FunctionId::Csc:
+                return std::pair{fn.function_id(), base->args()[0]};
+            default:
+                return std::nullopt;
+        }
+    };
+    auto as_term = [&](const Expr& term)
+        -> std::optional<std::tuple<FunctionId, Expr, Expr>> {
+        if (auto r = detect(term)) {
+            return std::make_tuple(r->first, r->second, S::One());
+        }
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<std::pair<FunctionId, Expr>> trig;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (auto r = detect(f)) {
+                    if (trig) return std::nullopt;
+                    trig = r;
+                } else {
+                    coef.push_back(f);
+                }
+            }
+            if (trig) {
+                return std::make_tuple(trig->first, trig->second, mul(coef));
+            }
+        }
+        return std::nullopt;
+    };
+
+    struct Coefs {
+        Expr tan2 = S::Zero();
+        Expr cot2 = S::Zero();
+        Expr sec2 = S::Zero();
+        Expr csc2 = S::Zero();
+    };
+    std::vector<std::pair<Expr, Coefs>> by_arg;
+    std::vector<Expr> rest;
+    auto find_or_create = [&](const Expr& a) -> Coefs& {
+        for (auto& [x, c] : by_arg) if (x == a) return c;
+        by_arg.push_back({a, Coefs{}});
+        return by_arg.back().second;
+    };
+    bool saw_convertible = false;
+    for (const auto& term : e->args()) {
+        if (auto t = as_term(term)) {
+            auto& c = find_or_create(std::get<1>(*t));
+            const Expr& k = std::get<2>(*t);
+            switch (std::get<0>(*t)) {
+                case FunctionId::Tan: c.tan2 = add(c.tan2, k); break;
+                case FunctionId::Cot: c.cot2 = add(c.cot2, k); break;
+                case FunctionId::Sec: c.sec2 = add(c.sec2, k); break;
+                case FunctionId::Csc: c.csc2 = add(c.csc2, k); break;
+                default: break;
+            }
+            if (std::get<0>(*t) == FunctionId::Tan
+                || std::get<0>(*t) == FunctionId::Cot) {
+                saw_convertible = true;
+            }
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (!saw_convertible) return e;
+
+    std::vector<Expr> out = rest;
+    for (auto& [arg, c] : by_arg) {
+        // tan² = cos⁻² − 1,  cot² = sin⁻² − 1,  sec² = cos⁻²,  csc² = sin⁻².
+        out.push_back(mul(S::NegativeOne(), c.tan2 + c.cot2));  // loose constant
+        Expr cos_inv2 = c.tan2 + c.sec2;
+        Expr sin_inv2 = c.cot2 + c.csc2;
+        if (!(cos_inv2 == S::Zero())) {
+            out.push_back(cos_inv2 * pow(cos(arg), integer(-2)));
+        }
+        if (!(sin_inv2 == S::Zero())) {
+            out.push_back(sin_inv2 * pow(sin(arg), integer(-2)));
+        }
+    }
+    Expr rebuilt = out.empty() ? Expr{S::Zero()}
+                   : out.size() == 1 ? out[0]
+                                     : add(std::move(out));
+    auto term_count = [](const Expr& x) -> std::size_t {
+        return x->type_id() == TypeId::Add ? x->args().size() : 1;
+    };
+    return term_count(rebuilt) < e->args().size() ? rebuilt : e;
+}
+
 // cosh(x) + sinh(x) → eˣ and cosh(x) − sinh(x) → e⁻ˣ (and scaled forms, when the
 // cosh and sinh coefficients match up to a sign). Collapses a 2-term sum into a
 // single exponential, matching SymPy's simplify.
@@ -1007,6 +1115,7 @@ as_trig_square_term(const Expr& term) {
     Expr cur = trigsimp_add(e);
     cur = hypsimp_add(cur);
     cur = tanh_coth_pyth_add(cur);
+    cur = trig_pyth_add(cur);
     cur = hyp_to_exp_add(cur);
     cur = trig_ratio_mul(cur);
     cur = trigsimp_mul(cur);

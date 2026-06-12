@@ -14,6 +14,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-PYTH — `trigsimp` didn't apply the additive trig Pythagorean identities
+- **Input:** `1 + tan²x`, `sec²x − tan²x`, `csc²x − cot²x`, `1 + cot²x`,
+  `tan²x − sec²x`, `3 + 3tan²x`.
+- **Was:** unchanged — `trigsimp` had the `sin²+cos²` collapse and (after
+  TRIG-HYP-4) the hyperbolic analogue, but no `tan/cot/sec/csc` Pythagorean.
+- **Expected (SymPy):** `cos⁻²x`, `1`, `1`, `sin⁻²x`, `−1`, `3·cos⁻²x`.
+- **Fix (`src/simplify/simplify.cpp`):** new `trig_pyth_add` (run inside
+  `trigsimp_node`) — the analogue of `tanh_coth_pyth_add` with the opposite sign
+  (`sec² − tan² = 1`): rewrites each squared `tan/cot/sec/csc` term into the
+  `cos⁻²`/`sin⁻²` basis via `tan² = cos⁻² − 1`, `cot² = sin⁻² − 1`,
+  `sec² = cos⁻²`, `csc² = sin⁻²`, kept only when it shrinks the number of
+  additive terms (so a bare `tan²x` or `2 + tan²x` is left untouched).
+- **Follow-on (`src/integrals/integrate.cpp`):** because `simplify(d/dx tan x)`
+  now folds `1 + tan²x → cos⁻²x`, heurisch's `u = tan x` substitution lost its
+  rational-in-`g` form and fell through to the (latent-buggy) Weierstrass path,
+  which hung on `∫1/(1 + tan x)`. heurisch now tries both `simplify(g')` and the
+  raw `diff(g)`; the raw `1 + tan²x` keeps the substitution closed, and the
+  integral once again resolves directly (no Weierstrass, no hang).
+- **Regression tests:** `tests/simplify/simplify_test.cpp`
+  (`[trigsimp][oracle][regression]`) and the updated Weierstrass guard test in
+  `tests/integrals/integrate_test.cpp`.
+- **Scope:** the additive squared-identity family; surviving-constant sums are
+  left as SymPy leaves them.
+
 ### TRIG-RATIO — `trigsimp` didn't cancel trigonometric ratio products
 - **Input:** `tan x·cos x`, `cot x·sin x`, `sec x·cos x`, `csc x·sin x`,
   `cot x·tan x`, `3·tan x·cos x`, `tan²x·cos²x`.
