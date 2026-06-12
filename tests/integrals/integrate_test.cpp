@@ -1773,6 +1773,24 @@ TEST_CASE("integrate: polynomial over √(quadratic) via reduction (INT-40)",
     REQUIRE(db(pow(x, integer(2)) * asinh(x)));
 }
 
+TEST_CASE("integrate: log of a polynomial by parts (INT-41)",
+          "[7][integrate][parts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // ∫log(g) = x·log(g) − ∫x·g'/g, closing when the remainder is rational.
+    REQUIRE(db(log(pow(x, integer(2)) + integer(1))));        // x·log + atan
+    REQUIRE(db(log(pow(x, integer(2)) - integer(1))));        // reducible → logs
+    REQUIRE(db(log(pow(x, integer(2)) + x + integer(1))));    // irreducible → log+atan
+    // Regression: log(affine) closed form still works.
+    REQUIRE(db(log(x)));
+    REQUIRE(db(log(integer(2) * x + integer(3))));
+}
+
 TEST_CASE("integrate: heurisch substitution into an irreducible quadratic (INT-36)",
           "[7][integrate][heurisch][oracle][regression]") {
     auto& oracle = Oracle::instance();

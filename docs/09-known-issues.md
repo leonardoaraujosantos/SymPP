@@ -1234,6 +1234,24 @@ truth and links the issue number.
   evaluating `diff(F) − e` to ~0 at fixed rational points.
 - **Scope:** rational coefficients; polynomial numerator over `√(quadratic)`.
 
+### INT-41 — `∫log(polynomial)` returned the marker
+- **Input:** `∫log(x²+1)`, `∫log(x²−1)`, `∫log(x²+x+1)`.
+- **Was:** the marker — the standalone-log by-parts had a closed form only for
+  `log(affine)`; a non-affine argument fell through.
+- **Expected (SymPy):** `∫log(x²+1) = x·log(x²+1) − 2x + 2·atan(x)`,
+  `∫log(x²−1) = x·log(x²−1) − 2x + log(x+1) − log(x−1)`.
+- **Fix (`src/integrals/integrate.cpp`):** add a general `log(g)` standalone
+  branch — by parts with `u = log(g)`, `dv = dx`, `v = x`:
+  `∫log(g) = x·log(g) − ∫x·g'/g`. The remaining integrand `x·g'/g` is rational
+  when `g` is a polynomial, so `try_rational` (with the INT-32 improper /
+  irreducible-quadratic handling) closes it; the marker guard bails otherwise.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][parts][regression]` (`log` of an irreducible quadratic, a
+  reducible quadratic, and an irreducible `x²+x+1`, plus `log(affine)`
+  regressions), verified by differentiation against the oracle.
+- **Scope:** the remaining `∫x·g'/g` must close (polynomial `g`); `log` of a
+  transcendental argument bails to the marker.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
