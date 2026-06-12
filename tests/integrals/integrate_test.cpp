@@ -663,6 +663,71 @@ TEST_CASE("integrate: ∫sec(3x) dx (affine argument scaling)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- Reciprocal-trio powers (regression, INT-25) ---------------------------
+// ∫sec²/csc²/cot² rewrite to the 1/cos², 1/sin² table cases (cot² via the
+// Pythagorean cot²=csc²−1); ∫cotⁿ uses the reduction
+// ∫cotⁿ=−cot^(n-1)/((n-1)a)−∫cot^(n-2), the sign-flipped analogue of ∫tanⁿ.
+// Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫sec(x)^2 dx = tan(x)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sec(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csc(x)^2 dx = -cot(x)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csc(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cot(x)^2 dx = -cot(x) - x (Pythagorean)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(cot(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cot(x)^3 dx (reduction to ∫cot)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(cot(x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cot(x)^4 dx (reduction to ∫cot²)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(cot(x), integer(4));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sec(2x)^2 dx (affine argument scaling)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sec(integer(2) * x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP
