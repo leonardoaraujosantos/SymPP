@@ -14,6 +14,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-3 — `simplify` didn't pull `log` of a positive base out of `exp`
+- **Input:** `exp(x + log p)`, `exp(2·log p + x)`, `exp(log p + log q + x)` for
+  positive `p, q`.
+- **Was:** unchanged — only the whole-argument `exp(c·log p)` folded (ASSUME-6),
+  not a `log` term living inside a larger sum.
+- **Expected (SymPy):** `p·eˣ`, `p²·eˣ`, `p·q·eˣ`.
+- **Fix (`src/simplify/simplify.cpp`):** new `exp_log_sum` pass — for
+  `exp(Add(…))`, any addend that is `c·log(p)` with `p` positive is pulled out as
+  the factor `p^c`, leaving `exp(rest)`.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[simplify][assumptions][regression]`.
+- **Scope:** positive log bases; a sum with no positive-log addend is unchanged.
+
 ### SIMP-2 — `simplify` didn't combine exponential products
 - **Input:** `simplify(eˣ·eʸ)`, `eˣ·e⁻ˣ`, `(eˣ)²·eʸ`, `e²·e³`.
 - **Was:** unchanged (`exp(x)*exp(y)`) — the canonical `Mul` keeps `exp` factors

@@ -114,6 +114,7 @@ namespace {
 [[nodiscard]] Expr pow_of_pow_node(const Expr& e);
 [[nodiscard]] Expr pow_of_pow(const Expr& e);
 [[nodiscard]] Expr combine_exp(const Expr& e);
+[[nodiscard]] Expr exp_log_sum(const Expr& e);
 
 }  // namespace
 
@@ -129,6 +130,7 @@ Expr simplify(const Expr& e) {
     current = trigsimp(current);
     current = powsimp(current);
     current = combine_exp(current);
+    current = exp_log_sum(current);
     current = pow_of_pow(current);
     current = combsimp(current);
     current = gammasimp(current);
@@ -245,6 +247,58 @@ namespace {
         }
     }
     return mul(std::move(out));
+}
+
+// exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
+// log of a positive base, optionally scaled by a constant, is pulled out as a
+// power). Mirrors SymPy's expand/simplify of exp over a log-bearing sum.
+[[nodiscard]] Expr exp_log_sum_node(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return e;
+    const auto& fn = static_cast<const Function&>(*e);
+    if (fn.function_id() != FunctionId::Exp || fn.args().size() != 1) return e;
+    const Expr& arg = fn.args()[0];
+    if (arg->type_id() != TypeId::Add) return e;
+
+    // From a term, extract (p, c) when the term is c·log(p) with p positive.
+    auto as_log_power = [](const Expr& term) -> std::optional<std::pair<Expr, Expr>> {
+        auto from_log = [](const Expr& g) -> std::optional<Expr> {
+            if (g->type_id() == TypeId::Function) {
+                const auto& gf = static_cast<const Function&>(*g);
+                if (gf.function_id() == FunctionId::Log && gf.args().size() == 1
+                    && is_positive(gf.args()[0]) == true) {
+                    return gf.args()[0];
+                }
+            }
+            return std::nullopt;
+        };
+        if (auto p = from_log(term)) return std::make_pair(*p, S::One());
+        if (term->type_id() == TypeId::Mul) {
+            Expr base;
+            std::vector<Expr> coeff;
+            for (const auto& f : term->args()) {
+                if (!base) {
+                    if (auto p = from_log(f)) { base = *p; continue; }
+                }
+                coeff.push_back(f);
+            }
+            if (base && !coeff.empty()) return std::make_pair(base, mul(coeff));
+        }
+        return std::nullopt;
+    };
+
+    std::vector<Expr> factors;
+    std::vector<Expr> rest;
+    for (const auto& term : arg->args()) {
+        if (auto lp = as_log_power(term)) {
+            factors.push_back(pow(lp->first, lp->second));
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (factors.empty()) return e;
+    Expr prod = mul(std::move(factors));
+    Expr rest_exp = rest.empty() ? S::One() : exp(add(std::move(rest)));
+    return mul(prod, rest_exp);
 }
 
 // Assumptions-gated power-of-power: (bᵖ)^q. SymPP's canonical Pow deliberately
@@ -394,6 +448,8 @@ template <typename NodeFn>
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
+
+Expr exp_log_sum(const Expr& e) { return apply_recursive(e, exp_log_sum_node); }
 
 }  // namespace
 
