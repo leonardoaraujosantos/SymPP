@@ -1416,7 +1416,8 @@ std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
             const auto& fn = static_cast<const Function&>(*f);
             const FunctionId id = fn.function_id();
             if ((id == FunctionId::Sin || id == FunctionId::Cos
-                 || id == FunctionId::Exp) && fn.args().size() == 1) {
+                 || id == FunctionId::Exp || id == FunctionId::Sinh
+                 || id == FunctionId::Cosh) && fn.args().size() == 1) {
                 auto aff = as_affine(fn.args()[0], var);
                 // Monomial argument c·x only (no constant term b): ∫f(c·x+b)/x
                 // is not an elementary special-integral function.
@@ -1439,6 +1440,8 @@ std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
         case FunctionId::Sin: result = sinint(g); break;     // ∫sin(c·x)/x = Si
         case FunctionId::Cos: result = cosint(g); break;     // ∫cos(c·x)/x = Ci
         case FunctionId::Exp: result = expint_ei(g); break;  // ∫exp(c·x)/x = Ei
+        case FunctionId::Sinh: result = sinhint(g); break;   // ∫sinh(c·x)/x = Shi
+        case FunctionId::Cosh: result = coshint(g); break;   // ∫cosh(c·x)/x = Chi
         default: return std::nullopt;
     }
     if (!consts.empty()) result = mul(mul(consts), result);

@@ -20,6 +20,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
@@ -359,6 +360,49 @@ Expr Ci::diff_arg(std::size_t /*i*/) const {
 Expr cosint(const Expr& arg) {
     if (arg->type_id() == TypeId::Infinity) return S::Zero();  // Ci(oo) = 0
     return make<Ci>(arg);
+}
+
+Shi::Shi(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Shi);
+}
+Expr Shi::rebuild(std::vector<Expr> new_args) const { return sinhint(new_args[0]); }
+std::optional<bool> Shi::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Shi::diff_arg(std::size_t /*i*/) const {
+    // Shi'(x) = sinh(x)/x.
+    return mul(sinh(args_[0]), pow(args_[0], S::NegativeOne()));
+}
+
+Expr sinhint(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();                   // Shi(0) = 0
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    if (arg->type_id() == TypeId::NegativeInfinity) {
+        return S::NegativeInfinity();
+    }
+    if (auto p = strip_neg(arg); p.has_value()) {              // odd
+        return mul(S::NegativeOne(), sinhint(*p));
+    }
+    return make<Shi>(arg);
+}
+
+Chi::Chi(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Chi);
+}
+Expr Chi::rebuild(std::vector<Expr> new_args) const { return coshint(new_args[0]); }
+std::optional<bool> Chi::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_positive(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Chi::diff_arg(std::size_t /*i*/) const {
+    // Chi'(x) = cosh(x)/x.
+    return mul(cosh(args_[0]), pow(args_[0], S::NegativeOne()));
+}
+
+Expr coshint(const Expr& arg) {
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // Chi(oo) = oo
+    return make<Chi>(arg);
 }
 
 }  // namespace sympp

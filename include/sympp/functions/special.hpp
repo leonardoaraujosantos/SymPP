@@ -127,6 +127,26 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+class SYMPP_EXPORT Shi final : public Function {
+public:
+    explicit Shi(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Shi; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Shi"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Chi final : public Function {
+public:
+    explicit Chi(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Chi; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Chi"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr erf(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr erfc(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr heaviside(const Expr& arg);
@@ -136,5 +156,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr expint_ei(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr sinint(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr cosint(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr sinhint(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr coshint(const Expr& arg);
 
 }  // namespace sympp

@@ -1436,6 +1436,26 @@ TEST_CASE("integrate: ∫cos(x)/x = Ci(x)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+TEST_CASE("integrate: ∫sinh(x)/x = Shi(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sinh(x) / x;
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cosh(x)/x = Chi(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = cosh(x) / x;
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 TEST_CASE("integrate: ∫sin(3x)/x = Si(3x) (scaled argument)",
           "[7][integrate][expint][oracle][regression]") {
     auto& oracle = Oracle::instance();

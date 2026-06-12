@@ -96,6 +96,8 @@ enum class FunctionId : std::uint16_t {
     Ei,
     Si,
     Ci,
+    Shi,
+    Chi,
 
     // -- Hypergeometric ----------------------------------------------------
     Hyper = 1100,
