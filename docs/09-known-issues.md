@@ -1060,6 +1060,30 @@ truth and links the issue number.
   form whose derivative SymPy's `simplify` cannot reduce to the integrand, so
   the regression set is the oracle-confirmable subset.
 
+### INT-34 — `∫sin·sinh`, `∫cos·cosh`, `∫e^x·sinh`, … (trig/exp × hyperbolic) returned the marker
+- **Input:** `∫sin x·sinh x`, `∫cos x·cosh x`, `∫sin x·cosh x`, `∫cos x·sinh x`,
+  `∫e^x·sinh x`, `∫e^(2x)·cosh x`, `∫sin 2x·sinh 3x`.
+- **Was:** the marker — by-parts on these recurses (sinh/cosh don't terminate the
+  way a polynomial factor does) and no rule rewrote the hyperbolics.
+- **Expected (SymPy):** e.g. `∫sin x·sinh x = (sin x·cosh x − cos x·sinh x)/2`,
+  `∫e^x·sinh x = e^(2x)/4 − x/2`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_hyperbolic_to_exp`, gated on a
+  product containing **both** a `sinh/cosh(affine)` factor and a
+  `sin/cos/exp(affine)` factor. It rewrites `sinh g = (e^g − e^−g)/2`,
+  `cosh g = (e^g + e^−g)/2`, expands, and integrates term by term: each term is a
+  `c·e^(·)·sin/cos(·)` (the existing exp·trig cyclic closed form) or, after a
+  local exp-merge step (`e^a·e^b → e^(a+b)`, which the canonical Mul does not do),
+  a pure exponential. Pure `sinh·cosh` products (no trig/exp partner) are left to
+  `try_hyperbolic_power`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][hyperbolic][regression]`. The antiderivatives print in
+  exponential form while the integrand is in `sinh/cosh` form, so the test
+  verifies **deterministically** by evaluating `diff(F) − e` to ~0 at fixed
+  rational points (SymPy's `simplify` can't bridge the forms and its numeric
+  `.equals` sampling is flaky here).
+- **Scope:** affine arguments, products mixing the two families. A standalone
+  hyperbolic or a pure trig product is handled by the existing dedicated rules.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

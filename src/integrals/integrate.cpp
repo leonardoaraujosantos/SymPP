@@ -311,6 +311,14 @@ namespace {
 //     beyond what apart handles in this build).
 [[nodiscard]] std::optional<Expr> try_rational(const Expr& expr, const Expr& var);
 
+// Product mixing a hyperbolic sinh/cosh(affine) with a sin/cos/exp(affine)
+// factor: rewrite the hyperbolics to exponentials (sinh g = (e^g − e^−g)/2,
+// cosh g = (e^g + e^−g)/2), expand, and integrate term by term — each term is a
+// c·e^(·)·sin/cos(·) (cyclic closed form) or a pure exponential. Closes
+// ∫sin·sinh, ∫cos·cosh, ∫sin·cosh, ∫e^x·sinh, etc.
+[[nodiscard]] std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr,
+                                                        const Expr& var);
+
 // Weierstrass (half-angle) substitution t = tan(var/2): a rational function of
 // sin(var)/cos(var)/tan(var)/cot(var)/sec(var)/csc(var) becomes a rational
 // function of t, which try_rational closes. Last-resort fallback — its tan(x/2)
@@ -440,6 +448,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_expint_integral(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_hyperbolic_to_exp(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
@@ -1384,6 +1395,90 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     }
 
     return integrate(q.as_expr(), var) + proper_int;
+}
+
+std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+
+    // Require at least one sinh/cosh(affine) factor and at least one
+    // sin/cos/exp(affine) factor — so rewriting the hyperbolics to exponentials
+    // pairs them with an exp·trig cyclic form or collapses to a pure exponential.
+    // (Pure sinh·cosh products are try_hyperbolic_power's job.)
+    bool has_hyp = false, has_partner = false;
+    for (const auto& f : expr->args()) {
+        if (f->type_id() != TypeId::Function) continue;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.args().size() != 1 || !as_affine(fn.args()[0], var)) continue;
+        const FunctionId id = fn.function_id();
+        if (id == FunctionId::Sinh || id == FunctionId::Cosh) has_hyp = true;
+        else if (id == FunctionId::Sin || id == FunctionId::Cos
+                 || id == FunctionId::Exp) {
+            has_partner = true;
+        }
+    }
+    if (!has_hyp || !has_partner) return std::nullopt;
+
+    // Rewrite every sinh/cosh(affine) factor to exponentials.
+    std::vector<Expr> factors;
+    for (const auto& f : expr->args()) {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.args().size() == 1) {
+                const Expr& g = fn.args()[0];
+                if (fn.function_id() == FunctionId::Sinh) {
+                    factors.push_back((exp(g) - exp(mul(S::NegativeOne(), g)))
+                                      / integer(2));
+                    continue;
+                }
+                if (fn.function_id() == FunctionId::Cosh) {
+                    factors.push_back((exp(g) + exp(mul(S::NegativeOne(), g)))
+                                      / integer(2));
+                    continue;
+                }
+            }
+        }
+        factors.push_back(f);
+    }
+
+    // Merge the exponential factors within a single product term: the canonical
+    // Mul does not fold e^a·e^b → e^(a+b), so e^x·e^−x would otherwise stay an
+    // unevaluated product and block the pure-exponential (exp × cosh/sinh) case.
+    auto combine_exps = [](const Expr& term) -> Expr {
+        if (term->type_id() != TypeId::Mul) return term;
+        Expr exp_arg = S::Zero();
+        std::vector<Expr> others;
+        bool found = false;
+        for (const auto& f : term->args()) {
+            if (f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                    exp_arg = exp_arg + fn.args()[0];
+                    found = true;
+                    continue;
+                }
+            }
+            others.push_back(f);
+        }
+        if (!found) return term;
+        others.push_back(exp(exp_arg));  // exp(0) → 1 folds in the factory
+        return mul(others);
+    };
+
+    Expr rewritten = expand(mul(factors));
+    if (rewritten->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(rewritten->args().size());
+        for (const auto& term : rewritten->args()) {
+            terms.push_back(combine_exps(term));
+        }
+        rewritten = add(terms);
+    } else {
+        rewritten = combine_exps(rewritten);
+    }
+
+    Expr result = integrate(rewritten, var);
+    if (is_integral_marker(result)) return std::nullopt;
+    return result;
 }
 
 std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
