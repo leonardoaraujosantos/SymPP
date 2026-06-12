@@ -408,6 +408,61 @@ TEST_CASE("integrate: ∫1/sqrt(4x^2-9) dx = log(2x + sqrt(4x^2-9))/2",
     REQUIRE(oracle.equivalent(r->str(), "log(2*x + sqrt(4*x**2 - 9))/2"));
 }
 
+// ----- √(quadratic) in the numerator via by-parts (regression, INT-20) -------
+// ∫√(a·x²+c) dx (pure quadratic radicand) used to fall through. By parts it
+// reduces to (x/2)·√(a·x²+c) + (c/2)·∫1/√(a·x²+c), reusing the INT-6/7 result:
+// asin (a<0), asinh (a>0,c>0) or log (a>0,c<0). Verified by differentiation,
+// since simplify can't reduce the radical algebra of the antiderivative to 0.
+TEST_CASE("integrate: ∫sqrt(1-x^2) dx = x*sqrt(1-x^2)/2 + asin(x)/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(1) - pow(x, integer(2)), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sqrt(4-x^2) dx = x*sqrt(4-x^2)/2 + 2*asin(x/2)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(4) - pow(x, integer(2)), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sqrt(x^2+1) dx = x*sqrt(x^2+1)/2 + asinh(x)/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(pow(x, integer(2)) + integer(1), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sqrt(2x^2+3) dx (asinh form, non-unit coefficients)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(integer(2) * pow(x, integer(2)) + integer(3), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sqrt(x^2-1) dx = x*sqrt(x^2-1)/2 - log(x+sqrt(x^2-1))/2",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(pow(x, integer(2)) - integer(1), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP

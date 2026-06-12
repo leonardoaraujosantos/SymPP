@@ -1095,9 +1095,11 @@ std::optional<Expr> try_linear_over_quadratic(const Expr& expr,
 }
 
 std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
-    // Match 1/√(quadratic): a Pow with exponent −1/2.
+    // Match 1/√(quadratic) [exponent −1/2] or √(quadratic) [exponent +1/2].
     if (expr->type_id() != TypeId::Pow) return std::nullopt;
-    if (!(expr->args()[1] == rational(-1, 2))) return std::nullopt;
+    const bool reciprocal = (expr->args()[1] == rational(-1, 2));
+    const bool numerator = (expr->args()[1] == rational(1, 2));
+    if (!reciprocal && !numerator) return std::nullopt;
     const Expr& base = expr->args()[0];
     if (!depends_on(base, var)) return std::nullopt;
 
@@ -1111,6 +1113,16 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     // linear term is out of scope and left to fall through.
     if (!(b == S::Zero())) return std::nullopt;
     if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+
+    // ∫ √(a·x² + c) dx = (x/2)·√(a·x²+c) + (c/2)·∫ 1/√(a·x²+c) dx (by parts).
+    // Reduce to the reciprocal case below and reuse its asin/asinh/log result;
+    // a nullopt inner integral (c == 0, or a < 0 with c ≤ 0 — no real region)
+    // propagates, so those fall through unevaluated as before.
+    if (numerator) {
+        auto inv = try_sqrt_quadratic(pow(base, rational(-1, 2)), var);
+        if (!inv.has_value()) return std::nullopt;
+        return simplify(var * expr / integer(2) + c * inv.value() / integer(2));
+    }
 
     if (is_positive(a) == true && is_positive(c) == true) {
         // ∫ 1/√(a·x² + c) dx = asinh(x·√(a/c)) / √a.
