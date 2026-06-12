@@ -650,8 +650,24 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/trigonometric_test.cpp`
   — `[trig][reciprocal]` (canonical angles, poles, parity, inverse comps,
   parse round-trip, derivatives, evalf — verified against the oracle).
-- **Scope:** the antiderivatives `∫cot/sec/csc` are a separate follow-up
-  (INT-24); `acot`/`asec`/`acsc` inverses are not yet added.
+- **Scope:** the antiderivatives `∫cot/sec/csc` ship in INT-24;
+  `acot`/`asec`/`acsc` inverses are not yet added.
+
+### INT-24 — `integrate(cot/sec/csc)` returned the marker
+- **Input:** `∫cot(x)`, `∫sec(x)`, `∫csc(x)`, `∫cot(2x+1)`, `∫sec(3x)`.
+- **Was:** the marker — `cot/sec/csc` only became real function types in
+  TRIG-RECIP, so the integration table had no entries for them.
+- **Expected (SymPy):** `∫cot=log(sin(x))`,
+  `∫sec=(log(sin+1)−log(sin−1))/2`, `∫csc=(log(cos−1)−log(cos+1))/2`, each
+  divided by the affine slope `a`.
+- **Fix (`src/integrals/integrate.cpp`):** three new `case` labels in the
+  `integrate_term` affine-function switch (alongside Sin/Cos/Tan), reusing the
+  closed forms above with the `1/a` argument scaling.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][reciprocal][regression]` (five cases incl. affine arguments,
+  verified by differentiation against the oracle).
+- **Scope:** an affine argument `a·x+b`. Powers (`∫cot²`, `∫sec³`) and products
+  remain separate items.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
