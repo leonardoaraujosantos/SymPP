@@ -135,9 +135,29 @@ TEST_CASE("pow: perfect rational power a^(p/q)", "[1][pow][regression]") {
     REQUIRE(pow(integer(32), rational(2, 5)) == integer(4));
     REQUIRE(pow(rational(8, 27), rational(2, 3)) == rational(4, 9));
     REQUIRE(pow(integer(8), rational(-2, 3)) == rational(1, 4));
-    // Unit-numerator roots unchanged; non-exact root stays an irreducible Pow.
+    // Unit-numerator roots unchanged; a prime base with p<q stays an
+    // irreducible Pow (nothing pulls out).
     REQUIRE(pow(integer(27), rational(1, 3)) == integer(3));
-    REQUIRE(pow(integer(12), rational(2, 3))->type_id() == TypeId::Pow);
+    REQUIRE(pow(integer(2), rational(2, 3))->type_id() == TypeId::Pow);
+}
+
+// Non-unit rational power of a non-perfect base (POW-RAT-2): pull integer powers
+// of each prime factor out of the radical, keeping primes separate to match
+// SymPy's canonical form. 16^(2/3)=4·2^(2/3), 2^(5/2)=4√2, 12^(2/3)=2·2^(1/3)·3^(2/3).
+TEST_CASE("pow: non-unit rational power extraction", "[1][pow][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(pow(integer(16), rational(2, 3))->str(),
+                              "4*2**Rational(2,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(2), rational(5, 2))->str(),
+                              "4*sqrt(2)"));
+    REQUIRE(oracle.equivalent(pow(integer(12), rational(2, 3))->str(),
+                              "2*2**Rational(1,3)*3**Rational(2,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(72), rational(2, 3))->str(),
+                              "12*3**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(7), rational(3, 2))->str(),
+                              "7*sqrt(7)"));
+    // No integer part pulls out → stays the irreducible Pow.
+    REQUIRE(pow(integer(2), rational(2, 3))->type_id() == TypeId::Pow);
 }
 
 // ----- Operator overloads -----------------------------------------------------
