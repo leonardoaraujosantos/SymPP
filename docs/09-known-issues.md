@@ -523,6 +523,24 @@ truth and links the issue number.
 - **Scope:** integer powers of sin/cos with a common affine argument. `tan`/
   hyperbolic powers and trig substitution (`∫√(1−x²)`) are separate items.
 
+### INT-19 — `integrate(tan**n)` / `integrate(sinh**m·cosh**n)` returned the marker
+- **Input:** `∫tan³`, `∫tan⁴`, `∫tan⁵`, `∫sinh²`, `∫cosh²`, `∫sinh³`,
+  `∫cosh³`, `∫sinh²cosh²`.
+- **Was:** the marker — only `tan²` (INT-8) and `sinh/cosh` of an affine
+  argument at power 1 (INT-2) were handled; higher powers fell through.
+- **Expected (SymPy):** `tan²/2 + log(cos)`, `x + tan³/3 − tan`,
+  `sinh(2x)/4 − x/2`, `sinh(2x)/4 + x/2`, `cosh³/3 − cosh`, etc.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - `try_tan_power`: `∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2)`, recursing
+    through `integrate` down to the `∫tan` table case.
+  - `try_hyperbolic_power`: the hyperbolic analogue of `try_trig_power` using
+    `cosh²−sinh²=1` — an odd power uses `u = sinh`/`u = cosh` substitution,
+    both-even uses the `cosh(2g)` half-angle forms and recurses.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[tan_power][regression]` and `[hyperbolic][regression]`.
+- **Scope:** integer powers with a common affine argument. `tanh`/`coth`
+  powers and trig substitution remain separate items.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
