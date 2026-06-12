@@ -1380,22 +1380,33 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     Expr t = together(expr);
     Expr num = S::One();
     Expr den;
-    if (t->type_id() == TypeId::Pow
-        && t->args()[1] == S::NegativeOne()) {
-        den = t->args()[0];
+    // A factor base^e with e a negative integer contributes base^(−e) to the
+    // denominator — this covers (x²+1)^(-2) and friends, not just exponent −1.
+    auto den_part = [](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() != TypeId::Pow) return std::nullopt;
+        const Expr& e = f->args()[1];
+        if (e->type_id() != TypeId::Integer) return std::nullopt;
+        const auto& z = static_cast<const Integer&>(*e);
+        if (!z.fits_long()) return std::nullopt;
+        const long ev = z.to_long();
+        if (ev >= 0) return std::nullopt;
+        return pow(f->args()[0], integer(-ev));
+    };
+    if (auto d0 = den_part(t)) {
+        den = *d0;
     } else if (t->type_id() == TypeId::Mul) {
         std::vector<Expr> num_factors;
+        std::vector<Expr> den_factors;
         for (const auto& f : t->args()) {
-            if (f->type_id() == TypeId::Pow
-                && f->args()[1] == S::NegativeOne()) {
-                if (den) return std::nullopt;
-                den = f->args()[0];
+            if (auto df = den_part(f)) {
+                den_factors.push_back(*df);
             } else {
                 num_factors.push_back(f);
             }
         }
-        if (!den) return std::nullopt;
-        num = mul(num_factors);
+        if (den_factors.empty()) return std::nullopt;
+        den = mul(den_factors);
+        num = num_factors.empty() ? S::One() : mul(num_factors);
     } else {
         return std::nullopt;
     }
