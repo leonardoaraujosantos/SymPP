@@ -13,6 +13,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/integrate.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -1477,6 +1478,50 @@ TEST_CASE("integrate: ∫sin(3x)/x = Si(3x) (scaled argument)",
     auto F = integrate(e, x);
     REQUIRE(F->str().find("Integral(") == std::string::npos);
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+// ----- ∫ of a special-integral function by parts (regression, EXPINT-BYPARTS)
+// ∫f(x) dx = x·f(x) − ∫x·f'(x), closing because x·f' is elementary: ∫erf =
+// x·erf+e^(-x²)/√π, ∫Si = x·Si+cos, ∫Ei = x·Ei−e^x, etc. Verified by oracle.
+TEST_CASE("integrate: ∫erf(x) dx = x*erf(x) + exp(-x^2)/sqrt(pi)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = erf(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫Si(x) dx = x*Si(x) + cos(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sinint(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫Ei(x) dx = x*Ei(x) - exp(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = expint_ei(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫erfi(x) and ∫Chi(x) by parts",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (auto e : {erfi(x), coshint(x)}) {
+        auto F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------
