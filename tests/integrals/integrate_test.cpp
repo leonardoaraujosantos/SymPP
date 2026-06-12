@@ -728,6 +728,60 @@ TEST_CASE("integrate: ∫sec(2x)^2 dx (affine argument scaling)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- ∫secⁿ / ∫cscⁿ via by-parts reduction (regression, INT-27) -------------
+// ∫secⁿ = sec^(n-2)·tan/((n-1)a) + (n-2)/(n-1)·∫sec^(n-2) (and the −cot analogue
+// for csc), recursing to the ∫sec table case (INT-24) / ∫sec² square (INT-25).
+// Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫sec(x)^3 dx (by-parts reduction)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sec(x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sec(x)^4 dx (reduction to ∫sec²)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sec(x), integer(4));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csc(x)^3 dx (by-parts reduction)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csc(x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csc(x)^4 dx (reduction to ∫csc²)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csc(x), integer(4));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sec(2x)^3 dx (affine argument scaling)",
+          "[7][integrate][reciprocal][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sec(integer(2) * x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- Hyperbolic reciprocal antiderivatives & squares (regression, INT-26) --
 // With coth/sech/csch now function types (HYP-RECIP): ∫coth=log(sinh),
 // ∫sech=atan(sinh) (Gudermannian), ∫csch=log(tanh(u/2)); the squares rewrite to

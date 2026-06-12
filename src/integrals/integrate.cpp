@@ -278,6 +278,12 @@ namespace {
 // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
 [[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
 
+// ∫ sec(g)^n / csc(g)^n dx (n ≥ 3 integer, g affine) via the by-parts reduction
+// ∫secⁿ =  sec^(n-2)·tan/((n-1)·g') + (n-2)/(n-1)·∫sec^(n-2)
+// ∫cscⁿ = −csc^(n-2)·cot/((n-1)·g') + (n-2)/(n-1)·∫csc^(n-2). n=1 is the table
+// case (INT-24) and n=2 the trig-reduction square (INT-25).
+[[nodiscard]] std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var);
+
 // ∫ sinh(g)^m · cosh(g)^n dx — the hyperbolic analogue of try_trig_power,
 // using cosh²−sinh²=1 and the half-angle forms of cosh(2g).
 [[nodiscard]] std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var);
@@ -370,6 +376,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_tan_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_sec_csc_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_hyperbolic_power(expr, var); r.has_value()) {
@@ -997,6 +1006,44 @@ std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
     Expr rest = integrate(pow(cot(g), integer(n - 2)), var);
     if (is_integral_marker(rest)) return std::nullopt;
     return first - rest;
+}
+
+std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& e = expr->args()[1];
+    if (e->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*e);
+    if (!z.fits_long()) return std::nullopt;
+    const long n = z.to_long();
+    // n=1 is the table case (INT-24); n=2 the trig-reduction square (INT-25).
+    if (n < 3 || n > 24) return std::nullopt;
+    if (base->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*base);
+    const FunctionId id = fn.function_id();
+    if ((id != FunctionId::Sec && id != FunctionId::Csc)
+        || fn.args().size() != 1) {
+        return std::nullopt;
+    }
+    const Expr& g = fn.args()[0];
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;
+
+    // By-parts reduction, recursing to the n=1 table / n=2 square cases:
+    //   ∫secⁿ =  sec^(n-2)·tan/((n-1)·g') + (n-2)/(n-1)·∫sec^(n-2)
+    //   ∫cscⁿ = −csc^(n-2)·cot/((n-1)·g') + (n-2)/(n-1)·∫csc^(n-2)
+    Expr rest = integrate(pow(base, integer(n - 2)), var);
+    if (is_integral_marker(rest)) return std::nullopt;
+    Expr rest_term = rational(n - 2, n - 1) * rest;
+    if (id == FunctionId::Sec) {
+        Expr boundary = pow(sec(g), integer(n - 2)) * tan(g)
+                        / (integer(n - 1) * a);
+        return boundary + rest_term;
+    }
+    Expr boundary = mul(S::NegativeOne(), pow(csc(g), integer(n - 2)) * cot(g))
+                    / (integer(n - 1) * a);
+    return boundary + rest_term;
 }
 
 namespace {
