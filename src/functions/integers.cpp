@@ -247,6 +247,8 @@ Expr mod(const Expr& p, const Expr& q) {
     // Structural identities valid for any p, q: mod(0,q)=0, mod(x,x)=0.
     if (p == S::Zero()) return S::Zero();
     if (p == q) return S::Zero();
+    // Mod(integer, 1) = 0 (an integer leaves no remainder modulo 1).
+    if (q == S::One() && is_integer(p) == true) return S::Zero();
 
     auto to_mpq = [](const Expr& e) -> std::optional<mpq_class> {
         if (e->type_id() == TypeId::Integer) {

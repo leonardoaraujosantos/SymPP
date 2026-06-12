@@ -14,6 +14,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-14 — `Mod(n, 1)` not simplified for integer `n`
+- **Input:** `Mod(n, 1)` for an integer symbol `n`.
+- **Was:** unevaluated — `mod` folded numeric arguments and `Mod(0,q)`/`Mod(x,x)`,
+  but not the integer-modulo-1 identity for a symbolic integer.
+- **Expected (SymPy):** `Mod(n, 1) = 0`; a non-integer argument keeps `Mod(x, 1)`
+  (= the fractional part).
+- **Fix (`src/functions/integers.cpp`):** `Mod(p, 1) → 0` when `is_integer(p)`.
+- **Regression test:** `tests/functions/integers_test.cpp`
+  — `[mod][assumptions][regression]`.
+
 ### ASSUME-13 — `floor(n + 1/2)` not simplified for integer `n`
 - **Input:** `floor(n + 1/2)`, `ceiling(n + 1/2)`, `floor(2n + x)` for integer `n`.
 - **Was:** unevaluated — floor/ceiling folded an integer *symbol* (`floor(n)=n`)
