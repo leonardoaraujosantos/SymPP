@@ -2,6 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+#include <string>
+
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/traversal.hpp>
@@ -1634,6 +1637,32 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     REQUIRE(db(x * atanh(x)));                     // x·atanh
     REQUIRE(db(x * acot(x)));                      // x·acot
     REQUIRE(db((x + integer(1)) * atan(x)));      // (x+1)·atan
+}
+
+TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)",
+          "[7][integrate][hyperbolic][regression]") {
+    auto x = symbol("x");
+    // The antiderivatives come out in exponential form while the integrand is in
+    // sinh/cosh form; SymPy's simplify can't bridge the two, and its numeric
+    // `.equals` sampling is flaky here. Verify deterministically: diff(F) − e
+    // must evaluate to ~0 at fixed rational points.
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(1, 2), rational(7, 5), rational(-3, 4)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::abs(d) > 1e-9) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(sin(x) * sinh(x)));
+    REQUIRE(db(cos(x) * cosh(x)));
+    REQUIRE(db(sin(x) * cosh(x)));
+    REQUIRE(db(cos(x) * sinh(x)));
+    REQUIRE(db(exp(x) * sinh(x)));                // collapses to pure exponential
+    REQUIRE(db(exp(integer(2) * x) * cosh(x)));
+    REQUIRE(db(sin(integer(2) * x) * sinh(integer(3) * x)));  // affine arguments
 }
 
 TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
