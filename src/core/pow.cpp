@@ -81,6 +81,13 @@ bool Pow::equals(const Basic& other) const noexcept {
 std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
     const auto& base = args_[0];
     const auto& exp = args_[1];
+    // A positive even integer exponent: x^(2m) ≥ 0 for any real x (and > 0 when
+    // x ≠ 0). Used by the sign queries below.
+    const bool even_pos_int_exp =
+        exp->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*exp).is_positive()
+        && static_cast<const Integer&>(*exp).fits_long()
+        && (static_cast<const Integer&>(*exp).to_long() % 2 == 0);
     switch (k) {
         case AssumptionKey::Real: {
             // positive base + real exp → real
@@ -98,6 +105,11 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Positive:
             // Any real-exp power of a positive is positive.
             if (base->ask(AssumptionKey::Positive) == true) return true;
+            // Even power of a nonzero real base: x^(2m) > 0.
+            if (even_pos_int_exp && base->ask(AssumptionKey::Real) == true
+                && base->ask(AssumptionKey::Nonzero) == true) {
+                return true;
+            }
             return std::nullopt;
         case AssumptionKey::Negative:
             return std::nullopt;
@@ -137,6 +149,14 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             if (base->ask(AssumptionKey::Positive) == true) {
                 if (k == AssumptionKey::Nonnegative) return true;
                 if (k == AssumptionKey::Nonpositive) return false;
+            }
+            // Even power of a real base: x^(2m) ≥ 0 (nonpositive only if x = 0).
+            if (even_pos_int_exp && base->ask(AssumptionKey::Real) == true) {
+                if (k == AssumptionKey::Nonnegative) return true;
+                if (k == AssumptionKey::Nonpositive
+                    && base->ask(AssumptionKey::Nonzero) == true) {
+                    return false;
+                }
             }
             return std::nullopt;
     }

@@ -14,6 +14,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-2 — `is_nonnegative(x**2)` was Unknown for a real symbol
+- **Input:** `is_nonnegative(x²)`, `is_positive(x²+1)` for a real `x`.
+- **Was:** Unknown — `Pow::ask` derived sign facts only from a *positive* base, so
+  an even power of a merely-real base inferred nothing, and the Unknown
+  propagated up through `Add` (so `x²+1` wasn't provably positive either).
+- **Expected:** `x²≥0` (and `x⁴≥0`) for real `x`; `x²+1>0`; `x²>0` for real
+  *nonzero* `x`; odd powers and generic (possibly complex) bases stay Unknown.
+- **Fix (`src/core/pow.cpp`):** in `Pow::ask`, a base that is `Real` raised to a
+  positive **even integer** exponent answers `Nonnegative = true` (and
+  `Positive = true` when the base is also `Nonzero`; `Nonpositive = false` for a
+  nonzero base). The `Add` sign rules already cascade, so `x²+1>0` falls out.
+- **Why it matters:** foundational inference — every downstream consumer of the
+  sign queries (simplify's assumption-gated rules, abs, limits, integration
+  domain choices) now sees `x²`, `x²+c`, `x⁴`, … as nonnegative/positive for real
+  symbols.
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[assumptions][pow][regression]` (even power nonneg, nonzero⇒positive,
+  `x²+1>0` via Add, odd-power and generic-base stay Unknown).
+
 ### ASSUME-1 — `simplify(sqrt(x**2))` ignored symbol assumptions
 - **Input:** `simplify(√(x²))` for `x` positive / real / generic.
 - **Was:** `(x²)^(1/2)` in all three cases — the canonical `Pow` leaves a
