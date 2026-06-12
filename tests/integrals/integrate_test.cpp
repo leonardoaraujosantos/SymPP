@@ -728,6 +728,80 @@ TEST_CASE("integrate: ∫sec(2x)^2 dx (affine argument scaling)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- Hyperbolic reciprocal antiderivatives & squares (regression, INT-26) --
+// With coth/sech/csch now function types (HYP-RECIP): ∫coth=log(sinh),
+// ∫sech=atan(sinh) (Gudermannian), ∫csch=log(tanh(u/2)); the squares rewrite to
+// the 1/cosh², 1/sinh² table cases (coth²=csch²+1). Verified by differentiation.
+TEST_CASE("integrate: ∫coth(x) dx = log(sinh(x))",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = coth(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sech(x) dx = atan(sinh(x))",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sech(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csch(x) dx = log(tanh(x/2))",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = csch(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sech(x)^2 dx = tanh(x)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sech(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csch(x)^2 dx = -coth(x)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csch(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫coth(x)^2 dx = x - coth(x) (Pythagorean)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(coth(x), integer(2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫coth(2x+1) dx (affine argument scaling)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = coth(integer(2) * x + integer(1));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP

@@ -670,8 +670,27 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/hyperbolic_test.cpp`
   — `[3f][reciprocal]` (values/poles, parity, inverse comps, parse round-trip,
   derivatives, evalf — verified against the oracle).
-- **Scope:** the antiderivatives `∫coth/sech/csch` and `∫coth²` etc. are a
-  separate follow-up; `acoth`/`asech`/`acsch` inverses are not added.
+- **Scope:** the antiderivatives `∫coth/sech/csch` ship in INT-26;
+  `acoth`/`asech`/`acsch` inverses are not added.
+
+### INT-26 — `integrate(coth/sech/csch)` and their squares returned the marker
+- **Input:** `∫coth`, `∫sech`, `∫csch`, `∫sech²`, `∫csch²`, `∫coth²`,
+  `∫coth(2x+1)`.
+- **Was:** the marker — `coth/sech/csch` only became function types in
+  HYP-RECIP, so the integration table had no entries.
+- **Expected (SymPy):** `∫coth=log(sinh)`, `∫sech=atan(sinh)` (Gudermannian),
+  `∫csch=log(tanh(x/2))`, `∫sech²=tanh`, `∫csch²=−coth`, `∫coth²=x−coth`.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - `integrate_term` affine switch: `Coth→log(sinh)/a`, `Sech→atan(sinh)/a`,
+    `Csch→log(tanh((ax+b)/2))/a`.
+  - `try_trig_reduction` squares: `sech²(u)→1/cosh²(u)`, `csch²(u)→1/sinh²(u)`,
+    `coth²(u)→1/sinh²(u)+1` (`coth²−csch²=1`), reusing the tabulated
+    `1/cosh²`, `1/sinh²` cases (affine `u`).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][reciprocal][hyperbolic][regression]` (seven cases incl. affine
+  scaling, verified by differentiation against the oracle).
+- **Scope:** singles and squares. `∫cothⁿ`/`∫sechⁿ`/`∫cschⁿ` for n ≥ 3 stay
+  deferred (no `tanhⁿ` power handler exists either).
 
 ### INT-24 — `integrate(cot/sec/csc)` returned the marker
 - **Input:** `∫cot(x)`, `∫sec(x)`, `∫csc(x)`, `∫cot(2x+1)`, `∫sec(3x)`.
