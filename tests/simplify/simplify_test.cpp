@@ -13,6 +13,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 #include "oracle/oracle.hpp"
@@ -269,6 +270,22 @@ TEST_CASE("trigsimp: sin(x)^2 + cos(x)^2 → 1", "[5][trigsimp][oracle]") {
     auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
     auto s = trigsimp(e);
     REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // cosh² − sinh² = 1; 1 + sinh² = cosh²; cosh² − 1 = sinh².
+    REQUIRE(trigsimp(pow(cosh(x), integer(2)) - pow(sinh(x), integer(2)))
+            == integer(1));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) + pow(sinh(x), integer(2)))->str(), "cosh(x)**2"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(cosh(x), integer(2)) - integer(1))->str(), "sinh(x)**2"));
+    // Scaled: 3cosh² − 3sinh² = 3.
+    REQUIRE(trigsimp(integer(3) * pow(cosh(x), integer(2))
+                     - integer(3) * pow(sinh(x), integer(2))) == integer(3));
 }
 
 TEST_CASE("trigsimp: shared coefficient a*sin²+a*cos² → a",
