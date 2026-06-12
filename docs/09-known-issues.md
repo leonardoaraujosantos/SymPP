@@ -828,7 +828,29 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/miscellaneous_test.cpp`
   — `[sqrt][nthroot][regression]` (incl. a prime-radicand `7^(1/3)` no-op guard).
 - **Scope:** unit `1/n` exponents on a non-negative Integer/Rational base.
-  Non-unit non-perfect powers (`16^(2/3)`) and negative bases stay deferred.
+  Non-unit non-perfect powers (`16^(2/3)`) ship in POW-RAT-2.
+
+### POW-RAT-2 — `b^(p/q)` (p ≥ 2, non-perfect base) not simplified
+- **Input:** `16^(2/3)`, `2^(5/2)`, `12^(2/3)`, `48^(5/2)`, `72^(2/3)`,
+  `7^(3/2)`.
+- **Was:** only perfect q-th powers (`8^(2/3)=4`, POW-RAT) and unit numerators
+  (`16^(1/3)`, NROOT-1) reduced; a non-unit power of a non-perfect base stayed
+  fully symbolic (`16^(2/3)` → `16**(2/3)`).
+- **Expected (SymPy):** `4·2^(2/3)`, `4√2`, `2·2^(1/3)·3^(2/3)`, `9216√3`,
+  `12·3^(1/3)`, `7√7`.
+- **Fix (`src/core/pow.cpp`):** `try_rational_power_extraction` prime-factorises
+  `b = ∏ pᵢ^aᵢ`; each prime's power exponent `aᵢ·p/q` splits into an integer
+  part `⌊aᵢp/q⌋` (pulled into the integer coefficient) and a remainder
+  `rᵢ = aᵢp mod q` (kept under a per-prime radical `pᵢ^(rᵢ/q)`). Keeping primes
+  *separate* matches SymPy's canonical form (`16^(2/3) = 4·2^(2/3)`, not the
+  equivalent `4·4^(1/3)`). The residual `pow()` factors are built only after the
+  "something was pulled" check, so the recursive call on a bare prime
+  (`2^(2/3)`) bails first and can't recurse without bound. Factorisation is
+  trial-division bounded (base ≤ 1e12, numerator ≤ 1000).
+- **Regression test:** `tests/core/arithmetic_test.cpp`
+  — `[pow][regression]` (incl. a `2^(2/3)` no-op guard).
+- **Scope:** positive integer base, `p ≥ 2`. Rational bases and negative
+  exponents (`16^(-2/3)`) stay deferred.
 
 ### SQRT-3 — `sqrt` of a negative number not folded to imaginary
 - **Input:** `sqrt(-1)`, `sqrt(-4)`, `sqrt(-8)`, `sqrt(-1/4)`, `sqrt(-2/3)`.

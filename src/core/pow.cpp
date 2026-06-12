@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmpxx.h>
 
@@ -268,6 +269,79 @@ namespace {
     return mul(rational(s, den), radical);
 }
 
+// Non-unit rational power of a positive integer base: bᵖ⸍۹ → coeff · ∏ pᵢ^(rᵢ/q),
+// the n-th-root extraction generalised to numerator p ≥ 2. Prime-factorise
+// b = ∏ pᵢ^aᵢ; each prime's exponent under the power is aᵢ·p/q, whose integer
+// part floor(aᵢp/q) is pulled into the integer coefficient and whose remainder
+// rᵢ = aᵢp mod q stays under a per-prime radical pᵢ^(rᵢ/q). Keeping primes
+// separate matches SymPy's canonical form (16^(2/3) = 4·2^(2/3), not 4·4^(1/3);
+// 2^(5/2) = 4√2). Returns nullopt when nothing pulls out (every aᵢp < q, e.g.
+// 2^(2/3)) — leaving such already-reduced powers symbolic. p = 1 is NROOT-1 and
+// the perfect case is try_perfect_root, both dispatched earlier.
+[[nodiscard]] std::optional<Expr> try_rational_power_extraction(const Expr& base,
+                                                                const Expr& exp) {
+    if (exp->type_id() != TypeId::Rational) return std::nullopt;
+    const auto& q = static_cast<const Rational&>(*exp);
+    const mpz_class& pnum = q.numerator();
+    const mpz_class& qden = q.denominator();
+    if (pnum < 2) return std::nullopt;                 // p = 1 → NROOT-1
+    if (!qden.fits_ulong_p() || !pnum.fits_ulong_p()) return std::nullopt;
+    const unsigned long qd = qden.get_ui();
+    if (qd < 2) return std::nullopt;
+    // Bound the numerator so the pulled-out coefficient can't blow up.
+    if (mpz_cmp_ui(pnum.get_mpz_t(), 1000UL) > 0) return std::nullopt;
+
+    if (base->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& zb = static_cast<const Integer&>(*base);
+    if (sgn(zb.value()) <= 0) return std::nullopt;     // negative/zero → defer
+    mpz_class m = zb.value();
+    if (m == 1) return std::nullopt;
+    constexpr unsigned long kMaxBase = 1000000000000UL;  // 1e12 → ≤1e6 trial iters
+    if (mpz_cmp_ui(m.get_mpz_t(), kMaxBase) > 0) return std::nullopt;
+
+    mpz_class coeff(1);
+    std::vector<std::pair<mpz_class, unsigned long>> residuals;  // (prime, rᵢ)
+    bool pulled = false;
+
+    // Accumulate the integer coefficient and the per-prime residual exponents.
+    // Crucially this builds NO Expr yet — the residual pow(pᵢ, rᵢ/q) factors
+    // re-enter this function (e.g. building 2^(2/3) while reducing 16^(2/3)),
+    // and a bare prime power must bail at the `!pulled` check below BEFORE any
+    // Pow is constructed, or it would recurse without bound.
+    auto handle_prime = [&](const mpz_class& prime, unsigned long a) {
+        mpz_class ap = mpz_class(a) * pnum;
+        mpz_class ipart = ap / qd;                 // floor (both positive)
+        unsigned long r = mpz_class(ap % qd).get_ui();
+        if (ipart > 0) {
+            mpz_class pw;
+            mpz_pow_ui(pw.get_mpz_t(), prime.get_mpz_t(), ipart.get_ui());
+            coeff *= pw;
+            pulled = true;
+        }
+        if (r > 0) residuals.emplace_back(prime, r);
+    };
+
+    // Trial-division prime factorisation of the base.
+    for (mpz_class d(2); d * d <= m; ++d) {
+        if (!mpz_divisible_p(m.get_mpz_t(), d.get_mpz_t())) continue;
+        unsigned long a = 0;
+        while (mpz_divisible_p(m.get_mpz_t(), d.get_mpz_t())) {
+            m /= d;
+            ++a;
+        }
+        handle_prime(d, a);
+    }
+    if (m > 1) handle_prime(m, 1);  // leftover prime factor > √base
+
+    if (!pulled) return std::nullopt;  // nothing extracted — already reduced
+    Expr result = make<Integer>(coeff);
+    for (const auto& [prime, r] : residuals) {
+        result = mul(result,
+                     pow(make<Integer>(prime), rational(mpz_class(r), mpz_class(qd))));
+    }
+    return result;
+}
+
 // Principal square root of a negative Integer/Rational: √(−a) = I·√a (a > 0).
 // Restricted to the ½ power; other fractional powers of a negative base need
 // full branch-cut handling and are left symbolic.
@@ -363,6 +437,11 @@ Expr pow(const Expr& base, const Expr& exp) {
         // N^(1/n) where N is not a perfect n-th power — pull out the largest
         // n-th-power factor (cbrt(16) = 2·cbrt(2), √12 = 2√3).
         if (auto ext = try_nth_root_factor_extraction(base, exp); ext.has_value()) {
+            return *ext;
+        }
+        // bᵖ⸍۹ with p ≥ 2 and a non-perfect base — pull out integer powers of each
+        // prime factor (16^(2/3) = 4·2^(2/3), 2^(5/2) = 4√2).
+        if (auto ext = try_rational_power_extraction(base, exp); ext.has_value()) {
             return *ext;
         }
         // √(−a) = I·√a for a negative numeric base.
