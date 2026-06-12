@@ -1641,17 +1641,39 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
 }
 
 std::optional<Expr> try_quadratic_power(const Expr& expr, const Expr& var) {
-    if (expr->type_id() != TypeId::Pow) return std::nullopt;
-    const Expr& base = expr->args()[0];
-    const Expr& e = expr->args()[1];
-    if (e->type_id() != TypeId::Integer) return std::nullopt;
-    const auto& z = static_cast<const Integer&>(*e);
-    if (!z.fits_long()) return std::nullopt;
-    const long ei = z.to_long();
-    if (ei >= -1) return std::nullopt;       // n=1 (exp −1) is try_arctan's job
-    const long n = -ei;
+    // Identify the (quadratic)^(−n) factor (n ≥ 2) and the numerator N (the rest
+    // of a product). N must be a polynomial of degree ≤ 1 with constant
+    // coefficients; the bare Pow form has N = 1.
+    Expr base;
+    long n = 0;
+    auto match_quad_pow = [&](const Expr& f) -> bool {
+        if (f->type_id() != TypeId::Pow) return false;
+        const Expr& ex = f->args()[1];
+        if (ex->type_id() != TypeId::Integer) return false;
+        const auto& zz = static_cast<const Integer&>(*ex);
+        if (!zz.fits_long()) return false;
+        const long ev = zz.to_long();
+        if (ev >= -1) return false;  // n=1 (exp −1) is try_arctan's job
+        if (!depends_on(f->args()[0], var)) return false;
+        base = f->args()[0];
+        n = -ev;
+        return true;
+    };
+    Expr numerator = S::One();
+    if (match_quad_pow(expr)) {
+        // bare power: numerator 1
+    } else if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_factors;
+        for (const auto& f : expr->args()) {
+            if (n == 0 && match_quad_pow(f)) continue;
+            num_factors.push_back(f);
+        }
+        if (n == 0) return std::nullopt;
+        numerator = num_factors.empty() ? S::One() : expand(mul(num_factors));
+    } else {
+        return std::nullopt;
+    }
     if (n > 24) return std::nullopt;
-    if (!depends_on(base, var)) return std::nullopt;
 
     Poly p(expand(base), var);
     if (p.degree() != 2) return std::nullopt;
@@ -1663,15 +1685,39 @@ std::optional<Expr> try_quadratic_power(const Expr& expr, const Expr& var) {
         return std::nullopt;
     }
 
-    // Complete the square so the linear term vanishes: u = x + b/(2a) gives
-    // a·u² + (c − b²/(4a)); du = dx, so back-substitute afterwards.
+    // Numerator N = p_num·x + q_num, constant coefficients only.
+    Poly np(numerator, var);
+    if (np.degree() > 1) return std::nullopt;
+    for (const auto& cf : np.coeffs()) if (has(cf, var)) return std::nullopt;
+    const Expr q_num = np.coeffs()[0];
+    const Expr p_num = np.degree() >= 1 ? np.coeffs()[1] : S::Zero();
+
+    // Linear numerator: split off the exact-derivative part using
+    // d/dx Q = 2a·x + b, so ∫(2a·x+b)/Qⁿ = Q^(1−n)/(1−n), and reduce the constant
+    // remainder to the bare case:
+    //   ∫(p·x+q)/Qⁿ = (p/2a)·Q^(1−n)/(1−n) + (q − p·b/(2a))·∫1/Qⁿ.
+    if (!(p_num == S::Zero())) {
+        Expr deriv_part = p_num / (integer(2) * a)
+                          * pow(base, integer(1 - n)) / integer(1 - n);
+        Expr rem_coeff = simplify(q_num - p_num * b / (integer(2) * a));
+        Expr result = deriv_part;
+        if (!(rem_coeff == S::Zero())) {
+            auto inner = try_quadratic_power(pow(base, integer(-n)), var);
+            if (!inner.has_value()) return std::nullopt;
+            result = result + rem_coeff * inner.value();
+        }
+        return simplify(result);
+    }
+
+    // Constant numerator q_num. Complete the square so the linear term vanishes:
+    // u = x + b/(2a) gives a·u² + (c − b²/(4a)); du = dx, back-substitute after.
     if (!(b == S::Zero())) {
         Expr shift = b / (integer(2) * a);
         Expr cprime = simplify(c - b * b / (integer(4) * a));
-        Expr shifted = pow(a * pow(var, integer(2)) + cprime, e);
+        Expr shifted = pow(a * pow(var, integer(2)) + cprime, integer(-n));
         auto inner = try_quadratic_power(shifted, var);
         if (!inner.has_value()) return std::nullopt;
-        return simplify(subs(inner.value(), var, var + shift));
+        return simplify(q_num * subs(inner.value(), var, var + shift));
     }
     if (c == S::Zero()) return std::nullopt;  // a·x² alone: not this rule's job
 
@@ -1685,7 +1731,7 @@ std::optional<Expr> try_quadratic_power(const Expr& expr, const Expr& var) {
     Expr denom = integer(2) * integer(n - 1) * c;
     Expr term1 = var / (denom * pow(base, integer(n - 1)));
     Expr coeff = integer(2 * n - 3) / denom;
-    return simplify(term1 + coeff * prev);
+    return simplify(q_num * (term1 + coeff * prev));
 }
 
 std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {

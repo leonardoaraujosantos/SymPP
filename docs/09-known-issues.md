@@ -1189,9 +1189,30 @@ truth and links the issue number.
   — `[integrate][rational][regression]` (repeated linear factors, an `x²` factor,
   an improper repeated-quadratic, plus distinct-factor / irreducible-cubic
   regressions), verified by differentiation against the oracle.
-- **Scope:** a linear/higher numerator over a *single repeated irreducible
-  quadratic* (`(x+1)/(x²+1)²`) is left as a partial fraction and still returns
-  the marker — closing it needs a `(linear)/(irreducible quadratic)ⁿ` split rule.
+- **Scope:** a linear numerator over a *single repeated irreducible quadratic*
+  (`(x+1)/(x²+1)²`) is handled by INT-39 below.
+
+### INT-39 — `∫(p·x+q)/(a·x²+b·x+c)ⁿ` (linear numerator over a quadratic power) returned the marker
+- **Input:** `∫(x+1)/(x²+1)²`, `∫(2x+3)/(x²+1)²`, `∫(3x+2)/(x²+1)³`,
+  `∫(x−1)/(x²+2x+5)²`.
+- **Was:** the marker — `try_quadratic_power` (INT-37) matched only a bare
+  `(quadratic)^(−n)` (constant numerator), and `apart` leaves such a fraction
+  intact (it is already a partial fraction), so nothing split the linear
+  numerator.
+- **Expected (SymPy):** the antiderivative is a rational term plus an `atan`/`log`
+  term, e.g. `∫(x+1)/(x²+1)² = −1/(2(x²+1)) + x/(2(x²+1)) + atan(x)/2`.
+- **Fix (`src/integrals/integrate.cpp`):** generalise `try_quadratic_power` to a
+  linear numerator. It now also matches a `Mul` of a degree-≤1 numerator with a
+  `(quadratic)^(−n)` factor and splits using `d/dx Q = 2a·x+b`:
+  `∫(p·x+q)/Qⁿ = (p/2a)·Q^(1−n)/(1−n) + (q − p·b/(2a))·∫1/Qⁿ`, the constant
+  remainder reduced by the existing bare-power recursion.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][rational][regression]` (linear numerators over `(x²+1)²`,
+  `(x²+1)³`, and a completed square), verified deterministically by evaluating
+  `diff(F) − e` to ~0 at fixed rational points.
+- **Scope:** rational coefficients; numerator degree ≤ 1 over an integer power of
+  a quadratic. With INT-37/38 this closes the proper-rational-with-quadratic
+  story.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
