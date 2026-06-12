@@ -60,6 +60,17 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT Beta final : public Function {
+public:
+    Beta(Expr a, Expr b);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Beta;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "beta"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT LogGamma final : public Function {
 public:
     explicit LogGamma(Expr arg);
@@ -150,6 +161,7 @@ public:
 
 [[nodiscard]] SYMPP_EXPORT Expr factorial(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
+[[nodiscard]] SYMPP_EXPORT Expr beta(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);

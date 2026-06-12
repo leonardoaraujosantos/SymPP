@@ -14,6 +14,7 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -482,6 +483,53 @@ Expr gamma(const Expr& arg) {
         return float_unary_op(mpfr_gamma, arg);
     }
     return make<GammaFn>(arg);
+}
+
+// ============================================================================
+// Beta
+// ============================================================================
+
+namespace {
+// True if `e` is or contains an unevaluated gamma(...) node — used to decide
+// whether the Β(a,b)=Γ(a)Γ(b)/Γ(a+b) ratio fully reduced to a closed value.
+[[nodiscard]] bool has_gamma(const Expr& e) {
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).function_id() == FunctionId::Gamma) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_gamma(a)) return true;
+    }
+    return false;
+}
+}  // namespace
+
+Beta::Beta(Expr a, Expr b)
+    : Function(std::vector<Expr>{std::move(a), std::move(b)}) {
+    compute_hash(FunctionId::Beta);
+}
+Expr Beta::rebuild(std::vector<Expr> new_args) const {
+    return beta(new_args[0], new_args[1]);
+}
+std::optional<bool> Beta::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Positive && is_positive(args_[0]) == true
+        && is_positive(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+
+Expr beta(const Expr& a, const Expr& b) {
+    // Β(a,b) = Γ(a)·Γ(b)/Γ(a+b). Fold to the gamma ratio only when all three
+    // gammas evaluate to a closed form (no gamma node left) — e.g. positive
+    // integers or half-integers; otherwise keep Β(a,b) symbolic, as SymPy does.
+    Expr ga = gamma(a);
+    Expr gb = gamma(b);
+    Expr gab = gamma(add(a, b));
+    if (!has_gamma(ga) && !has_gamma(gb) && !has_gamma(gab)) {
+        return mul(mul(ga, gb), pow(gab, S::NegativeOne()));
+    }
+    return make<Beta>(a, b);
 }
 
 // ============================================================================

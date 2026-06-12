@@ -281,3 +281,26 @@ TEST_CASE("rising/falling/subfactorial: SymPy agreement & round-trip",
     REQUIRE(parsing::parse("subfactorial(x)") == subfactorial(x));
     REQUIRE(parsing::parse("RisingFactorial(x, 3)") == rising_factorial(x, integer(3)));
 }
+
+// ----- Beta function (BETA) --------------------------------------------------
+// B(a,b)=Γ(a)Γ(b)/Γ(a+b); folds to a closed value when the gammas evaluate
+// (positive integers, half-integers), else stays symbolic.
+TEST_CASE("beta: evaluates via gamma ratio", "[3i][beta][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(beta(integer(2), integer(3)) == rational(1, 12));   // 1!*2!/4!
+    REQUIRE(beta(integer(5), integer(2)) == rational(1, 30));
+    REQUIRE(beta(integer(1), integer(1)) == integer(1));
+    REQUIRE(beta(integer(3), integer(4)) == rational(1, 60));
+    // Half-integers: B(1/2,1/2) = Γ(1/2)²/Γ(1) = π.
+    REQUIRE(oracle.equivalent(beta(rational(1, 2), rational(1, 2))->str(), "pi"));
+    // Symmetry and SymPy agreement.
+    REQUIRE(beta(integer(2), integer(5)) == beta(integer(5), integer(2)));
+}
+
+TEST_CASE("beta: symbolic args stay unevaluated", "[3i][beta][parser]") {
+    auto a = symbol("a");
+    auto b = symbol("b");
+    REQUIRE(beta(a, b)->type_id() == TypeId::Function);
+    REQUIRE(parsing::parse("beta(a, b)") == beta(a, b));
+    REQUIRE(beta(a, b)->str() == "beta(a, b)");
+}
