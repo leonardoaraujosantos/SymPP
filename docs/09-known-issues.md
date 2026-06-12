@@ -14,6 +14,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-6 — `exp(c*log(p))` didn't fold to `p^c` for positive `p`
+- **Input:** `exp(2·log p)`, `exp(log(p)/2)`, `exp(−log p)`, `exp(x·log p)` for
+  positive `p`.
+- **Was:** unevaluated — the `exp` factory folded only the bare `exp(log p) = p`,
+  not a scaled `c·log(p)`.
+- **Expected (SymPy):** `p²`, `√p`, `1/p`, `p^x` for positive `p`; a non-positive
+  (generic) base stays unevaluated (branch-cut conservative, matching the
+  existing `exp(log x)` gate).
+- **Fix (`src/functions/exponential.cpp`):** in `exp`, an argument that is a
+  product of a single `log(p)` (with `p` positive) and a constant coefficient `c`
+  folds to `pow(p, c)`.
+- **Regression test:** `tests/functions/exponential_test.cpp`
+  — `[exp][log][assumptions][regression]` (integer/fractional/negative/symbolic
+  `c`, plus a generic base that must stay).
+- **Scope:** positive base; same positivity gate as `exp(log p) = p`.
+
 ### ASSUME-5 — `Abs(p*x)` didn't pull out a positive symbolic factor
 - **Input:** `Abs(p·x)`, `Abs(p·q·x)`, `Abs(n·x)` for positive `p, q` / negative `n`.
 - **Was:** `Abs(p·x)` stayed — the `abs` factory pulled out only a leading
