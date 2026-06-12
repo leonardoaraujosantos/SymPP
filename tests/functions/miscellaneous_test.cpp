@@ -189,6 +189,23 @@ TEST_CASE("Abs: pulls out a numeric coefficient", "[3d][abs][oracle][regression]
                               "2*Abs(x*y)"));
 }
 
+TEST_CASE("Abs: pulls out positive/negative symbolic factors (ASSUME-5)",
+          "[3d][abs][assumptions][regression]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto q = symbol("q", AssumptionMask{}.set_positive(true));
+    auto n = symbol("n", AssumptionMask{}.set_negative(true));
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // |p·x| = p·|x|; |p·q·x| = p·q·|x|; |n·x| = −n·|x| (|n| = −n for n<0).
+    REQUIRE(abs(p * x) == p * abs(x));
+    REQUIRE(abs(p * q * x) == p * q * abs(x));
+    REQUIRE(abs(n * x) == mul(S::NegativeOne(), n) * abs(x));
+    // A generic product is NOT split (modulus of x, y individually unknown).
+    REQUIRE(abs(x * y)->str() == "Abs(x*y)");
+    // Positive factor pulled, the rest kept under one Abs.
+    REQUIRE(abs(p * x * y) == p * abs(x * y));
+}
+
 // Regression (ABS-2): Abs of a numeric complex number a+b·I → sqrt(a²+b²).
 // Previously only real numbers reduced; a complex literal stayed symbolic.
 TEST_CASE("Abs: complex modulus of a numeric a+b·I",

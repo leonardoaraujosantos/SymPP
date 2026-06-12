@@ -14,6 +14,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-5 — `Abs(p*x)` didn't pull out a positive symbolic factor
+- **Input:** `Abs(p·x)`, `Abs(p·q·x)`, `Abs(n·x)` for positive `p, q` / negative `n`.
+- **Was:** `Abs(p·x)` stayed — the `abs` factory pulled out only a leading
+  *numeric* coefficient, not a positive (or negative) *symbol*.
+- **Expected (SymPy):** `p·Abs(x)`, `p·q·Abs(x)`, `−n·Abs(x)`; a fully generic
+  product `Abs(x·y)` stays (the modulus of each factor is unknown).
+- **Fix (`src/functions/miscellaneous.cpp`):** using `|∏fᵢ| = ∏|fᵢ|`, the `abs`
+  factory now pulls out *every* factor whose modulus is known — numeric (`|c|`),
+  positive (`= f`), or negative (`= −f`) — leaving the rest under a single `Abs`.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[abs][assumptions][regression]` (positive/negative factor pulls; generic
+  product stays; positive factor pulled with the rest kept under one `Abs`).
+- **Scope:** factors with a provable sign; genuinely-unknown factors stay inside.
+
 ### ASSUME-4 — `expand(log(x*y))` didn't split for positive symbols
 - **Input:** `expand(log(p·q))`, `expand(log(p³))` for positive `p, q`.
 - **Was:** unchanged (`log(p*q)`) — `expand` only distributed `Mul`/`Pow`/`Add`
