@@ -278,6 +278,12 @@ namespace {
 // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
 [[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
 
+// ∫ tanh(g)^n / coth(g)^n dx (n ≥ 2 integer, g affine) — the hyperbolic analogue
+// of try_tan_power. Both share the reduction ∫fⁿ = ∫f^(n-2) − f^(n-1)/((n-1)·g')
+// (tanh from tanh²=1−sech², coth from coth²=1+csch²), recursing through integrate
+// to the n=1 table case (∫tanh = log(cosh)/g', ∫coth = log(sinh)/g').
+[[nodiscard]] std::optional<Expr> try_tanh_coth_power(const Expr& expr, const Expr& var);
+
 // ∫ sec(g)^n / csc(g)^n dx (n ≥ 3 integer, g affine) via the by-parts reduction
 // ∫secⁿ =  sec^(n-2)·tan/((n-1)·g') + (n-2)/(n-1)·∫sec^(n-2)
 // ∫cscⁿ = −csc^(n-2)·cot/((n-1)·g') + (n-2)/(n-1)·∫csc^(n-2). n=1 is the table
@@ -394,6 +400,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_tan_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_tanh_coth_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sec_csc_power(expr, var); r.has_value()) {
@@ -1063,6 +1072,37 @@ std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
     Expr rest = integrate(pow(cot(g), integer(n - 2)), var);
     if (is_integral_marker(rest)) return std::nullopt;
     return first - rest;
+}
+
+std::optional<Expr> try_tanh_coth_power(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& e = expr->args()[1];
+    if (e->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*e);
+    if (!z.fits_long()) return std::nullopt;
+    const long n = z.to_long();
+    if (n < 2 || n > 24) return std::nullopt;  // n=1 is the table case
+    if (base->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*base);
+    const FunctionId id = fn.function_id();
+    if ((id != FunctionId::Tanh && id != FunctionId::Coth)
+        || fn.args().size() != 1) {
+        return std::nullopt;
+    }
+    const Expr& g = fn.args()[0];
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;
+
+    // Both tanh and coth share the same reduction, recursing to the n=1 table
+    // case (∫tanh = log(cosh)/g', ∫coth = log(sinh)/g') and the n=0 case ∫1 = x:
+    //   ∫tanhⁿ = ∫tanh^(n-2) − tanh^(n-1)/((n-1)·g')   (tanh² = 1 − sech²)
+    //   ∫cothⁿ = ∫coth^(n-2) − coth^(n-1)/((n-1)·g')   (coth² = 1 + csch²)
+    Expr first = pow(base, integer(n - 1)) / (integer(n - 1) * a);
+    Expr rest = integrate(pow(base, integer(n - 2)), var);
+    if (is_integral_marker(rest)) return std::nullopt;
+    return rest - first;
 }
 
 std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var) {

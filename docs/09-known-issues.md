@@ -946,6 +946,34 @@ truth and links the issue number.
   closes. `acsc`/`asec`/`acoth`/`asech`/`acsch` reduce to integrands still out
   of scope and remain unevaluated.
 
+### INT-30 — `integrate(tanh**n)` / `integrate(coth**n)` returned the marker or an ugly form
+- **Input:** `∫tanh²`, `∫tanh³`, `∫tanh⁴`, `∫coth²`, `∫coth³`, `∫coth⁴`,
+  `∫tanh(2x)³`.
+- **Was:** `∫coth³` (and higher odd powers) fell through to the unevaluated
+  marker; `∫tanhⁿ` was caught by `try_heurisch` (`u = tanh` substitution) and
+  came out as an ugly `log(tanh ± 1)` partial-fraction expansion rather than the
+  clean reduction. Only the `coth²` square (INT-26, via `try_trig_reduction`)
+  was handled directly; `tanh²` had no square case there either.
+- **Expected (SymPy):** `x − tanh`, `−tanh²/2 + log(cosh)`,
+  `x − tanh³/3 − tanh`, `x − coth`, `−coth²/2 + log(sinh)`,
+  `x − coth³/3 − coth`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_tanh_coth_power`, the
+  hyperbolic analogue of `try_tan_power`, dispatched after it (before heurisch).
+  Both functions share one reduction (tanh from `tanh² = 1 − sech²`, coth from
+  `coth² = 1 + csch²`):
+  - `∫tanhⁿ = ∫tanh^(n-2) − tanh^(n-1)/((n-1)·g')`
+  - `∫cothⁿ = ∫coth^(n-2) − coth^(n-1)/((n-1)·g')`
+  Recurses through `integrate` to the `n=1` table case (`∫tanh = log(cosh)/g'`,
+  `∫coth = log(sinh)/g'`) and the `n=0` case `∫1 = x`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][hyperbolic][regression]` (tanh/coth powers 2–4 plus an affine
+  argument; each asserts no `Integral` marker leaks and verifies by
+  differentiation against the oracle).
+- **Scope:** integer `tanhⁿ`/`cothⁿ` with an affine argument. SymPP's `simplify`
+  does not always reduce the `diff − integrand` residual to a structural 0
+  (tanh/coth ↔ sinh/cosh rewrites are incomplete), but the oracle's numeric
+  fallback confirms equivalence.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
