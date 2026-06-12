@@ -1031,6 +1031,25 @@ truth and links the issue number.
   `factorial`'s existing 0-derivative convention). `gcd`/`lcm` as functions
   remain a separate item.
 
+### RFF-SUBF — `RisingFactorial`, `FallingFactorial`, `subfactorial` unimplemented
+- **Input:** `RisingFactorial(3,2)`, `FallingFactorial(5,2)`, `RisingFactorial(x,2)`,
+  `subfactorial(4)`.
+- **Was:** their `FunctionId` values existed in the combinatorial 700-block but
+  had no class/factory/parser, so the parser made generic nodes.
+- **Now:** three function types in `functions/combinatorial.{hpp,cpp}`:
+  - `rising_factorial(x,n)` (Pochhammer) = `x·(x+1)·…·(x+n-1)` and
+    `falling_factorial(x,n)` = `x·(x-1)·…·(x-n+1)` — for a non-negative integer
+    `n` they expand to the product even for symbolic `x` (`rf(x,2)=x·(x+1)`,
+    matching SymPy); `n=0 → 1`; symbolic `n` stays.
+  - `subfactorial(n)` = derangement count via the recurrence
+    `!0=1, !1=0, !k=(k-1)(!(k-1)+!(k-2))` (`!4=9`, `!5=44`).
+  - Parser accepts `RisingFactorial`/`FallingFactorial`/`subfactorial`; `str()`
+    round-trips. Safety bounds (n ≤ 1e5).
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[rising]`, `[falling]`, `[subfactorial]`.
+- **Scope:** non-negative integer order/argument. `binomial`-style negative or
+  rational extensions stay deferred.
+
 ### GCD-LCM — `gcd` / `lcm` were not function types
 - **Input:** `gcd(12,18)`, `lcm(4,6)`, `gcd(-12,8)`, `gcd(0,5)`, `gcd(x,y)`.
 - **Was:** the parser made generic undefined-function nodes — no evaluation.

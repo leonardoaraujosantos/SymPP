@@ -93,6 +93,39 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT RisingFactorial final : public Function {
+public:
+    RisingFactorial(Expr x, Expr n);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::RisingFactorial;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "RisingFactorial"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT FallingFactorial final : public Function {
+public:
+    FallingFactorial(Expr x, Expr n);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::FallingFactorial;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "FallingFactorial"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Subfactorial final : public Function {
+public:
+    explicit Subfactorial(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Subfactorial;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "subfactorial"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Gcd final : public Function {
 public:
     Gcd(Expr a, Expr b);
@@ -121,6 +154,9 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr rising_factorial(const Expr& x, const Expr& n);
+[[nodiscard]] SYMPP_EXPORT Expr falling_factorial(const Expr& x, const Expr& n);
+[[nodiscard]] SYMPP_EXPORT Expr subfactorial(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
 
