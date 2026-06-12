@@ -6,6 +6,7 @@
 
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/infinity.hpp>
@@ -262,6 +263,37 @@ Expr zeta(const Expr& s) {
         }
     }
     return make<Zeta>(s);
+}
+
+// ----- Lambert W (principal branch) ------------------------------------------
+
+LambertWFn::LambertWFn(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::LambertW);
+}
+Expr LambertWFn::rebuild(std::vector<Expr> new_args) const {
+    return lambertw(new_args[0]);
+}
+std::optional<bool> LambertWFn::ask(AssumptionKey k) const noexcept {
+    // Real on [-1/e, ∞); we only assert it for a known non-negative argument.
+    if (k == AssumptionKey::Real && is_nonnegative(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr LambertWFn::diff_arg(std::size_t /*i*/) const {
+    // W'(x) = W(x) / (x·(1 + W(x))).
+    const Expr& x = args_[0];
+    Expr w = lambertw(x);
+    return mul(w, pow(mul(x, add(S::One(), w)), S::NegativeOne()));
+}
+
+Expr lambertw(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();                       // W(0) = 0
+    if (arg == S::E()) return S::One();                           // W(e) = 1
+    // W(-1/e) = -1 (the branch point); -1/e is canonically -E^(-1).
+    if (arg == mul(S::NegativeOne(), pow(S::E(), S::NegativeOne()))) {
+        return S::NegativeOne();
+    }
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // W(oo) = oo
+    return make<LambertWFn>(arg);
 }
 
 }  // namespace sympp
