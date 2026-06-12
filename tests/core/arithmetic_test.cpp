@@ -84,6 +84,28 @@ TEST_CASE("mul: flattens nested Muls", "[1][mul]") {
     REQUIRE(e->args().size() == 3);
 }
 
+// Regression (MUL-RAD): base collection can collapse a numeric base to a Number
+// (√2·√2 → 2) or a numeric·radical Mul (2^(3/2) → 2·√2). That numeric part must
+// fold back into the running product, or it survives as an un-collapsed factor
+// (√2·√8 used to give 2·2 instead of 4).
+TEST_CASE("mul: folds numeric results of radical base collection", "[1][mul][regression]") {
+    // √2·√8 = √16 = 4 (√8 = 2√2, so 2·(√2·√2) = 2·2 → must collapse to 4).
+    REQUIRE(mul(pow(integer(2), rational(1, 2)),
+                pow(integer(8), rational(1, 2))) == integer(4));
+    // √3·√12 = 6, √8·√8 = 8.
+    REQUIRE(mul(pow(integer(3), rational(1, 2)),
+                pow(integer(12), rational(1, 2))) == integer(6));
+    REQUIRE(mul(pow(integer(8), rational(1, 2)),
+                pow(integer(8), rational(1, 2))) == integer(8));
+    // 2^(3/2) keeps the radical but extracts the integer factor: 2·√2.
+    auto e = pow(integer(2), rational(3, 2));
+    REQUIRE(e->type_id() == TypeId::Mul);
+    REQUIRE(e->args().size() == 2);
+    // Cross-base radicals are NOT merged here: √2·√3 stays a 2-factor Mul.
+    auto cross = mul(pow(integer(2), rational(1, 2)), pow(integer(3), rational(1, 2)));
+    REQUIRE(cross->type_id() == TypeId::Mul);
+}
+
 TEST_CASE("add: combines all numerics inside flattened Add", "[1][add]") {
     auto x = symbol("x");
     // Add(2, x, 3) should combine 2+3 and keep x

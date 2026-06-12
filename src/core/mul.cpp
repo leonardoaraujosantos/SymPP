@@ -314,6 +314,39 @@ Expr mul(std::vector<Expr> args) {
         rest.push_back(std::move(p));
     }
 
+    // ---- Step 4b: fold numeric results from base collection back into the
+    // running product. pow(base, exp) in Step 4 can collapse a numeric base to
+    // a Number (2^(1/2)·2^(1/2) → pow(2,1) = 2) or to a numeric·radical Mul
+    // (2^(3/2) → 2·√2). Those numeric parts must merge into running_prod, or
+    // they survive as un-collapsed factors (√2·√8 → 2·2 instead of 4, and the
+    // analogous 1/2·2 in cot(π/4)).
+    {
+        std::vector<Expr> swept;
+        swept.reserve(rest.size());
+        auto fold = [&](const Expr& n) {
+            if (!running_prod) {
+                running_prod = n;
+                return;
+            }
+            auto c = number_mul(static_cast<const Number&>(*running_prod),
+                                static_cast<const Number&>(*n));
+            if (c) running_prod = *c; else swept.push_back(n);
+        };
+        for (auto& p : rest) {
+            if (is_number(p)) {
+                fold(p);
+            } else if (p->type_id() == TypeId::Mul) {
+                for (const auto& f : p->args()) {
+                    if (is_number(f)) fold(f);
+                    else swept.push_back(f);
+                }
+            } else {
+                swept.push_back(std::move(p));
+            }
+        }
+        rest = std::move(swept);
+    }
+
     // ---- Step 5: drop one factor, sort ----
     std::sort(rest.begin(), rest.end(), detail::canonical_less);
 
