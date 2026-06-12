@@ -1274,11 +1274,15 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
 std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
 
-    // Split the integrand into factors.
+    // Split the integrand into factors. Build with a push_back loop rather than
+    // vector::assign(span): under -O3 the latter inlines a tail-destroy path
+    // that trips gcc's -Wnull-dereference (a false positive on the element
+    // shared_ptr destructor).
     std::vector<Expr> factors;
     if (expr->type_id() == TypeId::Mul) {
         auto sp = expr->args();
-        factors.assign(sp.begin(), sp.end());
+        factors.reserve(sp.size());
+        for (const auto& f : sp) factors.push_back(f);
     } else {
         factors.push_back(expr);
     }
