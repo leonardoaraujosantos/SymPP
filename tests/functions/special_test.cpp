@@ -210,3 +210,29 @@ TEST_CASE("LambertW: derivative and round-trip", "[3h][lambertw][oracle][parser]
     REQUIRE(parsing::parse("LambertW(x)") == lambertw(x));
     REQUIRE(lambertw(x)->str() == "LambertW(x)");
 }
+
+// ----- Si / Ci / Ei integral functions (EXPINT-FN) ---------------------------
+TEST_CASE("Si/Ci/Ei: special values and derivatives", "[3h][expint][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(sinint(S::Zero()) == S::Zero());                 // Si(0)=0
+    REQUIRE(sinint(S::Infinity()) == mul(S::Half(), S::Pi())); // Si(oo)=pi/2
+    REQUIRE(cosint(S::Infinity()) == S::Zero());             // Ci(oo)=0
+    REQUIRE(expint_ei(S::Infinity()) == S::Infinity());      // Ei(oo)=oo
+    // Odd parity of Si.
+    REQUIRE(sinint(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), sinint(x)));
+    // Derivatives.
+    REQUIRE(oracle.equivalent(diff(sinint(x), x)->str(), "sin(x)/x"));
+    REQUIRE(oracle.equivalent(diff(cosint(x), x)->str(), "cos(x)/x"));
+    REQUIRE(oracle.equivalent(diff(expint_ei(x), x)->str(), "exp(x)/x"));
+}
+
+TEST_CASE("Si/Ci/Ei: parse round-trip", "[3h][expint][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("Si(x)") == sinint(x));
+    REQUIRE(parsing::parse("Ci(x)") == cosint(x));
+    REQUIRE(parsing::parse("Ei(x)") == expint_ei(x));
+    REQUIRE(sinint(x)->str() == "Si(x)");
+    REQUIRE(cosint(x)->str() == "Ci(x)");
+    REQUIRE(expint_ei(x)->str() == "Ei(x)");
+}

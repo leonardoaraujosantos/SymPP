@@ -333,6 +333,10 @@ namespace {
 // rational leading coefficient.
 [[nodiscard]] std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var);
 
+// ∫ sin(c·x)/x = Si(c·x), ∫ cos(c·x)/x = Ci(c·x), ∫ exp(c·x)/x = Ei(c·x) — the
+// special-integral functions, for a monomial argument c·x (no constant term).
+[[nodiscard]] std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var);
+
 // ∫ P(x)·(a·x+b)^r dx for a polynomial P, an affine base a·x+b, and a
 // non-integer rational exponent r — e.g. ∫x·√(x+1). Substitute u = a·x+b so the
 // integrand becomes Σ cₖ·u^(k+r), which integrates term-by-term. Returns nullopt
@@ -408,6 +412,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_algebraic_linear_sub(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_expint_integral(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
@@ -1392,6 +1399,50 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     Expr a = mul(S::NegativeOne(), c2);
     Expr sa = sqrt(a);
     return simplify(sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa));
+}
+
+std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    Expr func;                    // the sin/cos/exp factor
+    bool has_recip = false;       // saw a 1/var factor
+    std::vector<Expr> consts;     // constant prefactors
+    for (const auto& f : expr->args()) {
+        if (!has_recip && f->type_id() == TypeId::Pow
+            && f->args()[0] == var && f->args()[1] == S::NegativeOne()) {
+            has_recip = true;
+            continue;
+        }
+        if (!func && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            const FunctionId id = fn.function_id();
+            if ((id == FunctionId::Sin || id == FunctionId::Cos
+                 || id == FunctionId::Exp) && fn.args().size() == 1) {
+                auto aff = as_affine(fn.args()[0], var);
+                // Monomial argument c·x only (no constant term b): ∫f(c·x+b)/x
+                // is not an elementary special-integral function.
+                if (aff && !(aff->first == S::Zero())
+                    && aff->second == S::Zero()) {
+                    func = f;
+                    continue;
+                }
+            }
+        }
+        if (depends_on(f, var)) return std::nullopt;  // some other var factor
+        consts.push_back(f);
+    }
+    if (!has_recip || !func) return std::nullopt;
+
+    const auto& fn = static_cast<const Function&>(*func);
+    const Expr& g = fn.args()[0];
+    Expr result;
+    switch (fn.function_id()) {
+        case FunctionId::Sin: result = sinint(g); break;     // ∫sin(c·x)/x = Si
+        case FunctionId::Cos: result = cosint(g); break;     // ∫cos(c·x)/x = Ci
+        case FunctionId::Exp: result = expint_ei(g); break;  // ∫exp(c·x)/x = Ei
+        default: return std::nullopt;
+    }
+    if (!consts.empty()) result = mul(mul(consts), result);
+    return result;
 }
 
 std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) {
