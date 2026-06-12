@@ -197,15 +197,25 @@ Expr abs(const Expr& arg) {
     // Abs(x) for nonpositive x → -x.
     if (is_nonpositive(arg) == true) return mul(S::NegativeOne(), arg);
 
-    // Abs(c·rest) = |c|·Abs(rest) for a numeric coefficient c. In canonical
-    // form a numeric factor sorts first, so this also covers Abs(-x) = Abs(x)
-    // (c = −1) and Abs(x/2) = Abs(x)/2. |·| is multiplicative, so it holds for
-    // a complex coefficient too (e.g. Abs(I·x) = Abs(x)).
+    // |·| is multiplicative: Abs(∏fᵢ) = ∏|fᵢ|. Pull out every factor whose
+    // modulus is known — numeric coefficients (|c|), positive factors (= f), and
+    // negative factors (= −f) — leaving the rest under a single Abs. Covers
+    // Abs(c·rest)=|c|·Abs(rest), Abs(-x)=Abs(x), and Abs(p·x)=p·Abs(x) for a
+    // positive symbol p.
     if (arg->type_id() == TypeId::Mul) {
-        const auto& factors = arg->args();
-        if (factors.size() >= 2 && is_number(factors[0])) {
-            std::vector<Expr> rest(factors.begin() + 1, factors.end());
-            return mul(abs(factors[0]), abs(mul(std::move(rest))));
+        std::vector<Expr> pulled;
+        std::vector<Expr> kept;
+        for (const auto& f : arg->args()) {
+            if (is_number(f) || is_positive(f) == true
+                || is_negative(f) == true) {
+                pulled.push_back(abs(f));
+            } else {
+                kept.push_back(f);
+            }
+        }
+        if (!pulled.empty() && !kept.empty()) {
+            return mul(mul(std::move(pulled)),
+                       make<Abs>(mul(std::move(kept))));
         }
     }
 
