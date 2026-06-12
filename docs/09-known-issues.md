@@ -14,6 +14,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-1 — `simplify(sqrt(x**2))` ignored symbol assumptions
+- **Input:** `simplify(√(x²))` for `x` positive / real / generic.
+- **Was:** `(x²)^(1/2)` in all three cases — the canonical `Pow` leaves a
+  power-of-power alone (branch cuts), and `simplify` never consulted the symbol's
+  assumptions to recover the safe cases.
+- **Expected (SymPy):** `x` for `x ≥ 0`, `Abs(x)` for `x` real, unchanged for a
+  generic (possibly complex) `x`.
+- **Fix (`src/simplify/simplify.cpp`):** new `pow_of_pow_node` in the simplify
+  pipeline (after `powsimp`). For `(bᵖ)^q` it consults the assumption queries:
+  `b ≥ 0 ⇒ b^(p·q)` (valid for all real `p,q`), and the `√(b²) ⇒ Abs(b)` case
+  for real `b`. The existing `exp(log x)→x` / `log(exp x)→x` folds were already
+  assumption-gated; this extends the same idea to roots of squares.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[simplify][assumptions][regression]` (positive / real / generic `√(x²)`,
+  plus a nonnegative-base power-of-power), asserted structurally (the oracle uses
+  generic symbols and cannot verify assumption-dependent results).
+- **Scope:** first consumer-side use of the assumption engine in `simplify`; the
+  broader gated rules (`log(a·b)` split, `|x|→x`) remain follow-ups.
+
 ### SUM-1 — geometric summation dropped non-trivial exponents ([#1], PR [#4])
 - **Input:** `summation(2**(-k), k, 0, n)`, `summation(2**(2*k), k, 0, 3)`,
   `summation(1/2**k, k, 0, n)`
