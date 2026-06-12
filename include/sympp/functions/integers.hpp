@@ -1,6 +1,6 @@
 #pragma once
 
-// Integer rounding functions: floor, ceiling.
+// Integer rounding functions: floor, ceiling; floored modulo: mod.
 //
 // Auto-evaluation:
 //   * floor(integer)  -> integer (identity)
@@ -9,8 +9,11 @@
 //   * floor(float) / ceiling(float)       -> via mpfr_floor / mpfr_ceil
 //   * floor / ceiling on a NumberSymbol (Pi, E, ...) — defer to evalf to
 //     decide; without simplify support we keep it unevaluated.
+//   * mod(p, q) = p - q*floor(p/q) — floored modulo (result takes the sign of
+//     q): mod(7,3)=1, mod(-7,3)=2, mod(7,-3)=-2. Integer and rational p,q
+//     evaluate; mod(0,q)=0, mod(p,p)=0; q==0 stays unevaluated.
 //
-// Reference: sympy/functions/elementary/integers.py
+// Reference: sympy/functions/elementary/integers.py (Mod is in core/mod.py)
 
 #include <cstddef>
 #include <span>
@@ -44,7 +47,17 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT Mod final : public Function {
+public:
+    Mod(Expr p, Expr q);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Mod; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Mod"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr floor(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr ceiling(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr mod(const Expr& p, const Expr& q);
 
 }  // namespace sympp

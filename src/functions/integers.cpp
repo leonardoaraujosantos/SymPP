@@ -14,6 +14,7 @@
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 
@@ -153,6 +154,61 @@ Expr ceiling(const Expr& arg) {
     // Constant real (pi, E, 2*pi, …): evaluate numerically.
     if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/true)) return *v;
     return make<Ceiling>(arg);
+}
+
+// ----- Mod (floored modulo) --------------------------------------------------
+
+Mod::Mod(Expr p, Expr q)
+    : Function(std::vector<Expr>{std::move(p), std::move(q)}) {
+    compute_hash(FunctionId::Mod);
+}
+Expr Mod::rebuild(std::vector<Expr> new_args) const {
+    return mod(new_args[0], new_args[1]);
+}
+std::optional<bool> Mod::ask(AssumptionKey k) const noexcept {
+    const auto& p = args_[0];
+    const auto& q = args_[1];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(p) == true && is_integer(q) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr mod(const Expr& p, const Expr& q) {
+    // q == 0 is undefined (SymPy raises); keep it unevaluated rather than throw.
+    if (q == S::Zero()) return make<Mod>(p, q);
+    // Structural identities valid for any p, q: mod(0,q)=0, mod(x,x)=0.
+    if (p == S::Zero()) return S::Zero();
+    if (p == q) return S::Zero();
+
+    auto to_mpq = [](const Expr& e) -> std::optional<mpq_class> {
+        if (e->type_id() == TypeId::Integer) {
+            return mpq_class(static_cast<const Integer&>(*e).value());
+        }
+        if (e->type_id() == TypeId::Rational) {
+            return static_cast<const Rational&>(*e).value();
+        }
+        return std::nullopt;
+    };
+    auto mp = to_mpq(p);
+    auto mq = to_mpq(q);
+    if (mp && mq) {
+        // Floored modulo: r = p − q·⌊p/q⌋ (result takes the sign of q).
+        mpq_class ratio = *mp / *mq;
+        mpz_class fl;
+        mpz_fdiv_q(fl.get_mpz_t(), mpq_numref(ratio.get_mpq_t()),
+                   mpq_denref(ratio.get_mpq_t()));
+        mpq_class r = *mp - *mq * mpq_class(fl);
+        r.canonicalize();
+        return rational(mpz_class(mpq_numref(r.get_mpq_t())),
+                        mpz_class(mpq_denref(r.get_mpq_t())));
+    }
+    return make<Mod>(p, q);
 }
 
 }  // namespace sympp
