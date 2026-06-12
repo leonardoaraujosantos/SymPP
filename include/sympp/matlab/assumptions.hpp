@@ -70,6 +70,8 @@ assumption_registry() {
     if (prop == "nonnegative") return AssumptionKey::Nonnegative;
     if (prop == "nonpositive") return AssumptionKey::Nonpositive;
     if (prop == "finite")      return AssumptionKey::Finite;
+    if (prop == "even")        return AssumptionKey::Even;
+    if (prop == "odd")         return AssumptionKey::Odd;
     throw std::runtime_error(
         std::string("assumption '") + std::string(prop)
         + "' not yet supported in SymPP");
@@ -87,6 +89,8 @@ assumption_registry() {
         case AssumptionKey::Nonnegative: return "nonnegative";
         case AssumptionKey::Nonpositive: return "nonpositive";
         case AssumptionKey::Finite:      return "finite";
+        case AssumptionKey::Even:        return "even";
+        case AssumptionKey::Odd:         return "odd";
     }
     return "unknown";
 }

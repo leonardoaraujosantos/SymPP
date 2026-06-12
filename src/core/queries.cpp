@@ -36,16 +36,25 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Positive) == true) return true;
             if (direct(e, AssumptionKey::Negative) == true) return true;
             if (direct(e, AssumptionKey::Zero) == true) return true;
+            if (direct(e, AssumptionKey::Even) == true) return true;
+            if (direct(e, AssumptionKey::Odd) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Rational: {
             if (direct(e, AssumptionKey::Integer) == true) return true;
             return std::nullopt;
         }
+        case AssumptionKey::Integer: {
+            // even / odd ⇒ integer
+            if (direct(e, AssumptionKey::Even) == true) return true;
+            if (direct(e, AssumptionKey::Odd) == true) return true;
+            return std::nullopt;
+        }
         case AssumptionKey::Nonzero: {
             if (direct(e, AssumptionKey::Positive) == true) return true;
             if (direct(e, AssumptionKey::Negative) == true) return true;
             if (direct(e, AssumptionKey::Zero) == false) return true;
+            if (direct(e, AssumptionKey::Odd) == true) return true;  // odd ⇒ ≠ 0
             return std::nullopt;
         }
         case AssumptionKey::Nonnegative: {
@@ -72,6 +81,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
 
 bool is_provably_odd(const Expr& e) noexcept {
     if (!e) return false;
+    if (ask(e, AssumptionKey::Odd) == true) return true;  // declared/derived odd
     if (e->type_id() == TypeId::Integer) {
         return mpz_odd_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
     }
@@ -95,6 +105,7 @@ bool is_provably_odd(const Expr& e) noexcept {
 
 bool is_provably_even(const Expr& e) noexcept {
     if (!e) return false;
+    if (ask(e, AssumptionKey::Even) == true) return true;  // declared/derived even
     if (e->type_id() == TypeId::Integer) {
         return mpz_even_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
     }

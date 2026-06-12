@@ -160,6 +160,10 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
                 }
             }
             return std::nullopt;
+        case AssumptionKey::Even:
+        case AssumptionKey::Odd:
+            // Parity of a power depends on the base in general — left Unknown.
+            return std::nullopt;
     }
     return std::nullopt;
 }

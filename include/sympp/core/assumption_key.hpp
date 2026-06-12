@@ -31,6 +31,10 @@ enum class AssumptionKey : std::uint8_t {
 
     // Range.
     Finite,
+
+    // Parity (integers only).
+    Even,          // = 2k for some integer k (implies integer; 0 is even)
+    Odd,           // = 2k+1 (implies integer, nonzero)
 };
 
 }  // namespace sympp

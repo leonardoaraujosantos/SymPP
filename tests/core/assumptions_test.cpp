@@ -66,6 +66,47 @@ TEST_CASE("AssumptionMask: nonzero is derived from positive | negative",
     REQUIRE(neg.get(AssumptionKey::Nonzero) == true);
 }
 
+TEST_CASE("AssumptionMask: even/odd closure (ASSUME-11)", "[2a][assumptions]") {
+    // even ⇒ integer ⇒ rational ⇒ real; even excludes odd.
+    auto e = close_assumptions(AssumptionMask{}.set_even(true));
+    REQUIRE(e.get(AssumptionKey::Integer) == true);
+    REQUIRE(e.get(AssumptionKey::Real) == true);
+    REQUIRE(e.get(AssumptionKey::Odd) == false);
+    // odd ⇒ integer, nonzero (zero=false); odd excludes even.
+    auto o = close_assumptions(AssumptionMask{}.set_odd(true));
+    REQUIRE(o.get(AssumptionKey::Integer) == true);
+    REQUIRE(o.get(AssumptionKey::Nonzero) == true);
+    REQUIRE(o.get(AssumptionKey::Even) == false);
+    // zero ⇒ even (not odd).
+    auto z = close_assumptions(AssumptionMask{}.set_zero(true));
+    REQUIRE(z.get(AssumptionKey::Even) == true);
+    REQUIRE(z.get(AssumptionKey::Odd) == false);
+    // ¬integer ⇒ ¬even, ¬odd.
+    auto ni = close_assumptions(AssumptionMask{}.set_integer(false));
+    REQUIRE(ni.get(AssumptionKey::Even) == false);
+    REQUIRE(ni.get(AssumptionKey::Odd) == false);
+}
+
+TEST_CASE("Symbol/Integer: even & odd predicates and consumers (ASSUME-11)",
+          "[2b][assumptions][regression]") {
+    auto e = symbol("e", AssumptionMask{}.set_even(true));
+    auto o = symbol("o", AssumptionMask{}.set_odd(true));
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    REQUIRE(is_even(e) == true);
+    REQUIRE(is_integer(e) == true);
+    REQUIRE(is_odd(o) == true);
+    REQUIRE(is_nonzero(o) == true);
+    // A bare integer has unknown parity.
+    REQUIRE(!is_even(n).has_value());
+    // Integer literals answer parity directly.
+    REQUIRE(is_even(integer(4)) == true);
+    REQUIRE(is_odd(integer(7)) == true);
+    // Declared parity drives the (-1)^k consumer (ASSUME-8); trig consumers are
+    // covered in the trigonometric tests.
+    REQUIRE(pow(S::NegativeOne(), e) == S::One());
+    REQUIRE(pow(S::NegativeOne(), o) == S::NegativeOne());
+}
+
 // ----- Symbol with assumptions ----------------------------------------------
 
 TEST_CASE("Symbol: bare symbol has all-unknown assumptions", "[2a][assumptions]") {

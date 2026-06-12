@@ -231,6 +231,9 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonzero: return s != 0;
         case AssumptionKey::Nonnegative: return s >= 0;
         case AssumptionKey::Nonpositive: return s <= 0;
+        // Floats aren't integers in the assumption sense (see Integer above).
+        case AssumptionKey::Even: return std::nullopt;
+        case AssumptionKey::Odd: return std::nullopt;
     }
     return std::nullopt;
 }

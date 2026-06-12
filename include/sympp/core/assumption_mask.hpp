@@ -28,6 +28,8 @@ struct SYMPP_EXPORT AssumptionMask {
     std::optional<bool> negative;
     std::optional<bool> zero;
     std::optional<bool> finite;
+    std::optional<bool> even;
+    std::optional<bool> odd;
 
     [[nodiscard]] std::optional<bool> get(AssumptionKey k) const noexcept;
     void set(AssumptionKey k, bool value) noexcept;
@@ -40,6 +42,8 @@ struct SYMPP_EXPORT AssumptionMask {
     AssumptionMask& set_negative(bool v) noexcept { negative = v; return *this; }
     AssumptionMask& set_zero(bool v) noexcept { zero = v; return *this; }
     AssumptionMask& set_finite(bool v) noexcept { finite = v; return *this; }
+    AssumptionMask& set_even(bool v) noexcept { even = v; return *this; }
+    AssumptionMask& set_odd(bool v) noexcept { odd = v; return *this; }
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t hash() const noexcept;

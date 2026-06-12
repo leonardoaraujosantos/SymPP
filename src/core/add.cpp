@@ -137,6 +137,9 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
         // defer Zero / Nonzero queries on Add.
         case AssumptionKey::Zero:
         case AssumptionKey::Nonzero:
+        // Parity of a sum is left to the structural is_provably_even/odd helper.
+        case AssumptionKey::Even:
+        case AssumptionKey::Odd:
             return std::nullopt;
     }
     return std::nullopt;

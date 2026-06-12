@@ -60,6 +60,12 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_finite(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Finite);
 }
+[[nodiscard]] inline std::optional<bool> is_even(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Even);
+}
+[[nodiscard]] inline std::optional<bool> is_odd(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Odd);
+}
 
 // Structural parity of an integer-valued expression. Conservative: reports
 // even/odd only when provable from the form — `2·n` (n a known integer) is even,
