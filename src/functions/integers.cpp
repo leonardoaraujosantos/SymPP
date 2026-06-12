@@ -7,9 +7,11 @@
 #include <gmpxx.h>
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
@@ -154,6 +156,37 @@ Expr ceiling(const Expr& arg) {
     // Constant real (pi, E, 2*pi, …): evaluate numerically.
     if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/true)) return *v;
     return make<Ceiling>(arg);
+}
+
+// ----- Frac (fractional part) ------------------------------------------------
+
+Frac::Frac(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Frac);
+}
+Expr Frac::rebuild(std::vector<Expr> new_args) const { return frac(new_args[0]); }
+std::optional<bool> Frac::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Nonnegative:
+            if (is_real(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr frac(const Expr& arg) {
+    // frac(x) = x − floor(x), always in [0, 1). Reuse floor's numeric/constant
+    // folding: when floor evaluates, return the difference; otherwise keep Frac.
+    Expr fl = floor(arg);
+    const bool fl_unevaluated =
+        fl->type_id() == TypeId::Function
+        && static_cast<const Function&>(*fl).function_id() == FunctionId::Floor;
+    if (!fl_unevaluated) {
+        return add(arg, mul(S::NegativeOne(), fl));
+    }
+    return make<Frac>(arg);
 }
 
 // ----- Mod (floored modulo) --------------------------------------------------
