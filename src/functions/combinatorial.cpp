@@ -189,6 +189,77 @@ Expr catalan(const Expr& arg) {
 }
 
 // ============================================================================
+// Gcd / Lcm
+// ============================================================================
+
+Gcd::Gcd(Expr a, Expr b)
+    : Function(std::vector<Expr>{std::move(a), std::move(b)}) {
+    compute_hash(FunctionId::Gcd);
+}
+Expr Gcd::rebuild(std::vector<Expr> new_args) const {
+    return gcd(new_args[0], new_args[1]);
+}
+std::optional<bool> Gcd::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    const auto& b = args_[1];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+        case AssumptionKey::Nonnegative:
+            if (is_integer(a) == true && is_integer(b) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr gcd(const Expr& a, const Expr& b) {
+    if (a->type_id() == TypeId::Integer && b->type_id() == TypeId::Integer) {
+        // mpz_gcd yields the non-negative gcd (handles signs and zero:
+        // gcd(0,0)=0, gcd(±n,0)=|n|), matching SymPy.
+        mpz_class r;
+        mpz_gcd(r.get_mpz_t(), static_cast<const Integer&>(*a).value().get_mpz_t(),
+                static_cast<const Integer&>(*b).value().get_mpz_t());
+        return make<Integer>(std::move(r));
+    }
+    return make<Gcd>(a, b);
+}
+
+Lcm::Lcm(Expr a, Expr b)
+    : Function(std::vector<Expr>{std::move(a), std::move(b)}) {
+    compute_hash(FunctionId::Lcm);
+}
+Expr Lcm::rebuild(std::vector<Expr> new_args) const {
+    return lcm(new_args[0], new_args[1]);
+}
+std::optional<bool> Lcm::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    const auto& b = args_[1];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+        case AssumptionKey::Nonnegative:
+            if (is_integer(a) == true && is_integer(b) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr lcm(const Expr& a, const Expr& b) {
+    if (a->type_id() == TypeId::Integer && b->type_id() == TypeId::Integer) {
+        // mpz_lcm is non-negative; lcm(0,n)=0, matching SymPy.
+        mpz_class r;
+        mpz_lcm(r.get_mpz_t(), static_cast<const Integer&>(*a).value().get_mpz_t(),
+                static_cast<const Integer&>(*b).value().get_mpz_t());
+        return make<Integer>(std::move(r));
+    }
+    return make<Lcm>(a, b);
+}
+
+// ============================================================================
 // Binomial
 // ============================================================================
 

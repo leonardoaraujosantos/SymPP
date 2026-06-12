@@ -1031,6 +1031,22 @@ truth and links the issue number.
   `factorial`'s existing 0-derivative convention). `gcd`/`lcm` as functions
   remain a separate item.
 
+### GCD-LCM — `gcd` / `lcm` were not function types
+- **Input:** `gcd(12,18)`, `lcm(4,6)`, `gcd(-12,8)`, `gcd(0,5)`, `gcd(x,y)`.
+- **Was:** the parser made generic undefined-function nodes — no evaluation.
+- **Now:** two distinct two-argument function types (`Gcd`/`Lcm` in
+  `functions/combinatorial.{hpp,cpp}`, new `FunctionId` values). Evaluate on
+  integer pairs via GMP `mpz_gcd`/`mpz_lcm` — non-negative results, with the
+  edge cases (`gcd(0,0)=0`, `gcd(±n,0)=|n|`, `lcm(0,n)=0`) matching SymPy — and
+  stay symbolic otherwise. Registered in the parser's two-arg table; `str()`
+  round-trips. Distinct from the polynomial `gcd(Poly,Poly)` (different
+  overload).
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[gcd]`, `[lcm]` (values incl. sign/zero edge cases, parse round-trip, subs,
+  symbolic guards).
+- **Scope:** integer arguments. Rational `gcd` (`gcd(1/2,1/3)=1/6`) and
+  polynomial/symbolic gcd stay deferred (the latter is CANCEL-1 territory).
+
 ### PARSE-1 — parser rejected the capitalised names `str()` emits
 - **Input:** `parse("Abs(-3)")`, `parse(abs(x)->str())` (= `parse("Abs(x)")`),
   same for `Heaviside`, `DiracDelta`.

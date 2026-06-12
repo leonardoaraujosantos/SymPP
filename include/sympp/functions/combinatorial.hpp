@@ -93,10 +93,34 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT Gcd final : public Function {
+public:
+    Gcd(Expr a, Expr b);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Gcd;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "gcd"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Lcm final : public Function {
+public:
+    Lcm(Expr a, Expr b);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Lcm;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "lcm"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr factorial(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr gamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
 

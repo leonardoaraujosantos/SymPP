@@ -167,6 +167,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
     static const std::map<std::string, TwoArgFn> table = {
         {"atan2", &atan2},
         {"binomial", &binomial},
+        {"gcd", &gcd},
+        {"lcm", &lcm},
     };
     return table;
 }

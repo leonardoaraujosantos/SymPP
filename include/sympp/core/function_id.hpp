@@ -68,6 +68,8 @@ enum class FunctionId : std::uint16_t {
     Subfactorial,
     Fibonacci,
     Catalan,
+    Gcd,
+    Lcm,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,
