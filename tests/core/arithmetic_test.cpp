@@ -160,6 +160,23 @@ TEST_CASE("pow: non-unit rational power extraction", "[1][pow][regression][oracl
     REQUIRE(pow(integer(2), rational(2, 3))->type_id() == TypeId::Pow);
 }
 
+// Rational base, non-unit power (POW-RAT-2): (a/b)^(p/q) = (a·b^(q-1))^(p/q)/b^p
+// rationalises the denominator. (2/3)^(2/3) = 2^(2/3)·3^(1/3)/3, (1/2)^(3/2) =
+// √2/4, and a perfect rational power collapses fully ((8/27)^(2/3) = 4/9).
+TEST_CASE("pow: non-unit rational power of a rational base",
+          "[1][pow][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(pow(rational(2, 3), rational(2, 3))->str(),
+                              "2**Rational(2,3)*3**Rational(1,3)/3"));
+    REQUIRE(oracle.equivalent(pow(rational(1, 2), rational(3, 2))->str(),
+                              "sqrt(2)/4"));
+    REQUIRE(oracle.equivalent(pow(rational(2, 9), rational(3, 2))->str(),
+                              "2*sqrt(2)/27"));
+    REQUIRE(oracle.equivalent(pow(rational(3, 2), rational(5, 2))->str(),
+                              "9*sqrt(6)/8"));
+    REQUIRE(pow(rational(8, 27), rational(2, 3)) == rational(4, 9));
+}
+
 // ----- Operator overloads -----------------------------------------------------
 
 TEST_CASE("operator+ produces Add", "[1][operators]") {

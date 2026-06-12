@@ -849,8 +849,11 @@ truth and links the issue number.
   trial-division bounded (base ≤ 1e12, numerator ≤ 1000).
 - **Regression test:** `tests/core/arithmetic_test.cpp`
   — `[pow][regression]` (incl. a `2^(2/3)` no-op guard).
-- **Scope:** positive integer base, `p ≥ 2`. Rational bases and negative
-  exponents (`16^(-2/3)`) stay deferred.
+- **Scope:** positive integer **or rational** base, `p ≥ 2`. A rational base
+  `a/b` reduces via `(a/b)^(p/q) = (a·b^(q-1))^(p/q)/b^p` (the `b^p` division
+  rationalises the denominator: `(2/3)^(2/3) = 2^(2/3)·3^(1/3)/3`,
+  `(1/2)^(3/2) = √2/4`). Negative bases and negative exponents (`16^(-2/3)`)
+  stay deferred. Distinct prime radicals are left unmerged (`√2·√3`, not `√6`).
 
 ### SQRT-3 — `sqrt` of a negative number not folded to imaginary
 - **Input:** `sqrt(-1)`, `sqrt(-4)`, `sqrt(-8)`, `sqrt(-1/4)`, `sqrt(-2/3)`.
