@@ -1145,6 +1145,28 @@ truth and links the issue number.
   substituted integrand still depends on `x`. (The `∫sec²x/(1+tan²x)` hang noted
   here earlier is fixed by INT-33 follow-up fix 2 above — it now bails cleanly.)
 
+### INT-37 — `∫1/(a·x²+b·x+c)ⁿ` (power of an irreducible quadratic) returned the marker
+- **Input:** `∫1/(x²+1)²`, `∫1/(x²+1)³`, `∫1/(x²+4)²`, `∫1/(2x²+3)²`,
+  `∫1/(x²+2x+5)²`.
+- **Was:** the marker — `try_arctan_quadratic` handled only `n = 1`, and `apart`
+  does not split a repeated irreducible-quadratic denominator, so `try_rational`
+  bailed for `n ≥ 2`.
+- **Expected (SymPy):** e.g. `∫1/(x²+1)² = atan(x)/2 + x/(2(x²+1))`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_quadratic_power`, the standard
+  reduction `Iₙ = x/(2(n−1)c·Qⁿ⁻¹) + (2n−3)/(2(n−1)c)·Iₙ₋₁` with `Q = a·x²+c`,
+  recursing through `integrate` down to `I₁ = ∫1/(a·x²+c)` (atan / log). The
+  leading coefficient `a` cancels in the derivation (`x² = (Q−c)/a`), so it does
+  not appear in the formula — an earlier draft that kept an `a` factor gave a
+  wrong answer for `a ≠ 1`, caught by the regression test. A linear term is
+  removed first by completing the square (`u = x + b/(2a)`).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][rational][regression]` (squares and a cube, a non-unit leading
+  coefficient, and a completed square), verified deterministically by evaluating
+  `diff(F) − e` to ~0 at fixed rational points.
+- **Scope:** constant numerator over an integer power of an irreducible
+  quadratic, rational coefficients. A non-constant numerator over a
+  repeated-quadratic denominator still needs `apart` repeated-factor support.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
