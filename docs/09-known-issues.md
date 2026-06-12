@@ -1012,6 +1012,25 @@ truth and links the issue number.
   keeps it too, so SymPP matches by leaving it (it only folds when `n` is a
   known nonnegative integer).
 
+### FIB-CAT — `fibonacci` / `catalan` were not function types
+- **Input:** `fibonacci(10)`, `catalan(5)`, `fibonacci(x)`.
+- **Was:** the parser turned `fibonacci`/`catalan` into generic
+  undefined-function nodes — no evaluation at all.
+- **Now:** two distinct function types (`Fibonacci`/`Catalan` in
+  `functions/combinatorial.{hpp,cpp}`, new `FunctionId` values in the
+  combinatorial 700-block). Evaluate on non-negative integers —
+  `fibonacci` via GMP `mpz_fib_ui` (`fibonacci(10)=55`), `catalan` via
+  `binomial(2n,n)/(n+1)` (`catalan(5)=42`) — and stay symbolic for symbolic
+  args. Parser accepts both; `str()` round-trips. Safety bounds: `fibonacci`
+  n ≤ 1e6, `catalan` n ≤ 1e5.
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[fibonacci]`, `[catalan]` (values, parse round-trip, subs, symbolic
+  guards).
+- **Scope:** non-negative integer arguments. Negafibonacci (`fibonacci(-n)`),
+  negative `catalan`, and derivatives stay deferred (the latter matches
+  `factorial`'s existing 0-derivative convention). `gcd`/`lcm` as functions
+  remain a separate item.
+
 ### PARSE-1 — parser rejected the capitalised names `str()` emits
 - **Input:** `parse("Abs(-3)")`, `parse(abs(x)->str())` (= `parse("Abs(x)")`),
   same for `Heaviside`, `DiracDelta`.

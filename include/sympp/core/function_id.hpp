@@ -66,6 +66,8 @@ enum class FunctionId : std::uint16_t {
     RisingFactorial,
     FallingFactorial,
     Subfactorial,
+    Fibonacci,
+    Catalan,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

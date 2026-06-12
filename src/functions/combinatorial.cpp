@@ -107,6 +107,88 @@ Expr factorial(const Expr& arg) {
 }
 
 // ============================================================================
+// Fibonacci
+// ============================================================================
+
+Fibonacci::Fibonacci(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Fibonacci);
+}
+Expr Fibonacci::rebuild(std::vector<Expr> new_args) const {
+    return fibonacci(new_args[0]);
+}
+std::optional<bool> Fibonacci::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Nonnegative:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr fibonacci(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // Negafibonacci F(-n) = (-1)^(n+1)·F(n) deferred; keep symbolic.
+        if (z.is_negative()) return make<Fibonacci>(arg);
+        if (!z.fits_long()) return make<Fibonacci>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Fibonacci>(arg);  // safety bound
+        mpz_class r;
+        mpz_fib_ui(r.get_mpz_t(), static_cast<unsigned long>(n));
+        return make<Integer>(std::move(r));
+    }
+    return make<Fibonacci>(arg);
+}
+
+// ============================================================================
+// Catalan
+// ============================================================================
+
+Catalan::Catalan(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Catalan);
+}
+Expr Catalan::rebuild(std::vector<Expr> new_args) const {
+    return catalan(new_args[0]);
+}
+std::optional<bool> Catalan::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr catalan(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative()) return make<Catalan>(arg);
+        if (!z.fits_long()) return make<Catalan>(arg);
+        long n = z.to_long();
+        if (n > 100'000) return make<Catalan>(arg);  // safety bound
+        // Catalan(n) = binomial(2n, n) / (n + 1).
+        mpz_class bin;
+        mpz_bin_uiui(bin.get_mpz_t(), static_cast<unsigned long>(2 * n),
+                     static_cast<unsigned long>(n));
+        mpz_class r = bin / (n + 1);
+        return make<Integer>(std::move(r));
+    }
+    return make<Catalan>(arg);
+}
+
+// ============================================================================
 // Binomial
 // ============================================================================
 
