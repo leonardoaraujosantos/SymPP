@@ -923,6 +923,29 @@ truth and links the issue number.
 - **Scope:** integer `sechⁿ`/`cschⁿ`. With INT-27 this closes the
   reciprocal-power integration family (trig + hyperbolic, all six functions).
 
+### INT-29 — `integrate(asin/acos/atan/acot/asinh/acosh/atanh)` returned the marker
+- **Input:** `∫asin(x)`, `∫acos(x)`, `∫atan(x)`, `∫acot(x)`, `∫asinh(x)`,
+  `∫acosh(x)`, `∫atanh(x)`, and `∫x/√(a·x²+c)`.
+- **Was:** the marker — by-parts was only enabled for `log` and the
+  special-integral functions (erf, Si, Ci, Ei, Shi, Chi); a standalone inverse
+  trig/hyperbolic function fell through. The `asin`/`acos`/`asinh`/`acosh`
+  cases additionally need `∫x/√(quadratic)`, which had no rule.
+- **Expected (SymPy):** `x·asin(x) + √(1−x²)`, `x·atan(x) − log(x²+1)/2`,
+  `x·asinh(x) − √(x²+1)`, `x·atanh(x) + log(x²−1)/2`, etc.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - Extend the `by_parts_fn` whitelist in `try_integration_by_parts` to
+    `Asin/Acos/Atan/Acot/Asinh/Acosh/Atanh`. By parts gives
+    `∫f = x·f − ∫x·f'`, where `x·f'` is a rational (atan/acot/atanh) or
+    `x/√(quadratic)` (the rest).
+  - New `try_x_over_sqrt_quadratic`: `∫x/√(a·x²+c) = √(a·x²+c)/a`, matching a
+    lone `var` times a `(quadratic)^(−1/2)` factor with no linear term.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][invtrig][regression]` (seven inverse-function integrals plus
+  `∫x/√(quadratic)`, each verified by differentiation against the oracle).
+- **Scope:** the seven inverse functions whose `x·f'` the table/heurisch
+  closes. `acsc`/`asec`/`acoth`/`asech`/`acsch` reduce to integrands still out
+  of scope and remain unevaluated.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
