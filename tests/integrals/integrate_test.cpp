@@ -563,6 +563,51 @@ TEST_CASE("integrate: ∫1/(1+exp(2x)) dx (rational in exp(2x))",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- Polynomial × exp × sin/cos via cyclic by-parts (regression, INT-23) ---
+// ∫P(x)·e^(a·x)·sin/cos(g·x) fell through: the pure cyclic case bails on the
+// polynomial factor, and the single-function by-parts bails because u = x·sin(x)
+// isn't polynomial. By parts with u = P(x), dv = e·trig (the cyclic closed form)
+// lowers deg(P) each step down to the bare cyclic base case.
+TEST_CASE("integrate: ∫x*exp(x)*sin(x) dx (poly × exp × trig)",
+          "[7][integrate][byparts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * exp(x) * sin(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*exp(x)*cos(x) dx (poly × exp × cos)",
+          "[7][integrate][byparts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * exp(x) * cos(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x^2*exp(x)*sin(x) dx (degree-2 poly, recurses twice)",
+          "[7][integrate][byparts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) * exp(x) * sin(x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*exp(2x)*sin(3x) dx (non-unit exp and trig rates)",
+          "[7][integrate][byparts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * exp(integer(2) * x) * sin(integer(3) * x);
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP
