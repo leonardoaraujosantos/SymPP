@@ -14,6 +14,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### DIGAMMA-1 — `gamma`/`loggamma` derivatives were silently `0`
+- **Input:** `diff(gamma(x))`, `diff(loggamma(x))`, `diff(gamma(x²))`.
+- **Was:** `0` — `GammaFn`/`LogGamma` had no `diff_arg` override, so they fell
+  through to `Function::diff_arg`'s default of `0`. Differentiating either gave a
+  wrong answer with no error.
+- **Expected (SymPy):** `gamma(x)·polygamma(0, x)`, `polygamma(0, x)`,
+  `2·x·gamma(x²)·polygamma(0, x²)`.
+- **Fix:** new `polygamma(n, x)` special function (`src/functions/combinatorial.cpp`,
+  `FunctionId::PolyGamma`), kept symbolic for symbolic arguments as SymPy does,
+  with `∂/∂x polygamma(n,x) = polygamma(n+1, x)`. `GammaFn::diff_arg` now returns
+  `Γ(x)·polygamma(0,x)` and `LogGamma::diff_arg` returns `polygamma(0,x)`.
+  `digamma(x)` is provided as sugar for `polygamma(0, x)` (SymPy's canonical form
+  for `ψ`). Parser accepts `polygamma` and `digamma`.
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[gamma][diff][oracle][regression]`.
+- **Scope:** the derivative chain (Γ, logΓ, ψ⁽ⁿ⁾). `polygamma` is left symbolic —
+  numeric special values (`ψ(1) = −γ`, etc.) and `factorial`'s derivative remain
+  follow-ups.
+
 ### TRIG-PYTH — `trigsimp` didn't apply the additive trig Pythagorean identities
 - **Input:** `1 + tan²x`, `sec²x − tan²x`, `csc²x − cot²x`, `1 + cot²x`,
   `tan²x − sec²x`, `3 + 3tan²x`.

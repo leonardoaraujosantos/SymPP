@@ -58,6 +58,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "gamma"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Beta final : public Function {
@@ -80,6 +81,21 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "loggamma"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+// polygamma(n, x) = dⁿ⁺¹/dxⁿ⁺¹ log Γ(x); polygamma(0, x) is the digamma
+// function ψ(x). Kept symbolic for symbolic arguments, as SymPy does.
+class SYMPP_EXPORT PolyGammaFn final : public Function {
+public:
+    PolyGammaFn(Expr n, Expr x);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::PolyGamma;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "polygamma"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 class SYMPP_EXPORT Fibonacci final : public Function {
@@ -171,5 +187,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr subfactorial(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr polygamma(const Expr& n, const Expr& x);
+[[nodiscard]] SYMPP_EXPORT Expr digamma(const Expr& x);
 
 }  // namespace sympp

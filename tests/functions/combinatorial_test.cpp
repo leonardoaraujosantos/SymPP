@@ -9,11 +9,13 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/parsing/parser.hpp>
 
@@ -138,6 +140,29 @@ TEST_CASE("loggamma: classic values", "[3i][loggamma]") {
 TEST_CASE("loggamma: numeric Float matches mpfr_lngamma", "[3i][loggamma]") {
     auto e = loggamma(float_value(5.0));
     REQUIRE(e->type_id() == TypeId::Float);
+}
+
+// Γ', (logΓ)' and ψ⁽ⁿ⁾' previously fell through to the default diff_arg = 0
+// (DIGAMMA-1). They now produce polygamma, matching SymPy.
+TEST_CASE("gamma/loggamma/polygamma derivatives (DIGAMMA-1)",
+          "[3i][gamma][diff][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(diff(gamma(x), x)->str(),
+                              "gamma(x)*polygamma(0, x)"));
+    REQUIRE(oracle.equivalent(diff(loggamma(x), x)->str(), "polygamma(0, x)"));
+    // The polygamma order increments under differentiation; the chain doesn't
+    // collapse to 0.
+    REQUIRE(oracle.equivalent(diff(polygamma(integer(0), x), x)->str(),
+                              "polygamma(1, x)"));
+    REQUIRE(oracle.equivalent(diff(polygamma(integer(1), x), x)->str(),
+                              "polygamma(2, x)"));
+    // Chain rule through a non-trivial argument.
+    REQUIRE(oracle.equivalent(diff(gamma(pow(x, integer(2))), x)->str(),
+                              "2*x*gamma(x**2)*polygamma(0, x**2)"));
+    // digamma is sugar for polygamma(0, ·); parser round-trips polygamma.
+    REQUIRE(digamma(x) == polygamma(integer(0), x));
+    REQUIRE(parsing::parse("polygamma(0, x)") == polygamma(integer(0), x));
 }
 
 // ----- Substitution ----------------------------------------------------------
