@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-HYP-4 — `trigsimp` didn't apply the additive tanh/coth Pythagorean identities
+- **Input:** `1 − tanh²x`, `coth²x − 1`, `sech²x + tanh²x`,
+  `csch²x − coth²x`, `3 − 3tanh²x`.
+- **Was:** unchanged — `trigsimp` had the hyperbolic Pythagorean for `sinh`/`cosh`
+  (TRIG-HYP-1) but no analogue for the `tanh`/`coth`/`sech`/`csch` squares.
+- **Expected (SymPy):** `cosh⁻²x`, `sinh⁻²x`, `1`, `−1`, `3·cosh⁻²x`.
+- **Fix (`src/simplify/simplify.cpp`):** new `tanh_coth_pyth_add` (run inside
+  `trigsimp_node`) rewrites each squared `tanh/coth/sech/csch` term into the
+  `cosh⁻²`/`sinh⁻²` basis via `tanh² = 1 − cosh⁻²`, `coth² = 1 + sinh⁻²`,
+  `sech² = cosh⁻²`, `csch² = sinh⁻²`, accumulating the loose constants. The
+  rewrite is kept only when it lowers the number of additive terms, so a bare
+  `tanh²x` — or `2 − tanh²x`, where the constant survives — is left untouched.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[trigsimp][oracle][regression]`.
+- **Scope:** the additive squared-identity family; mixed/surviving-constant sums
+  are left as SymPy leaves them.
+
 ### TRIG-HYP-3 — `trigsimp` didn't cancel hyperbolic ratio products
 - **Input:** `tanh x·cosh x`, `coth x·sinh x`, `sech x·cosh x`,
   `csch x·sinh x`, `coth x·tanh x`, `3·tanh x·cosh x`, `tanh²x·cosh²x`.

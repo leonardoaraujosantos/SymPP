@@ -709,6 +709,120 @@ as_trig_square_term(const Expr& term) {
     return count_leaves(best) < count_leaves(e) ? best : e;
 }
 
+// Additive tanh/coth Pythagorean identities, using tanh² = 1 − sech² and
+// coth² = 1 + csch² (with sech² = cosh⁻², csch² = sinh⁻²). Each squared
+// tanh/coth/sech/csch term is rewritten into the cosh⁻²/sinh⁻² basis plus a
+// constant; the rewrite is kept only when it has strictly fewer leaves — which
+// happens exactly when the loose constant cancels:
+//   1 − tanh²x → cosh⁻²x,  coth²x − 1 → sinh⁻²x,
+//   sech²x + tanh²x → 1,   csch²x − coth²x → −1,  3 − 3tanh²x → 3cosh⁻²x.
+// A bare tanh²x (or 2 − tanh²x, where the constant survives) is left untouched.
+[[nodiscard]] Expr tanh_coth_pyth_add(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    // Detect a squared tanh/coth/sech/csch factor → (FunctionId, argument).
+    auto detect = [](const Expr& f)
+        -> std::optional<std::pair<FunctionId, Expr>> {
+        if (f->type_id() != TypeId::Pow || !(f->args()[1] == integer(2))) {
+            return std::nullopt;
+        }
+        const Expr& base = f->args()[0];
+        if (base->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*base);
+        switch (fn.function_id()) {
+            case FunctionId::Tanh:
+            case FunctionId::Coth:
+            case FunctionId::Sech:
+            case FunctionId::Csch:
+                return std::pair{fn.function_id(), base->args()[0]};
+            default:
+                return std::nullopt;
+        }
+    };
+    auto as_term = [&](const Expr& term)
+        -> std::optional<std::tuple<FunctionId, Expr, Expr>> {
+        if (auto r = detect(term)) {
+            return std::make_tuple(r->first, r->second, S::One());
+        }
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<std::pair<FunctionId, Expr>> hyp;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (auto r = detect(f)) {
+                    if (hyp) return std::nullopt;
+                    hyp = r;
+                } else {
+                    coef.push_back(f);
+                }
+            }
+            if (hyp) {
+                return std::make_tuple(hyp->first, hyp->second, mul(coef));
+            }
+        }
+        return std::nullopt;
+    };
+
+    struct Coefs {
+        Expr tanh2 = S::Zero();
+        Expr coth2 = S::Zero();
+        Expr sech2 = S::Zero();
+        Expr csch2 = S::Zero();
+    };
+    std::vector<std::pair<Expr, Coefs>> by_arg;
+    std::vector<Expr> rest;
+    auto find_or_create = [&](const Expr& a) -> Coefs& {
+        for (auto& [x, c] : by_arg) if (x == a) return c;
+        by_arg.push_back({a, Coefs{}});
+        return by_arg.back().second;
+    };
+    bool saw_convertible = false;
+    for (const auto& term : e->args()) {
+        if (auto t = as_term(term)) {
+            auto& c = find_or_create(std::get<1>(*t));
+            const Expr& k = std::get<2>(*t);
+            switch (std::get<0>(*t)) {
+                case FunctionId::Tanh: c.tanh2 = add(c.tanh2, k); break;
+                case FunctionId::Coth: c.coth2 = add(c.coth2, k); break;
+                case FunctionId::Sech: c.sech2 = add(c.sech2, k); break;
+                case FunctionId::Csch: c.csch2 = add(c.csch2, k); break;
+                default: break;
+            }
+            if (std::get<0>(*t) == FunctionId::Tanh
+                || std::get<0>(*t) == FunctionId::Coth) {
+                saw_convertible = true;
+            }
+        } else {
+            rest.push_back(term);
+        }
+    }
+    // Only the tanh²/coth² → constant rewrites can make a constant cancel; a
+    // pure sech²/csch² sum has nothing to gain, so skip it.
+    if (!saw_convertible) return e;
+
+    std::vector<Expr> out = rest;
+    for (auto& [arg, c] : by_arg) {
+        // tanh² = 1 − cosh⁻²,  coth² = 1 + sinh⁻²,  sech² = cosh⁻²,  csch² = sinh⁻².
+        out.push_back(c.tanh2 + c.coth2);  // loose constant from the conversions
+        Expr cosh_inv2 = c.sech2 - c.tanh2;
+        Expr sinh_inv2 = c.csch2 + c.coth2;
+        if (!(cosh_inv2 == S::Zero())) {
+            out.push_back(cosh_inv2 * pow(cosh(arg), integer(-2)));
+        }
+        if (!(sinh_inv2 == S::Zero())) {
+            out.push_back(sinh_inv2 * pow(sinh(arg), integer(-2)));
+        }
+    }
+    Expr rebuilt = out.empty() ? Expr{S::Zero()}
+                   : out.size() == 1 ? out[0]
+                                     : add(std::move(out));
+    // These identities are wins only when they shrink the sum; otherwise they
+    // just trade a tanh²/coth² for an equally complex 1 + sech² form (which
+    // SymPy leaves alone). Compare the number of additive terms.
+    auto term_count = [](const Expr& x) -> std::size_t {
+        return x->type_id() == TypeId::Add ? x->args().size() : 1;
+    };
+    return term_count(rebuilt) < e->args().size() ? rebuilt : e;
+}
+
 // cosh(x) + sinh(x) → eˣ and cosh(x) − sinh(x) → e⁻ˣ (and scaled forms, when the
 // cosh and sinh coefficients match up to a sign). Collapses a 2-term sum into a
 // single exponential, matching SymPy's simplify.
@@ -837,6 +951,7 @@ as_trig_square_term(const Expr& term) {
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = hypsimp_add(cur);
+    cur = tanh_coth_pyth_add(cur);
     cur = hyp_to_exp_add(cur);
     cur = trigsimp_mul(cur);
     cur = hyp_ratio_mul(cur);
