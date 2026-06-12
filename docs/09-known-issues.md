@@ -726,7 +726,25 @@ truth and links the issue number.
   — `[integrate][reciprocal][regression]` (six cases incl. cubes/quartics and
   affine scaling, verified by differentiation against the oracle).
 - **Scope:** `sec²/csc²/cot²` and integer `cotⁿ`. `∫secⁿ`/`∫cscⁿ` for n ≥ 3
-  need a by-parts reduction and stay deferred.
+  ship in INT-27.
+
+### INT-27 — `∫secⁿ` / `∫cscⁿ` (n ≥ 3) returned the marker
+- **Input:** `∫sec³`, `∫sec⁴`, `∫csc³`, `∫csc⁴`, `∫sec(2x)³`.
+- **Was:** the marker — only the `n = 1` table case (INT-24) and `n = 2` square
+  (INT-25) were handled; higher powers of `sec`/`csc` have no simple Pythagorean
+  reduction (unlike `tan`/`cot`) and need integration by parts.
+- **Expected (SymPy):** e.g. `∫sec³ = sec·tan/2 + log(sec+tan)/2` (SymPP emits
+  the equivalent `sin/cos` log form).
+- **Fix (`src/integrals/integrate.cpp`):** new `try_sec_csc_power` with the
+  by-parts reduction, recursing to the `∫sec`/`∫sec²` base cases:
+  - `∫secⁿ =  sec^(n-2)·tan/((n-1)·g') + (n-2)/(n-1)·∫sec^(n-2)`
+  - `∫cscⁿ = −csc^(n-2)·cot/((n-1)·g') + (n-2)/(n-1)·∫csc^(n-2)`
+  Dispatched right after `try_tan_power`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][reciprocal][regression]` (five cases incl. affine scaling,
+  verified by differentiation against the oracle).
+- **Scope:** integer `secⁿ`/`cscⁿ`. The hyperbolic `cothⁿ`/`sechⁿ`/`cschⁿ`
+  (n ≥ 3) analogues stay deferred (no `tanhⁿ` handler either).
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
