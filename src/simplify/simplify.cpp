@@ -24,6 +24,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
@@ -112,6 +113,7 @@ namespace {
 // Forward declarations; defined below, used by the simplify pipeline.
 [[nodiscard]] Expr pow_of_pow_node(const Expr& e);
 [[nodiscard]] Expr pow_of_pow(const Expr& e);
+[[nodiscard]] Expr combine_exp(const Expr& e);
 
 }  // namespace
 
@@ -126,6 +128,7 @@ Expr simplify(const Expr& e) {
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
     current = powsimp(current);
+    current = combine_exp(current);
     current = pow_of_pow(current);
     current = combsimp(current);
     current = gammasimp(current);
@@ -281,6 +284,48 @@ namespace {
     return e;
 }
 
+// Combine exponential factors in a product: e^a · e^b → e^(a+b), and e^a · (e^b)^k
+// → e^(a + k·b). The canonical Mul keeps exp(a)·exp(b) separate (exp is a
+// Function, not Pow(E, ·)), so this matches SymPy's `simplify`/`powsimp`. e^0
+// folds to 1, so e.g. e^x · e^(−x) → 1.
+[[nodiscard]] Expr combine_exp_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto exp_arg_of = [](const Expr& f) -> std::optional<Expr> {
+        // exp(a) → a; (exp(a))^k → k·a.
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                return fn.args()[0];
+            }
+        }
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& b = f->args()[0];
+            if (b->type_id() == TypeId::Function) {
+                const auto& bfn = static_cast<const Function&>(*b);
+                if (bfn.function_id() == FunctionId::Exp
+                    && bfn.args().size() == 1) {
+                    return mul(f->args()[1], bfn.args()[0]);
+                }
+            }
+        }
+        return std::nullopt;
+    };
+    Expr exp_arg = S::Zero();
+    int count = 0;
+    std::vector<Expr> others;
+    for (const auto& f : e->args()) {
+        if (auto a = exp_arg_of(f); a.has_value()) {
+            exp_arg = exp_arg + *a;
+            ++count;
+        } else {
+            others.push_back(f);
+        }
+    }
+    if (count < 2) return e;  // nothing to merge
+    others.push_back(exp(exp_arg));
+    return mul(std::move(others));
+}
+
 }  // namespace
 
 Expr powsimp(const Expr& e) {
@@ -347,6 +392,8 @@ template <typename NodeFn>
 }
 
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
+
+Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 
 }  // namespace
 
