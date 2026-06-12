@@ -65,6 +65,29 @@ TEST_CASE("sqrt: pulls out square factors and rationalises",
     REQUIRE(oracle.equivalent(sqrt(rational(2, 3))->str(), "sqrt(6)/3"));
 }
 
+// Regression (NROOT-1): n-th-root factor extraction generalises SQRT-2 to any
+// 1/n power. cbrt(16) → 2·cbrt(2), 96^(1/5) → 2·3^(1/5), 48^(1/4) → 2·3^(1/4),
+// and the rational form (16/27)^(1/3) → 2·2^(1/3)/3. A prime radicand stays put.
+TEST_CASE("nth-root: pulls out n-th-power factors and rationalises",
+          "[3d][sqrt][nthroot][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto root = [](int b, int n) {
+        return pow(integer(b), rational(1, n))->str();
+    };
+    REQUIRE(oracle.equivalent(root(16, 3), "2*2**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(root(54, 3), "3*2**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(root(24, 3), "2*3**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(root(96, 5), "2*3**Rational(1,5)"));
+    REQUIRE(oracle.equivalent(root(48, 4), "2*3**Rational(1,4)"));
+    REQUIRE(oracle.equivalent(
+        pow(rational(16, 27), rational(1, 3))->str(), "2*2**Rational(1,3)/3"));
+    REQUIRE(oracle.equivalent(
+        pow(rational(2, 3), rational(1, 3))->str(), "18**Rational(1,3)/3"));
+    // Prime radicand stays put (nothing pulls out).
+    REQUIRE(oracle.equivalent(pow(integer(7), rational(1, 3))->str(),
+                              "7**Rational(1,3)"));
+}
+
 // Regression (SQRT-3): principal square root of a negative number is
 // imaginary — √(−a) = I·√a. SQRT-1/SQRT-2 deferred negative bases; this
 // handles them for the ½ power, reusing the magnitude reduction.

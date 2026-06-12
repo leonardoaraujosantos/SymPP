@@ -202,16 +202,21 @@ namespace {
     return std::nullopt;
 }
 
-// Square-root factor extraction for a positive Integer or Rational radicand
-// that is NOT a perfect square: √N = s·√m with N = s²·m. For a rational p/q it
-// uses √(p/q) = √(p·q)/q, yielding SymPy's rationalised form (√(2/3) = √6/3,
-// √(8/9) = 2√2/3). Scoped to square roots; returns nullopt when nothing pulls
-// out (s == 1) or the radicand is too large to factor cheaply.
-[[nodiscard]] std::optional<Expr> try_sqrt_factor_extraction(const Expr& base,
-                                                             const Expr& exp) {
+// N-th-root factor extraction for a positive Integer or Rational radicand under
+// a unit 1/n power (n ≥ 2): N^(1/n) = s · m^(1/n) with N = sⁿ · m. For a rational
+// p/q it rationalises via (p/q)^(1/n) = (p·q^(n-1))^(1/n)/q — the n-th-root
+// generalisation of √(p/q) = √(p·q)/q (so √(2/3) = √6/3, cbrt(16) = 2·cbrt(2),
+// (2/3)^(1/3) = 18^(1/3)/3). Returns nullopt when nothing pulls out (s == 1,
+// integer radicand) or the radicand is too large to factor cheaply.
+[[nodiscard]] std::optional<Expr> try_nth_root_factor_extraction(const Expr& base,
+                                                                 const Expr& exp) {
     if (exp->type_id() != TypeId::Rational) return std::nullopt;
     const auto& q = static_cast<const Rational&>(*exp);
-    if (!(q.numerator() == 1 && q.denominator() == 2)) return std::nullopt;
+    if (!(q.numerator() == 1)) return std::nullopt;
+    const mpz_class& denq = q.denominator();
+    if (!denq.fits_ulong_p()) return std::nullopt;
+    const unsigned long n = denq.get_ui();
+    if (n < 2) return std::nullopt;
 
     mpz_class num, den(1);
     if (base->type_id() == TypeId::Integer) {
@@ -227,30 +232,38 @@ namespace {
         return std::nullopt;
     }
 
-    // Radicand under a single root: √(num/den) = √(num·den)/den.
-    mpz_class radicand = num * den;
+    // Radicand under a single n-th root: (num/den)^(1/n) = (num·den^(n-1))^(1/n)/den.
+    mpz_class radicand = num;
+    if (den != 1) {
+        mpz_class denpow;
+        mpz_pow_ui(denpow.get_mpz_t(), den.get_mpz_t(), n - 1);
+        radicand *= denpow;
+    }
 
     // Bound the trial division so a huge radicand can never hang the process.
     constexpr unsigned long kMaxRadicand = 1000000000000UL;  // 1e12 → ≤1e6 iters
     if (mpz_cmp_ui(radicand.get_mpz_t(), kMaxRadicand) > 0) return std::nullopt;
 
-    // Pull out the largest square factor: radicand = s² · m, m square-free.
+    // Pull out the largest n-th-power factor: radicand = sⁿ · m, m n-th-power-free.
+    // d ranges over candidate factors; dⁿ grows fast, so the loop is bounded by
+    // m^(1/n) (≤ 1e6 iterations for n=2, fewer for larger n).
     mpz_class s(1), m(radicand);
-    for (mpz_class d(2); d * d <= m; ++d) {
-        mpz_class d2 = d * d;
-        while (mpz_divisible_p(m.get_mpz_t(), d2.get_mpz_t())) {
+    for (mpz_class d(2);; ++d) {
+        mpz_class dn;
+        mpz_pow_ui(dn.get_mpz_t(), d.get_mpz_t(), n);
+        if (dn > m) break;
+        while (mpz_divisible_p(m.get_mpz_t(), dn.get_mpz_t())) {
             s *= d;
-            m /= d2;
+            m /= dn;
         }
     }
-    // For an integer radicand (den == 1) with no square factor (s == 1) there
-    // is nothing to do — leave it symbolic. A rational radicand still gets
-    // rationalised even when s == 1 (√(2/3) = √6/3), so only the integer case
-    // bails here.
+    // For an integer radicand (den == 1) with no factor (s == 1) there is nothing
+    // to do — leave it symbolic. A rational radicand still gets rationalised even
+    // when s == 1 (√(2/3) = √6/3), so only the integer case bails here.
     if (s == 1 && den == 1) return std::nullopt;
 
-    // (s / den) · √m.  den == 1 for an integer radicand → plain s·√m. √m stays
-    // symbolic: m is square-free, so this recursion bottoms out immediately.
+    // (s / den) · m^(1/n).  m is n-th-power-free, so the radical stays symbolic
+    // and this bottoms out immediately.
     Expr radical = pow(make<Integer>(m), exp);
     return mul(rational(s, den), radical);
 }
@@ -347,8 +360,9 @@ Expr pow(const Expr& base, const Expr& exp) {
         if (auto root = try_perfect_root(base, exp); root.has_value()) {
             return *root;
         }
-        // √N where N is not a perfect square — pull out the square factor.
-        if (auto ext = try_sqrt_factor_extraction(base, exp); ext.has_value()) {
+        // N^(1/n) where N is not a perfect n-th power — pull out the largest
+        // n-th-power factor (cbrt(16) = 2·cbrt(2), √12 = 2√3).
+        if (auto ext = try_nth_root_factor_extraction(base, exp); ext.has_value()) {
             return *ext;
         }
         // √(−a) = I·√a for a negative numeric base.
