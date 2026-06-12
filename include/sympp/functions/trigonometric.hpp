@@ -1,16 +1,16 @@
 #pragma once
 
-// Elementary trigonometric functions: sin, cos, tan.
+// Elementary trigonometric functions: sin, cos, tan, and the reciprocal trio
+// cot, sec, csc.
 //
 // Auto-evaluation:
-//   * sin(0) = 0, cos(0) = 1, tan(0) = 0
+//   * sin(0) = 0, cos(0) = 1, tan(0) = 0, sec(0) = 1
 //   * sin(pi) = 0, cos(pi) = -1, tan(pi) = 0
 //   * sin(pi/2) = 1, cos(pi/2) = 0
 //   * sin(-x) = -sin(x), cos(-x) = cos(x), tan(-x) = -tan(x)
+//   * cot/sec/csc fold exact values via cos(rπ)/sin(rπ); cot(0)=sec(pi/2)=
+//     csc(0)=zoo (poles); cot(-x)=-cot(x), csc(-x)=-csc(x), sec(-x)=sec(x)
 //   * Numeric arg → evalf via MPFR
-//
-// Inverse trigonometric (asin, acos, atan, atan2) and the reciprocal trio
-// (cot, sec, csc) come in a follow-up sub-phase.
 //
 // Reference: sympy/functions/elementary/trigonometric.py
 
@@ -58,11 +58,44 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+class SYMPP_EXPORT Cot final : public Function {
+public:
+    explicit Cot(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Cot; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "cot"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Sec final : public Function {
+public:
+    explicit Sec(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Sec; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "sec"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Csc final : public Function {
+public:
+    explicit Csc(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Csc; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "csc"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 // Factories — apply auto-eval rules. May return non-Sin/Cos/Tan results
 // (numeric values, simpler expressions).
 [[nodiscard]] SYMPP_EXPORT Expr sin(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr cos(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr tan(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr cot(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr sec(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr csc(const Expr& arg);
 
 // ----- Inverse trigonometric -------------------------------------------------
 //

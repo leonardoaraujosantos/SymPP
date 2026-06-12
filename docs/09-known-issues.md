@@ -85,9 +85,9 @@ truth and links the issue number.
   SymPP emits the `sin/cos` forms, equivalent to SymPy's `tan`/`-cot`.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[trig][regression]`.
-- **Scope:** `sec`/`csc`/`cot` are not distinct function types in SymPP, so
-  results are spelled with `sin`/`cos`. Inverse-trig antiderivatives
-  (`∫1/(1+x²) = atan`, `∫1/√(1-x²) = asin`) remain deferred.
+- **Scope:** `sec`/`csc`/`cot` now exist as distinct function types (TRIG-RECIP)
+  but their antiderivatives are a separate item; inverse-trig antiderivatives
+  (`∫1/(1+x²) = atan`, `∫1/√(1-x²) = asin`) are handled by INT-5/INT-6.
 
 ### INT-4 — `integrate(xⁿ·log(x))` returned the unevaluated marker
 - **Input:** `integrate(x*log(x))`, `integrate(x**2*log(x))`,
@@ -627,6 +627,31 @@ truth and links the issue number.
 - **Scope:** a single `exp(affine)` and a single `sin/cos(affine)` with a
   polynomial multiplier. `exp·sinh/cosh` (non-cyclic) and products of two trig
   factors remain separate.
+
+### TRIG-RECIP — `sec`, `csc`, `cot` were not function types
+- **Input:** `cot(pi/4)`, `sec(pi/3)`, `csc(pi/6)`, `cot(0)`, `sec(x)`,
+  `diff(cot(x))`, `parse("csc(x)")`.
+- **Was:** the parser turned `sec`/`csc`/`cot` into generic undefined-function
+  nodes — no auto-evaluation, no derivatives, no exact values; SymPy results
+  could only be matched after a manual `1/cos`-style rewrite.
+- **Now:** three distinct function types (`Cot`/`Sec`/`Csc` in
+  `functions/trigonometric.{hpp,cpp}`, enum values already reserved). Each
+  factory folds exact values at rational multiples of π via the existing
+  `cos_pi`/`sin_pi`/`tan_pi` tables, handles poles → `zoo`
+  (`cot(0)=sec(π/2)=csc(0)`), parity (`cot`/`csc` odd, `sec` even), period, the
+  inverse compositions (`cot(atan x)=1/x`, …), and numeric `Float` evalf.
+  Derivatives: `cot'=-csc²`, `sec'=sec·tan`, `csc'=-csc·cot`. Parser + LaTeX
+  printer (`\cot`/`\sec`/`\csc`) updated; `str()`/C/Octave fall back to the
+  `name()` spelling (Octave/MATLAB have these natively).
+- **Implementation note:** exact values use a `recip_value` helper that inverts
+  a clean `coeff·√k` value by parts (`c⁻¹·k⁻¹ᐟ²`) so the radical stays
+  rationalised; `cot` routes through `1/tan(rπ)` to avoid multiplying two equal
+  radicals (`√2·√2`), which the Mul canonicaliser leaves unfolded.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][reciprocal]` (canonical angles, poles, parity, inverse comps,
+  parse round-trip, derivatives, evalf — verified against the oracle).
+- **Scope:** the antiderivatives `∫cot/sec/csc` are a separate follow-up
+  (INT-24); `acot`/`asec`/`acsc` inverses are not yet added.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,

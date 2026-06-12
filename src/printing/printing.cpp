@@ -369,6 +369,8 @@ protected:
             {FunctionId::Sin, "\\sin"}, {FunctionId::Cos, "\\cos"},
             {FunctionId::Tan, "\\tan"}, {FunctionId::Asin, "\\arcsin"},
             {FunctionId::Acos, "\\arccos"}, {FunctionId::Atan, "\\arctan"},
+            {FunctionId::Cot, "\\cot"}, {FunctionId::Sec, "\\sec"},
+            {FunctionId::Csc, "\\csc"},
             {FunctionId::Sinh, "\\sinh"}, {FunctionId::Cosh, "\\cosh"},
             {FunctionId::Tanh, "\\tanh"},
             {FunctionId::Exp, "\\exp"}, {FunctionId::Log, "\\log"},

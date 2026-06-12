@@ -199,6 +199,27 @@ namespace {
     return {total, add(std::move(rest))};
 }
 
+// Rationalised reciprocal of a clean trig value — a rational, or a product of a
+// rational coefficient and a single radical n^(1/2) (the forms cos_pi/sin_pi
+// emit). Inverting the coefficient and the radical separately keeps the result
+// rationalised: (c·√k)⁻¹ = c⁻¹·k⁻¹ᐟ², and k⁻¹ᐟ² folds to √k/k (SQRT-4). A plain
+// pow(c·√k, −1) would instead leave the composite base under a −1 power.
+[[nodiscard]] Expr recip_value(const Expr& v) {
+    Expr coeff = S::One();
+    Expr radical = S::One();
+    if (v->type_id() == TypeId::Mul) {
+        for (const auto& f : v->args()) {
+            if (is_number(f)) coeff = mul(coeff, f);
+            else radical = mul(radical, f);
+        }
+    } else if (is_number(v)) {
+        coeff = v;
+    } else {
+        radical = v;
+    }
+    return mul(pow(coeff, S::NegativeOne()), pow(radical, S::NegativeOne()));
+}
+
 }  // namespace
 
 // ----- Sin -------------------------------------------------------------------
@@ -271,6 +292,38 @@ std::optional<bool> Tan::ask(AssumptionKey k) const noexcept {
         default:
             return std::nullopt;
     }
+}
+
+// ----- Cot / Sec / Csc -------------------------------------------------------
+// The reciprocal trio. Each is real wherever its defining sin/cos is non-zero;
+// as with Tan we report Real only when the argument is real and accept the
+// implicit non-pole caveat (matching SymPy).
+
+Cot::Cot(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Cot);
+}
+Expr Cot::rebuild(std::vector<Expr> new_args) const { return cot(new_args[0]); }
+std::optional<bool> Cot::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Sec::Sec(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Sec);
+}
+Expr Sec::rebuild(std::vector<Expr> new_args) const { return sec(new_args[0]); }
+std::optional<bool> Sec::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Csc::Csc(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Csc);
+}
+Expr Csc::rebuild(std::vector<Expr> new_args) const { return csc(new_args[0]); }
+std::optional<bool> Csc::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
 }
 
 // ----- Factories -------------------------------------------------------------
@@ -413,6 +466,100 @@ Expr tan(const Expr& arg) {
     }
 
     return make<Tan>(arg);
+}
+
+Expr cot(const Expr& arg) {
+    // cot = cos/sin, period π, odd.
+    if (arg == S::Zero()) return S::ComplexInfinity();  // cot(0) = zoo (pole)
+    if (arg->type_id() == TypeId::Float) {
+        return mul(trig_evalf(mpfr_cos, arg),
+                   pow(trig_evalf(mpfr_sin, arg), S::NegativeOne()));
+    }
+    // cot(atan(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) {
+        return pow(*v, S::NegativeOne());
+    }
+    // Exact value at a rational multiple of π via 1/tan(rπ). Reducing mod 1
+    // first lets us split the two singular families cleanly: r ≡ 0 (sin = 0) is
+    // a pole → zoo (cot(kπ)); r ≡ 1/2 (cos = 0) → 0 (cot(π/2+kπ)); otherwise
+    // recip_value(tan(rπ)). Using tan (rather than cos·1/sin) avoids multiplying
+    // two radicals, which the Mul canonicaliser leaves unfolded (e.g. √2·√2).
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        mpq_class rr = *r;
+        mpz_class k;
+        mpz_fdiv_q(k.get_mpz_t(), rr.get_num_mpz_t(), rr.get_den_mpz_t());
+        rr -= mpq_class(k);  // reduce into [0, 1)
+        if (rr == 0) return S::ComplexInfinity();
+        if (2 * rr.get_num() == rr.get_den()) return S::Zero();
+        if (auto t = tan_pi(rr); t.has_value()) return recip_value(*t);
+    }
+    // Period π: cot(rest + k·π) = cot(rest).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        return cot(rest);
+    }
+    // Odd: cot(-x) = -cot(x).
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Cot>(*pos));
+    }
+    return make<Cot>(arg);
+}
+
+Expr sec(const Expr& arg) {
+    // sec = 1/cos, period 2π with sign flip at π, even.
+    if (arg == S::Zero()) return S::One();
+    if (arg->type_id() == TypeId::Float) {
+        return pow(trig_evalf(mpfr_cos, arg), S::NegativeOne());
+    }
+    // sec(acos(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Acos); v.has_value()) {
+        return pow(*v, S::NegativeOne());
+    }
+    // Exact value: 1/cos(rπ); cos(rπ)=0 is a pole → ComplexInfinity (sec(π/2)).
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        if (auto cv = cos_pi(*r); cv.has_value()) {
+            if (*cv == S::Zero()) return S::ComplexInfinity();
+            return recip_value(*cv);
+        }
+    }
+    // Period: sec(rest + k·π) = (−1)^k·sec(rest).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        bool odd = mpz_odd_p(c.get_num_mpz_t());
+        return odd ? mul(S::NegativeOne(), sec(rest)) : sec(rest);
+    }
+    // Even: sec(-x) = sec(x).
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return make<Sec>(*pos);
+    }
+    return make<Sec>(arg);
+}
+
+Expr csc(const Expr& arg) {
+    // csc = 1/sin, period 2π with sign flip at π, odd.
+    if (arg == S::Zero()) return S::ComplexInfinity();  // csc(0) = zoo (pole)
+    if (arg->type_id() == TypeId::Float) {
+        return pow(trig_evalf(mpfr_sin, arg), S::NegativeOne());
+    }
+    // csc(asin(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Asin); v.has_value()) {
+        return pow(*v, S::NegativeOne());
+    }
+    // Exact value: 1/sin(rπ); sin(rπ)=0 is a pole → ComplexInfinity (csc(0)).
+    if (auto r = pi_coefficient(arg); r.has_value()) {
+        if (auto sv = sin_pi(*r); sv.has_value()) {
+            if (*sv == S::Zero()) return S::ComplexInfinity();
+            return recip_value(*sv);
+        }
+    }
+    // Period: csc(rest + k·π) = (−1)^k·csc(rest).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
+        bool odd = mpz_odd_p(c.get_num_mpz_t());
+        return odd ? mul(S::NegativeOne(), csc(rest)) : csc(rest);
+    }
+    // Odd: csc(-x) = -csc(x).
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Csc>(*pos));
+    }
+    return make<Csc>(arg);
 }
 
 // ============================================================================
@@ -607,6 +754,18 @@ Expr Cos::diff_arg(std::size_t /*i*/) const {
 }
 Expr Tan::diff_arg(std::size_t /*i*/) const {
     return add(S::One(), pow(tan(args_[0]), integer(2)));
+}
+Expr Cot::diff_arg(std::size_t /*i*/) const {
+    // d/dx cot(x) = -csc²(x) = -(1 + cot²(x)).
+    return mul(S::NegativeOne(), add(S::One(), pow(cot(args_[0]), integer(2))));
+}
+Expr Sec::diff_arg(std::size_t /*i*/) const {
+    // d/dx sec(x) = sec(x)·tan(x).
+    return mul(sec(args_[0]), tan(args_[0]));
+}
+Expr Csc::diff_arg(std::size_t /*i*/) const {
+    // d/dx csc(x) = -csc(x)·cot(x).
+    return mul(S::NegativeOne(), mul(csc(args_[0]), cot(args_[0])));
 }
 
 Expr Asin::diff_arg(std::size_t /*i*/) const {

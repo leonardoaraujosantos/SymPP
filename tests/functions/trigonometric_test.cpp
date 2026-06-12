@@ -18,7 +18,9 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -249,4 +251,93 @@ TEST_CASE("trig: composite expressions match SymPy", "[3b][trig][oracle]") {
     auto x = symbol("x");
     auto e = sin(x) + integer(2) * cos(x);
     REQUIRE(oracle.equivalent(e->str(), "sin(x) + 2*cos(x)"));
+}
+
+// ----- Reciprocal trio: cot, sec, csc ----------------------------------------
+
+TEST_CASE("cot/sec/csc: canonical-angle exact values", "[3b][trig][reciprocal]") {
+    auto pi = S::Pi();
+    // cot(π/4) = 1, cot(3π/4) = -1, cot(π/2) = 0.
+    REQUIRE(cot(mul(rational(1, 4), pi)) == S::One());
+    REQUIRE(cot(mul(rational(3, 4), pi)) == S::NegativeOne());
+    REQUIRE(cot(mul(S::Half(), pi)) == S::Zero());
+    REQUIRE(cot(mul(rational(1, 6), pi)) == pow(integer(3), rational(1, 2)));
+    // sec(0) = 1, sec(π/3) = 2, sec(2π/3) = -2.
+    REQUIRE(sec(S::Zero()) == S::One());
+    REQUIRE(sec(mul(rational(1, 3), pi)) == integer(2));
+    REQUIRE(sec(mul(rational(2, 3), pi)) == integer(-2));
+    REQUIRE(sec(S::Pi()) == S::NegativeOne());
+    // csc(π/2) = 1, csc(π/6) = 2.
+    REQUIRE(csc(mul(S::Half(), pi)) == S::One());
+    REQUIRE(csc(mul(rational(1, 6), pi)) == integer(2));
+}
+
+TEST_CASE("cot/sec/csc: poles fold to ComplexInfinity (zoo)",
+          "[3b][trig][reciprocal]") {
+    auto pi = S::Pi();
+    REQUIRE(cot(S::Zero()) == S::ComplexInfinity());  // sin = 0
+    REQUIRE(cot(pi) == S::ComplexInfinity());
+    REQUIRE(csc(S::Zero()) == S::ComplexInfinity());
+    REQUIRE(sec(mul(S::Half(), pi)) == S::ComplexInfinity());  // cos = 0
+}
+
+TEST_CASE("cot/sec/csc: parity (cot/csc odd, sec even)",
+          "[3b][trig][reciprocal]") {
+    auto x = symbol("x");
+    REQUIRE(cot(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), cot(x)));
+    REQUIRE(csc(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), csc(x)));
+    REQUIRE(sec(mul(S::NegativeOne(), x)) == sec(x));
+}
+
+TEST_CASE("cot/sec/csc: inverse-function compositions", "[3b][trig][reciprocal]") {
+    auto x = symbol("x");
+    REQUIRE(cot(atan(x)) == pow(x, S::NegativeOne()));   // cot(atan x) = 1/x
+    REQUIRE(sec(acos(x)) == pow(x, S::NegativeOne()));   // sec(acos x) = 1/x
+    REQUIRE(csc(asin(x)) == pow(x, S::NegativeOne()));   // csc(asin x) = 1/x
+}
+
+TEST_CASE("cot/sec/csc: real for real argument", "[3b][trig][reciprocal][assumptions]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(is_real(cot(x)) == true);
+    REQUIRE(is_real(sec(x)) == true);
+    REQUIRE(is_real(csc(x)) == true);
+}
+
+TEST_CASE("cot/sec/csc: parse round-trip", "[3b][trig][reciprocal][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("cot(x)") == cot(x));
+    REQUIRE(parsing::parse("sec(x)") == sec(x));
+    REQUIRE(parsing::parse("csc(x)") == csc(x));
+    // str() emits the canonical spelling, so parse(e->str()) == e.
+    REQUIRE(cot(x)->str() == "cot(x)");
+    REQUIRE(sec(x)->str() == "sec(x)");
+    REQUIRE(csc(x)->str() == "csc(x)");
+}
+
+TEST_CASE("cot/sec/csc: derivatives match SymPy", "[3b][trig][reciprocal][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // d/dx cot = -csc², d/dx sec = sec·tan, d/dx csc = -csc·cot.
+    REQUIRE(oracle.equivalent(diff(cot(x), x)->str(), "-csc(x)**2"));
+    REQUIRE(oracle.equivalent(diff(sec(x), x)->str(), "sec(x)*tan(x)"));
+    REQUIRE(oracle.equivalent(diff(csc(x), x)->str(), "-csc(x)*cot(x)"));
+}
+
+TEST_CASE("cot/sec/csc: exact values match SymPy (radical forms)",
+          "[3b][trig][reciprocal][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(cot(mul(rational(1, 3), pi))->str(), "sqrt(3)/3"));
+    REQUIRE(oracle.equivalent(sec(mul(rational(1, 4), pi))->str(), "sqrt(2)"));
+    REQUIRE(oracle.equivalent(sec(mul(rational(1, 6), pi))->str(), "2*sqrt(3)/3"));
+    REQUIRE(oracle.equivalent(csc(mul(rational(1, 4), pi))->str(), "sqrt(2)"));
+}
+
+TEST_CASE("cot/sec/csc: numeric Float arg evalf matches SymPy",
+          "[3b][trig][reciprocal][evalf][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto e = cot(float_value("1.5", 30));
+    REQUIRE(e->type_id() == TypeId::Float);
+    auto sympy_value = oracle.evalf("cot(Rational(3, 2))", 30);
+    REQUIRE(oracle.equivalent(e->str(), sympy_value));
 }

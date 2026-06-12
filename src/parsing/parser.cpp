@@ -142,6 +142,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
 [[nodiscard]] const std::map<std::string, OneArgFn>& one_arg_funcs() {
     static const std::map<std::string, OneArgFn> table = {
         {"sin", &sin}, {"cos", &cos}, {"tan", &tan},
+        {"cot", &cot}, {"sec", &sec}, {"csc", &csc},
         {"asin", &asin}, {"acos", &acos}, {"atan", &atan},
         {"sinh", &sinh}, {"cosh", &cosh}, {"tanh", &tanh},
         {"asinh", &asinh}, {"acosh", &acosh}, {"atanh", &atanh},
