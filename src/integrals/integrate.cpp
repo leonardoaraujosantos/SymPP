@@ -187,6 +187,15 @@ namespace {
                     case FunctionId::Tanh:
                         // ∫tanh(ax+b) dx = log(cosh(ax+b))/a
                         return log(cosh(inner)) / a;
+                    case FunctionId::Coth:
+                        // ∫coth(ax+b) dx = log(sinh(ax+b))/a
+                        return log(sinh(inner)) / a;
+                    case FunctionId::Sech:
+                        // ∫sech(ax+b) dx = atan(sinh(ax+b))/a (Gudermannian).
+                        return atan(sinh(inner)) / a;
+                    case FunctionId::Csch:
+                        // ∫csch(ax+b) dx = log(tanh((ax+b)/2))/a.
+                        return log(tanh(inner / integer(2))) / a;
                     default:
                         break;
                 }
@@ -808,6 +817,23 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
                 if (fn.function_id() == FunctionId::Cot
                     && as_affine(u, var)) {
                     Expr rewritten = pow(sin(u), integer(-2)) - integer(1);
+                    return integrate(rewritten, var);
+                }
+                // Hyperbolic reciprocal squares, rewritten to the 1/cosh²,
+                // 1/sinh² table cases (affine u only): sech²(u) = 1/cosh²(u),
+                // csch²(u) = 1/sinh²(u), coth²(u) = 1/sinh²(u) + 1 (since
+                // coth² − csch² = 1).
+                if (fn.function_id() == FunctionId::Sech
+                    && as_affine(u, var)) {
+                    return integrate(pow(cosh(u), integer(-2)), var);
+                }
+                if (fn.function_id() == FunctionId::Csch
+                    && as_affine(u, var)) {
+                    return integrate(pow(sinh(u), integer(-2)), var);
+                }
+                if (fn.function_id() == FunctionId::Coth
+                    && as_affine(u, var)) {
+                    Expr rewritten = pow(sinh(u), integer(-2)) + integer(1);
                     return integrate(rewritten, var);
                 }
             }
