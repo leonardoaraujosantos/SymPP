@@ -61,4 +61,11 @@ namespace sympp {
     return ask(e, AssumptionKey::Finite);
 }
 
+// Structural parity of an integer-valued expression. Conservative: reports
+// even/odd only when provable from the form — `2·n` (n a known integer) is even,
+// `2·n+1` is odd, while a bare integer symbol has unknown parity. (These are
+// pure-form deductions; there is no Even/Odd assumption key yet.)
+[[nodiscard]] SYMPP_EXPORT bool is_provably_even(const Expr& e) noexcept;
+[[nodiscard]] SYMPP_EXPORT bool is_provably_odd(const Expr& e) noexcept;
+
 }  // namespace sympp

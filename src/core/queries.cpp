@@ -2,8 +2,12 @@
 
 #include <optional>
 
+#include <gmpxx.h>
+
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/integer.hpp>
+#include <sympp/core/type_id.hpp>
 
 namespace sympp {
 
@@ -64,6 +68,53 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         default:
             return std::nullopt;
     }
+}
+
+bool is_provably_odd(const Expr& e) noexcept {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Integer) {
+        return mpz_odd_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
+    }
+    if (e->type_id() == TypeId::Mul) {
+        for (const auto& f : e->args()) {
+            if (!is_provably_odd(f)) return false;  // product of odds is odd
+        }
+        return true;
+    }
+    if (e->type_id() == TypeId::Add) {
+        int odd_terms = 0;
+        for (const auto& f : e->args()) {
+            if (is_provably_even(f)) continue;
+            if (is_provably_odd(f)) { ++odd_terms; continue; }
+            return false;  // a term of unknown parity
+        }
+        return (odd_terms % 2) == 1;
+    }
+    return false;
+}
+
+bool is_provably_even(const Expr& e) noexcept {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Integer) {
+        return mpz_even_p(static_cast<const Integer&>(*e).value().get_mpz_t()) != 0;
+    }
+    if (e->type_id() == TypeId::Mul) {
+        // Product of integers with at least one even factor → even.
+        bool all_integer = true;
+        bool has_even = false;
+        for (const auto& f : e->args()) {
+            if (is_integer(f) != true) all_integer = false;
+            if (is_provably_even(f)) has_even = true;
+        }
+        return all_integer && has_even;
+    }
+    if (e->type_id() == TypeId::Add) {
+        for (const auto& f : e->args()) {
+            if (!is_provably_even(f)) return false;  // sum of evens is even
+        }
+        return true;
+    }
+    return false;
 }
 
 }  // namespace sympp

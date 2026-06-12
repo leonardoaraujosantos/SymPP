@@ -377,3 +377,15 @@ TEST_CASE("sin/cos/tan at an integer multiple of pi (ASSUME-7)",
     // A non-integer (generic) coefficient stays unevaluated.
     REQUIRE(sin(x * S::Pi())->str() == "sin(x*pi)");
 }
+
+TEST_CASE("sin/cos at an odd half-integer multiple of pi (ASSUME-9)",
+          "[3b][trig][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    // (2n+1)·π/2 is an odd half-integer multiple: cos = 0, sin = (-1)^n.
+    Expr arg = (integer(2) * n + integer(1)) * S::Pi() / integer(2);
+    REQUIRE(cos(arg) == S::Zero());
+    REQUIRE(sin(arg) == pow(S::NegativeOne(), n));
+    // Literal multiples still resolve precisely.
+    REQUIRE(cos(S::Pi() / integer(2)) == S::Zero());
+    REQUIRE(sin(integer(3) * S::Pi() / integer(2)) == S::NegativeOne());
+}

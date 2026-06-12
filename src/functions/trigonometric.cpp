@@ -12,6 +12,7 @@
 #include <sympp/core/float.hpp>
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
@@ -393,8 +394,13 @@ Expr sin(const Expr& arg) {
     }
 
     // sin(k·π) = 0 for a symbolic integer k (e.g. sin(n·π), sin(2n·π)).
-    if (auto k = pi_factor(arg); k.has_value() && is_integer(*k) == true) {
-        return S::Zero();
+    if (auto k = pi_factor(arg); k.has_value()) {
+        if (is_integer(*k) == true) return S::Zero();
+        // Odd half-integer k = m + 1/2 (2k odd): sin((m+1/2)·π) = (−1)^m,
+        // m = k − 1/2.
+        if (is_provably_odd(mul(integer(2), *k))) {
+            return pow(S::NegativeOne(), expand(add(*k, rational(-1, 2))));
+        }
     }
 
     // Argument reduction by π multiples of the additive part:
@@ -446,9 +452,11 @@ Expr cos(const Expr& arg) {
         if (auto v = cos_pi(*r); v.has_value()) return *v;
     }
 
-    // cos(k·π) = (−1)^k for a symbolic integer k.
-    if (auto k = pi_factor(arg); k.has_value() && is_integer(*k) == true) {
-        return pow(S::NegativeOne(), *k);
+    // cos(k·π) = (−1)^k for a symbolic integer k; cos((m+1/2)·π) = 0 when 2k is
+    // a provable odd integer (an odd half-integer multiple).
+    if (auto k = pi_factor(arg); k.has_value()) {
+        if (is_integer(*k) == true) return pow(S::NegativeOne(), *k);
+        if (is_provably_odd(mul(integer(2), *k))) return S::Zero();
     }
 
     // Argument reduction by π multiples of the additive part:
