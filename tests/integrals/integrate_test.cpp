@@ -1002,6 +1002,19 @@ TEST_CASE("integrate: ∫2*exp(-x^2)/sqrt(pi) dx = erf(x)",
     REQUIRE(simplify(diff(F, x) - f) == S::Zero());
 }
 
+// Positive-coefficient Gaussian → erfi (regression, ERFI): ∫exp(a·x²) dx =
+// √π·erfi(√a·x)/(2√a). Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫exp(x^2) dx = sqrt(pi)*erfi(x)/2",
+          "[7][integrate][erf][erfi][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = exp(pow(x, integer(2)));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(F->str(), "sqrt(pi)*erfi(x)/2"));
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- Hyperbolic table integrals (regression, INT-12) -----------------------
 // Hyperbolic analogues of INT-3: ∫tanh = log(cosh), ∫1/cosh² = tanh,
 // ∫1/sinh² = −cosh/sinh (= −coth), of an affine argument. Oracle-checked
@@ -1481,9 +1494,9 @@ TEST_CASE("manualintegrate: returns Some on tractable integrand",
 TEST_CASE("manualintegrate: returns None on intractable integrand",
           "[7][manualintegrate]") {
     auto x = symbol("x");
-    // exp(x²) has no elementary antiderivative — and we don't have erf
-    // recognition in the integral table.
-    auto e = exp(pow(x, integer(2)));
+    // exp(x³) has no elementary antiderivative and no special-function table
+    // entry (the Gaussian exp(c·x²) → erf/erfi rule needs a degree-2 exponent).
+    auto e = exp(pow(x, integer(3)));
     auto r = manualintegrate(e, x);
     REQUIRE(!r.has_value());
 }

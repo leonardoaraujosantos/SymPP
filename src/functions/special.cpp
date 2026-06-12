@@ -132,6 +132,38 @@ Expr erfc(const Expr& arg) {
 }
 
 // ============================================================================
+// erfi (imaginary error function)
+// ============================================================================
+
+Erfi::Erfi(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Erfi);
+}
+Expr Erfi::rebuild(std::vector<Expr> new_args) const { return erfi(new_args[0]); }
+std::optional<bool> Erfi::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    if (k == AssumptionKey::Real && is_real(a) == true) return true;
+    return std::nullopt;
+}
+Expr Erfi::diff_arg(std::size_t /*i*/) const {
+    // d/dx erfi(x) = 2·exp(x²)/√π.
+    const Expr& a = args_[0];
+    return mul(integer(2),
+               mul(exp(pow(a, integer(2))), pow(S::Pi(), rational(-1, 2))));
+}
+
+Expr erfi(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    // erfi(±oo) = ±oo.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeInfinity();
+    // Odd: erfi(-x) = -erfi(x). (No mpfr_erfi, so Float args stay symbolic.)
+    if (auto p = strip_neg(arg); p.has_value()) {
+        return mul(S::NegativeOne(), make<Erfi>(*p));
+    }
+    return make<Erfi>(arg);
+}
+
+// ============================================================================
 // Heaviside
 // ============================================================================
 

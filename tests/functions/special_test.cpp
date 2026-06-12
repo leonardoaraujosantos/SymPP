@@ -278,3 +278,16 @@ TEST_CASE("polylog: z-derivative and round-trip", "[3h][polylog][oracle][parser]
     REQUIRE(parsing::parse("polylog(2, z)") == polylog(integer(2), z));
     REQUIRE(polylog(integer(2), z)->str() == "polylog(2, z)");
 }
+
+// ----- erfi (imaginary error function, ERFI) ---------------------------------
+TEST_CASE("erfi: special values, parity, derivative", "[3h][erfi][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(erfi(S::Zero()) == S::Zero());
+    REQUIRE(erfi(S::Infinity()) == S::Infinity());
+    REQUIRE(erfi(S::NegativeInfinity()) == S::NegativeInfinity());
+    REQUIRE(erfi(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), erfi(x)));  // odd
+    REQUIRE(oracle.equivalent(diff(erfi(x), x)->str(), "2*exp(x**2)/sqrt(pi)"));
+    REQUIRE(parsing::parse("erfi(x)") == erfi(x));
+    REQUIRE(erfi(x)->str() == "erfi(x)");
+}
