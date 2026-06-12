@@ -448,6 +448,10 @@ std::optional<bool> GammaFn::ask(AssumptionKey k) const noexcept {
             return std::nullopt;
     }
 }
+// Γ'(x) = Γ(x)·ψ(x) = Γ(x)·polygamma(0, x). diff()'s chain rule supplies arg'.
+Expr GammaFn::diff_arg(std::size_t /*i*/) const {
+    return mul(make<GammaFn>(args_[0]), polygamma(S::Zero(), args_[0]));
+}
 
 Expr gamma(const Expr& arg) {
     // gamma(n+1) = n! for nonneg Integer n means gamma(positive integer) = (n-1)!
@@ -553,6 +557,11 @@ std::optional<bool> LogGamma::ask(AssumptionKey k) const noexcept {
     }
 }
 
+// (log Γ)'(x) = ψ(x) = polygamma(0, x).
+Expr LogGamma::diff_arg(std::size_t /*i*/) const {
+    return polygamma(S::Zero(), args_[0]);
+}
+
 Expr loggamma(const Expr& arg) {
     if (arg == S::One()) return S::Zero();      // log(0!) = 0
     if (arg == integer(2)) return S::Zero();    // log(1!) = 0
@@ -560,6 +569,43 @@ Expr loggamma(const Expr& arg) {
         return float_unary_op(mpfr_lngamma, arg);
     }
     return make<LogGamma>(arg);
+}
+
+// ============================================================================
+// PolyGamma / DiGamma
+// ============================================================================
+
+PolyGammaFn::PolyGammaFn(Expr n, Expr x)
+    : Function(std::vector<Expr>{std::move(n), std::move(x)}) {
+    compute_hash(FunctionId::PolyGamma);
+}
+Expr PolyGammaFn::rebuild(std::vector<Expr> new_args) const {
+    return polygamma(new_args[0], new_args[1]);
+}
+std::optional<bool> PolyGammaFn::ask(AssumptionKey k) const noexcept {
+    // ψ⁽ⁿ⁾(x) is real for real x > 0 and n a non-negative integer.
+    if (k == AssumptionKey::Real && is_integer(args_[0]) == true
+        && is_nonnegative(args_[0]) == true && is_positive(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+// ∂/∂x polygamma(n, x) = polygamma(n+1, x). The ∂/∂n direction is not
+// elementary; diff()'s chain rule multiplies by n' (= 0 when n is constant),
+// so returning 0 there is harmless for the usual constant-order case.
+Expr PolyGammaFn::diff_arg(std::size_t i) const {
+    if (i == 1) return polygamma(add(args_[0], S::One()), args_[1]);
+    return S::Zero();
+}
+
+Expr polygamma(const Expr& n, const Expr& x) {
+    return make<PolyGammaFn>(n, x);
+}
+
+// ψ(x) = polygamma(0, x). SymPy emits polygamma(0, x) (e.g. from diff loggamma),
+// so digamma is sugar for that canonical form.
+Expr digamma(const Expr& x) {
+    return polygamma(S::Zero(), x);
 }
 
 }  // namespace sympp

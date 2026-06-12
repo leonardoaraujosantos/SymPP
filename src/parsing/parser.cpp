@@ -154,7 +154,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"floor", &floor}, {"ceiling", &ceiling}, {"frac", &frac},
         {"factorial", &factorial}, {"subfactorial", &subfactorial},
         {"fibonacci", &fibonacci}, {"catalan", &catalan},
-        {"gamma", &gamma}, {"loggamma", &loggamma},
+        {"gamma", &gamma}, {"loggamma", &loggamma}, {"digamma", &digamma},
         {"erf", &erf}, {"erfc", &erfc}, {"erfi", &erfi}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},
         {"Ei", &expint_ei}, {"Si", &sinint}, {"Ci", &cosint},
@@ -180,6 +180,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"RisingFactorial", &rising_factorial},
         {"FallingFactorial", &falling_factorial},
         {"polylog", &polylog},
+        {"polygamma", &polygamma},
     };
     return table;
 }

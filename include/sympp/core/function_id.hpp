@@ -82,6 +82,7 @@ enum class FunctionId : std::uint16_t {
     Gamma = 1000,
     LogGamma,
     DiGamma,
+    PolyGamma,
     Beta,
     Erf,
     Erfc,
