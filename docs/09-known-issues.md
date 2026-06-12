@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-RATIO — `trigsimp` didn't cancel trigonometric ratio products
+- **Input:** `tan x·cos x`, `cot x·sin x`, `sec x·cos x`, `csc x·sin x`,
+  `cot x·tan x`, `3·tan x·cos x`, `tan²x·cos²x`.
+- **Was:** unchanged — the hyperbolic ratio-cancel pass (TRIG-HYP-3) had no
+  trigonometric counterpart, so a `tan/cot/sec/csc` factor was never cancelled
+  against the `sin`/`cos` it shared a product with.
+- **Expected (SymPy):** `sin x`, `cos x`, `1`, `1`, `1`, `3·sin x`, `sin²x`.
+- **Fix (`src/simplify/simplify.cpp`):** new `trig_ratio_mul` (run inside
+  `trigsimp_node`, before `trigsimp_mul`) rewrites each `tan/cot/sec/csc` factor
+  (to any power) as the equivalent `sin`/`cos` power(s) and lets `Mul` recombine
+  same-base powers. Kept only when it lowers the leaf count, so a lone `tan x`
+  (or `2·tan x`) is left untouched.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[trigsimp][oracle][regression]`.
+- **Scope:** multiplicative ratio cancellation; the additive trig Pythagorean
+  identities (`1 + tan² → cos⁻²`, etc.) are a separate follow-up.
+
 ### TRIG-HYP-4 — `trigsimp` didn't apply the additive tanh/coth Pythagorean identities
 - **Input:** `1 − tanh²x`, `coth²x − 1`, `sech²x + tanh²x`,
   `csch²x − coth²x`, `3 − 3tanh²x`.
