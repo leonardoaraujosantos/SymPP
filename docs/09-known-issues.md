@@ -793,9 +793,25 @@ truth and links the issue number.
   radicand can never hang.
 - **Regression test:** `tests/functions/miscellaneous_test.cpp`
   — `[sqrt][regression]` (incl. a prime-radicand `√7` no-op guard).
-- **Scope:** square roots only — n-th-root factor extraction
-  (`cbrt(16) → 2·cbrt(2)`) is not yet implemented. Radicands above the trial-
-  division bound stay symbolic.
+- **Scope:** square roots only — n-th-root factor extraction (`cbrt(16) →
+  2·cbrt(2)`) is generalised in NROOT-1.
+
+### NROOT-1 — `N^(1/n)` did not extract n-th-power factors (n ≥ 3)
+- **Input:** `16^(1/3)`, `54^(1/3)`, `24^(1/3)`, `96^(1/5)`, `48^(1/4)`,
+  `(2/3)^(1/3)`, `(16/27)^(1/3)`.
+- **Was:** only perfect n-th roots (`8^(1/3)=2`) and the square case (SQRT-2)
+  folded; a non-perfect cube/n-th root stayed fully under the radical.
+- **Expected (SymPy):** `2·2^(1/3)`, `3·2^(1/3)`, `2·3^(1/3)`, `2·3^(1/5)`,
+  `2·3^(1/4)`, `18^(1/3)/3`, `2·2^(1/3)/3`.
+- **Fix (`src/core/pow.cpp`):** generalised `try_sqrt_factor_extraction` to
+  `try_nth_root_factor_extraction` — for a unit `1/n` power it pulls the largest
+  `sⁿ` factor (`N = sⁿ·m → s·m^(1/n)`) and rationalises a rational radicand via
+  `(p/q)^(1/n) = (p·q^(n-1))^(1/n)/q`. Trial division stays bounded (radicand ≤
+  1e12) so a huge radicand can never hang.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[sqrt][nthroot][regression]` (incl. a prime-radicand `7^(1/3)` no-op guard).
+- **Scope:** unit `1/n` exponents on a non-negative Integer/Rational base.
+  Non-unit non-perfect powers (`16^(2/3)`) and negative bases stay deferred.
 
 ### SQRT-3 — `sqrt` of a negative number not folded to imaginary
 - **Input:** `sqrt(-1)`, `sqrt(-4)`, `sqrt(-8)`, `sqrt(-1/4)`, `sqrt(-2/3)`.
