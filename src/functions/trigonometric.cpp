@@ -553,6 +553,12 @@ Expr cot(const Expr& arg) {
         if (2 * rr.get_num() == rr.get_den()) return S::Zero();
         if (auto t = tan_pi(rr); t.has_value()) return recip_value(*t);
     }
+    // Symbolic multiples: cot(kπ) = zoo (sin = 0) for integer k;
+    // cot((m+1/2)π) = 0 (cos = 0) for an odd half-integer.
+    if (auto k = pi_factor(arg); k.has_value()) {
+        if (is_integer(*k) == true) return S::ComplexInfinity();
+        if (is_provably_odd(mul(integer(2), *k))) return S::Zero();
+    }
     // Period π: cot(rest + k·π) = cot(rest).
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         return cot(rest);
@@ -581,6 +587,12 @@ Expr sec(const Expr& arg) {
             return recip_value(*cv);
         }
     }
+    // Symbolic multiples: sec(kπ) = (−1)^k for integer k (1/cos);
+    // sec((m+1/2)π) = zoo (cos = 0) for an odd half-integer.
+    if (auto k = pi_factor(arg); k.has_value()) {
+        if (is_integer(*k) == true) return pow(S::NegativeOne(), *k);
+        if (is_provably_odd(mul(integer(2), *k))) return S::ComplexInfinity();
+    }
     // Period: sec(rest + k·π) = (−1)^k·sec(rest).
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         bool odd = mpz_odd_p(c.get_num_mpz_t());
@@ -608,6 +620,14 @@ Expr csc(const Expr& arg) {
         if (auto sv = sin_pi(*r); sv.has_value()) {
             if (*sv == S::Zero()) return S::ComplexInfinity();
             return recip_value(*sv);
+        }
+    }
+    // Symbolic multiples: csc(kπ) = zoo (sin = 0) for integer k;
+    // csc((m+1/2)π) = (−1)^(k−1/2) (1/sin) for an odd half-integer.
+    if (auto k = pi_factor(arg); k.has_value()) {
+        if (is_integer(*k) == true) return S::ComplexInfinity();
+        if (is_provably_odd(mul(integer(2), *k))) {
+            return pow(S::NegativeOne(), expand(add(*k, rational(-1, 2))));
         }
     }
     // Period: csc(rest + k·π) = (−1)^k·csc(rest).

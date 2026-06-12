@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-10 — `cot/sec/csc` at integer / half-integer multiples of π weren't evaluated
+- **Input:** `cot(nπ)`, `csc(nπ)`, `sec(nπ)`, and the odd-half-integer forms, for
+  integer `n`.
+- **Was:** unevaluated — the reciprocal trio reduced only numeric rational
+  multiples; symbolic integer / half-integer multiples fell through (the
+  ASSUME-7/9 work covered only sin/cos/tan).
+- **Expected (SymPy):** `cot(nπ)=zoo`, `csc(nπ)=zoo`, `sec(nπ)=(−1)^n`;
+  `sec((2n+1)π/2)=zoo`, `cot((2n+1)π/2)=0`, `csc((2n+1)π/2)=(−1)^n`.
+- **Fix (`src/functions/trigonometric.cpp`):** the cot/sec/csc factories now use
+  the `pi_factor` + `is_integer` / `is_provably_odd(2k)` checks: integer `k`
+  poles for cot/csc (`sin=0`) and gives `(−1)^k` for sec (`1/cos`); an odd
+  half-integer poles for sec (`cos=0`), gives `0` for cot, `(−1)^(k−1/2)` for csc.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][reciprocal][assumptions][regression]`.
+- **Scope:** symbolic integer / odd-half-integer multiples of π; numeric
+  multiples keep their exact path.
+
 ### ASSUME-9 — `cos((2n+1)*pi/2)` / `sin((2n+1)*pi/2)` weren't evaluated
 - **Input:** `cos((2n+1)·π/2)`, `sin((2n+1)·π/2)` for integer `n`.
 - **Was:** unevaluated — only integer multiples of π (ASSUME-7) and numeric
