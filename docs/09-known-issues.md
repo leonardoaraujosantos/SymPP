@@ -402,8 +402,8 @@ truth and links the issue number.
   `∫1/sinh²(ax+b) = -cosh/(a·sinh)`).
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[hyperbolic][regression]`.
-- **Scope:** `coth`/`sech`/`csch` are not distinct function types, so results
-  are spelled with `cosh`/`sinh`.
+- **Scope:** `coth`/`sech`/`csch` now exist as distinct function types
+  (HYP-RECIP); their antiderivatives are a separate item.
 
 ### INT-13 — `integrate(poly·cosh / poly·sinh)` returned the marker
 - **Input:** `integrate(x*cosh(x))`, `integrate(x*sinh(x))`,
@@ -652,6 +652,26 @@ truth and links the issue number.
   parse round-trip, derivatives, evalf — verified against the oracle).
 - **Scope:** the antiderivatives `∫cot/sec/csc` ship in INT-24;
   `acot`/`asec`/`acsc` inverses are not yet added.
+
+### HYP-RECIP — `coth`, `sech`, `csch` were not function types
+- **Input:** `coth(0)`, `sech(0)`, `coth(oo)`, `coth(-x)`, `sech(acosh(x))`,
+  `diff(coth(x))`, `parse("csch(x)")`.
+- **Was:** the parser made generic undefined-function nodes — no
+  auto-evaluation, no derivatives.
+- **Now:** three distinct function types (`Coth`/`Sech`/`Csch` in
+  `functions/hyperbolic.{hpp,cpp}`, enum values already reserved), the
+  hyperbolic analogue of TRIG-RECIP. Factories handle the values at 0 and ±oo
+  (`coth(0)=csch(0)=zoo`, `sech(0)=1`, `coth(±oo)=±1`, `sech(±oo)=csch(±oo)=0`),
+  parity (`coth`/`csch` odd, `sech` even), inverse compositions
+  (`coth(atanh x)=1/x`, …), and numeric `Float` evalf via `mpfr_coth`/`sech`/
+  `csch`. Derivatives: `coth'=-csch²`, `sech'=-sech·tanh`, `csch'=-csch·coth`.
+  Parser + LaTeX (`\coth`, `\operatorname{sech}`, `\operatorname{csch}`)
+  updated; `str()` falls back to the `name()` spelling.
+- **Regression test:** `tests/functions/hyperbolic_test.cpp`
+  — `[3f][reciprocal]` (values/poles, parity, inverse comps, parse round-trip,
+  derivatives, evalf — verified against the oracle).
+- **Scope:** the antiderivatives `∫coth/sech/csch` and `∫coth²` etc. are a
+  separate follow-up; `acoth`/`asech`/`acsch` inverses are not added.
 
 ### INT-24 — `integrate(cot/sec/csc)` returned the marker
 - **Input:** `∫cot(x)`, `∫sec(x)`, `∫csc(x)`, `∫cot(2x+1)`, `∫sec(3x)`.

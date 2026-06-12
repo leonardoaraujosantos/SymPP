@@ -14,7 +14,9 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -186,4 +188,67 @@ TEST_CASE("hyperbolic: structural output matches SymPy",
     REQUIRE(oracle.equivalent(asinh(x)->str(), "asinh(x)"));
     REQUIRE(oracle.equivalent(acosh(x)->str(), "acosh(x)"));
     REQUIRE(oracle.equivalent(atanh(x)->str(), "atanh(x)"));
+}
+
+// ----- Reciprocal trio: coth, sech, csch -------------------------------------
+
+TEST_CASE("coth/sech/csch: canonical values and poles", "[3f][reciprocal]") {
+    // sech(0) = 1; coth(0) = csch(0) = zoo (poles).
+    REQUIRE(sech(S::Zero()) == S::One());
+    REQUIRE(coth(S::Zero()) == S::ComplexInfinity());
+    REQUIRE(csch(S::Zero()) == S::ComplexInfinity());
+    // At ±oo: coth → ±1, sech → 0, csch → 0.
+    REQUIRE(coth(S::Infinity()) == S::One());
+    REQUIRE(coth(S::NegativeInfinity()) == S::NegativeOne());
+    REQUIRE(sech(S::Infinity()) == S::Zero());
+    REQUIRE(csch(S::Infinity()) == S::Zero());
+}
+
+TEST_CASE("coth/sech/csch: parity (coth/csch odd, sech even)", "[3f][reciprocal]") {
+    auto x = symbol("x");
+    REQUIRE(coth(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), coth(x)));
+    REQUIRE(csch(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), csch(x)));
+    REQUIRE(sech(mul(S::NegativeOne(), x)) == sech(x));
+}
+
+TEST_CASE("coth/sech/csch: inverse-function compositions", "[3f][reciprocal]") {
+    auto x = symbol("x");
+    REQUIRE(coth(atanh(x)) == pow(x, integer(-1)));  // coth(atanh x) = 1/x
+    REQUIRE(sech(acosh(x)) == pow(x, integer(-1)));  // sech(acosh x) = 1/x
+    REQUIRE(csch(asinh(x)) == pow(x, integer(-1)));  // csch(asinh x) = 1/x
+}
+
+TEST_CASE("coth/sech/csch: real for real argument",
+          "[3f][reciprocal][assumptions]") {
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(is_real(coth(x)) == true);
+    REQUIRE(is_real(sech(x)) == true);
+    REQUIRE(is_real(csch(x)) == true);
+}
+
+TEST_CASE("coth/sech/csch: parse round-trip", "[3f][reciprocal][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("coth(x)") == coth(x));
+    REQUIRE(parsing::parse("sech(x)") == sech(x));
+    REQUIRE(parsing::parse("csch(x)") == csch(x));
+    REQUIRE(coth(x)->str() == "coth(x)");
+    REQUIRE(sech(x)->str() == "sech(x)");
+    REQUIRE(csch(x)->str() == "csch(x)");
+}
+
+TEST_CASE("coth/sech/csch: derivatives match SymPy", "[3f][reciprocal][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // coth' = -csch², sech' = -sech·tanh, csch' = -csch·coth.
+    REQUIRE(oracle.equivalent(diff(coth(x), x)->str(), "-csch(x)**2"));
+    REQUIRE(oracle.equivalent(diff(sech(x), x)->str(), "-sech(x)*tanh(x)"));
+    REQUIRE(oracle.equivalent(diff(csch(x), x)->str(), "-csch(x)*coth(x)"));
+}
+
+TEST_CASE("coth/sech/csch: numeric Float arg evalf matches SymPy",
+          "[3f][reciprocal][evalf][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto e = coth(float_value("1.5", 30));
+    REQUIRE(e->type_id() == TypeId::Float);
+    REQUIRE(oracle.equivalent(e->str(), oracle.evalf("coth(Rational(3, 2))", 30)));
 }
