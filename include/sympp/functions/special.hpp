@@ -46,6 +46,16 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+class SYMPP_EXPORT Erfi final : public Function {
+public:
+    explicit Erfi(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Erfi; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "erfi"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 class SYMPP_EXPORT HeavisideFn final : public Function {
 public:
     explicit HeavisideFn(Expr arg);
@@ -161,6 +171,7 @@ public:
 
 [[nodiscard]] SYMPP_EXPORT Expr erf(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr erfc(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr erfi(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr heaviside(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr dirac_delta(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr zeta(const Expr& s);

@@ -1390,15 +1390,23 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     const Expr& c1 = p.coeffs()[1];
     const Expr& c2 = p.coeffs()[2];
     // Pure c·x² only (no linear or constant term — a linear/constant part needs
-    // completing the square, out of scope), with c a negative rational so the
-    // result is the real-valued erf (a positive c would need erfi).
+    // completing the square, out of scope), with c a non-zero rational.
+    // Negative c → real erf; positive c → the imaginary error function erfi.
     if (!(c0 == S::Zero()) || !(c1 == S::Zero())) return std::nullopt;
-    if (is_rational(c2) != true || is_negative(c2) != true) return std::nullopt;
+    if (is_rational(c2) != true) return std::nullopt;
 
-    // ∫ exp(−a·x²) dx = √π·erf(√a·x) / (2·√a),  a = −c₂ > 0.
-    Expr a = mul(S::NegativeOne(), c2);
-    Expr sa = sqrt(a);
-    return simplify(sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa));
+    if (is_negative(c2) == true) {
+        // ∫ exp(−a·x²) dx = √π·erf(√a·x) / (2·√a),  a = −c₂ > 0.
+        Expr a = mul(S::NegativeOne(), c2);
+        Expr sa = sqrt(a);
+        return simplify(sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa));
+    }
+    if (is_positive(c2) == true) {
+        // ∫ exp(a·x²) dx = √π·erfi(√a·x) / (2·√a),  a = c₂ > 0.
+        Expr sa = sqrt(c2);
+        return simplify(sqrt(S::Pi()) * erfi(sa * var) / (integer(2) * sa));
+    }
+    return std::nullopt;
 }
 
 std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {

@@ -433,6 +433,22 @@ truth and links the issue number.
   wired (SymPy's own answer is branch-cut-sensitive); the order-derivative
   (`d/ds`), `Li_2(1/2)`, and series expansion stay deferred.
 
+### ERFI — `erfi` (imaginary error function), and ∫exp(+x²)
+- **Input:** `erfi(x)`, `erfi(0)`, `diff(erfi(x))`, `∫exp(x²)`, `∫exp(2x²)`.
+- **Was:** `FunctionId::Erfi` existed in the enum but had no class — `erfi`
+  parsed generically; and `∫exp(c·x²)` for **positive** c returned the marker
+  (`try_gaussian` only handled negative c → erf).
+- **Now:** an `Erfi` function type (`functions/special.{hpp,cpp}`): `erfi(0)=0`,
+  `erfi(±oo)=±oo`, odd, derivative `2·eˣ²/√π`. `try_gaussian` extended to
+  positive c: `∫exp(a·x²) dx = √π·erfi(√a·x)/(2√a)` (so `∫exp(x²)=√π·erfi(x)/2`).
+  Parser accepts `erfi`; `str()` round-trips.
+- **Regression test:** `tests/functions/special_test.cpp` — `[erfi]`;
+  `tests/integrals/integrate_test.cpp` — `[integrate][erfi][regression]` (the
+  `manualintegrate` "intractable" case moved to `exp(x³)`, since `exp(x²)` now
+  closes).
+- **Scope:** pure `c·x²` exponent (no linear/constant term). No MPFR `erfi`, so
+  `Float` arguments stay symbolic.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.
