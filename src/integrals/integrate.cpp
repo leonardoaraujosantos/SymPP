@@ -244,6 +244,11 @@ namespace {
 // rules pick up the resulting sin(linear) / cos(linear) terms.
 [[nodiscard]] std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var);
 
+// ∫ sin(g)^m · cos(g)^n dx for an affine argument g and non-negative integer
+// powers (at least one ≥ 1). Odd power → u = cos/sin substitution into a
+// polynomial; both even → half-angle reduction, recursing via integrate.
+[[nodiscard]] std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var);
+
 // Try to integrate `expr` as a rational function in var. Uses
 // polynomial division for the improper part and apart() for the proper
 // part. Returns nullopt when:
@@ -319,6 +324,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_trig_reduction(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_trig_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_rational(expr, var); r.has_value()) {
@@ -733,6 +741,92 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
         }
     }
     return std::nullopt;
+}
+
+namespace {
+
+// Parse `expr` as a product of sin(g)^m · cos(g)^n with a single shared
+// argument g; returns (g, m, n) with m, n ≥ 0 integers. nullopt if any factor
+// is not a non-negative integer power of sin/cos of the same argument.
+struct SinCosPowers { Expr g; long m; long n; };
+
+[[nodiscard]] std::optional<SinCosPowers> parse_sin_cos_powers(const Expr& expr) {
+    Expr g;
+    long m = 0;
+    long n = 0;
+    auto take = [&](const Expr& f) -> bool {
+        Expr base = f;
+        long k = 1;
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& e = f->args()[1];
+            if (e->type_id() != TypeId::Integer) return false;
+            const auto& z = static_cast<const Integer&>(*e);
+            if (!z.is_positive() || !z.fits_long()) return false;
+            k = z.to_long();
+            base = f->args()[0];
+        }
+        if (base->type_id() != TypeId::Function) return false;
+        const auto& fn = static_cast<const Function&>(*base);
+        if (fn.args().size() != 1) return false;
+        const FunctionId id = fn.function_id();
+        if (id != FunctionId::Sin && id != FunctionId::Cos) return false;
+        if (g && !(fn.args()[0] == g)) return false;  // mismatched arguments
+        g = fn.args()[0];
+        if (id == FunctionId::Sin) m += k; else n += k;
+        return true;
+    };
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!take(f)) return std::nullopt;
+        }
+    } else if (!take(expr)) {
+        return std::nullopt;
+    }
+    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    return SinCosPowers{g, m, n};
+}
+
+}  // namespace
+
+std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
+    auto parsed = parse_sin_cos_powers(expr);
+    if (!parsed) return std::nullopt;
+    const Expr& g = parsed->g;
+    const long m = parsed->m;
+    const long n = parsed->n;
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;  // dg/dx
+
+    // Odd cos power: u = sin(g), cosⁿ = cos·(1−u²)^((n−1)/2), cos·dx = du/a.
+    //   ∫ sinᵐcosⁿ dx = (1/a) ∫ uᵐ (1−u²)^k du.
+    // Odd sin power (symmetric): u = cos(g), gives −(1/a)∫ (1−u²)^k uⁿ du.
+    Expr u = symbol("_u_trigpow");
+    if (n % 2 == 1) {
+        long k = (n - 1) / 2;
+        Expr poly = expand(pow(u, integer(m))
+                           * pow(integer(1) - pow(u, integer(2)), integer(k)));
+        Expr anti = integrate(poly, u);
+        if (is_integral_marker(anti)) return std::nullopt;
+        return expand(subs(anti, u, sin(g)) / a);
+    }
+    if (m % 2 == 1) {
+        long k = (m - 1) / 2;
+        Expr poly = expand(pow(integer(1) - pow(u, integer(2)), integer(k))
+                           * pow(u, integer(n)));
+        Expr anti = integrate(poly, u);
+        if (is_integral_marker(anti)) return std::nullopt;
+        return expand(mul(S::NegativeOne(), subs(anti, u, cos(g))) / a);
+    }
+
+    // Both even: half-angle reduction, then recurse via integrate(). sin²(g) =
+    // (1−cos2g)/2, cos²(g) = (1+cos2g)/2; the result is a polynomial in cos(2g)
+    // of strictly lower degree, so the recursion (with the depth guard) ends.
+    Expr two_g = mul(integer(2), g);
+    Expr s2 = (integer(1) - cos(two_g)) / integer(2);
+    Expr c2 = (integer(1) + cos(two_g)) / integer(2);
+    Expr rewritten = pow(s2, integer(m / 2)) * pow(c2, integer(n / 2));
+    return integrate(expand(rewritten), var);
 }
 
 std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {

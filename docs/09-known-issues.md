@@ -507,6 +507,22 @@ truth and links the issue number.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[integrate][rational][regression]`.
 
+### INT-18 — `integrate(sin(x)**m * cos(x)**n)` returned the marker
+- **Input:** `∫sin³`, `∫cos³`, `∫cos⁵`, `∫sin³cos²`, `∫sin²cos²`, `∫sin⁴`.
+- **Was:** the marker — only `sin²`/`cos²` (single, power-2) had a reduction;
+  higher powers and products fell through.
+- **Expected (SymPy):** `cos³/3 − cos`, `sin − sin³/3`, `x/8 − sin(4x)/32`, etc.
+- **Fix:** added `try_trig_power` (`src/integrals/integrate.cpp`) for
+  `sin(g)^m·cos(g)^n` with an affine argument `g` and non-negative integer
+  powers. An odd power uses the `u = sin`/`u = cos` substitution into a
+  polynomial integral; the both-even case uses half-angle reduction
+  (`sin² = (1−cos2g)/2`, `cos² = (1+cos2g)/2`) and recurses via `integrate`
+  (degree strictly drops, so it terminates).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][trig_power][regression]`.
+- **Scope:** integer powers of sin/cos with a common affine argument. `tan`/
+  hyperbolic powers and trig substitution (`∫√(1−x²)`) are separate items.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

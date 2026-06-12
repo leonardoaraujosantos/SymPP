@@ -677,6 +677,38 @@ TEST_CASE("integrate: ∫sin(2x)*cos(3x) dx product-to-sum",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// ----- Trig powers ∫sinᵐcosⁿ (INT-18) ----------------------------------------
+// Odd powers via u = sin/cos substitution; both-even via half-angle reduction.
+TEST_CASE("integrate: odd-power trig (sin³, cos³, cos⁵, sin³cos²)",
+          "[7][integrate][trig_power][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        return oracle.equivalent(diff(integrate(e, x), x)->str(), e->str());
+    };
+    REQUIRE(db(pow(sin(x), integer(3))));
+    REQUIRE(db(pow(cos(x), integer(3))));
+    REQUIRE(db(pow(cos(x), integer(5))));
+    REQUIRE(db(pow(sin(x), integer(3)) * pow(cos(x), integer(2))));
+    // Affine argument.
+    REQUIRE(db(pow(sin(integer(2) * x), integer(3))));
+    // Closed-form check for sin³.
+    REQUIRE(oracle.equivalent(integrate(pow(sin(x), integer(3)), x)->str(),
+                              "cos(x)**3/3 - cos(x)"));
+}
+
+TEST_CASE("integrate: even-power trig (sin²cos², sin⁴) via half-angle",
+          "[7][integrate][trig_power][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        return oracle.equivalent(diff(integrate(e, x), x)->str(), e->str());
+    };
+    REQUIRE(db(pow(sin(x), integer(2)) * pow(cos(x), integer(2))));
+    REQUIRE(db(pow(sin(x), integer(4))));
+    REQUIRE(db(pow(cos(x), integer(4))));
+}
+
 TEST_CASE("integrate: ∫sin²(2x+1) dx — affine inside reduction",
           "[7][integrate][trig_reduction]") {
     // SymPy's plain simplify can't always reduce cos(2*(2x+1)) ↔ cos(4x+2),
