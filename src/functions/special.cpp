@@ -20,6 +20,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
@@ -294,6 +295,70 @@ Expr lambertw(const Expr& arg) {
     }
     if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // W(oo) = oo
     return make<LambertWFn>(arg);
+}
+
+// ----- Exponential / sine / cosine integrals ---------------------------------
+
+Ei::Ei(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Ei);
+}
+Expr Ei::rebuild(std::vector<Expr> new_args) const { return expint_ei(new_args[0]); }
+std::optional<bool> Ei::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Ei::diff_arg(std::size_t /*i*/) const {
+    // Ei'(x) = eˣ/x.
+    return mul(exp(args_[0]), pow(args_[0], S::NegativeOne()));
+}
+
+Expr expint_ei(const Expr& arg) {
+    if (arg == S::Zero()) return S::NegativeInfinity();   // Ei(0) = -oo
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    return make<Ei>(arg);
+}
+
+Si::Si(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Si);
+}
+Expr Si::rebuild(std::vector<Expr> new_args) const { return sinint(new_args[0]); }
+std::optional<bool> Si::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Si::diff_arg(std::size_t /*i*/) const {
+    // Si'(x) = sin(x)/x.
+    return mul(sin(args_[0]), pow(args_[0], S::NegativeOne()));
+}
+
+Expr sinint(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();               // Si(0) = 0
+    if (arg->type_id() == TypeId::Infinity) return mul(S::Half(), S::Pi());
+    if (arg->type_id() == TypeId::NegativeInfinity) {
+        return mul(rational(-1, 2), S::Pi());
+    }
+    if (auto p = strip_neg(arg); p.has_value()) {          // odd: Si(-x) = -Si(x)
+        return mul(S::NegativeOne(), sinint(*p));
+    }
+    return make<Si>(arg);
+}
+
+Ci::Ci(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Ci);
+}
+Expr Ci::rebuild(std::vector<Expr> new_args) const { return cosint(new_args[0]); }
+std::optional<bool> Ci::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_positive(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Ci::diff_arg(std::size_t /*i*/) const {
+    // Ci'(x) = cos(x)/x.
+    return mul(cos(args_[0]), pow(args_[0], S::NegativeOne()));
+}
+
+Expr cosint(const Expr& arg) {
+    if (arg->type_id() == TypeId::Infinity) return S::Zero();  // Ci(oo) = 0
+    return make<Ci>(arg);
 }
 
 }  // namespace sympp

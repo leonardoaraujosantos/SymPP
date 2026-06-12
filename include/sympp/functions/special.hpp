@@ -94,11 +94,47 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+// Exponential / sine / cosine integrals — the antiderivatives of eˣ/x,
+// sin(x)/x, cos(x)/x. Ei'(x)=eˣ/x, Si'(x)=sin(x)/x, Ci'(x)=cos(x)/x. Si is odd
+// with Si(0)=0, Si(∞)=π/2; Ci/Ei stay symbolic for most arguments.
+class SYMPP_EXPORT Ei final : public Function {
+public:
+    explicit Ei(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Ei; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Ei"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Si final : public Function {
+public:
+    explicit Si(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Si; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Si"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Ci final : public Function {
+public:
+    explicit Ci(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Ci; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "Ci"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr erf(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr erfc(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr heaviside(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr dirac_delta(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr zeta(const Expr& s);
 [[nodiscard]] SYMPP_EXPORT Expr lambertw(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr expint_ei(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr sinint(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr cosint(const Expr& arg);
 
 }  // namespace sympp

@@ -386,6 +386,25 @@ truth and links the issue number.
   (Float) evaluation, other branches `W(x,k)`, and `W(x·eˣ)=x` inverse folding
   (branch-cut sensitive) stay deferred.
 
+### EXPINT — Si/Ci/Ei integral functions, and ∫sin(x)/x, ∫cos(x)/x, ∫eˣ/x
+- **Input:** `∫sin(x)/x`, `∫cos(x)/x`, `∫eˣ/x`, `∫sin(3x)/x`, and the functions
+  `Si(x)`, `Ci(x)`, `Ei(x)`.
+- **Was:** these integrands returned the unevaluated `Integral` marker (`∫eˣ/x`
+  was the INT-15 by-parts hang, since fixed to bail), and `Si`/`Ci`/`Ei` weren't
+  function types.
+- **Now:** three special-integral function types (`Si`/`Ci`/`Ei` in
+  `functions/special.{hpp,cpp}`, new `FunctionId` values). `Si(0)=0`,
+  `Si(±oo)=±π/2`, `Si` odd, `Ci(oo)=0`, `Ei(0)=-oo`, `Ei(oo)=oo`; derivatives
+  `Si'=sin(x)/x`, `Ci'=cos(x)/x`, `Ei'=eˣ/x`. A `try_expint_integral` helper in
+  `integrate.cpp` maps `∫sin(c·x)/x → Si(c·x)`, `∫cos(c·x)/x → Ci(c·x)`,
+  `∫exp(c·x)/x → Ei(c·x)` (monomial argument `c·x`, constant prefactors pulled
+  out). Parser accepts `Si`/`Ci`/`Ei`; `str()` round-trips.
+- **Regression test:** `tests/functions/special_test.cpp` — `[expint]`;
+  `tests/integrals/integrate_test.cpp` — `[integrate][expint][regression]`
+  (incl. the updated INT-15 case, now closing to `Ei(x)`).
+- **Scope:** monomial argument `c·x` (no constant term); `∫sin(x²)/x`-style and
+  the two-argument `Ei(x,k)`/`Eₙ` generalisations stay deferred.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.

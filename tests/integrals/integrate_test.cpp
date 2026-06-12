@@ -1398,17 +1398,52 @@ TEST_CASE("integrate: ∫log(2x)² dx (affine argument, b = 0)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
-// INT-15 (regression): ∫exp(x)/x is non-elementary (Ei). Integration by parts
-// used to recurse exp(x)/x → exp(x)/x² → … forever (u = x^(-1) is not a
-// polynomial, so du grows). It must terminate at the unevaluated marker. The
-// test completing at all proves termination; we also assert it is the marker.
-TEST_CASE("integrate: ∫exp(x)/x terminates at the Integral marker (INT-15)",
-          "[7][integrate][parts][regression]") {
+// INT-15 (regression): ∫exp(x)/x once recursed exp(x)/x → exp(x)/x² → … forever
+// in by-parts (u = x^(-1) is not a polynomial, so du grows). The by-parts guard
+// made it terminate; it now closes to the exponential integral Ei(x) (EXPINT-1).
+// The test completing at all still proves termination.
+TEST_CASE("integrate: ∫exp(x)/x = Ei(x), terminating (INT-15)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
     auto x = symbol("x");
     auto e = exp(x) / x;
     auto r = integrate(e, x);
-    REQUIRE(r->type_id() == TypeId::Function);  // unevaluated Integral(...)
-    REQUIRE(r->str().rfind("Integral(", 0) == 0);
+    REQUIRE(r->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+// ----- Exponential/sine/cosine integral functions (regression, EXPINT-1) -----
+// ∫sin(c·x)/x = Si(c·x), ∫cos(c·x)/x = Ci(c·x), ∫exp(c·x)/x = Ei(c·x) — the
+// non-elementary special-integral functions, for a monomial argument c·x.
+// Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫sin(x)/x = Si(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(x) / x;
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫cos(x)/x = Ci(x)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = cos(x) / x;
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sin(3x)/x = Si(3x) (scaled argument)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = sin(integer(3) * x) / x;
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------
