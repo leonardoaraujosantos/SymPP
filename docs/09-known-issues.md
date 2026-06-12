@@ -541,6 +541,26 @@ truth and links the issue number.
 - **Scope:** integer powers with a common affine argument. `tanh`/`coth`
   powers and trig substitution remain separate items.
 
+### INT-20 — `integrate(sqrt(a·x²+c))` returned the marker
+- **Input:** `∫√(1−x²)`, `∫√(4−x²)`, `∫√(x²+1)`, `∫√(2x²+3)`, `∫√(x²−1)`.
+- **Was:** the marker — only the *reciprocal* `1/√(a·x²+c)` (INT-6/7) was
+  handled; the radical in the numerator fell through.
+- **Expected (SymPy):** `x·√(1−x²)/2 + asin(x)/2`, `x·√(4−x²)/2 + 2·asin(x/2)`,
+  `x·√(x²+1)/2 + asinh(x)/2`, `x·√(2x²+3)/2 + 3√2·asinh(√6·x/3)/4`,
+  `x·√(x²−1)/2 − log(x + √(x²−1))/2`.
+- **Fix (`src/integrals/integrate.cpp`):** `try_sqrt_quadratic` now also matches
+  exponent `+1/2`. Integration by parts gives
+  `∫√(a·x²+c) = (x/2)·√(a·x²+c) + (c/2)·∫1/√(a·x²+c)`, so it reuses its own
+  reciprocal branch (asin / asinh / log) for the second term. A `nullopt` inner
+  integral (`c = 0`, or `a < 0` with `c ≤ 0` — no real region) propagates, so
+  those still fall through unevaluated.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][invtrig][regression]` (five cases, verified by
+  differentiation against the oracle).
+- **Scope:** pure quadratic radicand (no linear term), rational coefficients.
+  A linear term needs completing-the-square; `∫√(x+1)`-style algebraic u-subs
+  remain a separate item.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
