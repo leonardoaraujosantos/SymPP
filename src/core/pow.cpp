@@ -161,9 +161,25 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             }
             return std::nullopt;
         case AssumptionKey::Even:
-        case AssumptionKey::Odd:
-            // Parity of a power depends on the base in general — left Unknown.
+        case AssumptionKey::Odd: {
+            // base^n for a positive integer n preserves the base's parity
+            // (oddⁿ = odd, evenⁿ = even). Non-positive / non-integer exponents
+            // are left Unknown (e.g. x^(-1) isn't generally an integer).
+            const bool pos_int_exp =
+                exp->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*exp).is_positive();
+            if (!pos_int_exp) return std::nullopt;
+            if (base->ask(k) == true) return true;
+            if (k == AssumptionKey::Even
+                && base->ask(AssumptionKey::Odd) == true) {
+                return false;
+            }
+            if (k == AssumptionKey::Odd
+                && base->ask(AssumptionKey::Even) == true) {
+                return false;
+            }
             return std::nullopt;
+        }
     }
     return std::nullopt;
 }

@@ -145,10 +145,23 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
         // defer for v1.
         case AssumptionKey::Nonnegative:
         case AssumptionKey::Nonpositive:
-        // Parity of a product is left to the structural is_provably_even/odd
-        // helper (a product is even iff some factor is even, given integers).
+            return std::nullopt;
+
+        // Parity of an integer product: even iff some factor is even; odd iff
+        // every factor is odd. Requires all factors to be known integers.
         case AssumptionKey::Even:
+            if (!all_args_have(args_, AssumptionKey::Integer, true)) {
+                return std::nullopt;
+            }
+            if (any_arg_has(args_, AssumptionKey::Even, true)) return true;
+            if (all_args_have(args_, AssumptionKey::Odd, true)) return false;
+            return std::nullopt;
         case AssumptionKey::Odd:
+            if (!all_args_have(args_, AssumptionKey::Integer, true)) {
+                return std::nullopt;
+            }
+            if (all_args_have(args_, AssumptionKey::Odd, true)) return true;
+            if (any_arg_has(args_, AssumptionKey::Even, true)) return false;
             return std::nullopt;
     }
     return std::nullopt;

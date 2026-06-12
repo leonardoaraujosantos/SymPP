@@ -341,6 +341,27 @@ TEST_CASE("Mul: product of integers is integer", "[2b][assumptions][mul]") {
     REQUIRE(is_integer(e) == true);
 }
 
+TEST_CASE("Mul/Add/Pow: parity inference at the ask level (ASSUME-12)",
+          "[2b][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto m = symbol("m", AssumptionMask{}.set_integer(true));
+    auto e = symbol("e", AssumptionMask{}.set_even(true));
+    auto o = symbol("o", AssumptionMask{}.set_odd(true));
+    // Product: even iff a factor is even; odd iff all factors odd.
+    REQUIRE(is_even(integer(2) * n) == true);
+    REQUIRE(is_even(o * e) == true);
+    REQUIRE(is_odd(o * o) == true);          // o² (a Pow) — base parity preserved
+    REQUIRE(is_even(o * o) == false);
+    REQUIRE(!is_even(n * m).has_value());    // unknown parity factors
+    // Sum: fold parities (XOR of odd-term count).
+    REQUIRE(is_odd(integer(2) * n + integer(1)) == true);
+    REQUIRE(is_even(o + o) == true);
+    REQUIRE(is_odd(e + o) == true);
+    // Pow: base^(positive int) preserves base parity.
+    REQUIRE(is_even(pow(e, integer(3))) == true);
+    REQUIRE(is_odd(pow(o, integer(5))) == true);
+}
+
 // ----- Pow propagation -------------------------------------------------------
 
 TEST_CASE("Pow: positive base raised to anything is positive",

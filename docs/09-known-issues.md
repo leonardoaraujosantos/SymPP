@@ -14,6 +14,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-12 — parity not inferred through Mul / Add / Pow at the `ask` level
+- **Was:** after ASSUME-11 added the even/odd key, `is_even(2·n)` (the `ask`
+  query) was still Unknown for an integer `n` — only the structural
+  `is_provably_even` helper knew it. The two disagreed.
+- **Fix:** implement parity in the node `ask`s:
+  - `Mul::ask` — an integer product is even iff some factor is even, odd iff every
+    factor is odd (requires all factors known integer).
+  - `Add::ask` — fold the terms' parities (XOR; Unknown if any term's parity is).
+  - `Pow::ask` — `base^n` for a positive integer `n` keeps the base's parity
+    (`oddⁿ` odd, `evenⁿ` even).
+- **Expected (SymPy):** `is_even(2n)=True`, `is_odd(2n+1)=True`,
+  `is_even(e+e)=True`, `is_odd(o²)=True`, `is_odd(n·m)=None`.
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[assumptions][regression]` (product/sum/power parity, unknown cases stay).
+- **Scope:** `ask`-level parity now matches `is_provably_even/odd` for compound
+  integer expressions.
+
 ### ASSUME-11 — no `even` / `odd` assumption (symbol-declared parity)
 - **Was:** the assumption vocabulary had no parity predicate, so `Symbol("n",
   even=True)`-style declarations were impossible and the parity consumers
