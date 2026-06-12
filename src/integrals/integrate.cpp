@@ -319,6 +319,12 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr,
                                                         const Expr& var);
 
+// ∫ 1/(a·x²+b·x+c)ⁿ dx for integer n ≥ 2 (a constant numerator) via the standard
+// reduction Iₙ = a·x/(2(n−1)c·Qⁿ⁻¹) + a(2n−3)/(2(n−1)c)·Iₙ₋₁, recursing through
+// integrate down to I₁ (try_arctan_quadratic / try_rational). A linear term is
+// removed first by completing the square (as in try_sqrt_quadratic).
+[[nodiscard]] std::optional<Expr> try_quadratic_power(const Expr& expr, const Expr& var);
+
 // Weierstrass (half-angle) substitution t = tan(var/2): a rational function of
 // sin(var)/cos(var)/tan(var)/cot(var)/sec(var)/csc(var) becomes a rational
 // function of t, which try_rational closes. Last-resort fallback — its tan(x/2)
@@ -436,6 +442,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_linear_over_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_quadratic_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sqrt_quadratic(expr, var); r.has_value()) {
@@ -1618,6 +1627,54 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
 
     // Back-substitute t = tan(var/2).
     return simplify(subs(antideriv, t, tan(var / integer(2))));
+}
+
+std::optional<Expr> try_quadratic_power(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& e = expr->args()[1];
+    if (e->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*e);
+    if (!z.fits_long()) return std::nullopt;
+    const long ei = z.to_long();
+    if (ei >= -1) return std::nullopt;       // n=1 (exp −1) is try_arctan's job
+    const long n = -ei;
+    if (n > 24) return std::nullopt;
+    if (!depends_on(base, var)) return std::nullopt;
+
+    Poly p(expand(base), var);
+    if (p.degree() != 2) return std::nullopt;
+    const Expr& c = p.coeffs()[0];
+    const Expr& b = p.coeffs()[1];
+    const Expr& a = p.coeffs()[2];
+    if (is_rational(a) != true || is_rational(b) != true
+        || is_rational(c) != true) {
+        return std::nullopt;
+    }
+
+    // Complete the square so the linear term vanishes: u = x + b/(2a) gives
+    // a·u² + (c − b²/(4a)); du = dx, so back-substitute afterwards.
+    if (!(b == S::Zero())) {
+        Expr shift = b / (integer(2) * a);
+        Expr cprime = simplify(c - b * b / (integer(4) * a));
+        Expr shifted = pow(a * pow(var, integer(2)) + cprime, e);
+        auto inner = try_quadratic_power(shifted, var);
+        if (!inner.has_value()) return std::nullopt;
+        return simplify(subs(inner.value(), var, var + shift));
+    }
+    if (c == S::Zero()) return std::nullopt;  // a·x² alone: not this rule's job
+
+    // Iₙ = x/(2(n−1)c·Qⁿ⁻¹) + (2n−3)/(2(n−1)c)·Iₙ₋₁, Q = a·x²+c. The leading
+    // coefficient a cancels in the derivation (x² = (Q−c)/a, 2a·x² = 2(Q−c)), so
+    // it does not appear here. Recurse through integrate: Iₙ₋₁ routes back here
+    // for n−1 ≥ 2, else to try_arctan_quadratic / try_rational at the
+    // I₁ = ∫1/(a·x²+c) base case.
+    Expr prev = integrate(pow(base, integer(-(n - 1))), var);
+    if (is_integral_marker(prev)) return std::nullopt;
+    Expr denom = integer(2) * integer(n - 1) * c;
+    Expr term1 = var / (denom * pow(base, integer(n - 1)));
+    Expr coeff = integer(2 * n - 3) / denom;
+    return simplify(term1 + coeff * prev);
 }
 
 std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {

@@ -1689,6 +1689,33 @@ TEST_CASE("integrate: polynomial × trig/hyperbolic power by parts (INT-35)",
     REQUIRE(db(x * pow(cos(integer(2) * x), integer(2))));  // affine argument
 }
 
+TEST_CASE("integrate: 1/(quadratic)^n reduction formula (INT-37)",
+          "[7][integrate][rational][regression]") {
+    auto x = symbol("x");
+    // The reduction emits atan/log mixed with rational terms that SymPy's
+    // simplify won't reduce against the integrand, so verify the derivative
+    // numerically at fixed rational points (deterministic).
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(1, 2), rational(7, 5), rational(-3, 4)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::abs(d) > 1e-9) return false;
+        }
+        return true;
+    };
+    Expr q = pow(x, integer(2)) + integer(1);
+    REQUIRE(db(pow(q, integer(-2))));                              // 1/(x²+1)²
+    REQUIRE(db(pow(q, integer(-3))));                              // 1/(x²+1)³
+    REQUIRE(db(pow(pow(x, integer(2)) + integer(4), integer(-2))));  // 1/(x²+4)²
+    REQUIRE(db(pow(integer(2) * pow(x, integer(2)) + integer(3),
+                   integer(-2))));                                 // 1/(2x²+3)²
+    // Completing the square: 1/(x²+2x+5)².
+    REQUIRE(db(pow(pow(x, integer(2)) + integer(2) * x + integer(5),
+                   integer(-2))));
+}
+
 TEST_CASE("integrate: heurisch substitution into an irreducible quadratic (INT-36)",
           "[7][integrate][heurisch][oracle][regression]") {
     auto& oracle = Oracle::instance();
