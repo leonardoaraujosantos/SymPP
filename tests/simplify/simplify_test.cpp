@@ -288,6 +288,20 @@ TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
                      - integer(3) * pow(sinh(x), integer(2))) == integer(3));
 }
 
+TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(trigsimp(cosh(x) + sinh(x))->str(), "exp(x)"));
+    REQUIRE(oracle.equivalent(trigsimp(cosh(x) - sinh(x))->str(), "exp(-x)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * cosh(x) + integer(3) * sinh(x))->str(),
+        "3*exp(x)"));
+    // Mismatched coefficients don't collapse.
+    REQUIRE(trigsimp(cosh(x) + integer(2) * sinh(x))->str()
+                .find("sinh(") != std::string::npos);
+}
+
 TEST_CASE("trigsimp: shared coefficient a*sin²+a*cos² → a",
           "[5][trigsimp][oracle]") {
     auto& oracle = Oracle::instance();

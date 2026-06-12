@@ -14,6 +14,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-HYP-2 — `trigsimp` didn't rewrite `cosh±sinh` as `e^±x`
+- **Input:** `cosh x + sinh x`, `cosh x − sinh x`, `3cosh x + 3sinh x`,
+  `2cosh x − 2sinh x`.
+- **Was:** unchanged — `trigsimp` had no rule to collapse the linear
+  combination `cosh ± sinh` even though it equals a single exponential.
+- **Expected (SymPy):** `eˣ`, `e⁻ˣ`, `3eˣ`, `2e⁻ˣ`.
+- **Fix (`src/simplify/simplify.cpp`):** new `hyp_to_exp_add` (run inside
+  `trigsimp_node`, after `hypsimp_add`) collects, per argument, the linear
+  coefficients of `cosh(x)` and `sinh(x)`; when they are equal it emits
+  `c·eˣ`, when opposite `c·e⁻ˣ`, otherwise leaves the term untouched.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[trigsimp][oracle][regression]`.
+- **Scope:** equal/opposite cosh & sinh coefficients per argument; mixed
+  coefficients (e.g. `cosh + 2sinh`) are left unchanged.
+
 ### TRIG-HYP-1 — `trigsimp` didn't apply the hyperbolic Pythagorean identity
 - **Input:** `cosh²x − sinh²x`, `1 + sinh²x`, `cosh²x − 1`, `3cosh²x − 3sinh²x`.
 - **Was:** unchanged — `trigsimp` collapsed `sin² + cos² → 1` but had no
