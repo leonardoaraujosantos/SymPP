@@ -102,6 +102,17 @@ TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
     REQUIRE(simplify(pow(pow(xp, rational(2, 3)), integer(3))) == pow(xp, integer(2)));
 }
 
+TEST_CASE("simplify: Abs(x)^(even) uses assumptions (ASSUME-3)",
+          "[5][simplify][assumptions][regression]") {
+    auto xr = symbol("x", AssumptionMask{}.set_real(true));
+    auto xg = symbol("x");
+    // |x|^(2m) = x^(2m) for real x; stays for odd exponent or generic x.
+    REQUIRE(simplify(pow(abs(xr), integer(2))) == pow(xr, integer(2)));
+    REQUIRE(simplify(pow(abs(xr), integer(4))) == pow(xr, integer(4)));
+    REQUIRE(simplify(pow(abs(xr), integer(3)))->str() == "Abs(x)**3");
+    REQUIRE(simplify(pow(abs(xg), integer(2)))->str() == "Abs(x)**2");
+}
+
 TEST_CASE("collect: groups powers of var", "[5][collect][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

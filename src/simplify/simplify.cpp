@@ -251,6 +251,21 @@ namespace {
     if (e->type_id() != TypeId::Pow) return e;
     const Expr& inner = e->args()[0];
     const Expr& q = e->args()[1];
+
+    // |y|^(2m) = y^(2m) for real y (the only case where |y|² equals y²; for
+    // complex y, |y|² = y·ȳ ≠ y²). q must be a positive even integer.
+    if (inner->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*inner);
+        if (fn.function_id() == FunctionId::Abs && fn.args().size() == 1
+            && q->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*q).is_positive()
+            && static_cast<const Integer&>(*q).fits_long()
+            && static_cast<const Integer&>(*q).to_long() % 2 == 0
+            && is_real(fn.args()[0]) == true) {
+            return pow(fn.args()[0], q);
+        }
+    }
+
     if (inner->type_id() != TypeId::Pow) return e;
     const Expr& base = inner->args()[0];
     const Expr& p = inner->args()[1];

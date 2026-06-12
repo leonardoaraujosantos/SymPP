@@ -14,6 +14,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-3 — `simplify(Abs(x)**2)` stayed `Abs(x)**2` for a real symbol
+- **Input:** `simplify(|x|²)`, `simplify(|x|⁴)` for a real `x`.
+- **Was:** unchanged — the power-of-power rule only handled `(bᵖ)^q`, not a power
+  of an `Abs(...)`.
+- **Expected (SymPy):** `x²`, `x⁴` for real `x`; unchanged for an odd exponent
+  (`|x|³`) or a generic (possibly complex) `x`.
+- **Fix (`src/simplify/simplify.cpp`):** extend `pow_of_pow_node` — `|y|^(2m)` with
+  `y` real and `2m` a positive even integer folds to `y^(2m)` (the only case where
+  `|y|² = y²`; for complex `y`, `|y|² = y·ȳ ≠ y²`).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[simplify][assumptions][regression]` (real `|x|²`/`|x|⁴`, plus odd-exponent
+  and generic-base cases that must stay), asserted structurally.
+- **Scope:** even powers of `Abs` of a real argument.
+
 ### ASSUME-2 — `is_nonnegative(x**2)` was Unknown for a real symbol
 - **Input:** `is_nonnegative(x²)`, `is_positive(x²+1)` for a real `x`.
 - **Was:** Unknown — `Pow::ask` derived sign facts only from a *positive* base, so
