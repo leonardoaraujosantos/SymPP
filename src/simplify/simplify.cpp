@@ -779,11 +779,67 @@ as_trig_square_term(const Expr& term) {
     return add(std::move(out));
 }
 
+// Cancel hyperbolic ratio products inside a Mul by rewriting tanh/coth/sech/csch
+// as sinh/cosh ratios and letting Mul recombine same-base powers:
+//   tanh·cosh → sinh,  coth·sinh → cosh,  sech·cosh → 1,  csch·sinh → 1,
+//   coth·tanh → 1, …   Each factor f^n is replaced by the sinh/cosh power(s)
+// it stands for; the rewrite is kept only when it reduces the leaf count, so a
+// lone tanh (or 2·tanh) — which would only grow — is left untouched.
+[[nodiscard]] Expr hyp_ratio_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    bool changed = false;
+    std::vector<Expr> factors;
+    for (const auto& f : e->args()) {
+        Expr base = f;
+        Expr expn = S::One();
+        if (f->type_id() == TypeId::Pow) {
+            base = f->args()[0];
+            expn = f->args()[1];
+        }
+        if (base->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*base);
+            if (fn.args().size() == 1) {
+                const Expr& a = base->args()[0];
+                Expr neg = mul(S::NegativeOne(), expn);
+                bool handled = true;
+                switch (fn.function_id()) {
+                    case FunctionId::Tanh:
+                        factors.push_back(pow(sinh(a), expn));
+                        factors.push_back(pow(cosh(a), neg));
+                        break;
+                    case FunctionId::Coth:
+                        factors.push_back(pow(cosh(a), expn));
+                        factors.push_back(pow(sinh(a), neg));
+                        break;
+                    case FunctionId::Sech:
+                        factors.push_back(pow(cosh(a), neg));
+                        break;
+                    case FunctionId::Csch:
+                        factors.push_back(pow(sinh(a), neg));
+                        break;
+                    default:
+                        handled = false;
+                        break;
+                }
+                if (handled) {
+                    changed = true;
+                    continue;
+                }
+            }
+        }
+        factors.push_back(f);
+    }
+    if (!changed) return e;
+    Expr rebuilt = mul(std::move(factors));
+    return count_leaves(rebuilt) < count_leaves(e) ? rebuilt : e;
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = hypsimp_add(cur);
     cur = hyp_to_exp_add(cur);
     cur = trigsimp_mul(cur);
+    cur = hyp_ratio_mul(cur);
     return cur;
 }
 

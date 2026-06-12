@@ -14,6 +14,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-HYP-3 — `trigsimp` didn't cancel hyperbolic ratio products
+- **Input:** `tanh x·cosh x`, `coth x·sinh x`, `sech x·cosh x`,
+  `csch x·sinh x`, `coth x·tanh x`, `3·tanh x·cosh x`, `tanh²x·cosh²x`.
+- **Was:** unchanged — `trigsimp` had no rule to cancel a `tanh/coth/sech/csch`
+  factor against the `sinh`/`cosh` in the same product.
+- **Expected (SymPy):** `sinh x`, `cosh x`, `1`, `1`, `1`, `3·sinh x`, `sinh²x`.
+- **Fix (`src/simplify/simplify.cpp`):** new `hyp_ratio_mul` (run inside
+  `trigsimp_node`) rewrites each `tanh/coth/sech/csch` factor (to any power) as
+  the equivalent `sinh`/`cosh` power(s) and lets `Mul` recombine same-base
+  powers. The rewrite is kept only when it lowers the leaf count, so a lone
+  `tanh x` (or `2·tanh x`) — which would only grow — is left untouched.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[trigsimp][oracle][regression]`.
+- **Scope:** multiplicative ratio cancellation; the additive tanh/coth
+  Pythagorean identities (`1 − tanh² → cosh⁻²`, etc.) remain a separate gap.
+
 ### TRIG-HYP-2 — `trigsimp` didn't rewrite `cosh±sinh` as `e^±x`
 - **Input:** `cosh x + sinh x`, `cosh x − sinh x`, `3cosh x + 3sinh x`,
   `2cosh x − 2sinh x`.

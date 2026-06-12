@@ -302,6 +302,26 @@ TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
                 .find("sinh(") != std::string::npos);
 }
 
+TEST_CASE("trigsimp: hyperbolic ratio products cancel (TRIG-HYP-3)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(trigsimp(tanh(x) * cosh(x))->str(), "sinh(x)"));
+    REQUIRE(oracle.equivalent(trigsimp(coth(x) * sinh(x))->str(), "cosh(x)"));
+    REQUIRE(oracle.equivalent(trigsimp(sech(x) * cosh(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(trigsimp(csch(x) * sinh(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(trigsimp(coth(x) * tanh(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * tanh(x) * cosh(x))->str(), "3*sinh(x)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(tanh(x), integer(2)) * pow(cosh(x), integer(2)))->str(),
+        "sinh(x)**2"));
+    // A lone tanh (or scaled) is left untouched — no leaf reduction available.
+    REQUIRE(trigsimp(tanh(x))->str() == "tanh(x)");
+    REQUIRE(trigsimp(integer(2) * tanh(x))->str().find("tanh(")
+            != std::string::npos);
+}
+
 TEST_CASE("trigsimp: shared coefficient a*sin²+a*cos² → a",
           "[5][trigsimp][oracle]") {
     auto& oracle = Oracle::instance();
