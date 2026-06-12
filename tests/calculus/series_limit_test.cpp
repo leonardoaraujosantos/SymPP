@@ -9,6 +9,7 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/type_id.hpp>
@@ -361,12 +362,12 @@ TEST_CASE("summation: infinite geometric series",
 }
 
 // Regression (SUM-3): an unrecognised sum must return an unevaluated Sum
-// marker, never the bare summand. Σ 1/k³ (odd zeta — no elementary closed
-// form) stands in for the general case; Σ 1/k² now closes via ZETA-EVEN.
+// marker, never the bare summand. Σ 1/k! (= E, which SymPP doesn't close)
+// stands in for the general case; the p-series Σ 1/k^s now close via ZETA.
 TEST_CASE("summation: unrecognised sum stays an unevaluated Sum",
           "[6][summation][regression]") {
     auto k = symbol("k");
-    auto e = pow(k, integer(-3));
+    auto e = pow(factorial(k), integer(-1));
     auto s = summation(e, k, integer(1), S::Infinity());
     REQUIRE(s->type_id() == TypeId::Function);   // undefined-function marker
     REQUIRE(s->str().rfind("Sum(", 0) == 0);     // starts with "Sum("
@@ -389,9 +390,12 @@ TEST_CASE("summation: even p-series close to zeta values",
     REQUIRE(oracle.equivalent(
         summation(pow(k, integer(-12)), k, integer(1), oo)->str(),
         "691*pi**12/638512875"));
-    // Odd exponent has no elementary closed form — stays an unevaluated Sum.
-    REQUIRE(summation(pow(k, integer(-5)), k, integer(1), oo)->type_id()
-            == TypeId::Function);
+    // Odd exponent has no elementary closed form — closes to a symbolic ζ(s)
+    // (matching SymPy's Sum(1/k**3).doit() = zeta(3)), not π-powers.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-3)), k, integer(1), oo)->str(), "zeta(3)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-5)), k, integer(1), oo)->str(), "zeta(5)"));
 }
 
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).

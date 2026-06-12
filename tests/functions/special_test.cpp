@@ -17,6 +17,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/functions/special.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -161,4 +162,28 @@ TEST_CASE("Heaviside: derivative is DiracDelta", "[3j][diff][regression]") {
     auto d = diff(heaviside(x), x);
     REQUIRE(d->type_id() == TypeId::Function);
     REQUIRE(d->str() == "DiracDelta(x)");
+}
+
+// ----- Riemann zeta (ZETA-FN) ------------------------------------------------
+// zeta(0)=-1/2, zeta(1)=zoo (pole), even positives zeta(2n)=r*pi^(2n),
+// negative integers rational (trivial zeros at even), odd positives symbolic.
+TEST_CASE("zeta: special values", "[3h][zeta][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(zeta(integer(2))->str(), "pi**2/6"));
+    REQUIRE(oracle.equivalent(zeta(integer(4))->str(), "pi**4/90"));
+    REQUIRE(oracle.equivalent(zeta(integer(12))->str(), "691*pi**12/638512875"));
+    REQUIRE(zeta(integer(0)) == rational(-1, 2));
+    REQUIRE(zeta(integer(1)) == S::ComplexInfinity());     // pole
+    REQUIRE(zeta(integer(-1)) == rational(-1, 12));
+    REQUIRE(zeta(integer(-2)) == integer(0));               // trivial zero
+    REQUIRE(zeta(integer(-3)) == rational(1, 120));
+}
+
+TEST_CASE("zeta: odd positive and symbolic stay unevaluated",
+          "[3h][zeta][parser]") {
+    auto s = symbol("s");
+    REQUIRE(zeta(integer(3))->type_id() == TypeId::Function);
+    REQUIRE(zeta(s)->type_id() == TypeId::Function);
+    REQUIRE(parsing::parse("zeta(s)") == zeta(s));
+    REQUIRE(zeta(s)->str() == "zeta(s)");
 }

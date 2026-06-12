@@ -212,4 +212,56 @@ Expr HeavisideFn::diff_arg(std::size_t /*i*/) const {
     return dirac_delta(args_[0]);
 }
 
+// ----- Riemann zeta ----------------------------------------------------------
+
+Zeta::Zeta(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Zeta);
+}
+Expr Zeta::rebuild(std::vector<Expr> new_args) const { return zeta(new_args[0]); }
+std::optional<bool> Zeta::ask(AssumptionKey k) const noexcept {
+    // zeta(s) is real for real s ≠ 1 (we accept the implicit pole caveat).
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Expr zeta(const Expr& s) {
+    if (s->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*s);
+        if (z.fits_long()) {
+            long n = z.to_long();
+            if (n == 1) return S::ComplexInfinity();           // pole
+            if (n == 0) return rational(-1, 2);
+            if (n > 0 && n % 2 == 0) {
+                // Even positive: zeta(2m) = rₘ·π^(2m) (Basel and relatives).
+                Expr coeff;
+                switch (n) {
+                    case 2:  coeff = rational(1, 6); break;
+                    case 4:  coeff = rational(1, 90); break;
+                    case 6:  coeff = rational(1, 945); break;
+                    case 8:  coeff = rational(1, 9450); break;
+                    case 10: coeff = rational(1, 93555); break;
+                    case 12: coeff = rational(691, 638512875); break;
+                    case 14: coeff = rational(2, 18243225); break;
+                    default: break;
+                }
+                if (coeff) return mul(coeff, pow(S::Pi(), integer(n)));
+            }
+            if (n < 0) {
+                // Negative integers: trivial zeros at even, rationals at odd
+                // (zeta(-n) = -B_{n+1}/(n+1)).
+                if (n % 2 == 0) return S::Zero();               // zeta(-2k) = 0
+                switch (n) {
+                    case -1: return rational(-1, 12);
+                    case -3: return rational(1, 120);
+                    case -5: return rational(-1, 252);
+                    case -7: return rational(1, 240);
+                    case -9: return rational(-1, 132);
+                    default: break;                              // bigger → symbolic
+                }
+            }
+        }
+    }
+    return make<Zeta>(s);
+}
+
 }  // namespace sympp
