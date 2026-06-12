@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/core/add.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -16,6 +17,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/functions/exponential.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -173,4 +175,17 @@ TEST_CASE("expand: subs after expand matches SymPy", "[1i][expand][subs][oracle]
     // Substitution-after-expansion still works:
     auto sub_result = subs(e, x, integer(2));
     REQUIRE(sub_result == integer(27));
+}
+
+TEST_CASE("expand: log of a positive product/power splits (ASSUME-4)",
+          "[1i][expand][assumptions][regression]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto q = symbol("q", AssumptionMask{}.set_positive(true));
+    auto z = symbol("z");  // generic
+    // log(p·q) → log(p)+log(q); log(p³) → 3·log(p) — only when positive.
+    REQUIRE(expand(log(p * q)) == log(p) + log(q));
+    REQUIRE(expand(log(pow(p, integer(3)))) == integer(3) * log(p));
+    // A non-positive (generic) factor blocks the split.
+    REQUIRE(expand(log(p * z))->str() == "log(p*z)");
+    REQUIRE(expand(log(z * symbol("w")))->str() == "log(w*z)");
 }
