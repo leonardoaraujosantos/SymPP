@@ -372,7 +372,9 @@ protected:
             {FunctionId::Cot, "\\cot"}, {FunctionId::Sec, "\\sec"},
             {FunctionId::Csc, "\\csc"},
             {FunctionId::Sinh, "\\sinh"}, {FunctionId::Cosh, "\\cosh"},
-            {FunctionId::Tanh, "\\tanh"},
+            {FunctionId::Tanh, "\\tanh"}, {FunctionId::Coth, "\\coth"},
+            {FunctionId::Sech, "\\operatorname{sech}"},
+            {FunctionId::Csch, "\\operatorname{csch}"},
             {FunctionId::Exp, "\\exp"}, {FunctionId::Log, "\\log"},
             {FunctionId::Floor, "\\lfloor"}, {FunctionId::Ceiling, "\\lceil"},
         };

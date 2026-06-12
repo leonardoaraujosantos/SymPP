@@ -143,6 +143,38 @@ std::optional<bool> Tanh::ask(AssumptionKey k) const noexcept {
     return ask_real_finite_for_real_arg(args_[0], k);
 }
 
+// ----- Coth / Sech / Csch ----------------------------------------------------
+// The reciprocal trio. coth/csch have poles at 0 (not finite everywhere), so we
+// report only Real-for-real-arg (as Tan does), accepting the implicit non-pole
+// caveat rather than claiming Finite.
+
+Coth::Coth(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Coth);
+}
+Expr Coth::rebuild(std::vector<Expr> new_args) const { return coth(new_args[0]); }
+std::optional<bool> Coth::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Sech::Sech(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Sech);
+}
+Expr Sech::rebuild(std::vector<Expr> new_args) const { return sech(new_args[0]); }
+std::optional<bool> Sech::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Csch::Csch(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Csch);
+}
+Expr Csch::rebuild(std::vector<Expr> new_args) const { return csch(new_args[0]); }
+std::optional<bool> Csch::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
 // ----- Asinh -----------------------------------------------------------------
 
 Asinh::Asinh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
@@ -250,6 +282,64 @@ Expr tanh(const Expr& arg) {
     return make<Tanh>(arg);
 }
 
+Expr coth(const Expr& arg) {
+    // coth = cosh/sinh, odd. coth(0)=zoo (pole), coth(±oo)=±1.
+    if (arg == S::Zero()) return S::ComplexInfinity();
+    if (arg->type_id() == TypeId::Infinity) return S::One();
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::NegativeOne();
+    if (arg->type_id() == TypeId::Float) {
+        return unary_evalf(mpfr_coth, arg);
+    }
+    // coth(atanh(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
+        return pow(*v, integer(-1));
+    }
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Coth>(*pos));
+    }
+    return make<Coth>(arg);
+}
+
+Expr sech(const Expr& arg) {
+    // sech = 1/cosh, even. sech(0)=1, sech(±oo)=0.
+    if (arg == S::Zero()) return S::One();
+    if (arg->type_id() == TypeId::Infinity
+        || arg->type_id() == TypeId::NegativeInfinity) {
+        return S::Zero();
+    }
+    if (arg->type_id() == TypeId::Float) {
+        return unary_evalf(mpfr_sech, arg);
+    }
+    // sech(acosh(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) {
+        return pow(*v, integer(-1));
+    }
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return make<Sech>(*pos);  // even
+    }
+    return make<Sech>(arg);
+}
+
+Expr csch(const Expr& arg) {
+    // csch = 1/sinh, odd. csch(0)=zoo (pole), csch(±oo)=0.
+    if (arg == S::Zero()) return S::ComplexInfinity();
+    if (arg->type_id() == TypeId::Infinity
+        || arg->type_id() == TypeId::NegativeInfinity) {
+        return S::Zero();
+    }
+    if (arg->type_id() == TypeId::Float) {
+        return unary_evalf(mpfr_csch, arg);
+    }
+    // csch(asinh(x)) = 1/x.
+    if (auto v = arg_of(arg, FunctionId::Asinh); v.has_value()) {
+        return pow(*v, integer(-1));
+    }
+    if (auto pos = strip_neg(arg); pos.has_value()) {
+        return mul(S::NegativeOne(), make<Csch>(*pos));
+    }
+    return make<Csch>(arg);
+}
+
 Expr asinh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
     // asinh(±oo) = ±oo.
@@ -300,6 +390,18 @@ Expr Tanh::diff_arg(std::size_t /*i*/) const {
     // 1 - tanh(x)^2
     auto t2 = pow(tanh(args_[0]), integer(2));
     return add(S::One(), mul(S::NegativeOne(), t2));
+}
+Expr Coth::diff_arg(std::size_t /*i*/) const {
+    // d/dx coth(x) = -csch²(x).
+    return mul(S::NegativeOne(), pow(csch(args_[0]), integer(2)));
+}
+Expr Sech::diff_arg(std::size_t /*i*/) const {
+    // d/dx sech(x) = -sech(x)·tanh(x).
+    return mul(S::NegativeOne(), mul(sech(args_[0]), tanh(args_[0])));
+}
+Expr Csch::diff_arg(std::size_t /*i*/) const {
+    // d/dx csch(x) = -csch(x)·coth(x).
+    return mul(S::NegativeOne(), mul(csch(args_[0]), coth(args_[0])));
 }
 Expr Asinh::diff_arg(std::size_t /*i*/) const {
     // 1 / sqrt(1 + x^2)
