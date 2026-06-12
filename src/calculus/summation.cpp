@@ -15,6 +15,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/functions/special.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -98,30 +99,17 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
-    // Convergent even p-series Σ_{k=1}^∞ 1/k^(2n) = ζ(2n) = r·π^(2n) (Basel and
-    // its relatives). Only even exponents have an elementary closed form; odd
-    // p>1 (ζ(3), …) and the divergent p≤1 cases fall through unevaluated.
+    // Convergent p-series Σ_{k=1}^∞ 1/k^s = ζ(s) for an integer s ≥ 2. zeta()
+    // closes the even cases (ζ(2)=π²/6, …) and keeps odd s as a symbolic ζ(s)
+    // (matching SymPy's Sum(1/k**3).doit() = zeta(3)). The divergent harmonic
+    // s=1 (m=-1) is excluded and falls through unevaluated.
     if (lo == S::One() && hi->type_id() == TypeId::Infinity
         && expr->type_id() == TypeId::Pow && expr->args()[0] == var
         && expr->args()[1]->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*expr->args()[1]);
         if (z.fits_long()) {
             const long m = z.to_long();  // summand is var^m
-            if (m <= -2 && m % 2 == 0) {
-                const long twon = -m;
-                Expr coeff;  // rational coefficient of π^(2n); null if untabled
-                switch (twon) {
-                    case 2:  coeff = rational(1, 6); break;
-                    case 4:  coeff = rational(1, 90); break;
-                    case 6:  coeff = rational(1, 945); break;
-                    case 8:  coeff = rational(1, 9450); break;
-                    case 10: coeff = rational(1, 93555); break;
-                    case 12: coeff = rational(691, 638512875); break;
-                    case 14: coeff = rational(2, 18243225); break;
-                    default: break;
-                }
-                if (coeff) return mul(coeff, pow(S::Pi(), integer(twon)));
-            }
+            if (m <= -2) return zeta(integer(-m));
         }
     }
 

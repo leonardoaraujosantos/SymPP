@@ -69,9 +69,22 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Riemann zeta. Exact values: zeta(0)=-1/2, zeta(1)=zoo (pole), even positive
+// integers zeta(2n)=rₙ·π^(2n) (Basel etc.), negative integers zeta(-n) rational
+// (with the trivial zeros zeta(-2k)=0). Odd positive and symbolic args stay.
+class SYMPP_EXPORT Zeta final : public Function {
+public:
+    explicit Zeta(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Zeta; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "zeta"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr erf(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr erfc(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr heaviside(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr dirac_delta(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr zeta(const Expr& s);
 
 }  // namespace sympp

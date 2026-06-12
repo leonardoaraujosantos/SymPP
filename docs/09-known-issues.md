@@ -348,14 +348,28 @@ truth and links the issue number.
 - **Expected (SymPy):** `ζ(2n) = rₙ·π^(2n)` — `π²/6`, `π⁴/90`, `π⁶/945`,
   `π⁸/9450`, `π¹⁰/93555`, `691·π¹²/638512875`, `2·π¹⁴/18243225`.
 - **Fix (`src/calculus/summation.cpp`):** a branch matching `lo=1`, `hi=∞`,
-  summand `var^m` with `m` a negative even integer in `[-14,-2]` returns the
-  tabulated `ζ(-m)` closed form. Only even exponents have an elementary
-  (`π`-power) value; odd `p>1` (`ζ(3)`, …, no elementary form) and the divergent
-  harmonic `p=1` fall through to the `Sum` marker.
+  summand `var^m` with integer `m ≤ -2` returns `zeta(-m)` (ZETA-FN). Even
+  exponents close to a `π`-power; odd `p>1` close to a symbolic `ζ(s)` (matching
+  SymPy's `Sum(1/k**3).doit() = zeta(3)`); the divergent harmonic `p=1` (m=-1)
+  is excluded and falls through to the `Sum` marker.
 - **Regression test:** `tests/calculus/series_limit_test.cpp`
   — `[summation][zeta][regression]`.
-- **Scope:** even `2n ≤ 14`. Higher even orders (need a Bernoulli-number
-  routine), odd zeta, and non-power summands stay deferred.
+- **Scope:** integer `s ≥ 2`. Non-power summands stay deferred.
+
+### ZETA-FN — Riemann `zeta` was not a function type
+- **Input:** `zeta(2)`, `zeta(0)`, `zeta(1)`, `zeta(-1)`, `zeta(-2)`, `zeta(3)`,
+  `zeta(s)`.
+- **Was:** `FunctionId::Zeta` existed in the enum but had no class/factory/parser
+  — the parser made a generic node.
+- **Now:** a `Zeta` function type (`functions/special.{hpp,cpp}`). Exact values:
+  `zeta(0)=-1/2`, `zeta(1)=zoo` (pole), even positives `zeta(2n)=rₙ·π^(2n)`
+  (`zeta(2)=π²/6` … `zeta(14)`), negative integers rational
+  (`zeta(-1)=-1/12`, `zeta(-3)=1/120`, …, trivial zeros `zeta(-2k)=0`). Odd
+  positive (`zeta(3)`) and symbolic args stay. Parser accepts `zeta`; `str()`
+  round-trips. The even-`p` summation closure now routes through this.
+- **Regression test:** `tests/functions/special_test.cpp` — `[zeta]`.
+- **Scope:** integer arguments fold (even ≤14, odd-negatives ≤9); the
+  derivative and non-integer/complex evaluation stay deferred.
 
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
