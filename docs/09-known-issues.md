@@ -449,6 +449,22 @@ truth and links the issue number.
 - **Scope:** pure `c·x²` exponent (no linear/constant term). No MPFR `erfi`, so
   `Float` arguments stay symbolic.
 
+### BETA — `beta` (Euler Beta) was not a function type
+- **Input:** `beta(2,3)`, `beta(5,2)`, `beta(1/2,1/2)`, `beta(a,b)`.
+- **Was:** `FunctionId::Beta` existed in the enum but had no class — `beta`
+  parsed generically.
+- **Now:** a two-argument `Beta` type (`functions/combinatorial.{hpp,cpp}`)
+  defined through `gamma`: `B(a,b)=Γ(a)·Γ(b)/Γ(a+b)`. It folds to the gamma
+  ratio only when all three gammas evaluate to a closed form (positive integers,
+  half-integers) — `beta(2,3)=1/12`, `beta(5,2)=1/30`, `beta(1/2,1/2)=π` — and
+  stays `Beta(a,b)` symbolic otherwise. Parser accepts `beta`; `str()`
+  round-trips.
+- **Regression test:** `tests/functions/combinatorial_test.cpp` — `[beta]`.
+- **Scope:** args where `gamma` closes. (SymPy's own auto-eval is inconsistent —
+  `beta(2,3)` folds but `beta(5,2)` stays — but every folded value is
+  numerically equal to SymPy's, so the oracle agrees.) The derivative
+  (digamma-based) stays deferred.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.
