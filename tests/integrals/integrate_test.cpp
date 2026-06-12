@@ -1714,6 +1714,15 @@ TEST_CASE("integrate: 1/(quadratic)^n reduction formula (INT-37)",
     // Completing the square: 1/(x²+2x+5)².
     REQUIRE(db(pow(pow(x, integer(2)) + integer(2) * x + integer(5),
                    integer(-2))));
+    // Linear numerator over a power of an irreducible quadratic (INT-39).
+    Expr q2 = pow(x, integer(2)) + integer(1);
+    REQUIRE(db((x + integer(1)) * pow(q2, integer(-2))));          // (x+1)/(x²+1)²
+    REQUIRE(db((integer(2) * x + integer(3)) * pow(q2, integer(-2))));
+    REQUIRE(db((integer(3) * x + integer(2)) * pow(q2, integer(-3))));
+    // Linear numerator over a completed square.
+    REQUIRE(db((x - integer(1))
+               * pow(pow(x, integer(2)) + integer(2) * x + integer(5),
+                     integer(-2))));
 }
 
 TEST_CASE("integrate: rational with repeated factors via partial fractions (INT-38)",

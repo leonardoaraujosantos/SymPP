@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1227 tests / 2781 assertions  all passing
+1227 tests / 2789 assertions  all passing
 14 of 15 phases shipped
 ```
 
