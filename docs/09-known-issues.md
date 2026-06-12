@@ -1114,6 +1114,28 @@ truth and links the issue number.
   deterministically by evaluating `diff(F) − e` to ~0 at fixed rational points.
 - **Scope:** polynomial × integer power of `sin/cos/sinh/cosh(affine)`.
 
+### INT-36 — `∫g'/(1+g²)` (heurisch substitution into an irreducible quadratic) returned the marker
+- **Input:** `∫cos x/(1+sin²x)`, `∫sin x/(1+cos²x)`, `∫eˣ/(1+e^(2·)x²)`
+  (`∫eˣ/(1+(eˣ)²)`), `∫1/(x(1+log²x))`.
+- **Was:** the marker — `try_heurisch` correctly finds the substitution
+  `u = g(x)` (g = sin, cos, exp, log) and reduces the integrand to `c/(1+u²)`,
+  but its inner integration was table + `try_rational` only, and neither closes a
+  bare/scaled irreducible quadratic (`try_rational` defers it; cf. INT-32).
+- **Expected (SymPy):** `atan(sin x)`, `−atan(cos x)`, `atan(eˣ)`, `atan(log x)`.
+- **Fix (`src/integrals/integrate.cpp`):** after the table and `try_rational`
+  attempts, `try_heurisch` now pulls any leading numeric factor and falls back to
+  `try_arctan_quadratic` / `try_linear_over_quadratic` on the substituted
+  integrand, so `∫g'/(1+g²) = atan(g)` closes.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][heurisch][regression]` (sin/cos/exp/log substitutions), verified
+  by differentiation against the oracle.
+- **Scope / known limitation:** the `g = exp(x)` *denominator* cases such as
+  `∫1/(eˣ+e⁻ˣ)` and `∫x/(x⁴+1)` still return the marker — there the substitution
+  itself fails because SymPP does not fold `e^(2x)`/`e^(−x)` to `(eˣ)²`/`(eˣ)⁻¹`
+  (the `exp(a)·exp(b)` non-combination gap) nor recognise `x⁴` as `(x²)²`, so the
+  substituted integrand still depends on `x`. **Separately, `∫sec²x/(1+tan²x)`
+  hangs (pre-existing, independent of this change) — to be triaged.**
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
