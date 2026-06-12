@@ -463,6 +463,61 @@ TEST_CASE("integrate: ∫sqrt(x^2-1) dx = x*sqrt(x^2-1)/2 - log(x+sqrt(x^2-1))/2
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- Polynomial × (linear)^rational via u-sub (regression, INT-21) ---------
+// ∫P(x)·(a·x+b)^r dx (r a non-integer rational) used to fall through. The
+// substitution u = a·x+b turns it into Σ cₖ·u^(k+r), integrated term-by-term.
+// SymPP can't reduce the radical antiderivative to SymPy's printed form, so
+// each case is verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫x*sqrt(x+1) dx (algebraic u-sub)",
+          "[7][integrate][algebraic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * pow(x + integer(1), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*sqrt(2x+3) dx (non-unit slope)",
+          "[7][integrate][algebraic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * pow(integer(2) * x + integer(3), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x^2*sqrt(x+1) dx (degree-2 polynomial factor)",
+          "[7][integrate][algebraic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(x, integer(2)) * pow(x + integer(1), rational(1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x/sqrt(x+1) dx (negative fractional exponent)",
+          "[7][integrate][algebraic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * pow(x + integer(1), rational(-1, 2));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫x*(x+1)^(1/3) dx (cube root)",
+          "[7][integrate][algebraic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = x * pow(x + integer(1), rational(1, 3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP
