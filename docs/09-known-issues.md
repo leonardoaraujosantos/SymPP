@@ -204,8 +204,25 @@ truth and links the issue number.
 - **Regression test:** `tests/functions/trigonometric_test.cpp`
   — `[trig][regression]` (rational + radical values, quadrant images, pole and
   out-of-table guards).
-- **Scope:** denominators outside {1,2,3,4,6} (e.g. `π/12`, `π/5`) stay
-  symbolic — SymPy expands those to nested radicals, not yet implemented.
+- **Scope:** denominators outside {1,2,3,4,6,12} (e.g. `π/5`, `π/8`) stay
+  symbolic. Denominator 12 ships in TRIG-PI12; `π/8` is a genuinely nested
+  radical, deferred.
+
+### TRIG-PI12 — exact values at multiples of π/12 (15°)
+- **Input:** `cos(π/12)`, `sin(π/12)`, `tan(π/12)`, `cos(5π/12)`, `tan(5π/12)`,
+  `cos(7π/12)`, …
+- **Was:** denominator 12 fell outside the {1,2,3,4,6} table → left symbolic
+  (and an old test wrongly called π/12 a "nested radical").
+- **Expected (SymPy):** `cos(π/12) = (√6+√2)/4`, `sin(π/12) = (√6−√2)/4`,
+  `tan(π/12) = 2−√3`, `tan(5π/12) = 2+√3`, with the usual quadrant signs.
+- **Fix (`src/functions/trigonometric.cpp`):** added the `den = 12` reference
+  values (`r = 1/12, 5/12`) to `base_cos_pi` and `base_tan_pi`; all 24 multiples
+  reduce in through the existing `cos_pi`/`tan_pi` period + reflection folds, and
+  `sin_pi` gets them via the `cos((1/2−r)π)` co-function identity.
+- **Regression test:** `tests/functions/trigonometric_test.cpp`
+  — `[trig][regression]` (π/12 family + a `π/8` nested-radical no-op guard).
+- **Scope:** π/12 (15°) only. π/8 (22.5°) and π/5 (36°) need nested-radical /
+  golden-ratio forms and stay deferred.
 
 ### TRIG-2 — `asin`/`acos`/`atan` not evaluated at special arguments
 - **Input:** `asin(1/2)`, `acos(1/2)`, `atan(sqrt(3))`, `asin(sqrt(2)/2)`,
