@@ -291,10 +291,26 @@ namespace {
     // Bound the numerator so the pulled-out coefficient can't blow up.
     if (mpz_cmp_ui(pnum.get_mpz_t(), 1000UL) > 0) return std::nullopt;
 
-    if (base->type_id() != TypeId::Integer) return std::nullopt;
-    const auto& zb = static_cast<const Integer&>(*base);
-    if (sgn(zb.value()) <= 0) return std::nullopt;     // negative/zero → defer
-    mpz_class m = zb.value();
+    // Integer base b → factorise b directly. Rational base a/b → use the
+    // identity (a/b)^(P/q) = (a·b^(q-1))^(P/q) / b^P, reducing to the integer
+    // case on a·b^(q-1) with a final division by den_pow = b^P (which
+    // rationalises the denominator, e.g. (2/3)^(2/3) = 2^(2/3)·3^(1/3)/3).
+    mpz_class m;        // integer base to factorise
+    mpz_class den_pow(1);
+    if (base->type_id() == TypeId::Integer) {
+        const auto& zb = static_cast<const Integer&>(*base);
+        if (sgn(zb.value()) <= 0) return std::nullopt;  // negative/zero → defer
+        m = zb.value();
+    } else if (base->type_id() == TypeId::Rational) {
+        const auto& rb = static_cast<const Rational&>(*base);
+        if (rb.is_negative()) return std::nullopt;
+        mpz_class bq1;
+        mpz_pow_ui(bq1.get_mpz_t(), rb.denominator().get_mpz_t(), qd - 1);
+        m = rb.numerator() * bq1;
+        mpz_pow_ui(den_pow.get_mpz_t(), rb.denominator().get_mpz_t(), pnum.get_ui());
+    } else {
+        return std::nullopt;
+    }
     if (m == 1) return std::nullopt;
     constexpr unsigned long kMaxBase = 1000000000000UL;  // 1e12 → ≤1e6 trial iters
     if (mpz_cmp_ui(m.get_mpz_t(), kMaxBase) > 0) return std::nullopt;
@@ -333,8 +349,12 @@ namespace {
     }
     if (m > 1) handle_prime(m, 1);  // leftover prime factor > √base
 
-    if (!pulled) return std::nullopt;  // nothing extracted — already reduced
-    Expr result = make<Integer>(coeff);
+    // For an integer base with nothing pulled out (e.g. 2^(2/3)) leave it
+    // symbolic. A rational base always proceeds — the den_pow division
+    // rationalises it even when no prime contributes an integer part.
+    if (!pulled && den_pow == 1) return std::nullopt;
+    Expr result = (den_pow == 1) ? make<Integer>(coeff)
+                                 : rational(coeff, den_pow);
     for (const auto& [prime, r] : residuals) {
         result = mul(result,
                      pow(make<Integer>(prime), rational(mpz_class(r), mpz_class(qd))));
