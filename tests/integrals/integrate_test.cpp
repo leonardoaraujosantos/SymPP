@@ -856,6 +856,62 @@ TEST_CASE("integrate: ∫coth(2x+1) dx (affine argument scaling)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// ----- ∫sechⁿ / ∫cschⁿ via by-parts reduction (regression, INT-28) -----------
+// Hyperbolic analogue of INT-27. The Pythagorean sign differs (coth²−csch²=1),
+// so the csch rest term is subtracted:
+// ∫sechⁿ = sech^(n-2)·tanh/((n-1)a) + (n-2)/(n-1)·∫sech^(n-2);
+// ∫cschⁿ = −csch^(n-2)·coth/((n-1)a) − (n-2)/(n-1)·∫csch^(n-2).
+// Verified by differentiation against the oracle.
+TEST_CASE("integrate: ∫sech(x)^3 dx (by-parts reduction)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sech(x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sech(x)^4 dx (reduction to ∫sech²)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sech(x), integer(4));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csch(x)^3 dx (by-parts reduction, sign-flipped rest)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csch(x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫csch(x)^4 dx (reduction to ∫csch²)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(csch(x), integer(4));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+TEST_CASE("integrate: ∫sech(2x)^3 dx (affine argument scaling)",
+          "[7][integrate][reciprocal][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto e = pow(sech(integer(2) * x), integer(3));
+    auto F = integrate(e, x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
 // ----- tan² via the Pythagorean identity (regression, INT-8) -----------------
 // ∫tan²(u) du fell through (only sin²/cos² had a trig-reduction rewrite). Now
 // tan²(u) → 1/cos²(u) − 1, so ∫tan²(u) = tan(u)/a − u for an affine u. SymPP

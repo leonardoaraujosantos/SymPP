@@ -743,8 +743,26 @@ truth and links the issue number.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[integrate][reciprocal][regression]` (five cases incl. affine scaling,
   verified by differentiation against the oracle).
-- **Scope:** integer `secⁿ`/`cscⁿ`. The hyperbolic `cothⁿ`/`sechⁿ`/`cschⁿ`
-  (n ≥ 3) analogues stay deferred (no `tanhⁿ` handler either).
+- **Scope:** integer `secⁿ`/`cscⁿ`. The hyperbolic `sechⁿ`/`cschⁿ` analogues
+  ship in INT-28.
+
+### INT-28 — `∫sechⁿ` / `∫cschⁿ` (n ≥ 3) returned the marker
+- **Input:** `∫sech³`, `∫sech⁴`, `∫csch³`, `∫csch⁴`, `∫sech(2x)³`.
+- **Was:** the marker — only `n = 1` (table) and `n = 2` (square) of `sech`/
+  `csch` were handled (INT-26); higher powers need integration by parts.
+- **Expected (SymPy):** e.g. `∫sech³ = sech·tanh/2 + atan(sinh)/2`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_sech_csch_power`, the
+  hyperbolic analogue of `try_sec_csc_power`. The Pythagorean sign differs
+  (`coth² − csch² = 1`), so the `csch` rest term is **subtracted**:
+  - `∫sechⁿ =  sech^(n-2)·tanh/((n-1)·g') + (n-2)/(n-1)·∫sech^(n-2)`
+  - `∫cschⁿ = −csch^(n-2)·coth/((n-1)·g') − (n-2)/(n-1)·∫csch^(n-2)`
+  Recurses to the `∫sech`/`∫sech²` base cases (INT-26); dispatched after
+  `try_sec_csc_power`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][reciprocal][hyperbolic][regression]` (five cases incl. affine
+  scaling, verified by differentiation against the oracle).
+- **Scope:** integer `sechⁿ`/`cschⁿ`. With INT-27 this closes the
+  reciprocal-power integration family (trig + hyperbolic, all six functions).
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,

@@ -284,6 +284,14 @@ namespace {
 // case (INT-24) and n=2 the trig-reduction square (INT-25).
 [[nodiscard]] std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var);
 
+// ∫ sech(g)^n / csch(g)^n dx (n ≥ 3 integer, g affine) — the hyperbolic analogue
+// of try_sec_csc_power. The Pythagorean sign differs (coth²−csch²=1 vs
+// csc²−cot²=1), so the csch rest term is subtracted:
+// ∫sechⁿ =  sech^(n-2)·tanh/((n-1)·g') + (n-2)/(n-1)·∫sech^(n-2)
+// ∫cschⁿ = −csch^(n-2)·coth/((n-1)·g') − (n-2)/(n-1)·∫csch^(n-2). n=1/n=2 are
+// the table / square cases (INT-26).
+[[nodiscard]] std::optional<Expr> try_sech_csch_power(const Expr& expr, const Expr& var);
+
 // ∫ sinh(g)^m · cosh(g)^n dx — the hyperbolic analogue of try_trig_power,
 // using cosh²−sinh²=1 and the half-angle forms of cosh(2g).
 [[nodiscard]] std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var);
@@ -379,6 +387,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_sec_csc_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_sech_csch_power(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_hyperbolic_power(expr, var); r.has_value()) {
@@ -1044,6 +1055,45 @@ std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var) {
     Expr boundary = mul(S::NegativeOne(), pow(csc(g), integer(n - 2)) * cot(g))
                     / (integer(n - 1) * a);
     return boundary + rest_term;
+}
+
+std::optional<Expr> try_sech_csch_power(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& e = expr->args()[1];
+    if (e->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*e);
+    if (!z.fits_long()) return std::nullopt;
+    const long n = z.to_long();
+    // n=1 / n=2 are the table / square cases (INT-26).
+    if (n < 3 || n > 24) return std::nullopt;
+    if (base->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*base);
+    const FunctionId id = fn.function_id();
+    if ((id != FunctionId::Sech && id != FunctionId::Csch)
+        || fn.args().size() != 1) {
+        return std::nullopt;
+    }
+    const Expr& g = fn.args()[0];
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;
+
+    // By-parts reduction, recursing to the n=1 table / n=2 square cases. Unlike
+    // the trig case, csch subtracts the rest term (coth² = 1 + csch²):
+    //   ∫sechⁿ =  sech^(n-2)·tanh/((n-1)·g') + (n-2)/(n-1)·∫sech^(n-2)
+    //   ∫cschⁿ = −csch^(n-2)·coth/((n-1)·g') − (n-2)/(n-1)·∫csch^(n-2)
+    Expr rest = integrate(pow(base, integer(n - 2)), var);
+    if (is_integral_marker(rest)) return std::nullopt;
+    Expr rest_mag = rational(n - 2, n - 1) * rest;
+    if (id == FunctionId::Sech) {
+        Expr boundary = pow(sech(g), integer(n - 2)) * tanh(g)
+                        / (integer(n - 1) * a);
+        return boundary + rest_mag;
+    }
+    Expr boundary = mul(S::NegativeOne(), pow(csch(g), integer(n - 2)) * coth(g))
+                    / (integer(n - 1) * a);
+    return boundary - rest_mag;
 }
 
 namespace {
