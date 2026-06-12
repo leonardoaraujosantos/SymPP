@@ -666,8 +666,28 @@ truth and links the issue number.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[integrate][reciprocal][regression]` (five cases incl. affine arguments,
   verified by differentiation against the oracle).
-- **Scope:** an affine argument `a·x+b`. Powers (`∫cot²`, `∫sec³`) and products
-  remain separate items.
+- **Scope:** an affine argument `a·x+b`. Squares and `cotⁿ` powers ship in
+  INT-25; `∫secⁿ`/`∫cscⁿ` for n ≥ 3 (by-parts reduction) and products remain
+  separate items.
+
+### INT-25 — reciprocal-trio powers `∫sec²/csc²/cot²` and `∫cotⁿ`
+- **Input:** `∫sec²`, `∫csc²`, `∫cot²`, `∫cot³`, `∫cot⁴`, `∫sec(2x)²`.
+- **Was:** the marker — only `sin²/cos²/tan²` had power rewrites; the reciprocal
+  trio (added in TRIG-RECIP) had none.
+- **Expected (SymPy):** `∫sec²=tan`, `∫csc²=−cot`, `∫cot²=−cot−x`,
+  `∫cot³=−cot²/2−log(sin)`, etc.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - `try_trig_reduction` squares: `sec²(u)→1/cos²(u)`, `csc²(u)→1/sin²(u)`,
+    `cot²(u)→1/sin²(u)−1` (Pythagorean), reusing the existing `1/cos²`,
+    `1/sin²` table cases (affine `u`).
+  - `try_tan_power` generalised to `Cot`: `∫cotⁿ = −cot^(n-1)/((n-1)a) −
+    ∫cot^(n-2)`, the sign-flipped analogue of `∫tanⁿ`, recursing to the `∫cot`
+    table case.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][reciprocal][regression]` (six cases incl. cubes/quartics and
+  affine scaling, verified by differentiation against the oracle).
+- **Scope:** `sec²/csc²/cot²` and integer `cotⁿ`. `∫secⁿ`/`∫cscⁿ` for n ≥ 3
+  need a by-parts reduction and stay deferred.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,

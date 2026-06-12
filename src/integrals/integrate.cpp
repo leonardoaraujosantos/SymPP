@@ -794,6 +794,22 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
                     Expr rewritten = pow(cos(u), integer(-2)) - integer(1);
                     return integrate(rewritten, var);
                 }
+                // The reciprocal trio, rewritten to the 1/cos², 1/sin² table
+                // cases (affine u only): sec²(u) = 1/cos²(u),
+                // csc²(u) = 1/sin²(u), cot²(u) = 1/sin²(u) − 1 (Pythagorean).
+                if (fn.function_id() == FunctionId::Sec
+                    && as_affine(u, var)) {
+                    return integrate(pow(cos(u), integer(-2)), var);
+                }
+                if (fn.function_id() == FunctionId::Csc
+                    && as_affine(u, var)) {
+                    return integrate(pow(sin(u), integer(-2)), var);
+                }
+                if (fn.function_id() == FunctionId::Cot
+                    && as_affine(u, var)) {
+                    Expr rewritten = pow(sin(u), integer(-2)) - integer(1);
+                    return integrate(rewritten, var);
+                }
             }
         }
     }
@@ -930,7 +946,9 @@ std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
     if (n < 2 || n > 24) return std::nullopt;  // n=1 is the table case
     if (base->type_id() != TypeId::Function) return std::nullopt;
     const auto& fn = static_cast<const Function&>(*base);
-    if (fn.function_id() != FunctionId::Tan || fn.args().size() != 1) {
+    const FunctionId id = fn.function_id();
+    if ((id != FunctionId::Tan && id != FunctionId::Cot)
+        || fn.args().size() != 1) {
         return std::nullopt;
     }
     const Expr& g = fn.args()[0];
@@ -938,9 +956,19 @@ std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
     if (!aff || aff->first == S::Zero()) return std::nullopt;
     const Expr& a = aff->first;
 
-    // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2).
-    Expr first = pow(tan(g), integer(n - 1)) / (integer(n - 1) * a);
-    Expr rest = integrate(pow(tan(g), integer(n - 2)), var);
+    // Power-reduction by the Pythagorean identity, recursing down to the n=1
+    // table case (∫tan = −log(cos)/a, ∫cot = log(sin)/a):
+    //   ∫tanⁿ =  tan^(n-1)/((n-1)·g') − ∫tan^(n-2)
+    //   ∫cotⁿ = −cot^(n-1)/((n-1)·g') − ∫cot^(n-2)
+    if (id == FunctionId::Tan) {
+        Expr first = pow(tan(g), integer(n - 1)) / (integer(n - 1) * a);
+        Expr rest = integrate(pow(tan(g), integer(n - 2)), var);
+        if (is_integral_marker(rest)) return std::nullopt;
+        return first - rest;
+    }
+    Expr first = mul(S::NegativeOne(), pow(cot(g), integer(n - 1)))
+                 / (integer(n - 1) * a);
+    Expr rest = integrate(pow(cot(g), integer(n - 2)), var);
     if (is_integral_marker(rest)) return std::nullopt;
     return first - rest;
 }
@@ -1246,11 +1274,15 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
 std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
 
-    // Split the integrand into factors.
+    // Split the integrand into factors. Build with a push_back loop rather than
+    // vector::assign(span): under -O3 the latter inlines a tail-destroy path
+    // that trips gcc's -Wnull-dereference (a false positive on the element
+    // shared_ptr destructor).
     std::vector<Expr> factors;
     if (expr->type_id() == TypeId::Mul) {
         auto sp = expr->args();
-        factors.assign(sp.begin(), sp.end());
+        factors.reserve(sp.size());
+        for (const auto& f : sp) factors.push_back(f);
     } else {
         factors.push_back(expr);
     }
