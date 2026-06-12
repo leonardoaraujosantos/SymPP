@@ -127,6 +127,19 @@ TEST_CASE("simplify: combines exponential products (SIMP-2)",
     REQUIRE(simplify(exp(integer(2)) * exp(integer(3))) == exp(integer(5)));
 }
 
+TEST_CASE("simplify: pulls log of a positive base out of exp (SIMP-3)",
+          "[5][simplify][assumptions][regression]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto q = symbol("q", AssumptionMask{}.set_positive(true));
+    auto x = symbol("x");
+    // exp(x + c·log p) → p^c · exp(x) for positive p.
+    REQUIRE(simplify(exp(x + log(p))) == p * exp(x));
+    REQUIRE(simplify(exp(integer(2) * log(p) + x)) == pow(p, integer(2)) * exp(x));
+    REQUIRE(simplify(exp(log(p) + log(q) + x)) == p * q * exp(x));
+    // No log term → unchanged.
+    REQUIRE(simplify(exp(x + symbol("y")))->str() == "exp(x + y)");
+}
+
 TEST_CASE("collect: groups powers of var", "[5][collect][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
