@@ -327,6 +327,12 @@ namespace {
 // coefficients, zero linear term, and positive constant term.
 [[nodiscard]] std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ x/√(a·x² + c) dx = √(a·x²+c)/a (pure quadratic radicand, no linear term).
+// The numerator must be the bare var (times a constant); a constant numerator is
+// try_sqrt_quadratic's job. Closes ∫x/√(1−x²) etc. — the x·f' term that the
+// inverse-trig/hyperbolic by-parts integrals reduce to.
+[[nodiscard]] std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var);
+
 // ∫ exp(c·x²) dx for a concrete negative c (a real Gaussian) → the error
 // function: with a = −c > 0, √π·erf(√a·x)/(2√a). Returns nullopt unless the
 // exponent is a pure quadratic (no linear/constant term) with negative
@@ -409,6 +415,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_sqrt_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_x_over_sqrt_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_algebraic_linear_sub(expr, var); r.has_value()) {
@@ -633,7 +642,13 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
             id == FunctionId::Erf || id == FunctionId::Erfc
             || id == FunctionId::Erfi || id == FunctionId::Si
             || id == FunctionId::Ci || id == FunctionId::Ei
-            || id == FunctionId::Shi || id == FunctionId::Chi;
+            || id == FunctionId::Shi || id == FunctionId::Chi
+            // Inverse trig / hyperbolic: ∫f = x·f − ∫x·f', with x·f' a rational
+            // or x/√(quadratic) that the table/heurisch closes.
+            || id == FunctionId::Asin || id == FunctionId::Acos
+            || id == FunctionId::Atan || id == FunctionId::Acot
+            || id == FunctionId::Asinh || id == FunctionId::Acosh
+            || id == FunctionId::Atanh;
         if (by_parts_fn && fn.args().size() == 1) {
             auto aff = as_affine(fn.args()[0], var);
             if (aff && !(aff->first == S::Zero())) {
@@ -1400,6 +1415,42 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     }
     // a < 0, c ≤ 0 (radicand has no positive region) and c == 0 fall through.
     return std::nullopt;
+}
+
+std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Split into: the √-reciprocal factor (quadratic)^(-1/2), exactly one bare
+    // `var` factor, and constant prefactors.
+    Expr radical;          // pow(quad, -1/2)
+    bool has_x = false;    // saw the lone var factor
+    std::vector<Expr> consts;
+    for (const auto& f : expr->args()) {
+        if (!radical && f->type_id() == TypeId::Pow
+            && f->args()[1] == rational(-1, 2) && depends_on(f->args()[0], var)) {
+            radical = f;
+            continue;
+        }
+        if (!has_x && f == var) {
+            has_x = true;
+            continue;
+        }
+        if (depends_on(f, var)) return std::nullopt;
+        consts.push_back(f);
+    }
+    if (!radical || !has_x) return std::nullopt;
+
+    Poly p(expand(radical->args()[0]), var);
+    if (p.degree() != 2) return std::nullopt;
+    const Expr& c = p.coeffs()[0];
+    const Expr& b = p.coeffs()[1];
+    const Expr& a = p.coeffs()[2];
+    if (!(b == S::Zero())) return std::nullopt;        // pure quadratic only
+    if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+
+    // ∫ x/√(a·x²+c) dx = √(a·x²+c)/a  (d/dx of √(a·x²+c)/a = x/√(a·x²+c)).
+    Expr result = pow(radical->args()[0], rational(1, 2)) / a;
+    if (!consts.empty()) result = mul(mul(consts), result);
+    return simplify(result);
 }
 
 std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {

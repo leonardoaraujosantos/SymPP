@@ -1524,6 +1524,46 @@ TEST_CASE("integrate: ∫erfi(x) and ∫Chi(x) by parts",
     }
 }
 
+// ----- ∫ inverse trig/hyperbolic by parts (regression, INVTRIG-BYPARTS) ------
+// ∫f(x) dx = x·f(x) − ∫x·f'(x); the x·f' term is a rational or x/√(quadratic),
+// the latter handled by try_x_over_sqrt_quadratic. ∫asin = x·asin+√(1-x²),
+// ∫atan = x·atan−log(1+x²)/2, ∫asinh = x·asinh−√(x²+1), etc. Oracle-verified.
+TEST_CASE("integrate: ∫asin/acos/atan/acot by parts",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (auto e : {asin(x), acos(x), atan(x), acot(x)}) {
+        auto F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}
+
+TEST_CASE("integrate: ∫asinh/acosh/atanh by parts",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (auto e : {asinh(x), acosh(x), atanh(x)}) {
+        auto F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}
+
+TEST_CASE("integrate: ∫x/sqrt(a*x^2+c) = sqrt(a*x^2+c)/a",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // ∫x/√(1-x²) = -√(1-x²); ∫x/√(x²+1) = √(x²+1).
+    auto e1 = x * pow(integer(1) - pow(x, integer(2)), rational(-1, 2));
+    auto F1 = integrate(e1, x);
+    REQUIRE(F1->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(F1, x)->str(), e1->str()));
+    auto e2 = x * pow(pow(x, integer(2)) + integer(1), rational(-1, 2));
+    auto F2 = integrate(e2, x);
+    REQUIRE(oracle.equivalent(diff(F2, x)->str(), e2->str()));
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",
