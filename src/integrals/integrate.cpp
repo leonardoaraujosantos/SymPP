@@ -623,6 +623,23 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
     return false;
 }
 
+// Functions f for which ∫f dx = x·f − ∫x·f' closes because f' is elementary and
+// x·f' (or, more generally, a polynomial × f') integrates. The special-integral
+// functions (erf, Si, …) and the inverse trig / hyperbolic functions qualify; a
+// function left with the default 0-derivative would yield a bogus x·f, so the
+// set is an explicit whitelist. Drives both the standalone and the
+// polynomial × f integration-by-parts branches.
+[[nodiscard]] bool is_by_parts_fn(FunctionId id) {
+    return id == FunctionId::Erf || id == FunctionId::Erfc
+           || id == FunctionId::Erfi || id == FunctionId::Si
+           || id == FunctionId::Ci || id == FunctionId::Ei
+           || id == FunctionId::Shi || id == FunctionId::Chi
+           || id == FunctionId::Asin || id == FunctionId::Acos
+           || id == FunctionId::Atan || id == FunctionId::Acot
+           || id == FunctionId::Asinh || id == FunctionId::Acosh
+           || id == FunctionId::Atanh;
+}
+
 std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) {
     // Standalone log(affine).
     if (expr->type_id() == TypeId::Function) {
@@ -647,18 +664,7 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
     if (expr->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*expr);
         const FunctionId id = fn.function_id();
-        const bool by_parts_fn =
-            id == FunctionId::Erf || id == FunctionId::Erfc
-            || id == FunctionId::Erfi || id == FunctionId::Si
-            || id == FunctionId::Ci || id == FunctionId::Ei
-            || id == FunctionId::Shi || id == FunctionId::Chi
-            // Inverse trig / hyperbolic: ∫f = x·f − ∫x·f', with x·f' a rational
-            // or x/√(quadratic) that the table/heurisch closes.
-            || id == FunctionId::Asin || id == FunctionId::Acos
-            || id == FunctionId::Atan || id == FunctionId::Acot
-            || id == FunctionId::Asinh || id == FunctionId::Acosh
-            || id == FunctionId::Atanh;
-        if (by_parts_fn && fn.args().size() == 1) {
+        if (is_by_parts_fn(id) && fn.args().size() == 1) {
             auto aff = as_affine(fn.args()[0], var);
             if (aff && !(aff->first == S::Zero())) {
                 Expr remaining = integrate(var * diff(expr, var), var);
@@ -801,6 +807,40 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                         // distributed: x²·log(x)/2 − x²/4 rather than a
                         // common-factor-wrapped 1/8·(…).
                         return expand(log_factor * v - remaining);
+                    }
+                }
+            }
+        }
+    }
+
+    // Polynomial × f(affine) for a whitelisted by-parts function f (inverse
+    // trig/hyperbolic, erf, Si, …), by parts with u = f, dv = rest dx:
+    //   ∫ rest·f dx = f·∫rest − ∫(∫rest)·f' dx.
+    // For atan/acot/atanh, f' is rational so the remaining integral is rational
+    // (closed by try_rational); for asin/acos/asinh/acosh it is a polynomial over
+    // √(quadratic), closed when low-degree. The marker guard bails otherwise.
+    if (expr->type_id() == TypeId::Mul) {
+        Expr fn_factor;
+        std::vector<Expr> rest_factors;
+        for (const auto& f : expr->args()) {
+            if (!fn_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (is_by_parts_fn(fn.function_id()) && fn.args().size() == 1
+                    && as_affine(fn.args()[0], var)) {
+                    fn_factor = f;
+                    continue;
+                }
+            }
+            rest_factors.push_back(f);
+        }
+        if (fn_factor && !rest_factors.empty()) {
+            Expr rest = mul(rest_factors);
+            if (is_polynomial_in(rest, var)) {
+                Expr v = integrate(rest, var);
+                if (!is_integral_marker(v)) {
+                    Expr remaining = integrate(v * diff(fn_factor, var), var);
+                    if (!is_integral_marker(remaining)) {
+                        return expand(fn_factor * v - remaining);
                     }
                 }
             }
@@ -1306,14 +1346,34 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
     // Decompose the proper remainder via apart().
     Expr proper = r_poly.as_expr() / den_p.as_expr();
     Expr apart_form = apart(proper, var);
+
+    Expr proper_int;
     if (apart_form == proper) {
-        // apart couldn't decompose further — fall through.
-        return std::nullopt;
+        // apart couldn't split the proper part — it is a single irreducible
+        // quadratic denominator with a constant or linear numerator. For a bare
+        // proper fraction (q == 0) defer to the dedicated quadratic helpers
+        // downstream (re-integrating here would recurse). For the improper case
+        // (q ≠ 0) the polynomial quotient must still be integrated, so close the
+        // remainder directly via those helpers instead of dropping the whole
+        // result to the marker.
+        if (q.is_zero()) return std::nullopt;
+        if (den_p.degree() != 2) return std::nullopt;
+        if (r_poly.degree() <= 0) {
+            auto inv = try_arctan_quadratic(
+                pow(den_p.as_expr(), S::NegativeOne()), var);
+            if (!inv) return std::nullopt;
+            proper_int = mul(r_poly.as_expr(), inv.value());
+        } else {
+            auto lin = try_linear_over_quadratic(proper, var);
+            if (!lin) return std::nullopt;
+            proper_int = lin.value();
+        }
+    } else {
+        proper_int = integrate(apart_form, var);
+        if (is_integral_marker(proper_int)) return std::nullopt;
     }
 
-    Expr poly_int = integrate(q.as_expr(), var);
-    Expr apart_int = integrate(apart_form, var);
-    return poly_int + apart_int;
+    return integrate(q.as_expr(), var) + proper_int;
 }
 
 std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
