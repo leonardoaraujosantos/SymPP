@@ -1716,6 +1716,27 @@ TEST_CASE("integrate: 1/(quadratic)^n reduction formula (INT-37)",
                    integer(-2))));
 }
 
+TEST_CASE("integrate: rational with repeated factors via partial fractions (INT-38)",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // apart now decomposes repeated factors; try_rational accepts (poly)^(-n)
+    // denominators. ∫1/((x-1)²(x+1)), ∫1/(x²(x+1)), ∫x³/(x²+1)².
+    REQUIRE(db(pow(pow(x - integer(1), integer(2)) * (x + integer(1)),
+                   integer(-1))));
+    REQUIRE(db(pow(pow(x, integer(2)) * (x + integer(1)), integer(-1))));
+    REQUIRE(db(pow(x, integer(3))
+               * pow(pow(x, integer(2)) + integer(1), integer(-2))));
+    // Regression: distinct-factor and irreducible-quadratic cases still close.
+    REQUIRE(db(pow((x - integer(1)) * (x + integer(1)), integer(-1))));
+    REQUIRE(db(pow(pow(x, integer(3)) + integer(1), integer(-1))));
+}
+
 TEST_CASE("integrate: heurisch substitution into an irreducible quadratic (INT-36)",
           "[7][integrate][heurisch][oracle][regression]") {
     auto& oracle = Oracle::instance();

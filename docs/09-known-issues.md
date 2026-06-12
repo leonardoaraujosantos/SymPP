@@ -1167,6 +1167,32 @@ truth and links the issue number.
   quadratic, rational coefficients. A non-constant numerator over a
   repeated-quadratic denominator still needs `apart` repeated-factor support.
 
+### INT-38 — rational functions with repeated factors returned the marker
+- **Input:** `∫1/((x−1)²(x+1))`, `∫1/(x²(x+1))`, `∫x³/(x²+1)²`.
+- **Was:** the marker. Two linked causes:
+  1. `partial_fractions_squarefree` (the undetermined-coefficients engine behind
+     `apart`) bailed on any repeated factor (`m ≠ 1`).
+  2. `try_rational` only recognised a denominator written as a `Pow` with
+     exponent exactly `−1`, so `(x²+1)^(-2)` was not seen as a denominator at all.
+- **Expected (SymPy):** `∫1/((x−1)²(x+1)) = −1/(2(x−1)) − log(x−1)/4 + log(x+1)/4`,
+  `∫x³/(x²+1)² = log(x²+1)/2 + 1/(2(x²+1))`.
+- **Fix:**
+  - `src/polys/poly.cpp`: generalise `partial_fractions_squarefree` to repeated
+    factors — a factor `fᵢ` of multiplicity `mᵢ` contributes terms `Pᵢⱼ/fᵢʲ` for
+    `j = 1..mᵢ`, still an `N×N` undetermined-coefficient system
+    (`N = deg den`). It now returns `nullopt` when the result is a single term
+    (nothing actually split, e.g. `1/(x²+1)²` is already a partial fraction) so
+    the integration pipeline does not loop on an unchanged fraction.
+  - `src/integrals/integrate.cpp`: `try_rational` accepts any `base^(−n)` factor
+    (`n ≥ 1`) as a denominator contribution, not just exponent `−1`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][rational][regression]` (repeated linear factors, an `x²` factor,
+  an improper repeated-quadratic, plus distinct-factor / irreducible-cubic
+  regressions), verified by differentiation against the oracle.
+- **Scope:** a linear/higher numerator over a *single repeated irreducible
+  quadratic* (`(x+1)/(x²+1)²`) is left as a partial fraction and still returns
+  the marker — closing it needs a `(linear)/(irreducible quadratic)ⁿ` split rule.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

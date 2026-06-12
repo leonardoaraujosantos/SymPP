@@ -1,6 +1,7 @@
 #include <sympp/polys/poly.hpp>
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -968,12 +969,13 @@ Expr cancel(const Expr& expr, const Expr& var) {
 
 namespace {
 
-// Partial-fraction decomposition of num/den over the squarefree irreducible
-// factorization of den (multiplicity-1 factors, e.g. (x+1)(x²−x+1) for x³+1).
-// Returns Σ Pᵢ/fᵢ with deg(Pᵢ) < deg(fᵢ), found by undetermined coefficients:
-// num = Σ Pᵢ·(den/fᵢ) is an N×N rational linear system (N = deg den), solved
-// via rref. Returns nullopt for a repeated factor, non-rational coefficients,
-// a single irreducible factor (nothing to split), or an impractical degree.
+// Partial-fraction decomposition of num/den over the irreducible factorization
+// of den, including repeated factors: a factor fᵢ of multiplicity mᵢ contributes
+// terms Pᵢⱼ/fᵢʲ for j = 1..mᵢ, each with deg(Pᵢⱼ) < deg(fᵢ). Found by undetermined
+// coefficients: num = Σᵢ Σⱼ Pᵢⱼ·(den/fᵢʲ) is an N×N rational linear system
+// (N = deg den), solved via rref. Returns nullopt for non-rational coefficients,
+// a single multiplicity-1 irreducible factor (nothing to split), or an
+// impractical degree.
 [[nodiscard]] std::optional<Expr> partial_fractions_squarefree(
     const Poly& num_p, const Poly& den_p, const Expr& var) {
     constexpr std::size_t kMaxDegree = 10;
@@ -982,28 +984,39 @@ namespace {
     if (!poly_coeffs_as_mpq(den_p)) return std::nullopt;
 
     FactorList fl = factor_list(den_p);
-    if (fl.factors.size() < 2) return std::nullopt;  // nothing to separate
-    for (const auto& [f, m] : fl.factors) {
-        if (m != 1) return std::nullopt;  // repeated factor — deferred
+    // Nothing to separate: a lone irreducible factor of multiplicity 1.
+    if (fl.factors.size() == 1 && fl.factors[0].second == 1) {
+        return std::nullopt;
     }
 
-    // One unknown per coefficient of each Pᵢ (degree deg(fᵢ)−1). The basis
-    // polynomial for coefficient j of factor i is x^j · (den/fᵢ).
-    struct Unknown { std::size_t factor; std::size_t power; };
+    const Poly one_poly(std::vector<Expr>{S::One()}, var);
+
+    // One unknown per coefficient of each Pᵢⱼ (degree deg(fᵢ)−1) for every power
+    // j = 1..mᵢ. The basis polynomial for coefficient p of (factor i, power j) is
+    // xᵖ · (den/fᵢʲ).
+    struct Unknown { std::size_t factor; std::size_t power; std::size_t coeff; };
     std::vector<Unknown> unknowns;
     std::vector<std::vector<Expr>> basis;  // per unknown: coeff vector, low→high
     for (std::size_t i = 0; i < fl.factors.size(); ++i) {
         const Poly& f = fl.factors[i].first;
-        auto [cofactor, rem] = den_p.divmod(f);
-        if (!rem.is_zero()) return std::nullopt;  // f must divide den exactly
-        const auto& cc = cofactor.coeffs();
-        for (std::size_t j = 0; j < f.degree(); ++j) {
-            unknowns.push_back({i, j});
-            std::vector<Expr> col(N, S::Zero());
-            for (std::size_t k = 0; k < cc.size() && j + k < N; ++k) {
-                col[j + k] = cc[k];
+        const std::size_t m = fl.factors[i].second;
+        // base = den / fᵢ^mᵢ (the part coprime to fᵢ); den/fᵢʲ = base · fᵢ^(mᵢ−j).
+        Poly fpow = one_poly;
+        for (std::size_t k = 0; k < m; ++k) fpow = fpow * f;
+        auto [base, rem] = den_p.divmod(fpow);
+        if (!rem.is_zero()) return std::nullopt;  // fᵢ^mᵢ must divide den exactly
+        Poly den_over = base;  // starts at j = m (den/fᵢ^m); multiply by f as j↓
+        for (std::size_t j = m; j >= 1; --j) {
+            const auto& cc = den_over.coeffs();
+            for (std::size_t p = 0; p < f.degree(); ++p) {
+                unknowns.push_back({i, j, p});
+                std::vector<Expr> col(N, S::Zero());
+                for (std::size_t k = 0; k < cc.size() && p + k < N; ++k) {
+                    col[p + k] = cc[k];
+                }
+                basis.push_back(std::move(col));
             }
-            basis.push_back(std::move(col));
+            if (j > 1) den_over = den_over * f;  // den/fᵢ^(j−1)
         }
     }
     if (unknowns.size() != N) return std::nullopt;
@@ -1025,23 +1038,33 @@ namespace {
         if (pivots[k] != k) return std::nullopt;  // not a clean identity block
     }
 
-    // Reassemble each Pᵢ from the solution column and build Σ Pᵢ/fᵢ.
-    std::vector<std::vector<Expr>> p_coeffs(fl.factors.size());
+    // Reassemble each Pᵢⱼ from the solution column and build Σᵢ Σⱼ Pᵢⱼ/fᵢʲ. Key
+    // the coefficient buckets by (factor i, power j).
+    std::map<std::pair<std::size_t, std::size_t>, std::vector<Expr>> p_coeffs;
     for (std::size_t i = 0; i < fl.factors.size(); ++i) {
-        p_coeffs[i].assign(fl.factors[i].first.degree(), S::Zero());
+        const std::size_t m = fl.factors[i].second;
+        for (std::size_t j = 1; j <= m; ++j) {
+            p_coeffs[{i, j}].assign(fl.factors[i].first.degree(), S::Zero());
+        }
     }
     for (std::size_t k = 0; k < N; ++k) {
-        p_coeffs[unknowns[k].factor][unknowns[k].power] = R.at(k, N);
+        p_coeffs[{unknowns[k].factor, unknowns[k].power}][unknowns[k].coeff] =
+            R.at(k, N);
     }
     std::vector<Expr> terms;
-    for (std::size_t i = 0; i < fl.factors.size(); ++i) {
-        Poly numer(std::move(p_coeffs[i]), var);
+    for (auto& [key, coeffs] : p_coeffs) {
+        Poly numer(std::move(coeffs), var);
         Expr ne = numer.as_expr();
         if (ne == S::Zero()) continue;
-        terms.push_back(ne / fl.factors[i].first.as_expr());
+        Expr f_expr = fl.factors[key.first].first.as_expr();
+        terms.push_back(ne / pow(f_expr, integer(static_cast<long>(key.second))));
     }
     if (terms.empty()) return S::Zero();
-    if (terms.size() == 1) return terms[0];
+    // A single term means nothing actually split — the input was already a
+    // partial fraction (e.g. 1/(x²+1)² or (x+1)/(x²+1)²). Report "no
+    // decomposition" so callers don't re-process an unchanged fraction (which
+    // would loop in the integration pipeline).
+    if (terms.size() == 1) return std::nullopt;
     return add(std::move(terms));
 }
 
