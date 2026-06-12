@@ -15,6 +15,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -160,4 +161,46 @@ TEST_CASE("combinatorial: structural output matches SymPy",
     REQUIRE(oracle.equivalent(binomial(integer(10), integer(3))->str(),
                               "binomial(10, 3)"));
     REQUIRE(oracle.equivalent(gamma(integer(5))->str(), "gamma(5)"));
+}
+
+// ----- fibonacci / catalan (FIB-CAT) -----------------------------------------
+
+TEST_CASE("fibonacci: integer values", "[3i][fibonacci]") {
+    REQUIRE(fibonacci(integer(0)) == integer(0));
+    REQUIRE(fibonacci(integer(1)) == integer(1));
+    REQUIRE(fibonacci(integer(2)) == integer(1));
+    REQUIRE(fibonacci(integer(10)) == integer(55));
+    REQUIRE(fibonacci(integer(20)) == integer(6765));
+    // Symbolic / negative arguments stay unevaluated.
+    auto x = symbol("x");
+    REQUIRE(fibonacci(x)->type_id() == TypeId::Function);
+    REQUIRE(fibonacci(integer(-1))->type_id() == TypeId::Function);
+}
+
+TEST_CASE("catalan: integer values", "[3i][catalan]") {
+    REQUIRE(catalan(integer(0)) == integer(1));
+    REQUIRE(catalan(integer(1)) == integer(1));
+    REQUIRE(catalan(integer(2)) == integer(2));
+    REQUIRE(catalan(integer(3)) == integer(5));
+    REQUIRE(catalan(integer(5)) == integer(42));
+    REQUIRE(catalan(integer(10)) == integer(16796));
+    auto x = symbol("x");
+    REQUIRE(catalan(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("fibonacci/catalan: parse round-trip and subs",
+          "[3i][fibonacci][catalan][parser]") {
+    auto x = symbol("x");
+    REQUIRE(parsing::parse("fibonacci(x)") == fibonacci(x));
+    REQUIRE(parsing::parse("catalan(x)") == catalan(x));
+    REQUIRE(fibonacci(x)->str() == "fibonacci(x)");
+    REQUIRE(catalan(x)->str() == "catalan(x)");
+    REQUIRE(subs(fibonacci(x), x, integer(12)) == integer(144));
+    REQUIRE(subs(catalan(x), x, integer(4)) == integer(14));
+}
+
+TEST_CASE("fibonacci/catalan: values match SymPy", "[3i][fibonacci][catalan][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(fibonacci(integer(15))->str(), "fibonacci(15)"));
+    REQUIRE(oracle.equivalent(catalan(integer(7))->str(), "catalan(7)"));
 }

@@ -71,8 +71,32 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+class SYMPP_EXPORT Fibonacci final : public Function {
+public:
+    explicit Fibonacci(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Fibonacci;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "fibonacci"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+class SYMPP_EXPORT Catalan final : public Function {
+public:
+    explicit Catalan(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Catalan;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "catalan"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr factorial(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
+[[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
 

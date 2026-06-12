@@ -151,6 +151,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"sqrt", &sqrt}, {"abs", &abs}, {"sign", &sign},
         {"floor", &floor}, {"ceiling", &ceiling},
         {"factorial", &factorial},
+        {"fibonacci", &fibonacci}, {"catalan", &catalan},
         {"gamma", &gamma}, {"loggamma", &loggamma},
         {"erf", &erf}, {"erfc", &erfc},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
