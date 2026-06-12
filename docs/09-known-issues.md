@@ -403,7 +403,20 @@ truth and links the issue number.
   `tests/integrals/integrate_test.cpp` — `[integrate][expint][regression]`
   (incl. the updated INT-15 case, now closing to `Ei(x)`).
 - **Scope:** monomial argument `c·x` (no constant term); `∫sin(x²)/x`-style and
-  the two-argument `Ei(x,k)`/`Eₙ` generalisations stay deferred.
+  the two-argument `Ei(x,k)`/`Eₙ` generalisations stay deferred. The hyperbolic
+  analogues `Shi`/`Chi` ship in EXPINT-HYP.
+
+### EXPINT-HYP — Shi/Chi hyperbolic integral functions, and ∫sinh(x)/x, ∫cosh(x)/x
+- **Input:** `∫sinh(x)/x`, `∫cosh(x)/x`, `∫sinh(2x)/x`, `Shi(x)`, `Chi(x)`.
+- **Was:** unevaluated markers; `Shi`/`Chi` weren't function types.
+- **Now:** the hyperbolic mirror of EXPINT — `Shi`/`Chi` types (new `FunctionId`
+  values) with `Shi(0)=0`, `Shi` odd, `Shi(±oo)=±oo`, `Chi(oo)=oo`, derivatives
+  `Shi'=sinh(x)/x`, `Chi'=cosh(x)/x`. `try_expint_integral` extended:
+  `∫sinh(c·x)/x → Shi(c·x)`, `∫cosh(c·x)/x → Chi(c·x)`. Parser + `str()`
+  round-trip.
+- **Regression test:** `tests/functions/special_test.cpp` — `[expint]`;
+  `tests/integrals/integrate_test.cpp` — `[integrate][expint][regression]`.
+- **Scope:** monomial argument `c·x`, as for EXPINT.
 
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,

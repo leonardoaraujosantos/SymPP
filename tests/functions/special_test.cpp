@@ -236,3 +236,19 @@ TEST_CASE("Si/Ci/Ei: parse round-trip", "[3h][expint][parser]") {
     REQUIRE(cosint(x)->str() == "Ci(x)");
     REQUIRE(expint_ei(x)->str() == "Ei(x)");
 }
+
+// ----- Shi / Chi hyperbolic integral functions (EXPINT-HYP) ------------------
+TEST_CASE("Shi/Chi: special values and derivatives", "[3h][expint][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(sinhint(S::Zero()) == S::Zero());                  // Shi(0)=0
+    REQUIRE(sinhint(S::Infinity()) == S::Infinity());          // Shi(oo)=oo
+    REQUIRE(coshint(S::Infinity()) == S::Infinity());          // Chi(oo)=oo
+    REQUIRE(sinhint(mul(S::NegativeOne(), x))
+            == mul(S::NegativeOne(), sinhint(x)));             // odd
+    REQUIRE(oracle.equivalent(diff(sinhint(x), x)->str(), "sinh(x)/x"));
+    REQUIRE(oracle.equivalent(diff(coshint(x), x)->str(), "cosh(x)/x"));
+    REQUIRE(parsing::parse("Shi(x)") == sinhint(x));
+    REQUIRE(parsing::parse("Chi(x)") == coshint(x));
+    REQUIRE(sinhint(x)->str() == "Shi(x)");
+}

@@ -158,6 +158,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"erf", &erf}, {"erfc", &erfc}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},
         {"Ei", &expint_ei}, {"Si", &sinint}, {"Ci", &cosint},
+        {"Shi", &sinhint}, {"Chi", &coshint},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate},
         // SymPy canonical spellings — these are the names str() emits, so the
