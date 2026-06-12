@@ -1422,9 +1422,23 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     const Expr& b = p.coeffs()[1];
     const Expr& a = p.coeffs()[2];
 
-    // Pure quadratic only (no linear term), with rational coefficients. A
-    // linear term is out of scope and left to fall through.
-    if (!(b == S::Zero())) return std::nullopt;
+    // Completing the square: with a linear term, the substitution u = x + b/(2a)
+    // shifts the radicand to a·u² + (c − b²/(4a)) and kills the linear term.
+    // Since du = dx, the antiderivative is just the pure-quadratic result with
+    // x ← x + b/(2a). Reuse this routine recursively for the shifted (b = 0)
+    // radicand, for both the reciprocal and numerator exponents.
+    if (!(b == S::Zero())) {
+        if (is_rational(a) != true || is_rational(b) != true
+            || is_rational(c) != true) {
+            return std::nullopt;
+        }
+        Expr shift = b / (integer(2) * a);
+        Expr cprime = simplify(c - b * b / (integer(4) * a));
+        Expr shifted = pow(a * pow(var, integer(2)) + cprime, expr->args()[1]);
+        auto inner = try_sqrt_quadratic(shifted, var);
+        if (!inner.has_value()) return std::nullopt;
+        return simplify(subs(inner.value(), var, var + shift));
+    }
     if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
 
     // ∫ √(a·x² + c) dx = (x/2)·√(a·x²+c) + (c/2)·∫ 1/√(a·x²+c) dx (by parts).
@@ -1459,37 +1473,51 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
 
 std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
-    // Split into: the √-reciprocal factor (quadratic)^(-1/2), exactly one bare
-    // `var` factor, and constant prefactors.
-    Expr radical;          // pow(quad, -1/2)
-    bool has_x = false;    // saw the lone var factor
-    std::vector<Expr> consts;
+    // Split into the √-reciprocal factor (quadratic)^(-1/2) and a numerator that
+    // collects everything else (a linear polynomial in var, p·x + q).
+    Expr radical;                 // pow(quad, -1/2)
+    std::vector<Expr> num_factors;
     for (const auto& f : expr->args()) {
         if (!radical && f->type_id() == TypeId::Pow
             && f->args()[1] == rational(-1, 2) && depends_on(f->args()[0], var)) {
             radical = f;
             continue;
         }
-        if (!has_x && f == var) {
-            has_x = true;
-            continue;
-        }
-        if (depends_on(f, var)) return std::nullopt;
-        consts.push_back(f);
+        num_factors.push_back(f);
     }
-    if (!radical || !has_x) return std::nullopt;
+    if (!radical || num_factors.empty()) return std::nullopt;
 
-    Poly p(expand(radical->args()[0]), var);
-    if (p.degree() != 2) return std::nullopt;
-    const Expr& c = p.coeffs()[0];
-    const Expr& b = p.coeffs()[1];
-    const Expr& a = p.coeffs()[2];
-    if (!(b == S::Zero())) return std::nullopt;        // pure quadratic only
-    if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+    Poly q_poly(expand(radical->args()[0]), var);
+    if (q_poly.degree() != 2) return std::nullopt;
+    const Expr& c = q_poly.coeffs()[0];
+    const Expr& b = q_poly.coeffs()[1];
+    const Expr& a = q_poly.coeffs()[2];
+    if (is_rational(a) != true || is_rational(b) != true
+        || is_rational(c) != true) {
+        return std::nullopt;
+    }
 
-    // ∫ x/√(a·x²+c) dx = √(a·x²+c)/a  (d/dx of √(a·x²+c)/a = x/√(a·x²+c)).
-    Expr result = pow(radical->args()[0], rational(1, 2)) / a;
-    if (!consts.empty()) result = mul(mul(consts), result);
+    // The numerator must be linear in var: N = p·x + q.
+    Poly n_poly(expand(mul(num_factors)), var);
+    if (n_poly.degree() > 1) return std::nullopt;
+    const Expr p = n_poly.degree() >= 1 ? n_poly.coeffs()[1] : S::Zero();
+    const Expr& qn = n_poly.coeffs()[0];
+
+    // d/dx √(a·x²+b·x+c) = (2a·x+b)/(2√Q), so
+    //   ∫ x/√Q dx = √Q/a − (b/2a)·∫ 1/√Q dx,
+    // and for the general linear numerator N = p·x + q:
+    //   ∫ N/√Q dx = (p/a)·√Q + (q − p·b/(2a))·∫ 1/√Q dx.
+    // The reciprocal term (present whenever b ≠ 0 or q ≠ p·b/(2a)) is handled by
+    // try_sqrt_quadratic, including its completing-the-square branch.
+    Expr sqrtQ = pow(radical->args()[0], rational(1, 2));
+    Expr result = p / a * sqrtQ;
+    Expr recip_coeff = simplify(qn - p * b / (integer(2) * a));
+    if (!(recip_coeff == S::Zero())) {
+        auto recip = try_sqrt_quadratic(pow(radical->args()[0], rational(-1, 2)),
+                                        var);
+        if (!recip.has_value()) return std::nullopt;
+        result = result + recip_coeff * recip.value();
+    }
     return simplify(result);
 }
 
