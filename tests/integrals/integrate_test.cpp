@@ -1689,6 +1689,24 @@ TEST_CASE("integrate: polynomial × trig/hyperbolic power by parts (INT-35)",
     REQUIRE(db(x * pow(cos(integer(2) * x), integer(2))));  // affine argument
 }
 
+TEST_CASE("integrate: heurisch substitution into an irreducible quadratic (INT-36)",
+          "[7][integrate][heurisch][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // After the u = g substitution the integrand becomes c/(1+u²); the table and
+    // try_rational don't close a bare irreducible quadratic, so the dedicated
+    // arctan helper now backs them up. ∫g'/(1+g²) = atan(g).
+    REQUIRE(db(cos(x) / (integer(1) + pow(sin(x), integer(2)))));   // atan(sin x)
+    REQUIRE(db(sin(x) / (integer(1) + pow(cos(x), integer(2)))));   // -atan(cos x)
+    REQUIRE(db(exp(x) / (integer(1) + pow(exp(x), integer(2)))));   // atan(exp x)
+    REQUIRE(db(pow(x * (integer(1) + pow(log(x), integer(2))), integer(-1))));
+}
+
 TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
           "[7][integrate][weierstrass][oracle][regression]") {
     auto& oracle = Oracle::instance();

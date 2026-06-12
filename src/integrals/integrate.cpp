@@ -577,6 +577,34 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         // strictly simpler pieces and so terminates; the depth guard backstops
         // any pathological recursion through its internal integrate() calls.
         if (!integrated_opt) integrated_opt = try_rational(q_sub, u);
+        // Irreducible-quadratic fallback: a bare or numerically-scaled
+        // 1/(a·u²+b·u+c) (or (linear)/quadratic) — e.g. g = exp(x) turns
+        // ∫1/(eˣ+e⁻ˣ) into ∫1/(u²+1), and g = x² turns ∫x/(x⁴+1) into
+        // ∫1/(2(u²+1)). The table and try_rational don't close these; the
+        // dedicated quadratic helpers do, once a leading numeric factor is
+        // pulled aside.
+        if (!integrated_opt) {
+            Expr coeff = S::One();
+            Expr core = q_sub;
+            if (q_sub->type_id() == TypeId::Mul) {
+                std::vector<Expr> num_consts, rest;
+                for (const auto& f : q_sub->args()) {
+                    if (f->type_id() == TypeId::Integer
+                        || f->type_id() == TypeId::Rational) {
+                        num_consts.push_back(f);
+                    } else {
+                        rest.push_back(f);
+                    }
+                }
+                if (!num_consts.empty() && !rest.empty()) {
+                    coeff = mul(num_consts);
+                    core = mul(rest);
+                }
+            }
+            auto qr = try_arctan_quadratic(core, u);
+            if (!qr) qr = try_linear_over_quadratic(core, u);
+            if (qr) integrated_opt = mul(coeff, qr.value());
+        }
         if (!integrated_opt) continue;
         Expr integrated = *integrated_opt;
         if (is_integral_marker(integrated)) continue;
