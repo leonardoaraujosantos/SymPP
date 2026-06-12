@@ -302,6 +302,26 @@ TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
                 .find("sinh(") != std::string::npos);
 }
 
+TEST_CASE("trigsimp: trig ratio products cancel (TRIG-RATIO)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(trigsimp(tan(x) * cos(x))->str(), "sin(x)"));
+    REQUIRE(oracle.equivalent(trigsimp(cot(x) * sin(x))->str(), "cos(x)"));
+    REQUIRE(oracle.equivalent(trigsimp(sec(x) * cos(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(trigsimp(csc(x) * sin(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(trigsimp(cot(x) * tan(x))->str(), "1"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * tan(x) * cos(x))->str(), "3*sin(x)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(tan(x), integer(2)) * pow(cos(x), integer(2)))->str(),
+        "sin(x)**2"));
+    // A lone tan (or scaled) is left untouched — no leaf reduction available.
+    REQUIRE(trigsimp(tan(x))->str() == "tan(x)");
+    REQUIRE(trigsimp(integer(2) * tan(x))->str().find("tan(")
+            != std::string::npos);
+}
+
 TEST_CASE("trigsimp: additive tanh/coth Pythagorean identities (TRIG-HYP-4)",
           "[5][trigsimp][oracle][regression]") {
     auto& oracle = Oracle::instance();
