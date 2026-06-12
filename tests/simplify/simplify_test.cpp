@@ -302,6 +302,35 @@ TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
                 .find("sinh(") != std::string::npos);
 }
 
+TEST_CASE("trigsimp: additive tanh/coth Pythagorean identities (TRIG-HYP-4)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) - pow(tanh(x), integer(2)))->str(),
+        "cosh(x)**(-2)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(coth(x), integer(2)) - integer(1))->str(),
+        "sinh(x)**(-2)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(sech(x), integer(2)) + pow(tanh(x), integer(2)))->str(),
+        "1"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(pow(csch(x), integer(2)) - pow(coth(x), integer(2)))->str(),
+        "-1"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) - integer(3) * pow(tanh(x), integer(2)))->str(),
+        "3/cosh(x)**2"));
+    // No-ops: a bare square, or a sum where the loose constant survives, is
+    // left as-is (matching SymPy).
+    REQUIRE(trigsimp(pow(tanh(x), integer(2)))->str() == "tanh(x)**2");
+    REQUIRE(trigsimp(integer(2) - pow(tanh(x), integer(2)))->str()
+                .find("tanh(") != std::string::npos);
+    REQUIRE(trigsimp(pow(tanh(x), integer(2)) + pow(tanh(y), integer(2)))->str()
+                .find("tanh(") != std::string::npos);
+}
+
 TEST_CASE("trigsimp: hyperbolic ratio products cancel (TRIG-HYP-3)",
           "[5][trigsimp][oracle][regression]") {
     auto& oracle = Oracle::instance();
