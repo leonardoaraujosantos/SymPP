@@ -178,6 +178,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"mod", &mod},
         {"RisingFactorial", &rising_factorial},
         {"FallingFactorial", &falling_factorial},
+        {"polylog", &polylog},
     };
     return table;
 }
