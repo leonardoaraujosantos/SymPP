@@ -709,9 +709,80 @@ as_trig_square_term(const Expr& term) {
     return count_leaves(best) < count_leaves(e) ? best : e;
 }
 
+// cosh(x) + sinh(x) → eˣ and cosh(x) − sinh(x) → e⁻ˣ (and scaled forms, when the
+// cosh and sinh coefficients match up to a sign). Collapses a 2-term sum into a
+// single exponential, matching SymPy's simplify.
+[[nodiscard]] Expr hyp_to_exp_add(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    auto detect = [](const Expr& f) -> std::optional<std::pair<bool, Expr>> {
+        // bare cosh(a) / sinh(a) (degree 1, not squared)
+        if (f->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.args().size() != 1) return std::nullopt;
+        if (fn.function_id() == FunctionId::Cosh) return std::pair{false, f->args()[0]};
+        if (fn.function_id() == FunctionId::Sinh) return std::pair{true, f->args()[0]};
+        return std::nullopt;
+    };
+    auto as_term = [&](const Expr& term)
+        -> std::optional<std::tuple<bool, Expr, Expr>> {
+        if (auto r = detect(term)) return std::make_tuple(r->first, r->second, S::One());
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<std::pair<bool, Expr>> hyp;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (!hyp) { if (auto r = detect(f)) { hyp = r; continue; } }
+                coef.push_back(f);
+            }
+            if (hyp && !coef.empty()) {
+                return std::make_tuple(hyp->first, hyp->second, mul(coef));
+            }
+        }
+        return std::nullopt;
+    };
+
+    struct CP { Expr sinh_c = S::Zero(); Expr cosh_c = S::Zero(); };
+    std::vector<std::pair<Expr, CP>> by_arg;
+    std::vector<Expr> rest;
+    auto find_or_create = [&](const Expr& a) -> CP& {
+        for (auto& [x, p] : by_arg) if (x == a) return p;
+        by_arg.push_back({a, CP{}});
+        return by_arg.back().second;
+    };
+    for (const auto& term : e->args()) {
+        if (auto t = as_term(term)) {
+            auto& cp = find_or_create(std::get<1>(*t));
+            if (std::get<0>(*t)) cp.sinh_c = add(cp.sinh_c, std::get<2>(*t));
+            else cp.cosh_c = add(cp.cosh_c, std::get<2>(*t));
+        } else {
+            rest.push_back(term);
+        }
+    }
+
+    std::vector<Expr> out = rest;
+    bool changed = false;
+    for (auto& [arg, cp] : by_arg) {
+        if (!(cp.cosh_c == S::Zero()) && cp.sinh_c == cp.cosh_c) {
+            out.push_back(cp.cosh_c * exp(arg));            // c(cosh+sinh) = c·eˣ
+            changed = true;
+        } else if (!(cp.cosh_c == S::Zero())
+                   && cp.sinh_c == mul(S::NegativeOne(), cp.cosh_c)) {
+            out.push_back(cp.cosh_c * exp(mul(S::NegativeOne(), arg)));
+            changed = true;
+        } else {
+            if (!(cp.cosh_c == S::Zero())) out.push_back(cp.cosh_c * cosh(arg));
+            if (!(cp.sinh_c == S::Zero())) out.push_back(cp.sinh_c * sinh(arg));
+        }
+    }
+    if (!changed) return e;
+    if (out.empty()) return S::Zero();
+    if (out.size() == 1) return out[0];
+    return add(std::move(out));
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = hypsimp_add(cur);
+    cur = hyp_to_exp_add(cur);
     cur = trigsimp_mul(cur);
     return cur;
 }
