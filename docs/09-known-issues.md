@@ -14,6 +14,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-8 — `(-1)**(2*n)` wasn't folded for an integer `n`
+- **Input:** `(−1)^(2n)`, `(−1)^(2n+1)`, `(−1)^(4n+3)` for integer `n`.
+- **Was:** unevaluated — only a *literal* integer exponent folded (via
+  `number_pow`); a symbolic exponent with a determinable parity did not.
+- **Expected (SymPy):** `1` (even exponent), `−1` (odd exponent); a bare
+  integer of unknown parity or a non-integer coefficient stays.
+- **Fix (`src/core/pow.cpp`):** structural `provably_even` / `provably_odd`
+  helpers (Integer by value; a `Mul` of integers is even iff some factor is even;
+  an `Add` folds term parities) drive `(−1)^k = 1`/`−1` in the `pow` factory.
+  Conservative — `2·n` is even only when `n` is a known integer (else `2·n` need
+  not even be an integer, e.g. `n = 1/2`).
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[assumptions][pow][regression]` (`2n`, `2n+1`, `2n+2`, `4n+3`; unknown-parity
+  and non-integer coefficient stay).
+- **Scope:** base `−1`, exponent with structurally-determinable parity. (A full
+  `even`/`odd` assumption-key with symbol-declared parity remains a larger
+  follow-up; this covers the common `2n`/`2n+1` forms.)
+
 ### ASSUME-7 — `sin(n*pi)` / `cos(n*pi)` / `tan(n*pi)` weren't evaluated for integer `n`
 - **Input:** `sin(n·π)`, `cos(n·π)`, `tan(n·π)`, `sin(2n·π)` for integer `n`.
 - **Was:** unevaluated — the trig factories reduced only a *numeric* rational

@@ -312,6 +312,21 @@ TEST_CASE("Pow: positive base raised to anything is positive",
     REQUIRE(is_nonzero(e) == true);
 }
 
+TEST_CASE("Pow: (-1)^k folds by structural parity (ASSUME-8)",
+          "[2b][assumptions][pow][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto g = symbol("g");  // not known integer
+    auto m1 = S::NegativeOne();
+    // 2n even ⇒ 1; 2n+1, 4n+3 odd ⇒ -1; 2n+2 even ⇒ 1.
+    REQUIRE(pow(m1, integer(2) * n) == S::One());
+    REQUIRE(pow(m1, integer(2) * n + integer(1)) == m1);
+    REQUIRE(pow(m1, integer(2) * n + integer(2)) == S::One());
+    REQUIRE(pow(m1, integer(4) * n + integer(3)) == m1);
+    // Unknown parity (bare integer) and non-integer coefficient stay.
+    REQUIRE(pow(m1, n)->str() == "(-1)**n");
+    REQUIRE(pow(m1, integer(2) * g)->str() == "(-1)**(2*g)");
+}
+
 TEST_CASE("Pow: integer base ^ nonneg integer exp is integer",
           "[2b][assumptions][pow]") {
     auto m = symbol("m", AssumptionMask{}.set_integer(true));
