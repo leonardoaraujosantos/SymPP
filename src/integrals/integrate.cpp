@@ -294,6 +294,13 @@ namespace {
 // rational leading coefficient.
 [[nodiscard]] std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·(a·x+b)^r dx for a polynomial P, an affine base a·x+b, and a
+// non-integer rational exponent r — e.g. ∫x·√(x+1). Substitute u = a·x+b so the
+// integrand becomes Σ cₖ·u^(k+r), which integrates term-by-term. Returns nullopt
+// unless exactly one (affine)^(rational) factor is present and the rest is
+// polynomial in var.
+[[nodiscard]] std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var);
+
 }  // namespace
 
 // Recursion-depth backstop. Integration by parts recurses through
@@ -353,6 +360,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_sqrt_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_algebraic_linear_sub(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
@@ -1165,6 +1175,70 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     Expr a = mul(S::NegativeOne(), c2);
     Expr sa = sqrt(a);
     return simplify(sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa));
+}
+
+std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) {
+    if (!depends_on(expr, var)) return std::nullopt;
+
+    // Split the integrand into factors.
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        auto sp = expr->args();
+        factors.assign(sp.begin(), sp.end());
+    } else {
+        factors.push_back(expr);
+    }
+
+    // Find exactly one (affine)^(non-integer rational) factor; the remaining
+    // factors must together form a polynomial in var. A second fractional power
+    // of var lands in `rest` and fails the polynomial test below, so we bail.
+    std::optional<std::pair<Expr, Expr>> lin;  // (a, b) of the affine base a·x+b
+    Expr root_base;
+    Expr r;  // the fractional exponent
+    bool found = false;
+    std::vector<Expr> rest;
+    for (const auto& f : factors) {
+        if (!found && f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Rational
+            && depends_on(f->args()[0], var)) {
+            auto aff = as_affine(f->args()[0], var);
+            if (aff.has_value() && !(aff->first == S::Zero())) {
+                lin = aff;
+                root_base = f->args()[0];
+                r = f->args()[1];
+                found = true;
+                continue;
+            }
+        }
+        rest.push_back(f);
+    }
+    if (!found) return std::nullopt;
+
+    Expr poly_part = rest.empty() ? S::One() : mul(rest);
+    if (!is_polynomial_in(poly_part, var)) return std::nullopt;
+
+    // Substitute u = a·x+b ⟹ x = (u−b)/a. The integrand (poly_part)·u^r becomes
+    // a polynomial in u times u^r, i.e. Σ cₖ·u^(k+r), which integrates to
+    // Σ cₖ·u^(k+r+1)/(k+r+1). r is a non-integer Rational, so k+r+1 ≠ 0 always.
+    const Expr& a = lin->first;
+    const Expr& b = lin->second;
+    auto u = symbol("__alg_lin_u");
+    Expr xsub = (u - b) / a;
+    Expr poly_u = expand(subs(poly_part, var, xsub));
+    if (depends_on(poly_u, var)) return std::nullopt;  // substitution didn't clear var
+
+    Poly P(poly_u, u);
+    const auto& cs = P.coeffs();
+    std::vector<Expr> terms;
+    terms.reserve(cs.size());
+    for (std::size_t k = 0; k < cs.size(); ++k) {
+        if (cs[k] == S::Zero()) continue;
+        Expr exp_new = integer(static_cast<long>(k)) + r + S::One();  // k + r + 1
+        terms.push_back(cs[k] * pow(u, exp_new) / exp_new);
+    }
+    Expr result_u = add(std::move(terms)) / a;
+    // Back-substitute u = a·x+b using the original base expression.
+    return simplify(subs(result_u, u, root_base));
 }
 
 }  // namespace

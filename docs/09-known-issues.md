@@ -559,7 +559,29 @@ truth and links the issue number.
   differentiation against the oracle).
 - **Scope:** pure quadratic radicand (no linear term), rational coefficients.
   A linear term needs completing-the-square; `∫√(x+1)`-style algebraic u-subs
-  remain a separate item.
+  are handled by INT-21.
+
+### INT-21 — `integrate(P(x)·(a·x+b)^r)` returned the marker
+- **Input:** `∫x·√(x+1)`, `∫x·√(2x+3)`, `∫x²·√(x+1)`, `∫x/√(x+1)`,
+  `∫x·(x+1)^(1/3)`.
+- **Was:** the marker — a polynomial times a fractional power of a linear
+  expression had no rule (the table only handles a bare `(a·x+b)^r`, and
+  `try_heurisch` couldn't pick the substitution).
+- **Expected (SymPy):** e.g. `∫x·√(x+1) = 2x²√(x+1)/5 + 2x√(x+1)/15 −
+  4√(x+1)/15` (SymPP prints the equivalent `−2(x+1)^(3/2)/3 + 2(x+1)^(5/2)/5`).
+- **Fix (`src/integrals/integrate.cpp`):** `try_algebraic_linear_sub` matches a
+  single `(affine)^(non-integer rational)` factor with the rest of the product
+  polynomial in `var`. The substitution `u = a·x+b` (so `x = (u−b)/a`) turns the
+  integrand into `Σ cₖ·u^(k+r)`, integrated term-by-term to
+  `Σ cₖ·u^(k+r+1)/(k+r+1)` — `r ∉ ℤ` guarantees the denominator is never 0 —
+  then back-substituted. Dispatched after `try_sqrt_quadratic`, before
+  `try_heurisch`.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][algebraic][regression]` (five cases incl. a negative exponent
+  and a cube root, verified by differentiation against the oracle).
+- **Scope:** one fractional power of an *affine* base. A fractional power of a
+  *quadratic* (genuine trig/hyperbolic substitution) and products of two
+  distinct algebraic radicals remain out of scope.
 
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
