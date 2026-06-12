@@ -378,6 +378,9 @@ protected:
             {FunctionId::Tanh, "\\tanh"}, {FunctionId::Coth, "\\coth"},
             {FunctionId::Sech, "\\operatorname{sech}"},
             {FunctionId::Csch, "\\operatorname{csch}"},
+            {FunctionId::Acoth, "\\operatorname{acoth}"},
+            {FunctionId::Asech, "\\operatorname{asech}"},
+            {FunctionId::Acsch, "\\operatorname{acsch}"},
             {FunctionId::Exp, "\\exp"}, {FunctionId::Log, "\\log"},
             {FunctionId::Floor, "\\lfloor"}, {FunctionId::Ceiling, "\\lceil"},
         };

@@ -124,8 +124,50 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr coth(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr sech(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr csch(const Expr& arg);
+// Inverse reciprocal hyperbolic trio. acoth(x)=atanh(1/x) [odd], asech(x)=
+// acosh(1/x) [asech(0)=oo], acsch(x)=asinh(1/x) [acsch(0)=zoo, odd]. Exact
+// values fold through those identities.
+class SYMPP_EXPORT Acoth final : public Function {
+public:
+    explicit Acoth(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Acoth; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "acoth"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Asech final : public Function {
+public:
+    explicit Asech(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Asech; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "asech"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Acsch final : public Function {
+public:
+    explicit Acsch(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Acsch; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "acsch"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+[[nodiscard]] SYMPP_EXPORT Expr sinh(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr cosh(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr tanh(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr coth(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr sech(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr csch(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr asinh(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr acosh(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr atanh(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr acoth(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr asech(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr acsch(const Expr& arg);
 
 }  // namespace sympp

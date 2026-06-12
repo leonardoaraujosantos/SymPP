@@ -148,6 +148,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"sinh", &sinh}, {"cosh", &cosh}, {"tanh", &tanh},
         {"coth", &coth}, {"sech", &sech}, {"csch", &csch},
         {"asinh", &asinh}, {"acosh", &acosh}, {"atanh", &atanh},
+        {"acoth", &acoth}, {"asech", &asech}, {"acsch", &acsch},
         {"exp", &exp}, {"log", &log},
         {"sqrt", &sqrt}, {"abs", &abs}, {"sign", &sign},
         {"floor", &floor}, {"ceiling", &ceiling},
