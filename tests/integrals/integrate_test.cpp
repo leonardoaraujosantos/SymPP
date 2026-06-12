@@ -1665,6 +1665,30 @@ TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)
     REQUIRE(db(sin(integer(2) * x) * sinh(integer(3) * x)));  // affine arguments
 }
 
+TEST_CASE("integrate: polynomial × trig/hyperbolic power by parts (INT-35)",
+          "[7][integrate][parts][regression]") {
+    auto x = symbol("x");
+    // The antiderivatives keep sinⁿ/cosⁿ or multiple-angle terms that SymPy's
+    // simplify won't always reduce against the integrand, so verify the
+    // derivative numerically at fixed rational points (deterministic).
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(1, 2), rational(7, 5), rational(-3, 4)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::abs(d) > 1e-9) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(x * pow(cos(x), integer(2))));               // ∫x·cos²x
+    REQUIRE(db(x * pow(sin(x), integer(2))));               // ∫x·sin²x
+    REQUIRE(db(x * pow(sin(x), integer(3))));               // odd power
+    REQUIRE(db(pow(x, integer(2)) * pow(cos(x), integer(2))));  // x²·cos²x
+    REQUIRE(db(x * pow(cosh(x), integer(2))));              // hyperbolic power
+    REQUIRE(db(x * pow(cos(integer(2) * x), integer(2))));  // affine argument
+}
+
 TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
           "[7][integrate][weierstrass][oracle][regression]") {
     auto& oracle = Oracle::instance();

@@ -868,28 +868,40 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
-    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) and the rest
-    // forming a non-trivial u that depends on var. The polynomial rest is
-    // differentiated down each step, so the recursion terminates (the depth
-    // guard backs it up); sinh/cosh don't cycle the way exp·sin/cos does.
+    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) — or a positive
+    // integer power of sin/cos/sinh/cosh(affine), whose antiderivative integrate
+    // already supplies — and the rest forming a non-trivial polynomial u. The
+    // polynomial is differentiated down each step, so the recursion terminates
+    // (the depth guard backs it up); sinh/cosh don't cycle the way exp·sin/cos
+    // does. This closes ∫x·cos²(x), ∫x·sin³(x), ∫x·cosh²(x), etc.
+    auto is_byparts_target = [&](const Expr& f) -> bool {
+        const Function* fn = nullptr;
+        if (f->type_id() == TypeId::Function) {
+            fn = &static_cast<const Function&>(*f);
+        } else if (f->type_id() == TypeId::Pow
+                   && f->args()[1]->type_id() == TypeId::Integer
+                   && static_cast<const Integer&>(*f->args()[1]).is_positive()
+                   && f->args()[0]->type_id() == TypeId::Function) {
+            fn = &static_cast<const Function&>(*f->args()[0]);
+        }
+        if (!fn || fn->args().size() != 1 || !depends_on(f, var)) return false;
+        auto aff = as_affine(fn->args()[0], var);
+        if (!aff || aff->first == S::Zero()) return false;
+        const FunctionId id = fn->function_id();
+        // A bare exp is fine; powers are only safe for the non-cyclic trig/hyp
+        // functions whose powers integrate (sin/cos/sinh/cosh).
+        if (f->type_id() == TypeId::Function && id == FunctionId::Exp) return true;
+        return id == FunctionId::Sin || id == FunctionId::Cos
+               || id == FunctionId::Sinh || id == FunctionId::Cosh;
+    };
+
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr target;
     std::vector<Expr> rest_factors;
     for (const auto& f : expr->args()) {
-        if (!target && f->type_id() == TypeId::Function) {
-            const auto& fn = static_cast<const Function&>(*f);
-            if (fn.args().size() == 1 && depends_on(f, var)) {
-                auto aff = as_affine(fn.args()[0], var);
-                if (aff && !(aff->first == S::Zero())
-                    && (fn.function_id() == FunctionId::Exp
-                        || fn.function_id() == FunctionId::Sin
-                        || fn.function_id() == FunctionId::Cos
-                        || fn.function_id() == FunctionId::Sinh
-                        || fn.function_id() == FunctionId::Cosh)) {
-                    target = f;
-                    continue;
-                }
-            }
+        if (!target && is_byparts_target(f)) {
+            target = f;
+            continue;
         }
         rest_factors.push_back(f);
     }
@@ -907,7 +919,10 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
     if (is_integral_marker(v)) return std::nullopt;
 
     Expr du = diff(u, var);
-    Expr remaining = integrate(v * du, var);
+    // expand so a product like (x/2 + sin(2x)/4)·2x distributes into a sum the
+    // linearity path can integrate term by term (else it stays a Mul·Add that no
+    // single strategy matches — e.g. ∫x²·cos²(x)).
+    Expr remaining = integrate(expand(v * du), var);
     if (is_integral_marker(remaining)) return std::nullopt;
 
     return u * v - remaining;

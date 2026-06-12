@@ -1091,6 +1091,29 @@ truth and links the issue number.
 - **Scope:** affine arguments, products mixing the two families. A standalone
   hyperbolic or a pure trig product is handled by the existing dedicated rules.
 
+### INT-35 — `∫P(x)·cosⁿ(x)`, `∫P(x)·sinⁿ(x)` (polynomial × trig/hyperbolic power) returned the marker
+- **Input:** `∫x·cos²x`, `∫x·sin²x`, `∫x·sin³x`, `∫x²·cos²x`, `∫x·cosh²x`,
+  `∫x·cos²(2x)`.
+- **Was:** the marker — the polynomial × function by-parts branch only matched a
+  *bare* `sin/cos/exp/sinh/cosh(affine)` factor, not a power of one. `∫cos²x` etc.
+  already integrate (INT-18/trig-reduction), so the by-parts `v = ∫dv` step had a
+  closed form available but was never tried.
+- **Expected (SymPy):** e.g. `∫x·cos²x = x²/4 + x·sin(2x)/4 + cos(2x)/8`.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - Extend the by-parts target test to accept a positive-integer power of
+    `sin/cos/sinh/cosh(affine)` (an `is_byparts_target` lambda), since
+    `integrate` already supplies the antiderivative of those powers. `u` is still
+    the polynomial rest, so the by-parts recursion terminates as `deg u` drops.
+  - `expand` the by-parts remainder `v·u'` before integrating it: for `deg u ≥ 2`
+    the product `(x/2 + sin 2x/4)·2x` is a `Mul`-of-`Add` that no single strategy
+    matches; expanding distributes it into a sum the linearity path integrates
+    term by term (fixes `∫x²·cos²x`).
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][parts][regression]` (six cases incl. an odd power, a quadratic
+  polynomial, a hyperbolic power, and an affine argument), verified
+  deterministically by evaluating `diff(F) − e` to ~0 at fixed rational points.
+- **Scope:** polynomial × integer power of `sin/cos/sinh/cosh(affine)`.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
