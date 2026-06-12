@@ -1735,6 +1735,19 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
             != std::string::npos);
     REQUIRE(integrate(pow(sin(x), rational(1, 2)), x)->str().find("Integral(")
             != std::string::npos);
+    // Regression: a trig function raised to a power (tan²/sec²) substitutes to a
+    // high-degree nested rational in t whose normalisation/integration runs
+    // away. The has_trig_power_of guard must bail to the marker, not hang.
+    REQUIRE(integrate(pow(integer(1) + pow(tan(x), integer(2)), integer(-1)), x)
+                ->str().find("Integral(") != std::string::npos);
+    REQUIRE(integrate(pow(sec(x), integer(2))
+                          * pow(integer(1) + pow(tan(x), integer(2)),
+                                integer(-1)),
+                      x)
+                ->str().find("Integral(") != std::string::npos);
+    // But trig to the FIRST power inside a polynomial denominator still works.
+    REQUIRE(integrate(pow(integer(1) + tan(x), integer(-1)), x)->str()
+                .find("Integral(") == std::string::npos);
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------
