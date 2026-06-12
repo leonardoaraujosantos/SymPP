@@ -1842,11 +1842,17 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     // away. The has_trig_power_of guard must bail to the marker, not hang.
     REQUIRE(integrate(pow(integer(1) + pow(tan(x), integer(2)), integer(-1)), x)
                 ->str().find("Integral(") != std::string::npos);
-    REQUIRE(integrate(pow(sec(x), integer(2))
-                          * pow(integer(1) + pow(tan(x), integer(2)),
-                                integer(-1)),
-                      x)
-                ->str().find("Integral(") != std::string::npos);
+    // sec²·(1 + tan²)⁻¹ reduces to 1 (sec² = 1 + tan²), so trigsimp resolves it
+    // before the Weierstrass path is reached: it now closes (∫1 = x, returned
+    // here as the equivalent atan(tan x)) instead of bailing — must not hang.
+    {
+        Expr F = integrate(pow(sec(x), integer(2))
+                               * pow(integer(1) + pow(tan(x), integer(2)),
+                                     integer(-1)),
+                           x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(simplify(diff(F, x))->str(), "1"));
+    }
     // But trig to the FIRST power inside a polynomial denominator still works.
     REQUIRE(integrate(pow(integer(1) + tan(x), integer(-1)), x)->str()
                 .find("Integral(") == std::string::npos);
