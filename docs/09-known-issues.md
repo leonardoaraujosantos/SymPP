@@ -974,6 +974,33 @@ truth and links the issue number.
   (tanh/coth ↔ sinh/cosh rewrites are incomplete), but the oracle's numeric
   fallback confirms equivalence.
 
+### INT-31 — `∫1/√(quadratic)` / `∫√(quadratic)` / `∫(linear)/√(quadratic)` with a linear term returned the marker
+- **Input:** `∫1/√(x²+x+1)`, `∫1/√(2x−x²)`, `∫√(x²+2x+5)`,
+  `∫(2x+3)/√(x²+x+1)`, `∫(x−1)/√(x²+4x+8)`.
+- **Was:** the marker — `try_sqrt_quadratic` and `try_x_over_sqrt_quadratic`
+  only matched a *pure* quadratic (no linear term, INT-20). The rational
+  analogues (INT-16, `try_arctan_quadratic` / `try_linear_over_quadratic`)
+  already complete the square, but the square-root branches did not.
+- **Expected (SymPy):** e.g. `∫1/√(x²+x+1) = asinh(√3·(2x+1)/3)`,
+  `∫1/√(2x−x²) = asin(x−1)`, `∫(2x+3)/√(x²+x+1) = 2√(x²+x+1) +
+  2·asinh(√3·(2x+1)/3)`.
+- **Fix (`src/integrals/integrate.cpp`):**
+  - `try_sqrt_quadratic`: when `b ≠ 0`, substitute `u = x + b/(2a)` (so
+    `Q = a·u² + (c − b²/(4a))`, `du = dx`) and reuse the pure-quadratic branch
+    on the shifted radicand, then back-substitute `x ← x + b/(2a)`. Works for
+    both the `+1/2` and `−1/2` exponents.
+  - `try_x_over_sqrt_quadratic`: generalised to a linear numerator `N = p·x + q`
+    over a general quadratic. Using `d/dx √Q = (2a·x+b)/(2√Q)`,
+    `∫N/√Q = (p/a)·√Q + (q − p·b/(2a))·∫1/√Q`, the reciprocal term handled by
+    the completing-the-square branch above.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][invtrig][regression]` (five cases incl. `a < 0` and two linear
+  numerators, each verified by differentiation against the oracle).
+- **Scope:** rational coefficients. The `diff − integrand` residual is not
+  always a structural 0 (SymPP does not pull the completed-square constant out
+  from under the radical, e.g. `√(4/3·Q) = (2/√3)√Q`), but the oracle's numeric
+  fallback confirms equivalence.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

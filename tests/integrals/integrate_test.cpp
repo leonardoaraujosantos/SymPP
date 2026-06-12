@@ -1583,6 +1583,26 @@ TEST_CASE("integrate: ∫x/sqrt(a*x^2+c) = sqrt(a*x^2+c)/a",
     REQUIRE(oracle.equivalent(diff(F2, x)->str(), e2->str()));
 }
 
+TEST_CASE("integrate: completing the square for √-quadratics (INT-31)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    Expr q1 = pow(x, integer(2)) + x + integer(1);        // x²+x+1
+    Expr q2 = integer(2) * x - pow(x, integer(2));        // 2x-x² (a<0)
+    Expr q3 = pow(x, integer(2)) + integer(2) * x + integer(5);  // x²+2x+5
+    REQUIRE(db(pow(q1, rational(-1, 2))));                 // ∫1/√(x²+x+1)
+    REQUIRE(db(pow(q2, rational(-1, 2))));                 // ∫1/√(2x-x²)
+    REQUIRE(db(pow(q3, rational(1, 2))));                  // ∫√(x²+2x+5)
+    // Linear numerator over a completed-square radical.
+    REQUIRE(db((integer(2) * x + integer(3)) * pow(q1, rational(-1, 2))));
+    REQUIRE(db((x - integer(1)) * pow(q3, rational(-1, 2))));
+}
+
 // ----- manualintegrate orchestrator ------------------------------------------
 
 TEST_CASE("manualintegrate: returns Some on tractable integrand",
