@@ -360,6 +360,12 @@ namespace {
 // inverse-trig/hyperbolic by-parts integrals reduce to.
 [[nodiscard]] std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ P(x)/√(a·x²+b·x+c) dx for a polynomial P of degree ≥ 2, via the reduction
+// ∫xᵏ/√Q = [xᵏ⁻¹√Q − (k−1)c·∫xᵏ⁻²/√Q]/(k·a) (pure quadratic; a linear term is
+// removed first by completing the square). Closes ∫x²/√(1−x²) and the
+// ∫xⁿ·asin/acos/asinh/acosh by-parts reductions.
+[[nodiscard]] std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& var);
+
 // ∫ exp(c·x²) dx for a concrete negative c (a real Gaussian) → the error
 // function: with a = −c > 0, √π·erf(√a·x)/(2√a). Returns nullopt unless the
 // exponent is a pure quadratic (no linear/constant term) with negative
@@ -451,6 +457,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_x_over_sqrt_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_poly_over_sqrt_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_algebraic_linear_sub(expr, var); r.has_value()) {
@@ -1937,6 +1946,71 @@ std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var)
         result = result + recip_coeff * recip.value();
     }
     return simplify(result);
+}
+
+std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Split into the √-reciprocal factor (quadratic)^(-1/2) and a polynomial
+    // numerator (everything else).
+    Expr radical;
+    std::vector<Expr> num_factors;
+    for (const auto& f : expr->args()) {
+        if (!radical && f->type_id() == TypeId::Pow
+            && f->args()[1] == rational(-1, 2) && depends_on(f->args()[0], var)) {
+            radical = f;
+            continue;
+        }
+        num_factors.push_back(f);
+    }
+    if (!radical || num_factors.empty()) return std::nullopt;
+
+    Poly qp(expand(radical->args()[0]), var);
+    if (qp.degree() != 2) return std::nullopt;
+    const Expr& c = qp.coeffs()[0];
+    const Expr& b = qp.coeffs()[1];
+    const Expr& a = qp.coeffs()[2];
+    if (is_rational(a) != true || is_rational(b) != true
+        || is_rational(c) != true) {
+        return std::nullopt;
+    }
+
+    Poly np(expand(mul(num_factors)), var);
+    if (np.degree() < 2) return std::nullopt;  // degrees 0,1 → other helpers
+    for (const auto& cf : np.coeffs()) if (has(cf, var)) return std::nullopt;
+
+    // Complete the square (u = x + b/(2a)) so the radicand loses its linear term;
+    // the numerator P(x) becomes P(u − b/(2a)). Integrate the shifted form, then
+    // back-substitute x ← x + b/(2a) (as in try_sqrt_quadratic / INT-31).
+    if (!(b == S::Zero())) {
+        Expr shift = b / (integer(2) * a);
+        Expr cprime = simplify(c - b * b / (integer(4) * a));
+        Expr shifted_num = expand(subs(np.as_expr(), var, var - shift));
+        Expr shifted = shifted_num
+                       * pow(a * pow(var, integer(2)) + cprime, rational(-1, 2));
+        auto inner = integrate(shifted, var);
+        if (is_integral_marker(inner)) return std::nullopt;
+        return simplify(subs(inner, var, var + shift));
+    }
+
+    // Distribute a multi-term numerator so linearity handles it term by term;
+    // each monomial xᵏ/√Q lands back here as a single term.
+    Expr distributed = expand(np.as_expr() * radical);
+    if (distributed->type_id() == TypeId::Add) {
+        Expr res = integrate(distributed, var);
+        return is_integral_marker(res) ? std::nullopt : std::optional<Expr>(res);
+    }
+
+    // Single monomial c·xᵏ/√(a·x²+c₀), k ≥ 2. Reduction:
+    //   ∫xᵏ/√Q = [xᵏ⁻¹√Q − (k−1)c₀·∫xᵏ⁻²/√Q]/(k·a), Q = a·x²+c₀.
+    const long k = static_cast<long>(np.degree());
+    const Expr& lead = np.coeffs()[np.degree()];  // the lone nonzero coefficient
+    Expr Q = radical->args()[0];
+    Expr prev = integrate(pow(var, integer(k - 2)) * radical, var);
+    if (is_integral_marker(prev)) return std::nullopt;
+    Expr Jk = (pow(var, integer(k - 1)) * pow(Q, rational(1, 2))
+               - integer(k - 1) * c * prev)
+              / (integer(k) * a);
+    return simplify(lead * Jk);
 }
 
 std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {

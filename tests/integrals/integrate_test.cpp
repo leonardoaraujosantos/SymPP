@@ -1746,6 +1746,33 @@ TEST_CASE("integrate: rational with repeated factors via partial fractions (INT-
     REQUIRE(db(pow(pow(x, integer(3)) + integer(1), integer(-1))));
 }
 
+TEST_CASE("integrate: polynomial over √(quadratic) via reduction (INT-40)",
+          "[7][integrate][invtrig][regression]") {
+    auto x = symbol("x");
+    // ∫xⁿ/√(quadratic) reduction; results mix √ and asin/asinh that simplify
+    // can't reduce against the integrand, so check the derivative numerically.
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(1, 3), rational(-2, 5), rational(3, 7)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::abs(d) > 1e-9) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(pow(x, integer(2))
+               * pow(integer(1) - pow(x, integer(2)), rational(-1, 2))));   // x²/√(1−x²)
+    REQUIRE(db(pow(x, integer(3))
+               * pow(pow(x, integer(2)) + integer(1), rational(-1, 2))));   // x³/√(x²+1)
+    REQUIRE(db(pow(x, integer(2))
+               * pow(pow(x, integer(2)) + integer(2) * x + integer(5),
+                     rational(-1, 2))));                                     // completed square
+    // The INT-32-deferred polynomial × inverse-function cases now close.
+    REQUIRE(db(pow(x, integer(2)) * asin(x)));
+    REQUIRE(db(pow(x, integer(2)) * asinh(x)));
+}
+
 TEST_CASE("integrate: heurisch substitution into an irreducible quadratic (INT-36)",
           "[7][integrate][heurisch][oracle][regression]") {
     auto& oracle = Oracle::instance();

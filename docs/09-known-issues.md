@@ -1214,6 +1214,26 @@ truth and links the issue number.
   a quadratic. With INT-37/38 this closes the proper-rational-with-quadratic
   story.
 
+### INT-40 — `∫P(x)/√(quadratic)` (polynomial numerator) and `∫xⁿ·asin/asinh` returned the marker
+- **Input:** `∫x²/√(1−x²)`, `∫x³/√(x²+1)`, `∫x²/√(x²+2x+5)`, `∫x²·asin(x)`,
+  `∫x²·asinh(x)`.
+- **Was:** the marker — `try_x_over_sqrt_quadratic` handled only a *linear*
+  numerator (INT-31), so a degree-≥2 numerator over a root fell through. This
+  also blocked the INT-32 `∫P(x)·asin/acos/asinh/acosh` by-parts for `deg P ≥ 1`,
+  whose remaining integral is exactly `∫(polynomial)/√(quadratic)`.
+- **Expected (SymPy):** e.g. `∫x²/√(1−x²) = −x√(1−x²)/2 + asin(x)/2`,
+  `∫x²·asin(x) = x³·asin(x)/3 + x²√(1−x²)/9 + 2√(1−x²)/9`.
+- **Fix (`src/integrals/integrate.cpp`):** new `try_poly_over_sqrt_quadratic`,
+  the reduction `∫xᵏ/√Q = [xᵏ⁻¹√Q − (k−1)c·∫xᵏ⁻²/√Q]/(k·a)` (pure quadratic
+  `Q = a·x²+c`), recursing through `integrate` to the `k=1` (√Q/a) and `k=0`
+  (asin/asinh/log) base cases. A linear term is removed first by completing the
+  square; a multi-term numerator is distributed so linearity handles it.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][invtrig][regression]` (monomials over `√(1−x²)`, `√(x²+1)`, a
+  completed square, plus `∫x²·asin`, `∫x²·asinh`), verified deterministically by
+  evaluating `diff(F) − e` to ~0 at fixed rational points.
+- **Scope:** rational coefficients; polynomial numerator over `√(quadratic)`.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.
