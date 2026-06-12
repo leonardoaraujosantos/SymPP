@@ -337,9 +337,25 @@ truth and links the issue number.
   `Σ (1/2)^k = 2`, and divergent `Σ k = oo`.
 - **Regression test:** `tests/calculus/series_limit_test.cpp`
   — `[summation][regression]`.
-- **Scope:** convergent non-geometric series (`Σ 1/k² = π²/6`, `Σ 1/k! = E`)
-  stay as `Sum` markers — closing them needs `zeta` / series recognition,
-  deferred. The fix guarantees correctness (no dropped sum), not closure.
+- **Scope:** convergent non-geometric series stay as `Sum` markers — closing
+  them needs `zeta` / series recognition. The even p-series subset is now closed
+  by ZETA-EVEN; `Σ 1/k! = E` and odd-`p` zeta stay deferred. The fix guarantees
+  correctness (no dropped sum), not closure.
+
+### ZETA-EVEN — convergent even p-series `Σ 1/k^(2n)` not closed
+- **Input:** `Σ_{k=1}^∞ 1/k²`, `1/k⁴`, `1/k⁶`, …, `1/k¹⁴`.
+- **Was:** an unevaluated `Sum` marker (SUM-3 preserved it but couldn't close).
+- **Expected (SymPy):** `ζ(2n) = rₙ·π^(2n)` — `π²/6`, `π⁴/90`, `π⁶/945`,
+  `π⁸/9450`, `π¹⁰/93555`, `691·π¹²/638512875`, `2·π¹⁴/18243225`.
+- **Fix (`src/calculus/summation.cpp`):** a branch matching `lo=1`, `hi=∞`,
+  summand `var^m` with `m` a negative even integer in `[-14,-2]` returns the
+  tabulated `ζ(-m)` closed form. Only even exponents have an elementary
+  (`π`-power) value; odd `p>1` (`ζ(3)`, …, no elementary form) and the divergent
+  harmonic `p=1` fall through to the `Sum` marker.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[summation][zeta][regression]`.
+- **Scope:** even `2n ≤ 14`. Higher even orders (need a Bernoulli-number
+  routine), odd zeta, and non-power summands stay deferred.
 
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,

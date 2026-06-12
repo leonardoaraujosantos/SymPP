@@ -10,6 +10,7 @@
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
@@ -93,6 +94,33 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 Expr s_hi = sum_to_n(hi);
                 Expr s_lo = sum_to_n(lo - integer(1));
                 return simplify(s_hi - s_lo);
+            }
+        }
+    }
+
+    // Convergent even p-series Σ_{k=1}^∞ 1/k^(2n) = ζ(2n) = r·π^(2n) (Basel and
+    // its relatives). Only even exponents have an elementary closed form; odd
+    // p>1 (ζ(3), …) and the divergent p≤1 cases fall through unevaluated.
+    if (lo == S::One() && hi->type_id() == TypeId::Infinity
+        && expr->type_id() == TypeId::Pow && expr->args()[0] == var
+        && expr->args()[1]->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*expr->args()[1]);
+        if (z.fits_long()) {
+            const long m = z.to_long();  // summand is var^m
+            if (m <= -2 && m % 2 == 0) {
+                const long twon = -m;
+                Expr coeff;  // rational coefficient of π^(2n); null if untabled
+                switch (twon) {
+                    case 2:  coeff = rational(1, 6); break;
+                    case 4:  coeff = rational(1, 90); break;
+                    case 6:  coeff = rational(1, 945); break;
+                    case 8:  coeff = rational(1, 9450); break;
+                    case 10: coeff = rational(1, 93555); break;
+                    case 12: coeff = rational(691, 638512875); break;
+                    case 14: coeff = rational(2, 18243225); break;
+                    default: break;
+                }
+                if (coeff) return mul(coeff, pow(S::Pi(), integer(twon)));
             }
         }
     }

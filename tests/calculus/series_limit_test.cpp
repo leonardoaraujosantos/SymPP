@@ -361,15 +361,37 @@ TEST_CASE("summation: infinite geometric series",
 }
 
 // Regression (SUM-3): an unrecognised sum must return an unevaluated Sum
-// marker, never the bare summand (Σ 1/k² used to collapse to 1/k²).
+// marker, never the bare summand. Σ 1/k³ (odd zeta — no elementary closed
+// form) stands in for the general case; Σ 1/k² now closes via ZETA-EVEN.
 TEST_CASE("summation: unrecognised sum stays an unevaluated Sum",
           "[6][summation][regression]") {
     auto k = symbol("k");
-    auto e = pow(k, integer(-2));
+    auto e = pow(k, integer(-3));
     auto s = summation(e, k, integer(1), S::Infinity());
     REQUIRE(s->type_id() == TypeId::Function);   // undefined-function marker
     REQUIRE(s->str().rfind("Sum(", 0) == 0);     // starts with "Sum("
     REQUIRE_FALSE(s == e);                       // not the bare summand
+}
+
+// Regression (ZETA-EVEN): convergent even p-series close to ζ(2n)=r·π^(2n).
+// Σ1/k²=π²/6 (Basel), Σ1/k⁴=π⁴/90, …; odd p stays an unevaluated Sum.
+TEST_CASE("summation: even p-series close to zeta values",
+          "[6][summation][zeta][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), oo)->str(), "pi**2/6"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-4)), k, integer(1), oo)->str(), "pi**4/90"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-6)), k, integer(1), oo)->str(), "pi**6/945"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-12)), k, integer(1), oo)->str(),
+        "691*pi**12/638512875"));
+    // Odd exponent has no elementary closed form — stays an unevaluated Sum.
+    REQUIRE(summation(pow(k, integer(-5)), k, integer(1), oo)->type_id()
+            == TypeId::Function);
 }
 
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).
