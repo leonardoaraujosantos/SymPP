@@ -830,6 +830,23 @@ truth and links the issue number.
 - **Scope:** unit `1/n` exponents on a non-negative Integer/Rational base.
   Non-unit non-perfect powers (`16^(2/3)`) ship in POW-RAT-2.
 
+### MUL-RAD — radical base collection left an un-collapsed numeric factor
+- **Input:** `√2·√8`, `√3·√12`, `√8·√8`.
+- **Was:** `2·2`, `2·3`, `2·4` — a `Mul` of bare numbers instead of `4`, `6`,
+  `8`. Mul base collection summed the `½` exponents and called `pow(2, 1) = 2`,
+  but that numeric result (and the numeric part of e.g. `2^(3/2) → 2·√2`) was
+  pushed alongside the already-finalised numeric coefficient without merging.
+  (Same root cause as the old `cot(π/4) → 1/2·2` cosmetic wart.)
+- **Fix (`src/core/mul.cpp`):** a Step-4b sweep after base collection folds any
+  numeric factor — and the numeric part of any `Mul` factor — back into the
+  running product via `number_mul`. Cross-base radicals are deliberately **not**
+  merged (`√2·√3` stays a two-factor `Mul`); that is a separate feature.
+- **Regression test:** `tests/core/arithmetic_test.cpp` — `[mul][regression]`
+  (collapse cases + a `2^(3/2)` extract-but-keep-radical + a `√2·√3`
+  no-merge guard).
+- **Scope:** numeric collapse only. `√2·√3 → √6`-style cross-base radical
+  merging stays deferred.
+
 ### POW-RAT-2 — `b^(p/q)` (p ≥ 2, non-perfect base) not simplified
 - **Input:** `16^(2/3)`, `2^(5/2)`, `12^(2/3)`, `48^(5/2)`, `72^(2/3)`,
   `7^(3/2)`.
