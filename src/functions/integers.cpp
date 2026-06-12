@@ -129,6 +129,26 @@ std::optional<bool> Ceiling::ask(AssumptionKey k) const noexcept {
 
 // ----- Factories -------------------------------------------------------------
 
+// If `arg` is a sum with one or more provably-integer terms and a non-integer
+// remainder, returns (Σ integer terms, remaining sum). floor/ceiling are
+// integer-shift invariant, so the integer part can be pulled out of the
+// function. Returns nullopt when there's nothing to split.
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> pull_integer_shift(
+    const Expr& arg) {
+    if (arg->type_id() != TypeId::Add) return std::nullopt;
+    std::vector<Expr> int_parts;
+    std::vector<Expr> rest;
+    for (const auto& term : arg->args()) {
+        if (is_integer(term) == true) {
+            int_parts.push_back(term);
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (int_parts.empty() || rest.empty()) return std::nullopt;
+    return std::make_pair(add(std::move(int_parts)), add(std::move(rest)));
+}
+
 Expr floor(const Expr& arg) {
     if (arg->type_id() == TypeId::Integer) return arg;
     if (arg->type_id() == TypeId::Rational) {
@@ -139,6 +159,11 @@ Expr floor(const Expr& arg) {
     }
     // Symbol with integer assumption -> identity.
     if (is_integer(arg) == true) return arg;
+    // Integer-shift invariance: floor(n + x) = n + floor(x) when n is a sum of
+    // provably-integer terms (e.g. floor(n + 1/2) = n).
+    if (auto s = pull_integer_shift(arg); s.has_value()) {
+        return add(s->first, floor(s->second));
+    }
     // Constant real (pi, E, 2*pi, …): evaluate numerically.
     if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/false)) return *v;
     return make<Floor>(arg);
@@ -153,6 +178,10 @@ Expr ceiling(const Expr& arg) {
         return ceiling_float(static_cast<const Float&>(*arg));
     }
     if (is_integer(arg) == true) return arg;
+    // Integer-shift invariance: ceiling(n + x) = n + ceiling(x).
+    if (auto s = pull_integer_shift(arg); s.has_value()) {
+        return add(s->first, ceiling(s->second));
+    }
     // Constant real (pi, E, 2*pi, …): evaluate numerically.
     if (auto v = constant_floor_ceiling(arg, /*is_ceiling=*/true)) return *v;
     return make<Ceiling>(arg);

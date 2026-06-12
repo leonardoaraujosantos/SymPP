@@ -14,6 +14,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-13 — `floor(n + 1/2)` not simplified for integer `n`
+- **Input:** `floor(n + 1/2)`, `ceiling(n + 1/2)`, `floor(2n + x)` for integer `n`.
+- **Was:** unevaluated — floor/ceiling folded an integer *symbol* (`floor(n)=n`)
+  and numeric/constant arguments, but not an integer-plus-remainder sum.
+- **Expected (SymPy):** `floor(n + 1/2) = n`, `ceiling(n + 1/2) = n + 1`,
+  `floor(2n + x) = 2n + floor(x)`.
+- **Fix (`src/functions/integers.cpp`):** floor/ceiling are integer-shift
+  invariant — a new `pull_integer_shift` splits an `Add` into its
+  provably-integer terms and the remainder, returning `(Σ int) + floor(rest)`.
+- **Regression test:** `tests/functions/integers_test.cpp`
+  — `[floor][ceiling][assumptions][regression]`.
+- **Scope:** sums with a provably-integer part; a purely non-integer argument
+  stays under floor/ceiling.
+
 ### ASSUME-12 — parity not inferred through Mul / Add / Pow at the `ask` level
 - **Was:** after ASSUME-11 added the even/odd key, `is_even(2·n)` (the `ask`
   query) was still Unknown for an integer `n` — only the structural

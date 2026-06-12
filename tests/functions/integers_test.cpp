@@ -55,6 +55,19 @@ TEST_CASE("floor: stays unevaluated on a generic symbol", "[3g][floor]") {
     REQUIRE(floor(x)->str() == "floor(x)");
 }
 
+TEST_CASE("floor/ceiling: integer-shift invariance (ASSUME-13)",
+          "[3g][floor][ceiling][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto x = symbol("x");
+    // floor(n + x) = n + floor(x); the integer part pulls out.
+    REQUIRE(floor(n + rational(1, 2)) == n);            // floor(1/2)=0
+    REQUIRE(ceiling(n + rational(1, 2)) == n + integer(1));
+    REQUIRE(floor(integer(2) * n + x) == integer(2) * n + floor(x));
+    REQUIRE(floor(n + x) == n + floor(x));
+    // No integer part to pull → unchanged.
+    REQUIRE(floor(x + rational(1, 2))->str().find("floor(") != std::string::npos);
+}
+
 // Regression (FLOOR-CONST): floor/ceiling of a real constant expression
 // evaluate numerically — floor(pi)=3, floor(2*pi)=6, floor(sqrt(2))=1.
 TEST_CASE("floor/ceiling: real constants evaluate numerically",
