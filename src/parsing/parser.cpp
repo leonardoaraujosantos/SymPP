@@ -144,6 +144,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"sin", &sin}, {"cos", &cos}, {"tan", &tan},
         {"cot", &cot}, {"sec", &sec}, {"csc", &csc},
         {"asin", &asin}, {"acos", &acos}, {"atan", &atan},
+        {"acot", &acot}, {"asec", &asec}, {"acsc", &acsc},
         {"sinh", &sinh}, {"cosh", &cosh}, {"tanh", &tanh},
         {"coth", &coth}, {"sech", &sech}, {"csch", &csch},
         {"asinh", &asinh}, {"acosh", &acosh}, {"atanh", &atanh},

@@ -25,6 +25,9 @@ enum class FunctionId : std::uint16_t {
     Acos,
     Atan,
     Atan2,
+    Acot,
+    Asec,
+    Acsc,
 
     // -- Hyperbolic --------------------------------------------------------
     Sinh = 200,

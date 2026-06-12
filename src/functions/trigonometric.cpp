@@ -636,6 +636,35 @@ std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
     }
 }
 
+// ----- Inverse reciprocal trio: acot / asec / acsc ---------------------------
+
+Acot::Acot(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Acot);
+}
+Expr Acot::rebuild(std::vector<Expr> new_args) const { return acot(new_args[0]); }
+std::optional<bool> Acot::ask(AssumptionKey k) const noexcept {
+    // acot is real on all of ℝ.
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+
+Asec::Asec(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Asec);
+}
+Expr Asec::rebuild(std::vector<Expr> new_args) const { return asec(new_args[0]); }
+std::optional<bool> Asec::ask(AssumptionKey /*k*/) const noexcept {
+    // Real only where |arg| ≥ 1; we don't track that, so stay agnostic.
+    return std::nullopt;
+}
+
+Acsc::Acsc(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Acsc);
+}
+Expr Acsc::rebuild(std::vector<Expr> new_args) const { return acsc(new_args[0]); }
+std::optional<bool> Acsc::ask(AssumptionKey /*k*/) const noexcept {
+    return std::nullopt;
+}
+
 Atan2::Atan2(Expr y, Expr x)
     : Function(std::vector<Expr>{std::move(y), std::move(x)}) {
     compute_hash(FunctionId::Atan2);
@@ -716,6 +745,24 @@ namespace {
     return false;
 }
 
+// True if `e` still contains a bare application of inverse function `id` — i.e.
+// the underlying factory left it unevaluated (possibly wrapped in a leading
+// −1, e.g. −atan(1/x)). Drives the acot/asec/acsc factories: fold to the
+// computed value when the inverse simplified, else keep the reciprocal node.
+[[nodiscard]] bool is_bare_inverse(const Expr& e, FunctionId id) {
+    auto is_it = [id](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id() == id;
+    };
+    if (is_it(e)) return true;
+    if (e->type_id() == TypeId::Mul) {
+        for (const auto& f : e->args()) {
+            if (is_it(f)) return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 Expr asin(const Expr& arg) {
@@ -761,6 +808,37 @@ Expr atan(const Expr& arg) {
     return make<Atan>(arg);
 }
 
+// acot(x) = atan(1/x) [acot(0) = π/2], odd. asec(x) = acos(1/x) [asec(0) = zoo].
+// acsc(x) = asin(1/x) [acsc(0) = zoo], odd. Each computes via the reciprocal-arg
+// identity and keeps its own node when the inner inverse stays unevaluated.
+
+Expr acot(const Expr& arg) {
+    if (arg == S::Zero()) return mul(S::Half(), S::Pi());  // acot(0) = π/2
+    if (auto pos = strip_neg(arg); pos.has_value()) {       // odd
+        return mul(S::NegativeOne(), acot(*pos));
+    }
+    Expr t = atan(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(t, FunctionId::Atan)) return t;
+    return make<Acot>(arg);
+}
+
+Expr asec(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();      // asec(0) = zoo
+    Expr c = acos(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(c, FunctionId::Acos)) return c;
+    return make<Asec>(arg);
+}
+
+Expr acsc(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();      // acsc(0) = zoo
+    if (auto pos = strip_neg(arg); pos.has_value()) {       // odd
+        return mul(S::NegativeOne(), acsc(*pos));
+    }
+    Expr s = asin(pow(arg, S::NegativeOne()));
+    if (!is_bare_inverse(s, FunctionId::Asin)) return s;
+    return make<Acsc>(arg);
+}
+
 // ----- Derivatives ----------------------------------------------------------
 
 Expr Sin::diff_arg(std::size_t /*i*/) const {
@@ -796,6 +874,23 @@ Expr Acos::diff_arg(std::size_t /*i*/) const {
 Expr Atan::diff_arg(std::size_t /*i*/) const {
     auto one_plus_xsq = add(S::One(), pow(args_[0], integer(2)));
     return pow(one_plus_xsq, S::NegativeOne());
+}
+Expr Acot::diff_arg(std::size_t /*i*/) const {
+    // d/dx acot(x) = -1/(1 + x²).
+    auto one_plus_xsq = add(S::One(), pow(args_[0], integer(2)));
+    return mul(S::NegativeOne(), pow(one_plus_xsq, S::NegativeOne()));
+}
+Expr Asec::diff_arg(std::size_t /*i*/) const {
+    // d/dx asec(x) = 1/(x²·√(1 − 1/x²)).
+    auto inner = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(-2))));
+    auto denom = mul(pow(args_[0], integer(2)), pow(inner, rational(1, 2)));
+    return pow(denom, S::NegativeOne());
+}
+Expr Acsc::diff_arg(std::size_t /*i*/) const {
+    // d/dx acsc(x) = -1/(x²·√(1 − 1/x²)).
+    auto inner = add(S::One(), mul(S::NegativeOne(), pow(args_[0], integer(-2))));
+    auto denom = mul(pow(args_[0], integer(2)), pow(inner, rational(1, 2)));
+    return mul(S::NegativeOne(), pow(denom, S::NegativeOne()));
 }
 Expr Atan2::diff_arg(std::size_t i) const {
     auto y = args_[0];

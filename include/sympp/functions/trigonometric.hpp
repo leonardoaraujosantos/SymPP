@@ -148,9 +148,45 @@ public:
     [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
+// Inverse reciprocal trio. acot(x)=atan(1/x) [acot(0)=pi/2], asec(x)=acos(1/x)
+// [asec(0)=zoo], acsc(x)=asin(1/x) [acsc(0)=zoo]; acot/acsc are odd, asec has no
+// simple parity. Exact values are folded through those identities.
+class SYMPP_EXPORT Acot final : public Function {
+public:
+    explicit Acot(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Acot; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "acot"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Asec final : public Function {
+public:
+    explicit Asec(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Asec; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "asec"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Acsc final : public Function {
+public:
+    explicit Acsc(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::Acsc; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "acsc"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr asin(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr acos(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr atan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr atan2(const Expr& y, const Expr& x);
+[[nodiscard]] SYMPP_EXPORT Expr acot(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr asec(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr acsc(const Expr& arg);
 
 }  // namespace sympp
