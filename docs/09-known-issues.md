@@ -1051,9 +1051,16 @@ truth and links the issue number.
   `t = tan(x/2)`. Dispatched **last**, after by-parts: its `tan(x/2)` output is
   uglier than the dedicated trig integrators, which still win for `∫sin`, `∫tan`,
   `∫sin²`, etc.
+- **Follow-up fix (hang):** the substituted integrand must be *rational* in `t`
+  before integrating it — otherwise a non-rational trig integrand such as
+  `√(tan x)` substitutes to `√(2t/(1−t²))`, a non-elementary algebraic integral
+  that sent `integrate` into an unbounded search (a true hang, worse than the
+  marker). Added an `is_rational_in(integrand, t)` guard; non-rational cases now
+  bail to the marker. Regression: `∫√(tan x)`, `∫√(sin x)` must terminate.
 - **Regression test:** `tests/integrals/integrate_test.cpp`
   — `[integrate][weierstrass][regression]` (six denominators spanning the atan,
-  log, and rational sub-cases, verified by differentiation against the oracle).
+  log, and rational sub-cases, verified by differentiation against the oracle;
+  plus `∫√(tan x)` / `∫√(sin x)` asserting termination to the marker).
 - **Scope:** rational functions of `sin x`/`cos x`/`tan x`/`cot x`/`sec x`/`csc x`
   with the **bare** argument `x` (affine arguments like `sin 2x`, and any
   polynomial factor, bail). Many results are correct but print in a `tan(x/2)`
