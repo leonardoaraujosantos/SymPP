@@ -180,6 +180,15 @@ TEST_CASE("mod: structural identities and zero divisor", "[3g][mod]") {
     REQUIRE(mod(x, integer(3))->type_id() == TypeId::Function);
 }
 
+TEST_CASE("mod: Mod(integer, 1) = 0 (ASSUME-14)",
+          "[3g][mod][assumptions][regression]") {
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto x = symbol("x");  // generic
+    REQUIRE(mod(n, integer(1)) == integer(0));
+    // A non-integer (generic) argument keeps Mod(x, 1) (= frac x).
+    REQUIRE(mod(x, integer(1))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("mod: parse round-trip and SymPy agreement", "[3g][mod][parser][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
