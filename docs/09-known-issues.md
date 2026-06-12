@@ -605,6 +605,29 @@ truth and links the issue number.
   variable. `∫1/(a+b·exp(x)+c·exp(2x))`-style cases work when `apart` can split
   the denominator.
 
+### INT-23 — `integrate(P(x)·exp(a·x)·sin/cos(g·x))` returned the marker
+- **Input:** `∫x·eˣ·sin(x)`, `∫x·eˣ·cos(x)`, `∫x²·eˣ·sin(x)`,
+  `∫x·e^(2x)·sin(3x)`.
+- **Was:** the marker — the pure cyclic case (`∫e·sin/cos`) bails once a
+  polynomial factor makes its leftover non-constant, and the single-function
+  by-parts bails because `u = x·sin(x)` is not a polynomial.
+- **Expected (SymPy):** e.g. `∫x·eˣ·sin(x) = x·eˣ·sin(x)/2 − x·eˣ·cos(x)/2 +
+  eˣ·cos(x)/2`.
+- **Fix (`src/integrals/integrate.cpp`):** a new by-parts branch in
+  `try_integration_by_parts` — when a `Mul` has both an `exp(affine)` and a
+  `sin/cos(affine)` factor and the remaining factors form a polynomial `u`, take
+  `dv = exp·trig` (antiderivative = the cyclic closed form) and `u = P(x)`.
+  Differentiating `u` lowers its degree each step, so `∫v·u'` recurses down to
+  the bare cyclic base case (the marker/depth guards backstop it). The product
+  `v·u'` is `expand`ed so it splits over its `Add` and `integrate()` recurses
+  per term.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[integrate][byparts][regression]` (four cases incl. degree-2 and non-unit
+  exp/trig rates, verified by differentiation against the oracle).
+- **Scope:** a single `exp(affine)` and a single `sin/cos(affine)` with a
+  polynomial multiplier. `exp·sinh/cosh` (non-cyclic) and products of two trig
+  factors remain separate.
+
 ### GAMMA-1 — `gamma` at a half-integer stayed symbolic
 - **Input:** `gamma(1/2)`, `gamma(3/2)`, `gamma(5/2)`, `gamma(7/2)`,
   `gamma(-1/2)`, `gamma(-3/2)`.

@@ -631,6 +631,50 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
+    // Polynomial × e^(a·x+·) × sin/cos(g·x+·): by parts with u = the polynomial
+    // and dv = e·trig, whose antiderivative is the cyclic closed form above.
+    // Differentiating u lowers its degree by one each step, so the recursion
+    // bottoms out at the bare cyclic case (constant u). Without this, the cyclic
+    // block bails (the polynomial factor makes its `rest` non-constant) and the
+    // single-function by-parts below bails too (u = x·sin(x) isn't polynomial).
+    if (expr->type_id() == TypeId::Mul) {
+        Expr exp_factor, trig_factor;
+        std::vector<Expr> poly_factors;
+        for (const auto& f : expr->args()) {
+            if (!exp_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1
+                    && as_affine(fn.args()[0], var)) {
+                    exp_factor = f;
+                    continue;
+                }
+            }
+            if (!trig_factor && f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                if ((fn.function_id() == FunctionId::Sin
+                     || fn.function_id() == FunctionId::Cos)
+                    && fn.args().size() == 1 && as_affine(fn.args()[0], var)) {
+                    trig_factor = f;
+                    continue;
+                }
+            }
+            poly_factors.push_back(f);
+        }
+        Expr u = poly_factors.empty() ? S::One() : mul(poly_factors);
+        if (exp_factor && trig_factor && depends_on(u, var)
+            && is_polynomial_in(u, var)) {
+            Expr v = integrate(exp_factor * trig_factor, var);  // cyclic form
+            if (!is_integral_marker(v)) {
+                // expand so v·u' = poly·e·sin + poly·e·cos splits over the Add,
+                // letting integrate() recurse per term with deg(u) reduced.
+                Expr remaining = integrate(expand(v * diff(u, var)), var);
+                if (!is_integral_marker(remaining)) {
+                    return simplify(u * v - remaining);
+                }
+            }
+        }
+    }
+
     // Polynomial × log(affine), by parts with u = log(ax+b), dv = rest dx:
     //   ∫ rest·log(ax+b) dx = log(ax+b)·∫rest − ∫(∫rest)·a/(ax+b) dx.
     // The remaining integral is rational (∫rest is polynomial, du = a/(ax+b)),
