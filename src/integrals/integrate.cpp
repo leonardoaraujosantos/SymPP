@@ -720,6 +720,16 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                 // ∫log(ax+b) dx = x*log(ax+b) + (b/a)*log(ax+b) - x
                 return var * log(inner) + (b / a) * log(inner) - var;
             }
+            // Standalone log(g) for a non-affine argument: by parts with u = log,
+            // dv = dx, v = x → ∫log(g) = x·log(g) − ∫x·g'/g. The remaining
+            // integrand is rational when g is a polynomial (x·g'/g), so
+            // try_rational closes it; the marker guard bails otherwise.
+            if (depends_on(fn.args()[0], var)) {
+                Expr remaining = integrate(var * diff(expr, var), var);
+                if (!is_integral_marker(remaining)) {
+                    return expand(var * expr - remaining);
+                }
+            }
         }
     }
 
