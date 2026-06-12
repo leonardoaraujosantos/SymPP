@@ -371,6 +371,21 @@ truth and links the issue number.
 - **Scope:** integer arguments fold (even ≤14, odd-negatives ≤9); the
   derivative and non-integer/complex evaluation stay deferred.
 
+### LAMBERT-W — `LambertW` was not a function type
+- **Input:** `LambertW(0)`, `LambertW(E)`, `LambertW(-1/E)`, `LambertW(oo)`,
+  `LambertW(x)`, `diff(LambertW(x))`.
+- **Was:** `FunctionId::LambertW` existed in the enum but had no
+  class/factory/parser — the parser made a generic node.
+- **Now:** a `LambertWFn` principal-branch type (`functions/special.{hpp,cpp}`)
+  — the inverse of `x·eˣ`. Exact values `W(0)=0`, `W(e)=1`, `W(-1/e)=-1`
+  (the branch point, matched as the canonical `-E^(-1)`), `W(oo)=oo`; other
+  arguments stay symbolic. Derivative `W'(x)=W(x)/(x·(1+W(x)))`. Parser accepts
+  `LambertW`/`lambertw`; `str()` round-trips.
+- **Regression test:** `tests/functions/special_test.cpp` — `[lambertw]`.
+- **Scope:** principal branch, the four exact values + derivative. Numeric
+  (Float) evaluation, other branches `W(x,k)`, and `W(x·eˣ)=x` inverse folding
+  (branch-cut sensitive) stay deferred.
+
 ### FUNC-1 — `f(f⁻¹(x))` not simplified to `x`
 - **Input:** `sin(asin(x))`, `cos(acos(x))`, `tan(atan(x))`, `sinh(asinh(x))`,
   `cosh(acosh(x))`, `tanh(atanh(x))`.

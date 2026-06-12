@@ -81,10 +81,24 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Principal-branch Lambert W (inverse of x·eˣ). Exact values: W(0)=0, W(e)=1,
+// W(-1/e)=-1, W(oo)=oo; other arguments stay symbolic. Derivative
+// W'(x)=W(x)/(x·(1+W(x))).
+class SYMPP_EXPORT LambertWFn final : public Function {
+public:
+    explicit LambertWFn(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override { return FunctionId::LambertW; }
+    [[nodiscard]] std::string_view name() const noexcept override { return "LambertW"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 [[nodiscard]] SYMPP_EXPORT Expr erf(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr erfc(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr heaviside(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr dirac_delta(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr zeta(const Expr& s);
+[[nodiscard]] SYMPP_EXPORT Expr lambertw(const Expr& arg);
 
 }  // namespace sympp

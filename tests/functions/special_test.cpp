@@ -187,3 +187,26 @@ TEST_CASE("zeta: odd positive and symbolic stay unevaluated",
     REQUIRE(parsing::parse("zeta(s)") == zeta(s));
     REQUIRE(zeta(s)->str() == "zeta(s)");
 }
+
+// ----- Lambert W (LAMBERT-W) -------------------------------------------------
+// Principal branch: W(0)=0, W(e)=1, W(-1/e)=-1, W(oo)=oo; else symbolic.
+TEST_CASE("LambertW: special values", "[3h][lambertw]") {
+    REQUIRE(lambertw(S::Zero()) == S::Zero());
+    REQUIRE(lambertw(S::E()) == S::One());
+    REQUIRE(lambertw(mul(S::NegativeOne(), pow(S::E(), S::NegativeOne())))
+            == S::NegativeOne());
+    REQUIRE(lambertw(S::Infinity()) == S::Infinity());
+    auto x = symbol("x");
+    REQUIRE(lambertw(integer(1))->type_id() == TypeId::Function);  // W(1) symbolic
+    REQUIRE(lambertw(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("LambertW: derivative and round-trip", "[3h][lambertw][oracle][parser]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // W'(x) = W(x)/(x*(1 + W(x))).
+    REQUIRE(oracle.equivalent(diff(lambertw(x), x)->str(),
+                              "LambertW(x)/(x*(LambertW(x) + 1))"));
+    REQUIRE(parsing::parse("LambertW(x)") == lambertw(x));
+    REQUIRE(lambertw(x)->str() == "LambertW(x)");
+}

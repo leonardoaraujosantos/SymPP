@@ -156,6 +156,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"fibonacci", &fibonacci}, {"catalan", &catalan},
         {"gamma", &gamma}, {"loggamma", &loggamma},
         {"erf", &erf}, {"erfc", &erfc}, {"zeta", &zeta},
+        {"LambertW", &lambertw}, {"lambertw", &lambertw},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate},
         // SymPy canonical spellings — these are the names str() emits, so the
