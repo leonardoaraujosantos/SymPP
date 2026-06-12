@@ -238,3 +238,46 @@ TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
     REQUIRE(subs(gcd(x, integer(18)), x, integer(12)) == integer(6));
     REQUIRE(subs(lcm(x, integer(6)), x, integer(4)) == integer(12));
 }
+
+// ----- rising/falling factorial & subfactorial (RFF-SUBF) --------------------
+
+TEST_CASE("rising_factorial: products and symbolic expansion", "[3i][rising]") {
+    auto x = symbol("x");
+    REQUIRE(rising_factorial(integer(3), integer(2)) == integer(12));  // 3*4
+    REQUIRE(rising_factorial(integer(2), integer(3)) == integer(24));  // 2*3*4
+    REQUIRE(rising_factorial(x, integer(0)) == integer(1));
+    REQUIRE(rising_factorial(x, integer(2)) == parsing::parse("x*(x + 1)"));
+    // Symbolic n stays unevaluated.
+    REQUIRE(rising_factorial(x, symbol("n"))->type_id() == TypeId::Function);
+}
+
+TEST_CASE("falling_factorial: products and symbolic expansion", "[3i][falling]") {
+    auto x = symbol("x");
+    REQUIRE(falling_factorial(integer(5), integer(2)) == integer(20));  // 5*4
+    REQUIRE(falling_factorial(integer(7), integer(3)) == integer(210)); // 7*6*5
+    REQUIRE(falling_factorial(x, integer(0)) == integer(1));
+    REQUIRE(falling_factorial(x, integer(2)) == parsing::parse("x*(x - 1)"));
+}
+
+TEST_CASE("subfactorial: derangement counts", "[3i][subfactorial]") {
+    REQUIRE(subfactorial(integer(0)) == integer(1));
+    REQUIRE(subfactorial(integer(1)) == integer(0));
+    REQUIRE(subfactorial(integer(2)) == integer(1));
+    REQUIRE(subfactorial(integer(4)) == integer(9));
+    REQUIRE(subfactorial(integer(5)) == integer(44));
+    auto x = symbol("x");
+    REQUIRE(subfactorial(x)->type_id() == TypeId::Function);
+}
+
+TEST_CASE("rising/falling/subfactorial: SymPy agreement & round-trip",
+          "[3i][rising][falling][subfactorial][oracle][parser]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(rising_factorial(integer(3), integer(4))->str(),
+                              "RisingFactorial(3, 4)"));
+    REQUIRE(oracle.equivalent(falling_factorial(integer(8), integer(3))->str(),
+                              "FallingFactorial(8, 3)"));
+    REQUIRE(oracle.equivalent(subfactorial(integer(6))->str(), "subfactorial(6)"));
+    REQUIRE(parsing::parse("subfactorial(x)") == subfactorial(x));
+    REQUIRE(parsing::parse("RisingFactorial(x, 3)") == rising_factorial(x, integer(3)));
+}

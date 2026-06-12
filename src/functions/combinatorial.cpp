@@ -7,6 +7,7 @@
 #include <gmpxx.h>
 #include <mpfr.h>
 
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
@@ -257,6 +258,114 @@ Expr lcm(const Expr& a, const Expr& b) {
         return make<Integer>(std::move(r));
     }
     return make<Lcm>(a, b);
+}
+
+// ============================================================================
+// RisingFactorial / FallingFactorial / Subfactorial
+// ============================================================================
+
+namespace {
+
+// Build the rising (sign=+1) or falling (sign=-1) factorial product
+// x·(x±1)·…·(x±(k-1)) for a non-negative integer k. Returns nullopt when n is
+// not a usable non-negative integer (kept symbolic) or k exceeds the bound.
+[[nodiscard]] std::optional<Expr> factorial_product(const Expr& x, const Expr& n,
+                                                    int sign) {
+    if (n->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& zn = static_cast<const Integer&>(*n);
+    if (zn.is_negative() || !zn.fits_long()) return std::nullopt;
+    long k = zn.to_long();
+    if (k > 100'000) return std::nullopt;  // safety bound
+    if (k == 0) return S::One();
+    Expr prod = x;
+    for (long i = 1; i < k; ++i) {
+        prod = mul(prod, add(x, integer(sign * i)));
+    }
+    return prod;
+}
+
+}  // namespace
+
+RisingFactorial::RisingFactorial(Expr x, Expr n)
+    : Function(std::vector<Expr>{std::move(x), std::move(n)}) {
+    compute_hash(FunctionId::RisingFactorial);
+}
+Expr RisingFactorial::rebuild(std::vector<Expr> new_args) const {
+    return rising_factorial(new_args[0], new_args[1]);
+}
+std::optional<bool> RisingFactorial::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Integer && is_integer(args_[0]) == true
+        && is_integer(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+
+Expr rising_factorial(const Expr& x, const Expr& n) {
+    // rf(x,n) = x·(x+1)·…·(x+n-1) for a non-negative integer n (n=0 → 1).
+    if (auto p = factorial_product(x, n, +1)) return *p;
+    return make<RisingFactorial>(x, n);
+}
+
+FallingFactorial::FallingFactorial(Expr x, Expr n)
+    : Function(std::vector<Expr>{std::move(x), std::move(n)}) {
+    compute_hash(FunctionId::FallingFactorial);
+}
+Expr FallingFactorial::rebuild(std::vector<Expr> new_args) const {
+    return falling_factorial(new_args[0], new_args[1]);
+}
+std::optional<bool> FallingFactorial::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Integer && is_integer(args_[0]) == true
+        && is_integer(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+
+Expr falling_factorial(const Expr& x, const Expr& n) {
+    // ff(x,n) = x·(x-1)·…·(x-n+1) for a non-negative integer n (n=0 → 1).
+    if (auto p = factorial_product(x, n, -1)) return *p;
+    return make<FallingFactorial>(x, n);
+}
+
+Subfactorial::Subfactorial(Expr arg)
+    : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Subfactorial);
+}
+Expr Subfactorial::rebuild(std::vector<Expr> new_args) const {
+    return subfactorial(new_args[0]);
+}
+std::optional<bool> Subfactorial::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Nonnegative:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr subfactorial(const Expr& arg) {
+    // !n = number of derangements, via the recurrence
+    // !0=1, !1=0, !k=(k-1)(!(k-1)+!(k-2)).
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Subfactorial>(arg);
+        long n = z.to_long();
+        if (n > 100'000) return make<Subfactorial>(arg);  // safety bound
+        if (n == 0) return S::One();
+        if (n == 1) return S::Zero();
+        mpz_class prev2(1), prev1(0), cur;  // !0, !1
+        for (long k = 2; k <= n; ++k) {
+            cur = mpz_class(k - 1) * (prev1 + prev2);
+            prev2 = prev1;
+            prev1 = cur;
+        }
+        return make<Integer>(std::move(cur));
+    }
+    return make<Subfactorial>(arg);
 }
 
 // ============================================================================

@@ -152,7 +152,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"exp", &exp}, {"log", &log},
         {"sqrt", &sqrt}, {"abs", &abs}, {"sign", &sign},
         {"floor", &floor}, {"ceiling", &ceiling}, {"frac", &frac},
-        {"factorial", &factorial},
+        {"factorial", &factorial}, {"subfactorial", &subfactorial},
         {"fibonacci", &fibonacci}, {"catalan", &catalan},
         {"gamma", &gamma}, {"loggamma", &loggamma},
         {"erf", &erf}, {"erfc", &erfc},
@@ -173,6 +173,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"lcm", &lcm},
         {"Mod", &mod},
         {"mod", &mod},
+        {"RisingFactorial", &rising_factorial},
+        {"FallingFactorial", &falling_factorial},
     };
     return table;
 }
