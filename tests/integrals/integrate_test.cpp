@@ -1686,6 +1686,13 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     REQUIRE(db(pow(integer(2) + cos(x) + sin(x), integer(-1))));      // sin+cos
     // The dedicated integrators still win for simple trig (not Weierstrass).
     REQUIRE(integrate(sin(x), x)->str() == "-cos(x)");
+    // Regression: a trig integrand that is NOT rational in tan(x/2) — √(tan x)
+    // substitutes to √(2t/(1−t²)), a non-elementary algebraic integral. The
+    // is_rational_in guard must bail to the marker instead of looping forever.
+    REQUIRE(integrate(pow(tan(x), rational(1, 2)), x)->str().find("Integral(")
+            != std::string::npos);
+    REQUIRE(integrate(pow(sin(x), rational(1, 2)), x)->str().find("Integral(")
+            != std::string::npos);
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------

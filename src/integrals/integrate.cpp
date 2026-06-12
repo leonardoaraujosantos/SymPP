@@ -1481,6 +1481,30 @@ std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
     return result;
 }
 
+// True if `e` is a rational function of `t`: built only from t, t-free
+// constants, +, ×, and integer powers. A non-integer power or a function of t
+// makes it non-rational. Used to gate the Weierstrass result so it only claims
+// integrands that become genuinely rational in t (otherwise the t-integral can
+// be non-elementary and send `integrate` into a long/unbounded search).
+[[nodiscard]] bool is_rational_in(const Expr& e, const Expr& t) {
+    if (!depends_on(e, t)) return true;
+    switch (e->type_id()) {
+        case TypeId::Symbol:
+            return true;  // depends on t ⇒ is t
+        case TypeId::Add:
+        case TypeId::Mul:
+            for (const auto& a : e->args()) {
+                if (!is_rational_in(a, t)) return false;
+            }
+            return true;
+        case TypeId::Pow:
+            return e->args()[1]->type_id() == TypeId::Integer
+                   && is_rational_in(e->args()[0], t);
+        default:
+            return false;  // a function of t, fractional power, etc.
+    }
+}
+
 std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
     Expr t = symbol("_weierstrass_t");
@@ -1508,6 +1532,11 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
 
     // dx = 2/(1+t²) dt.
     Expr integrand = together(e * integer(2) / one_pt2);
+
+    // Only proceed when the substitution yields a genuinely rational function of
+    // t. A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would otherwise
+    // hand `integrate` a non-elementary algebraic integral that can loop.
+    if (!is_rational_in(integrand, t)) return std::nullopt;
     Expr antideriv = integrate(integrand, t);
     if (is_integral_marker(antideriv)) return std::nullopt;
 
