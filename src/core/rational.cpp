@@ -76,6 +76,12 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonzero: return s != 0;
         case AssumptionKey::Nonnegative: return s >= 0;
         case AssumptionKey::Nonpositive: return s <= 0;
+        // A non-integer rational has no parity; an integer-valued one (den == 1)
+        // takes the numerator's parity.
+        case AssumptionKey::Even:
+            return is_int && mpz_even_p(value_.get_num_mpz_t()) != 0;
+        case AssumptionKey::Odd:
+            return is_int && mpz_odd_p(value_.get_num_mpz_t()) != 0;
     }
     return std::nullopt;
 }

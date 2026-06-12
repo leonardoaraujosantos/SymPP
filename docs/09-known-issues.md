@@ -14,6 +14,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-11 — no `even` / `odd` assumption (symbol-declared parity)
+- **Was:** the assumption vocabulary had no parity predicate, so `Symbol("n",
+  even=True)`-style declarations were impossible and the parity consumers
+  (ASSUME-7/8/9/10) only fired on *structurally* even/odd exponents (`2n`,
+  `2n+1`), never on a symbol simply declared even/odd.
+- **Fix:** added `Even` / `Odd` to `AssumptionKey`, mask fields + builders
+  (`set_even`/`set_odd`), hash, and deductive closure:
+  `even ⇒ integer (⇒ rational ⇒ real)`, `odd ⇒ integer + nonzero`,
+  `zero ⇒ even`, even/odd mutually exclusive, `integer ∧ ¬even ⇒ odd`
+  (and `¬integer ⇒ ¬even ∧ ¬odd`). `Integer`/`Rational` literals answer parity by
+  value; `is_even`/`is_odd` query wrappers added; `is_provably_even/odd` now
+  consult the declared/derived `ask(Even/Odd)` first, so the existing consumers
+  (`(−1)^n`, `cos(nπ)`, …) fire for declared-parity symbols too.
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[assumptions]` closure cases + `[assumptions][regression]` (declared
+  even/odd predicates, integer-literal parity, `(−1)^even=1`, `(−1)^odd=−1`).
+- **Scope:** parity as a first-class assumption. Parity *inference* through
+  `Mul`/`Add` at the `ask` level is still deferred to the structural
+  `is_provably_even/odd` helper (which already covers `2n`, `2n+1`).
+
 ### ASSUME-10 — `cot/sec/csc` at integer / half-integer multiples of π weren't evaluated
 - **Input:** `cot(nπ)`, `csc(nπ)`, `sec(nπ)`, and the odd-half-integer forms, for
   integer `n`.

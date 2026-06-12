@@ -108,6 +108,10 @@ std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonzero: return s != 0;
         case AssumptionKey::Nonnegative: return s >= 0;
         case AssumptionKey::Nonpositive: return s <= 0;
+        case AssumptionKey::Even:
+            return mpz_even_p(value_.get_mpz_t()) != 0;
+        case AssumptionKey::Odd:
+            return mpz_odd_p(value_.get_mpz_t()) != 0;
     }
     return std::nullopt;
 }

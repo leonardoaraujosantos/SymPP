@@ -14,6 +14,8 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Negative: return negative;
         case AssumptionKey::Zero: return zero;
         case AssumptionKey::Finite: return finite;
+        case AssumptionKey::Even: return even;
+        case AssumptionKey::Odd: return odd;
 
         case AssumptionKey::Nonzero: {
             // nonzero = positive ∨ negative ∨ ¬zero (when known).
@@ -50,6 +52,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Negative: negative = value; break;
         case AssumptionKey::Zero: zero = value; break;
         case AssumptionKey::Finite: finite = value; break;
+        case AssumptionKey::Even: even = value; break;
+        case AssumptionKey::Odd: odd = value; break;
         case AssumptionKey::Nonzero:
             // nonzero=true means zero=false; nonzero=false means zero=true.
             zero = !value;
@@ -74,7 +78,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 }
 
 bool AssumptionMask::empty() const noexcept {
-    return !real && !rational && !integer && !positive && !negative && !zero && !finite;
+    return !real && !rational && !integer && !positive && !negative && !zero
+           && !finite && !even && !odd;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -93,6 +98,8 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(negative));
     mix(encode(zero));
     mix(encode(finite));
+    mix(encode(even));
+    mix(encode(odd));
     return h;
 }
 
@@ -114,7 +121,8 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.zero) m.zero = false;
             if (!m.positive) m.positive = false;
         }
-        // zero => real, integer, rational, finite, positive=false, negative=false
+        // zero => real, integer, rational, finite, positive=false, negative=false,
+        // and 0 is even (not odd)
         if (m.zero == true) {
             if (!m.real) m.real = true;
             if (!m.integer) m.integer = true;
@@ -122,6 +130,28 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.finite) m.finite = true;
             if (!m.positive) m.positive = false;
             if (!m.negative) m.negative = false;
+            if (!m.even) m.even = true;
+            if (!m.odd) m.odd = false;
+        }
+        // even => integer; odd => integer, nonzero; even/odd are mutually exclusive;
+        // a known integer that is not even is odd (and vice versa).
+        if (m.even == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.odd) m.odd = false;
+        }
+        if (m.odd == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.zero) m.zero = false;
+            if (!m.even) m.even = false;
+        }
+        if (m.integer == true) {
+            if (m.even == false && !m.odd) m.odd = true;
+            if (m.odd == false && !m.even) m.even = true;
+        }
+        // ¬integer => ¬even, ¬odd
+        if (m.integer == false) {
+            if (!m.even) m.even = false;
+            if (!m.odd) m.odd = false;
         }
         // integer => rational => real
         if (m.integer == true) {

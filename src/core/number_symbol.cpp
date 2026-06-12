@@ -27,6 +27,8 @@ std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonzero: return true;
         case AssumptionKey::Nonnegative: return true;
         case AssumptionKey::Nonpositive: return false;
+        case AssumptionKey::Even: return false;   // irrational ⇒ not an integer
+        case AssumptionKey::Odd: return false;
     }
     return std::nullopt;
 }
