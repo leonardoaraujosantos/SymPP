@@ -1256,6 +1256,25 @@ TEST_CASE("integrate: sinh^m * cosh^n powers",
     REQUIRE(db(pow(sinh(integer(2) * x), integer(2))));  // affine argument
 }
 
+TEST_CASE("integrate: tanh(x)^n / coth(x)^n via reduction (INT-30)",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        // No unevaluated Integral marker leaks through.
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(pow(tanh(x), integer(2))));
+    REQUIRE(db(pow(tanh(x), integer(3))));
+    REQUIRE(db(pow(tanh(x), integer(4))));
+    REQUIRE(db(pow(coth(x), integer(2))));
+    REQUIRE(db(pow(coth(x), integer(3))));
+    REQUIRE(db(pow(coth(x), integer(4))));
+    REQUIRE(db(pow(tanh(integer(2) * x), integer(3))));  // affine argument
+}
+
 TEST_CASE("integrate: ∫sin²(2x+1) dx — affine inside reduction",
           "[7][integrate][trig_reduction]") {
     // SymPy's plain simplify can't always reduce cos(2*(2x+1)) ↔ cos(4x+2),
