@@ -403,6 +403,26 @@ TEST_CASE("re/im are real", "[3h][complex][assumptions]") {
     REQUIRE(is_real(im(x)) == true);
 }
 
+// REIM-DIST-1: re/im are linear over sums and rotate by I —
+//   re(I·w) = −im(w), im(I·w) = re(w), with a real coefficient pulled out.
+// For real x, y: re(I·x)=0, im(I·x)=x, re(x+I·y)=x, im(x+I·y)=y; for generic z,
+// re(I·z) = −im(z). Matches SymPy.
+TEST_CASE("re/im: linearity and I-rotation (REIM-DIST-1)",
+          "[3h][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    auto y = symbol("y", AssumptionMask{}.set_real(true));
+    auto z = symbol("z");  // generic
+    REQUIRE(re(S::I() * x) == S::Zero());
+    REQUIRE(im(S::I() * x) == x);
+    REQUIRE(re(x + S::I() * y) == x);
+    REQUIRE(im(x + S::I() * y) == y);
+    REQUIRE(re(integer(2) * x) == integer(2) * x);
+    // Generic z: the I-rotation surfaces re/im of z.
+    REQUIRE(oracle.equivalent(re(S::I() * z)->str(), "-im(z)"));
+    REQUIRE(oracle.equivalent(im(S::I() * z)->str(), "re(z)"));
+}
+
 // ----- Min, Max --------------------------------------------------------------
 
 TEST_CASE("min/max: numeric inputs collapse", "[3h][minmax]") {

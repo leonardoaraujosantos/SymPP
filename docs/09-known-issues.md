@@ -14,6 +14,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### REIM-DIST-1 — `re`/`im` didn't distribute or handle `I`
+- **Input:** `re(I*x)`, `im(I*x)`, `re(x+I*y)`, `im(x+I*y)` (x, y real);
+  `re(I*z)` (z generic).
+- **Was:** the unevaluated `re(x*I)`, `im(x*I)`, `re(x + y*I)`, … . The `re`/`im`
+  factories handled only a real argument, a numeric `a+b·I`, and a leading
+  negative factor — they didn't distribute over a sum or recognise the imaginary
+  unit.
+- **Expected (SymPy):** `0`, `x`, `x`, `y`; `re(I*z) = -im(z)`.
+- **Fix (`src/functions/miscellaneous.cpp`):**
+  - `re`/`im` are linear over `Add` (`re(Σ aᵢ) = Σ re(aᵢ)`);
+  - a Mul is decomposed as `c · Iᵏ · w` (`decompose_mul_complex`: real factors →
+    `c`, I-count mod 4 → `k`, the rest → `w`), and the real coefficient is pulled
+    out with the `Iᵏ` rotation: `re(c·w)=c·re(w)`, `re(c·I·w)=−c·im(w)`,
+    `im(c·I·w)=c·re(w)`, … . The decomposition returns nothing unless a real
+    factor or an `I` was peeled off, so the recursion terminates.
+- **Verified against SymPy:** the real-symbol cases collapse exactly
+  (`re(I·x)=0`, `im(I·x)=x`, `re(x+I·y)=x`, `im(x+I·y)=y`, `re(2x)=2x`), and the
+  generic I-rotation `re(I·z)=−im(z)`, `im(I·z)=re(z)` matches.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][complex][oracle][regression]` (REIM-DIST-1).
+- **Scope:** linearity + the imaginary-unit rotation. `re`/`im` of a generic
+  *product* of two unknown-reality factors stays unevaluated.
+
 ### CONJ-DIST-1 / ABS-I-1 — `conjugate` didn't distribute; `Abs(I·x)` not reduced
 - **Input:** `conjugate(I*x)`, `conjugate(x*y)`, `conjugate(x+y)`,
   `conjugate(x**2)`; `Abs(I*x)`, `Abs(2*I*x)`.

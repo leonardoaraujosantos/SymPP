@@ -358,11 +358,58 @@ std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
     }
 }
 
+namespace {
+
+// Decompose a Mul as c · Iᵏ · w, with c the product of the real factors,
+// k = (number of I factors) mod 4, and w the remaining (non-real, non-I) part.
+// Returns nullopt unless something was actually peeled off (k > 0 or c ≠ 1), so
+// the re()/im() recursion below terminates.
+struct MulComplexParts { Expr c; int k; Expr w; };
+[[nodiscard]] std::optional<MulComplexParts> decompose_mul_complex(
+    const Expr& arg) {
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    Expr c = S::One();
+    int k = 0;
+    std::vector<Expr> rest;
+    for (const auto& f : arg->args()) {
+        if (f == S::I()) {
+            k = (k + 1) % 4;
+        } else if (is_real(f) == true) {
+            c = mul(c, f);
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (k == 0 && c == S::One()) return std::nullopt;  // nothing extracted
+    Expr w = rest.empty() ? Expr{S::One()}
+                          : (rest.size() == 1 ? rest[0] : mul(std::move(rest)));
+    return MulComplexParts{std::move(c), k, std::move(w)};
+}
+
+}  // namespace
+
 Expr re(const Expr& arg) {
     // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
     // Numeric complex a + b·I → a.
     if (auto z = rational_complex(arg); z.has_value()) return z->first;
+    // Linearity over a sum: re(Σ aᵢ) = Σ re(aᵢ).
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(re(a));
+        return add(std::move(terms));
+    }
+    // c · Iᵏ · w: re pulls out the real c and rotates by Iᵏ —
+    //   re(c·w) = c·re(w),  re(c·I·w) = −c·im(w),  (k mod 4 cycles the sign).
+    if (auto d = decompose_mul_complex(arg)) {
+        switch (d->k) {
+            case 0: return mul(d->c, re(d->w));
+            case 1: return mul(mul(S::NegativeOne(), d->c), im(d->w));
+            case 2: return mul(mul(S::NegativeOne(), d->c), re(d->w));
+            case 3: return mul(d->c, im(d->w));
+        }
+    }
     // Linearity: re(-x) = -re(x)
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Re>(*p));
@@ -374,6 +421,22 @@ Expr im(const Expr& arg) {
     if (is_real(arg) == true) return S::Zero();
     // Numeric complex a + b·I → b.
     if (auto z = rational_complex(arg); z.has_value()) return z->second;
+    // Linearity over a sum: im(Σ aᵢ) = Σ im(aᵢ).
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(im(a));
+        return add(std::move(terms));
+    }
+    // c · Iᵏ · w: im(c·w) = c·im(w),  im(c·I·w) = c·re(w),  (k mod 4 cycles).
+    if (auto d = decompose_mul_complex(arg)) {
+        switch (d->k) {
+            case 0: return mul(d->c, im(d->w));
+            case 1: return mul(d->c, re(d->w));
+            case 2: return mul(mul(S::NegativeOne(), d->c), im(d->w));
+            case 3: return mul(mul(S::NegativeOne(), d->c), re(d->w));
+        }
+    }
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Im>(*p));
     }
