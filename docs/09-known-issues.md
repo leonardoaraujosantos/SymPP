@@ -1,7 +1,9 @@
 # Known issues & SymPy-parity bug log
 
 This file tracks correctness gaps found by cross-checking SymPP against
-the SymPy 1.14 oracle. Each entry records the failing input, the
+the SymPy oracle (validated against 1.13.x and 1.14; CI pins 1.14, and a
+version guard in the smoke tests fails loudly on any unvetted release). Each
+entry records the failing input, the
 SymPy-expected result, current status, and the regression test (once
 fixed). Each entry is filed as a GitHub issue; the local log is the source of
 truth and links the issue number.
@@ -13,6 +15,26 @@ truth and links the issue number.
 > `curl --resolve api.github.com:443:140.82.121.6 ...`.
 
 ## Fixed
+
+### VERSION-GUARD-1 — the oracle accepted any SymPy version silently
+- **Problem (test-rig integrity, not a math gap):** the whole suite trusts the
+  SymPy oracle to adjudicate `equivalent(...)`, but nothing pinned *which* SymPy
+  it ran against. CI installed `sympy==1.14` while local development ran
+  `1.13.3`, and the smoke test only checked the version string was non-empty. A
+  silent upgrade to an unvetted release could change a canonical form or add an
+  auto-simplification and quietly alter the "equivalent" verdict with no test
+  noticing.
+- **Fix:** added a `[0][oracle]` smoke test (`VERSION-GUARD-1`,
+  `tests/oracle/oracle_smoke_test.cpp`) that parses the oracle's reported SymPy
+  version and `FAIL`s loudly unless its `major.minor` is on a validated
+  allowlist (`1.13` / `1.14`). Bumping SymPy now requires re-validating the
+  suite and extending the allowlist in the same commit. The `.github/workflows/
+  ci.yml` pin and the `docs/09-known-issues.md` header were annotated to match.
+- **Verified:** passes on local `1.13.3` and CI `1.14`; a standalone check
+  confirms the guard fires on `1.15`, `2.0`, and `1.12`.
+- **Regression test:** `tests/oracle/oracle_smoke_test.cpp` — `[0][oracle]`.
+- **Scope:** guards the major.minor only; it intentionally does not detect
+  behavioural drift *within* an allowed minor release.
 
 ### SOLVE-TRIG-1 — `solve` returned `[]` for transcendental trig equations
 - **Input:** `solve(sin(x), x)`, `solve(cos(x), x)`, `solve(2*sin(x)-1, x)`,

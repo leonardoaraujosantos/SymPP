@@ -29,6 +29,9 @@ jobs:
             cmake ninja-build \
             libgmp-dev libgmpxx4ldbl libmpfr-dev \
             python3 python3-pip
+          # Pinned: the oracle adjudicates symbolic equivalence, so the SymPy
+          # version is part of the test contract. The VERSION-GUARD-1 smoke test
+          # enforces an allowlist (1.13.x / 1.14) — bump both together.
           pip3 install --break-system-packages sympy==1.14 || pip3 install sympy==1.14
 
       # ---- Pick compiler ----
