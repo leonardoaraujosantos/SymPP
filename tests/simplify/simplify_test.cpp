@@ -694,6 +694,34 @@ TEST_CASE("fu: leaves non-trig expression alone",
     REQUIRE(oracle.equivalent(fu(e)->str(), "x**2 + 1"));
 }
 
+// REWRITE-EXP-1: rewrite(expr, "exp") re-expresses trig and hyperbolic
+// functions as exponentials (Euler / hyperbolic identities), matching SymPy's
+// expr.rewrite(exp) up to symbolic equivalence.
+TEST_CASE("rewrite: trig/hyperbolic as exponentials (REWRITE-EXP-1)",
+          "[5][rewrite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(rewrite(sin(x), "exp")->str(),
+                              "-I*(exp(I*x) - exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(cos(x), "exp")->str(),
+                              "(exp(I*x) + exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(sinh(x), "exp")->str(),
+                              "(exp(x) - exp(-x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(cosh(x), "exp")->str(),
+                              "(exp(x) + exp(-x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(tanh(x), "exp")->str(),
+                              "(exp(x) - exp(-x))/(exp(x) + exp(-x))"));
+    // Recurses through Add and into composite arguments.
+    REQUIRE(oracle.equivalent(
+        rewrite(sin(x) + cos(x), "exp")->str(),
+        "-I*(exp(I*x) - exp(-I*x))/2 + (exp(I*x) + exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(sin(integer(2) * x), "exp")->str(),
+                              "-I*(exp(2*I*x) - exp(-2*I*x))/2"));
+    // Unknown target / non-trig leaves the expression unchanged.
+    REQUIRE(rewrite(pow(x, integer(2)), "exp") == pow(x, integer(2)));
+    REQUIRE(rewrite(sin(x), "tan") == sin(x));
+}
+
 // ----- radsimp ---------------------------------------------------------------
 
 TEST_CASE("radsimp: 1/sqrt(2) → sqrt(2)/2", "[5][radsimp][oracle]") {

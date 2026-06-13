@@ -14,6 +14,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### REWRITE-EXP-1 — no `rewrite(target)` API (exp ↔ trig)
+- **Was:** SymPP had no analogue of SymPy's `expr.rewrite(target)` — a common
+  cross-cutting operation (Euler / hyperbolic identities, used in solving and
+  simplification).
+- **Fix (`src/simplify/simplify.cpp`, `include/sympp/simplify/simplify.hpp`):**
+  new `rewrite(expr, "exp")` re-expresses `sin`/`cos`/`tan` and
+  `sinh`/`cosh`/`tanh` as exponentials (`sin(x) → −i·(e^{ix}−e^{−ix})/2`,
+  `cosh(x) → (e^x+e^{−x})/2`, …), applied recursively so combinations and
+  composite arguments (`sin(2x)`) are handled. An unknown target is a no-op.
+- **Verified against SymPy:** the six trig/hyperbolic forms plus `sin(x)+cos(x)`
+  and `sin(2x)` all equal `expr.rewrite(exp)` symbolically.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][rewrite][oracle][regression]` (REWRITE-EXP-1).
+- **Scope:** target `"exp"`. Other targets (`rewrite(exp, sin/cos)` Euler
+  direction, `rewrite(tan, …)`, gamma/factorial cross-rewrites) are follow-ups.
+
 ### SOLVE-DEDUP-1 — `solve` returned duplicate roots for repeated factors
 - **Input:** `solve((x+2)**2)`, `solve(x**2*(x-1))`,
   `solve((x-1)**2*(x+1))`, `solve((x-1)**3)`.

@@ -1421,6 +1421,47 @@ Expr fu(const Expr& e) {
     return best;
 }
 
+// ----- rewrite ---------------------------------------------------------------
+
+namespace {
+
+// sin/cos/tan and sinh/cosh/tanh → exponentials (Euler / hyperbolic identities).
+[[nodiscard]] Expr rewrite_exp_node(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return e;
+    const auto& fn = static_cast<const Function&>(*e);
+    if (fn.args().size() != 1) return e;
+    const Expr& g = fn.args()[0];
+    const Expr neg = S::NegativeOne();
+    const Expr& I = S::I();
+    const Expr half = rational(1, 2);
+    Expr Ig = mul(I, g);
+    Expr nIg = mul(mul(neg, I), g);
+    Expr ng = mul(neg, g);
+    switch (fn.function_id()) {
+        case FunctionId::Sin:  // −i·(e^{ig} − e^{−ig})/2
+            return mul({mul(neg, I), half, exp(Ig) - exp(nIg)});
+        case FunctionId::Cos:  // (e^{ig} + e^{−ig})/2
+            return mul(half, exp(Ig) + exp(nIg));
+        case FunctionId::Tan:  // −i·(e^{ig} − e^{−ig})/(e^{ig} + e^{−ig})
+            return mul(mul(neg, I), (exp(Ig) - exp(nIg)) / (exp(Ig) + exp(nIg)));
+        case FunctionId::Sinh:  // (e^g − e^{−g})/2
+            return mul(half, exp(g) - exp(ng));
+        case FunctionId::Cosh:  // (e^g + e^{−g})/2
+            return mul(half, exp(g) + exp(ng));
+        case FunctionId::Tanh:  // (e^g − e^{−g})/(e^g + e^{−g})
+            return (exp(g) - exp(ng)) / (exp(g) + exp(ng));
+        default:
+            return e;
+    }
+}
+
+}  // namespace
+
+Expr rewrite(const Expr& e, std::string_view target) {
+    if (target == "exp") return apply_recursive(e, rewrite_exp_node);
+    return e;  // unknown target — no-op, matching SymPy's "leave as is"
+}
+
 // ----- radsimp ---------------------------------------------------------------
 
 namespace {
