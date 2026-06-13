@@ -14,6 +14,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### CONJ-DIST-1 / ABS-I-1 — `conjugate` didn't distribute; `Abs(I·x)` not reduced
+- **Input:** `conjugate(I*x)`, `conjugate(x*y)`, `conjugate(x+y)`,
+  `conjugate(x**2)`; `Abs(I*x)`, `Abs(2*I*x)`.
+- **Was:** `conjugate(x*I)`, `conjugate(I*x)` left unevaluated; `Abs(x*I)`
+  unreduced. The `conjugate` factory handled only real / numeric-complex /
+  involution; the `Abs` Mul-pull-out pulled out numeric and known-sign factors
+  but not the imaginary unit.
+- **Expected (SymPy):** `-I*conjugate(x)`, `conjugate(x)*conjugate(y)`,
+  `conjugate(x)+conjugate(y)`, `conjugate(x)**2`; `Abs(x)`, `2*Abs(x)`.
+- **Fix (`src/functions/miscellaneous.cpp`):**
+  - `conjugate` now distributes over `Mul`, `Add`, and integer `Pow` (it is a
+    ring homomorphism); recursion reduces each part (`conjugate(I) = −I`,
+    `conjugate(real) = real`), so `conjugate(I·x) = −I·conjugate(x)`.
+  - `abs` pulls the imaginary unit out of a product (`|I| = 1 ⇒ |I·x| = |x|`)
+    alongside the numeric / known-sign factors.
+- **Verified against SymPy:** all the distribution cases and `Abs(I·x)`,
+  `Abs(2·I·x)`, `Abs(I·x·y)` match; existing `Abs` reductions are unchanged.
+- **Regression tests:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][conjugate][oracle][regression]` (CONJ-DIST-1) and
+  `[3d][abs][oracle][regression]` (ABS-I-1).
+- **Scope:** conjugate distribution and the imaginary-unit `Abs` reduction.
+
 ### ASSUME-IMAG-1 — no Imaginary / Complex assumption predicates
 - **Was:** the assumption vocabulary had no `Imaginary` or `Complex` key, so
   `I.is_imaginary`, `is_real(I·x)`, `is_complex(x)` had no answer — SymPP modelled

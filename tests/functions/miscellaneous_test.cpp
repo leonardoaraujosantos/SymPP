@@ -349,6 +349,39 @@ TEST_CASE("re/im/conjugate: numeric complex a+b·I",
     REQUIRE(oracle.equivalent(conjugate(w)->str(), "1/2 - I/3"));
 }
 
+// CONJ-DIST-1: conjugate is a ring homomorphism — distributes over products,
+// sums and integer powers (conjugate(I·x) = −I·conjugate(x)). Matches SymPy.
+TEST_CASE("conjugate: distributes over Mul/Add/Pow (CONJ-DIST-1)",
+          "[3h][conjugate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(conjugate(S::I() * x)->str(),
+                              "-I*conjugate(x)"));
+    REQUIRE(oracle.equivalent(conjugate(integer(2) * x)->str(),
+                              "2*conjugate(x)"));
+    REQUIRE(oracle.equivalent(conjugate(x * y)->str(),
+                              "conjugate(x)*conjugate(y)"));
+    REQUIRE(oracle.equivalent(conjugate(x + y)->str(),
+                              "conjugate(x) + conjugate(y)"));
+    REQUIRE(oracle.equivalent(conjugate(x + S::I())->str(),
+                              "conjugate(x) - I"));
+    REQUIRE(oracle.equivalent(conjugate(pow(x, integer(2)))->str(),
+                              "conjugate(x)**2"));
+}
+
+// ABS-I-1: |I·x| = |x| (I has modulus 1) — the imaginary unit is pulled out of
+// an Abs product alongside the numeric / known-sign factors.
+TEST_CASE("Abs: pulls out the imaginary unit (ABS-I-1)",
+          "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(abs(S::I() * x)->str(), "Abs(x)"));
+    REQUIRE(oracle.equivalent(abs(integer(2) * S::I() * x)->str(), "2*Abs(x)"));
+    REQUIRE(oracle.equivalent(abs(S::I() * x * y)->str(), "Abs(x*y)"));
+}
+
 TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));
     auto n = symbol("n", AssumptionMask{}.set_negative(true));

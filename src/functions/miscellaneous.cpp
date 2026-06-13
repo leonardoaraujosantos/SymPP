@@ -210,8 +210,9 @@ Expr abs(const Expr& arg) {
         std::vector<Expr> pulled;
         std::vector<Expr> kept;
         for (const auto& f : arg->args()) {
+            // I has modulus 1, so |I·x| = |x|.
             if (is_number(f) || is_positive(f) == true
-                || is_negative(f) == true) {
+                || is_negative(f) == true || f == S::I()) {
                 pulled.push_back(abs(f));
             } else {
                 kept.push_back(f);
@@ -391,6 +392,26 @@ Expr conjugate(const Expr& arg) {
         if (fn.function_id() == FunctionId::Conjugate) {
             return arg->args()[0];
         }
+    }
+    // conjugate is a ring homomorphism: it distributes over products and sums
+    // (conjugate(a·b) = ā·b̄, conjugate(a+b) = ā+b̄) and over an integer power.
+    // Recursion reduces each part (conjugate(I) = −I, conjugate(real) = real),
+    // so conjugate(I·x) = −I·conjugate(x).
+    if (arg->type_id() == TypeId::Mul) {
+        std::vector<Expr> factors;
+        factors.reserve(arg->args().size());
+        for (const auto& f : arg->args()) factors.push_back(conjugate(f));
+        return mul(std::move(factors));
+    }
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(conjugate(a));
+        return add(std::move(terms));
+    }
+    if (arg->type_id() == TypeId::Pow
+        && arg->args()[1]->type_id() == TypeId::Integer) {
+        return pow(conjugate(arg->args()[0]), arg->args()[1]);
     }
     return make<Conjugate>(arg);
 }
