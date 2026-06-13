@@ -21,10 +21,26 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
 namespace {
+
+// True if the expression tree contains an unevaluated Re or Im node — used to
+// decide whether a complex value's real/imaginary split fully resolved.
+[[nodiscard]] bool contains_re_im(const Expr& e) {
+    if (e->type_id() == TypeId::Function) {
+        auto id = static_cast<const Function&>(*e).function_id();
+        if (id == FunctionId::Re || id == FunctionId::Im) return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_re_im(a)) return true;
+    }
+    return false;
+}
 
 // Detect a leading minus sign on a Mul: -1 * rest. Returns the stripped tail
 // if so, std::nullopt otherwise. Number negatives stay as-is for the abs path
@@ -230,19 +246,9 @@ Expr abs(const Expr& arg) {
     // imaginary part is nonzero. A generic Abs(z) keeps its Re(z)/Im(z) split
     // and so is left unevaluated, matching SymPy.
     {
-        std::function<bool(const Expr&)> has_re_im = [&](const Expr& e) -> bool {
-            if (e->type_id() == TypeId::Function) {
-                auto id = static_cast<const Function&>(*e).function_id();
-                if (id == FunctionId::Re || id == FunctionId::Im) return true;
-            }
-            for (const auto& a : e->args()) {
-                if (has_re_im(a)) return true;
-            }
-            return false;
-        };
         Expr a = re(arg);
         Expr b = im(arg);
-        if (!(b == S::Zero()) && !has_re_im(a) && !has_re_im(b)) {
+        if (!(b == S::Zero()) && !contains_re_im(a) && !contains_re_im(b)) {
             return sqrt(add(mul(a, a), mul(b, b)));
         }
     }
@@ -472,11 +478,27 @@ Expr conjugate(const Expr& arg) {
     if (auto z = rational_complex(arg); z.has_value()) {
         return add(z->first, mul(mul(S::NegativeOne(), z->second), S::I()));
     }
-    // conjugate(conjugate(x)) = x
     if (arg->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*arg);
+        // conjugate(conjugate(x)) = x.
         if (fn.function_id() == FunctionId::Conjugate) {
             return arg->args()[0];
+        }
+        // conjugate(f(g)) = f(conjugate(g)) for an entire function with real
+        // Taylor coefficients (exp / sin / cos / tan / sinh / cosh / tanh) —
+        // e.g. conjugate(exp(I·x)) = exp(−I·x). log is excluded (branch cut).
+        if (fn.args().size() == 1) {
+            Expr cg = conjugate(fn.args()[0]);
+            switch (fn.function_id()) {
+                case FunctionId::Exp:  return exp(cg);
+                case FunctionId::Sin:  return sin(cg);
+                case FunctionId::Cos:  return cos(cg);
+                case FunctionId::Tan:  return tan(cg);
+                case FunctionId::Sinh: return sinh(cg);
+                case FunctionId::Cosh: return cosh(cg);
+                case FunctionId::Tanh: return tanh(cg);
+                default: break;
+            }
         }
     }
     // conjugate is a ring homomorphism: it distributes over products and sums
@@ -505,6 +527,14 @@ Expr conjugate(const Expr& arg) {
 Expr arg_(const Expr& arg) {
     if (is_positive(arg) == true) return S::Zero();
     if (is_negative(arg) == true) return S::Pi();
+    // arg(z) = atan2(im z, re z), applied when there is a (resolved) imaginary
+    // part: arg(I) = atan2(1, 0) = π/2, arg(1+I) = atan2(1, 1) = π/4. A real
+    // value (im = 0) of unknown sign stays unevaluated.
+    Expr a = re(arg);
+    Expr b = im(arg);
+    if (!(b == S::Zero()) && !contains_re_im(a) && !contains_re_im(b)) {
+        return atan2(b, a);
+    }
     return make<Arg>(arg);
 }
 

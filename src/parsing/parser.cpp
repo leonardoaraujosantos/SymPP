@@ -160,7 +160,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"Ei", &expint_ei}, {"Si", &sinint}, {"Ci", &cosint},
         {"Shi", &sinhint}, {"Chi", &coshint},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
-        {"re", &re}, {"im", &im}, {"conjugate", &conjugate},
+        {"re", &re}, {"im", &im}, {"conjugate", &conjugate}, {"arg", &arg_},
         // SymPy canonical spellings — these are the names str() emits, so the
         // parser must accept them too for round-tripping (parse(e->str()) == e).
         {"Abs", &abs}, {"Heaviside", &heaviside}, {"DiracDelta", &dirac_delta},

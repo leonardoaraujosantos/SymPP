@@ -14,6 +14,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### CONJ-FN-1 / ARG-CX-1 — conjugate over analytic functions; arg of a complex value
+- **Input:** `conjugate(exp(I*x))` (x real), `conjugate(cosh(z))`;
+  `arg(I)`, `arg(1+I)`, `arg(-1+I)`, `arg(-I)`.
+- **Was:** `conjugate(exp(x·I))` left unevaluated; `arg(I)`, `arg(1+I)` left
+  unevaluated (and `"arg"` wasn't even recognised by the parser).
+- **Expected (SymPy):** `exp(-I*x)`, `cosh(conjugate(z))`; `pi/2`, `pi/4`,
+  `3*pi/4`, `-pi/2`.
+- **Fix (`src/functions/miscellaneous.cpp`, `src/parsing/parser.cpp`):**
+  - `conjugate(f(g)) = f(conjugate(g))` for an entire function with real Taylor
+    coefficients — `exp`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh` (`log`
+    excluded for its branch cut, matching SymPy). With CONJ-DIST-1 this gives
+    `conjugate(exp(I·x)) = exp(−I·x)` for real `x`.
+  - `arg(z) = atan2(im z, re z)` when the real/imaginary parts resolve (free of
+    unevaluated `Re`/`Im`) and the imaginary part is nonzero — `atan2` already
+    evaluates the quadrant values, so `arg(I) = π/2`, `arg(1+I) = π/4`, etc.
+  - the parser now maps `"arg"` to the `arg_` factory.
+- **Verified against SymPy:** the conjugate-over-function family and the four
+  `arg` values match; `conjugate(log(z))` correctly stays unevaluated.
+- **Regression tests:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][conjugate][oracle][regression]` (CONJ-FN-1) and
+  `[3h][arg][oracle][regression]` (ARG-CX-1).
+- **Scope:** the listed analytic functions and complex-value `arg`. `arg` of a
+  symbolic `a+b·I` reduces only when `atan2(b,a)` itself has a closed form.
+
 ### ABS-MOD-1 — symbolic complex modulus `|a + b·I|` wasn't computed
 - **Input:** `Abs(x + I*y)`, `Abs(2 + I*y)` (x, y real).
 - **Was:** the unevaluated `Abs(x + y·I)`. The `abs` factory computed the modulus

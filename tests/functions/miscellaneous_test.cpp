@@ -16,6 +16,8 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
 #include "oracle/oracle.hpp"
@@ -405,6 +407,32 @@ TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     REQUIRE(arg_(p) == S::Zero());
     REQUIRE(arg_(n) == S::Pi());
     REQUIRE(arg_(integer(5)) == S::Zero());
+}
+
+// ARG-CX-1: arg(z) = atan2(im z, re z) for a complex value.
+TEST_CASE("arg_: complex values via atan2 (ARG-CX-1)",
+          "[3h][arg][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(arg_(S::I())->str(), "pi/2"));
+    REQUIRE(oracle.equivalent(arg_(integer(1) + S::I())->str(), "pi/4"));
+    REQUIRE(oracle.equivalent(arg_(integer(-1) + S::I())->str(), "3*pi/4"));
+    REQUIRE(oracle.equivalent(arg_(mul(S::NegativeOne(), S::I()))->str(),
+                              "-pi/2"));
+}
+
+// CONJ-FN-1: conjugate distributes over entire functions with real Taylor
+// coefficients: conjugate(f(g)) = f(conjugate(g)) for exp/sin/cos/tan/sinh/
+// cosh/tanh (not log — branch cut). conjugate(exp(I·x)) = exp(−I·x) for real x.
+TEST_CASE("conjugate: distributes over analytic functions (CONJ-FN-1)",
+          "[3h][conjugate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(oracle.equivalent(conjugate(exp(S::I() * x))->str(), "exp(-I*x)"));
+    REQUIRE(conjugate(sin(x)) == sin(x));  // real arg → real value
+    // Generic z: conjugate(exp(z)) = exp(conjugate(z)).
+    auto z = symbol("z");
+    REQUIRE(oracle.equivalent(conjugate(exp(z))->str(), "exp(conjugate(z))"));
+    REQUIRE(oracle.equivalent(conjugate(cosh(z))->str(), "cosh(conjugate(z))"));
 }
 
 TEST_CASE("complex parts: stay unevaluated for unknown arg", "[3h][complex]") {
