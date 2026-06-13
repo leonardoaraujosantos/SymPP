@@ -4,9 +4,11 @@
 #include <utility>
 #include <vector>
 
+#include <sympp/calculus/limit.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
@@ -2213,7 +2215,19 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
     auto antider = integrate(expr, var);
-    return subs(antider, var, upper) - subs(antider, var, lower);
+    // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
+    // (or when direct substitution lands on the unevaluated nan / an infinity —
+    // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative
+    // rather than substituting the bound literally.
+    auto eval_at = [&](const Expr& bound) -> Expr {
+        if (is_infinity(bound)) return limit(antider, var, bound);
+        Expr v = subs(antider, var, bound);
+        if (v->type_id() == TypeId::NaN || is_infinity(v)) {
+            return limit(antider, var, bound);
+        }
+        return v;
+    };
+    return eval_at(upper) - eval_at(lower);
 }
 
 std::optional<Expr> manualintegrate(const Expr& expr, const Expr& var) {

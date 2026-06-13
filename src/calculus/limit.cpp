@@ -142,28 +142,59 @@ struct NumDen { Expr num; Expr den; };
                                                    const Expr& target,
                                                    int depth) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
-    std::vector<Expr> num_factors;
-    std::vector<Expr> den_factors;
-    bool saw_zero = false;
-    bool saw_inf = false;
+    std::vector<Expr> zero_f, inf_f, finite_f;
     for (const auto& f : expr->args()) {
         Expr lf = limit_impl(f, var, target, depth + 1);
         if (is_nan(lf)) return std::nullopt;
-        if (is_infinity(lf)) {
-            den_factors.push_back(pow(f, S::NegativeOne()));
-            saw_inf = true;
-        } else {
-            num_factors.push_back(f);
-            if (lf == S::Zero()) saw_zero = true;
+        if (is_infinity(lf)) inf_f.push_back(f);
+        else if (lf == S::Zero()) zero_f.push_back(f);
+        else finite_f.push_back(f);
+    }
+    if (zero_f.empty() || inf_f.empty()) return std::nullopt;
+
+    auto prod = [](std::vector<Expr> v) -> Expr {
+        return v.empty() ? Expr{S::One()} : mul(std::move(v));
+    };
+    // Reciprocal of a factor, but exp-aware: 1/exp(g) = exp(−g). Keeping the
+    // exponential as a single Function (rather than exp(g)^(−1)) means L'Hôpital
+    // can hold it in the denominator across iterations instead of flipping it
+    // back into the numerator each step (which stalls x^n·e^(−x)).
+    auto recip_one = [](const Expr& f) -> Expr {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                return exp(mul(S::NegativeOne(), fn.args()[0]));
+            }
+        }
+        return pow(f, S::NegativeOne());
+    };
+    auto recips = [&](const std::vector<Expr>& v) {
+        std::vector<Expr> r;
+        r.reserve(v.size());
+        for (const auto& f : v) r.push_back(recip_one(f));
+        return r;
+    };
+    Expr finite = prod(finite_f);
+
+    // An f·g with f→0, g→∞ is an indeterminate 0·∞. Recast it as a quotient and
+    // apply L'Hôpital. Two arrangements; try the 0/0 one first (it preserves the
+    // existing behaviour, e.g. x·sin(1/x)), then the ∞/∞ one — needed for
+    // x·e^(-x), where differentiating the 0/0 form only raises the polynomial
+    // degree, whereas ∞/∞ (x / e^x) collapses in one step.
+    {
+        // Arrangement A — 0/0: (Πzeros · finite) / (Π 1/∞-factors).
+        std::vector<Expr> nf = zero_f;
+        if (!(finite == S::One())) nf.push_back(finite);
+        if (auto r = lhopital_nd(prod(std::move(nf)), prod(recips(inf_f)), var,
+                                 target);
+            r && !is_nan(*r)) {
+            return r;
         }
     }
-    if (!(saw_zero && saw_inf)) return std::nullopt;
-    // f·g with f→0, g→∞ becomes f / (1/g): both numerator and (1/g) → 0, a
-    // 0/0 form. den_factors already hold the 1/g reciprocals, so their product
-    // is the denominator (→ 0); the remaining factors form the numerator.
-    Expr num = num_factors.empty() ? S::One() : mul(num_factors);
-    Expr den = den_factors.empty() ? S::One() : mul(den_factors);
-    return lhopital_nd(num, den, var, target);
+    // Arrangement B — ∞/∞: (Π∞-factors · finite) / (Π 1/zeros).
+    std::vector<Expr> nf = inf_f;
+    if (!(finite == S::One())) nf.push_back(finite);
+    return lhopital_nd(prod(std::move(nf)), prod(recips(zero_f)), var, target);
 }
 
 // Direct substitution at a finite pole yields zoo (the unsigned 1/0). Recover
@@ -204,6 +235,42 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     if (depth < 12) {
         // Indeterminate forms surface as nan after substitution.
         if (is_nan(direct)) {
+            // Linearity over a sum: when every term has a determinate finite
+            // limit, the limit is their sum. Direct substitution gives nan when
+            // a single term is an ∞·0 product (e.g. the antiderivative
+            // −x·e^(−x) − e^(−x) at +∞, whose terms each → 0). Bail if any term
+            // diverges, so an ∞ − ∞ cancellation still falls through to L'Hôpital
+            // on the combined fraction.
+            if (expr->type_id() == TypeId::Add) {
+                std::vector<Expr> term_limits;
+                bool all_finite = true;
+                for (const auto& t : expr->args()) {
+                    Expr tl = limit_impl(t, var, target, depth + 1);
+                    if (is_nan(tl) || is_infinity(tl)) { all_finite = false; break; }
+                    term_limits.push_back(std::move(tl));
+                }
+                if (all_finite) return add(std::move(term_limits));
+            }
+            // Determinate product: fold the per-factor limits when there is no
+            // genuine 0·∞ conflict (e.g. 2·(…→0) → 0). Direct substitution gives
+            // nan when a nested factor's substitution does, even though the
+            // product is determinate. The 0·∞ case is left to try_product_form.
+            if (expr->type_id() == TypeId::Mul) {
+                std::vector<Expr> factor_limits;
+                bool ok = true;
+                int zeros = 0, infs = 0;
+                for (const auto& f : expr->args()) {
+                    Expr fl = limit_impl(f, var, target, depth + 1);
+                    if (is_nan(fl)) { ok = false; break; }
+                    if (fl == S::Zero()) ++zeros;
+                    else if (is_infinity(fl)) ++infs;
+                    factor_limits.push_back(std::move(fl));
+                }
+                if (ok && !(zeros > 0 && infs > 0)) {
+                    Expr p = simplify(mul(std::move(factor_limits)));
+                    if (!is_nan(p)) return p;
+                }
+            }
             if (auto v = try_power_form(expr, var, target, depth)) return *v;
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
         }

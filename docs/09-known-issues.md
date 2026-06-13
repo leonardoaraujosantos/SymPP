@@ -14,6 +14,43 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXP-1 / INT-DEF-1 — `0·∞` limits with a decaying exponential, and improper definite integrals
+- **Input:** `limit(x*exp(-x), x, oo)` (and `x²·e^(-x)`, …); the definite
+  integrals `∫₀^∞ x^n·e^(-x) dx`.
+- **Was:** `nan`. Two compounding defects:
+  1. `limit` recast `x·e^(-x)` (an `∞·0` product) as the **0/0** form
+     `e^(-x)/(1/x)`, where each L'Hôpital step only *raises* the polynomial
+     degree, so it never converged → `nan`. It also had no linearity over `Add`
+     or `Mul`, so a sum/product of such terms (the shape of these
+     antiderivatives) stayed `nan`.
+  2. Definite integration was literal Newton–Leibniz (`subs(F, var, oo)`), so an
+     infinite bound substituted `oo` into `-(x+1)·e^(-x)` and got `∞·0 = nan`
+     instead of the boundary *limit*.
+- **Expected (SymPy):** `limit(x^n·e^(-x), oo) = 0`; `∫₀^∞ x^n·e^(-x) dx = n!`.
+- **Fix:**
+  - `src/calculus/limit.cpp`: `try_product_form` now tries **both** the 0/0 and
+    `∞/∞` arrangements (the latter, `x^n / e^x`, is the one L'Hôpital cracks),
+    with an **exp-aware reciprocal** (`1/exp(g) = exp(−g)`) so the exponential
+    stays in the denominator across iterations instead of flipping back into the
+    numerator. `limit_impl` gained **linearity over `Add` and `Mul`**: when every
+    term/factor has a determinate limit (and there is no `∞−∞` / `0·∞` conflict)
+    the result is their sum/product; a genuinely divergent term makes it fall
+    through rather than guess.
+  - `src/integrals/integrate.cpp`: the definite integral evaluates each boundary
+    with `limit(antider, var, bound)` for an infinite bound (or when `subs` lands
+    on `nan` / an infinity), and plain substitution otherwise.
+- **Verified against SymPy:** `x^n·e^(-x) → 0` for n up to 5, `x·e^(-2x) → 0`,
+  the Gamma integrals `∫₀^∞ x^n·e^(-x) = {1,2,6,24}`, `∫₀^∞ x·e^(-2x) = 1/4`;
+  finite-bound integrals and convergent sums (`e^(-x) − e^(-2x) → 0`,
+  `x + 1/x → oo`) unchanged.
+- **Regression tests:** `tests/calculus/series_limit_test.cpp`
+  (`[6][limit][infinity][regression]`, LIMIT-EXP-1) and
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][definite][regression]`,
+  INT-DEF-1).
+- **Scope:** `0·∞` where an exponential dominates a polynomial. True `∞−∞`
+  forms (`x² − x`, `e^x − x`) still return `nan` — they need dominant-term /
+  Gruntz asymptotics and are deliberately left rather than mis-evaluated.
+
 ### TOGETHER-LCM-1 — `together` combined fractions over the product, not the LCM, of denominators
 - **Input:** `together(a/b + c/b)`, `together(x/(x+1) + 1/(x+1))`,
   `together(1/(x-1) + 1/(x-1)**2)`.

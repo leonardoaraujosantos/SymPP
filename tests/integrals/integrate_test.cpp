@@ -2004,6 +2004,30 @@ TEST_CASE("vpaintegral: ∫_0^1 exp(x²) dx (intractable symbolically)",
     REQUIRE(resp.raw.at("result").get<bool>());
 }
 
+// INT-DEF-1: definite integration with an infinite bound now evaluates the
+// antiderivative as a LIMIT, not by literal substitution of oo (which gave nan
+// from the ∞·0 boundary term). Recovers the Gamma integrals ∫₀^∞ x^n·e^(-x) = n!.
+TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto negx = mul(S::NegativeOne(), x);
+    // ∫₀^∞ x^n·e^(-x) dx = n!.
+    REQUIRE(integrate(x * exp(negx), x, S::Zero(), oo) == integer(1));
+    REQUIRE(integrate(pow(x, integer(2)) * exp(negx), x, S::Zero(), oo)
+            == integer(2));
+    REQUIRE(integrate(pow(x, integer(3)) * exp(negx), x, S::Zero(), oo)
+            == integer(6));
+    REQUIRE(integrate(pow(x, integer(4)) * exp(negx), x, S::Zero(), oo)
+            == integer(24));
+    // Scaled exponent: ∫₀^∞ x·e^(-2x) dx = 1/4.
+    REQUIRE(integrate(x * exp(mul(integer(-2), x)), x, S::Zero(), oo)
+            == rational(1, 4));
+    // Finite-bound integrals are unchanged.
+    REQUIRE(integrate(pow(x, integer(2)), x, S::Zero(), integer(1))
+            == rational(1, 3));
+}
+
 // INT-IMPROPER-1: improper rational functions (deg numerator ≥ deg denominator)
 // over a LINEAR denominator used to come back unevaluated. try_rational does the
 // polynomial division, but when apart left the proper remainder as a single

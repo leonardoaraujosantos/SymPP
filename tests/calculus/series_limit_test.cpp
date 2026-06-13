@@ -141,6 +141,29 @@ TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
 // sides → ±oo (matching SymPy); an odd-order pole has opposite signs → the
 // two-sided limit is genuinely zoo (SymPy reports oo only via its dir='+'
 // default — SymPP's limit is two-sided, so zoo is the correct answer).
+// LIMIT-EXP-1: 0·∞ where an exponential dominates a polynomial. x^n·e^(-x) → 0
+// at +∞. try_product_form now tries both the 0/0 and ∞/∞ arrangements (the
+// latter, x^n / e^x, is the one L'Hôpital can crack), with an exp-aware
+// reciprocal so e^(-x) stays in the denominator across iterations; limit also
+// gained linearity over Add / Mul so a sum/product of such terms resolves.
+TEST_CASE("limit: polynomial times decaying exponential (LIMIT-EXP-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    REQUIRE(limit(x * exp(mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, integer(2)) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(pow(x, integer(5)) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(x * exp(mul(integer(-2), x)), x, oo) == S::Zero());
+    // Linearity: a sum of decaying terms.
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x))
+                      - exp(mul(integer(-2), x)),
+                  x, oo) == S::Zero());
+    // A genuinely divergent term must NOT be coerced to a finite value.
+    REQUIRE(limit(x + integer(1) / x, x, oo) == oo);
+}
+
 TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
           "[6][limit][infinity][regression]") {
     auto x = symbol("x");
