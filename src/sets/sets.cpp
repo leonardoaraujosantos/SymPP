@@ -36,24 +36,27 @@ std::string Interval::str() const {
 }
 
 std::optional<bool> Interval::contains(const Expr& e) const {
-    // Decide membership only when all three values are numeric.
-    if (!is_number(e) || !is_number(lo_) || !is_number(hi_)) {
+    if (!is_number(e)) return std::nullopt;
+    // A ±∞ endpoint is an (always-open) unbounded side: the bound on that side
+    // is automatically satisfied for any finite e. The remaining (finite) bound
+    // still has to be numeric to decide.
+    const bool lo_inf = (lo_ == S::NegativeInfinity());
+    const bool hi_inf = (hi_ == S::Infinity());
+    if ((!lo_inf && !is_number(lo_)) || (!hi_inf && !is_number(hi_))) {
         return std::nullopt;
     }
-    Expr lower_diff = e - lo_;       // ≥ 0 (or > 0 if left_open) for membership
-    Expr upper_diff = hi_ - e;       // ≥ 0 (or > 0 if right_open) for membership
 
     auto sign_nonneg = [](const Expr& d, bool strict) -> std::optional<bool> {
-        // Numeric e and bounds → e - lo is numeric. Use is_positive /
-        // is_negative for a definite answer.
         if (auto p = is_positive(d); p && *p) return true;
         if (auto z = is_zero(d); z && *z) return !strict;
         if (auto n = is_negative(d); n && *n) return false;
         return std::nullopt;
     };
 
-    auto lo_ok = sign_nonneg(lower_diff, left_open_);
-    auto hi_ok = sign_nonneg(upper_diff, right_open_);
+    std::optional<bool> lo_ok =
+        lo_inf ? std::optional<bool>{true} : sign_nonneg(e - lo_, left_open_);
+    std::optional<bool> hi_ok =
+        hi_inf ? std::optional<bool>{true} : sign_nonneg(hi_ - e, right_open_);
     if (!lo_ok || !hi_ok) return std::nullopt;
     return *lo_ok && *hi_ok;
 }
@@ -199,19 +202,103 @@ SetPtr finite_set(std::vector<Expr> elements) {
     if (elements.empty()) return empty_set();
     return std::make_shared<FiniteSet>(std::move(elements));
 }
+namespace {
+// Order two endpoints: 1 if a > b, −1 if a < b, 0 if equal, nullopt if the
+// comparison can't be decided (symbolic bounds).
+[[nodiscard]] std::optional<int> endpoint_cmp(const Expr& a, const Expr& b) {
+    if (a == b) return 0;
+    Expr d = a - b;
+    if (is_positive(d) == std::optional<bool>{true}) return 1;
+    if (is_negative(d) == std::optional<bool>{true}) return -1;
+    if (d == S::Zero()) return 0;
+    return std::nullopt;
+}
+}  // namespace
+
 SetPtr set_union(SetPtr a, SetPtr b) {
     if (a->kind() == SetKind::Empty) return b;
     if (b->kind() == SetKind::Empty) return a;
+    // Merge two overlapping / adjacent real intervals into one.
+    if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
+        const auto& ia = static_cast<const Interval&>(*a);
+        const auto& ib = static_cast<const Interval&>(*b);
+        // Overlap / touch test: ib.lo ≤ ia.hi and ia.lo ≤ ib.hi.
+        auto c1 = endpoint_cmp(ib.lo(), ia.hi());
+        auto c2 = endpoint_cmp(ia.lo(), ib.hi());
+        if (c1 && c2 && *c1 <= 0 && *c2 <= 0) {
+            auto clo = endpoint_cmp(ia.lo(), ib.lo());
+            auto chi = endpoint_cmp(ia.hi(), ib.hi());
+            if (clo && chi) {
+                Expr lo;
+                bool lo_open;
+                if (*clo < 0) { lo = ia.lo(); lo_open = ia.left_open(); }
+                else if (*clo > 0) { lo = ib.lo(); lo_open = ib.left_open(); }
+                else { lo = ia.lo(); lo_open = ia.left_open() && ib.left_open(); }
+                Expr hi;
+                bool hi_open;
+                if (*chi > 0) { hi = ia.hi(); hi_open = ia.right_open(); }
+                else if (*chi < 0) { hi = ib.hi(); hi_open = ib.right_open(); }
+                else { hi = ia.hi(); hi_open = ia.right_open() && ib.right_open(); }
+                return interval(lo, hi, lo_open, hi_open);
+            }
+        }
+    }
     return std::make_shared<Union>(std::move(a), std::move(b));
 }
 SetPtr set_intersection(SetPtr a, SetPtr b) {
     if (a->kind() == SetKind::Empty || b->kind() == SetKind::Empty) {
         return empty_set();
     }
+    // Intersect two real intervals: [max(los), min(his)].
+    if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
+        const auto& ia = static_cast<const Interval&>(*a);
+        const auto& ib = static_cast<const Interval&>(*b);
+        auto clo = endpoint_cmp(ia.lo(), ib.lo());
+        auto chi = endpoint_cmp(ia.hi(), ib.hi());
+        if (clo && chi) {
+            Expr lo;
+            bool lo_open;
+            if (*clo > 0) { lo = ia.lo(); lo_open = ia.left_open(); }
+            else if (*clo < 0) { lo = ib.lo(); lo_open = ib.left_open(); }
+            else { lo = ia.lo(); lo_open = ia.left_open() || ib.left_open(); }
+            Expr hi;
+            bool hi_open;
+            if (*chi < 0) { hi = ia.hi(); hi_open = ia.right_open(); }
+            else if (*chi > 0) { hi = ib.hi(); hi_open = ib.right_open(); }
+            else { hi = ia.hi(); hi_open = ia.right_open() || ib.right_open(); }
+            if (auto c = endpoint_cmp(lo, hi)) {
+                if (*c > 0) return empty_set();
+                if (*c == 0) {
+                    return (lo_open || hi_open) ? empty_set()
+                                               : finite_set({lo});
+                }
+                return interval(lo, hi, lo_open, hi_open);
+            }
+        }
+    }
     return std::make_shared<Intersection>(std::move(a), std::move(b));
 }
 SetPtr set_complement(SetPtr universal, SetPtr removed) {
     if (removed->kind() == SetKind::Empty) return universal;
+    // ℝ \ [a, b] = (−∞, a) ∪ (b, ∞), with each boundary's open/closed flipped
+    // (a point removed from ℝ is excluded from the complement, and vice versa).
+    // A ±∞ endpoint drops the ray on that side.
+    if (universal->kind() == SetKind::Reals
+        && removed->kind() == SetKind::Interval) {
+        const auto& iv = static_cast<const Interval&>(*removed);
+        const bool a_inf = (iv.lo() == S::NegativeInfinity());
+        const bool b_inf = (iv.hi() == S::Infinity());
+        SetPtr left = a_inf ? nullptr
+                            : interval(S::NegativeInfinity(), iv.lo(), true,
+                                       !iv.left_open());
+        SetPtr right = b_inf ? nullptr
+                             : interval(iv.hi(), S::Infinity(),
+                                        !iv.right_open(), true);
+        if (!left && !right) return empty_set();  // removed was all of ℝ
+        if (!left) return right;
+        if (!right) return left;
+        return set_union(std::move(left), std::move(right));  // disjoint → Union
+    }
     return std::make_shared<Complement>(std::move(universal), std::move(removed));
 }
 

@@ -14,6 +14,57 @@ truth and links the issue number.
 
 ## Fixed
 
+### SET-COMPL-1 — `ℝ \ interval` wasn't computed, and ray membership was Unknown
+- **Input:** `set_complement(Reals, Interval(1,3))`,
+  `set_complement(Reals, Interval.open(1,3))`,
+  `set_complement(Reals, Interval(1, oo))`; and membership queries on the result.
+- **Was:** an unevaluated `Complement(Reals, [1,3])` node. Even when a ray was
+  built by hand, `Interval::contains` bailed because a ±∞ endpoint is not a
+  number (`is_number(oo) == false`), so every membership test on `(−∞,1)`
+  returned Unknown.
+- **Expected (SymPy):** `(−∞,1) ∪ (3,∞)`, `(−∞,1] ∪ [3,∞)`, `(−∞,1)`; and
+  `0 ∈`, `2 ∉` for the first.
+- **Fix (`src/sets/sets.cpp`):**
+  - `set_complement(Reals, [a,b])` builds `(−∞,a) ∪ (b,∞)` with each boundary's
+    open/closed flag flipped (a point removed from ℝ is excluded from the
+    complement); a ±∞ endpoint drops that ray, and `ℝ \ ℝ → EmptySet`.
+  - `Interval::contains` now treats a ±∞ endpoint as an always-satisfied
+    unbounded side, so membership on a ray (and hence on the complement) is
+    decided.
+- **Verified against SymPy:** `ℝ\[1,3]`, `ℝ\(1,3)` (endpoints flip),
+  `ℝ\[1,∞)` and `ℝ\(−∞,3]` (single ray) all match; membership `0∈`, `1∉`, `2∉`,
+  `4∈` is now decided.
+- **Regression test:** `tests/sets/sets_test.cpp`
+  — `[10][sets][complement][interval][regression]` (SET-COMPL-1).
+- **Scope:** `ℝ \ interval`. Complement of a `FiniteSet` or within a bounded
+  universal set is a follow-up.
+
+### SET-INTERVAL-1 — interval `∪` / `∩` weren't computed
+- **Input:** `set_union(Interval(1,3), Interval(2,4))`,
+  `set_intersection(Interval(1,3), Interval(2,4))`,
+  `set_intersection(Interval(1,2), Interval(3,4))`.
+- **Was:** the operands wrapped in an unevaluated `Union` / `Intersection` node
+  (`[1,3] ∪ [2,4]`, `[1,3] ∩ [2,4]`). `set_union`/`set_intersection` only folded
+  the empty-set cases.
+- **Expected (SymPy):** `Interval(1, 4)`, `Interval(2, 3)`, `EmptySet`.
+- **Fix (`src/sets/sets.cpp`):** for two real intervals,
+  - **intersection** = `[max(los), min(his)]` with the open flags carried from
+    the winning endpoint (OR'd on a tie); `lo > hi → EmptySet`, `lo == hi →` a
+    single-point `FiniteSet` (or `EmptySet` if either endpoint there is open);
+  - **union** merges when the intervals overlap or touch
+    (`ib.lo ≤ ia.hi ∧ ia.lo ≤ ib.hi`) into `[min(los), max(his)]`, otherwise
+    stays a `Union`.
+  Endpoint ordering uses a sign comparison (`endpoint_cmp`), so symbolic bounds
+  that can't be ordered fall back to the unevaluated node.
+- **Verified against SymPy:** overlap/adjacent merge (`[1,3]∪[2,4]=[1,4]`,
+  `[1,2]∪[2,3]=[1,3]`), disjoint union stays a `Union`, intersection
+  (`[1,3]∩[2,4]=[2,3]`), containment (`[1,5]∩[2,3]=[2,3]`), disjoint → `EmptySet`,
+  closed-touch → `{3}`, open-touch → `EmptySet` — all match.
+- **Regression test:** `tests/sets/sets_test.cpp`
+  — `[10][sets][interval][regression]` (SET-INTERVAL-1).
+- **Scope:** pairs of real intervals with orderable endpoints. Multi-set unions,
+  interval-vs-FiniteSet, and `Complement(Reals, …) → ray ∪ ray` are follow-ups.
+
 ### ILAPLACE-QUAD-2 — inverse Laplace of a LINEAR numerator over a quadratic
 - **Input:** `inverse_laplace_transform(s/(s**2+2*s+2))`,
   `(s+1)/(s**2+2*s+2)`, `s/((s-2)**2+1)`, `(2*s+1)/(s**2+2*s+5)`.
