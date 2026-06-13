@@ -16,6 +16,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### ORACLE-XCHECK-1/2/3 — oracle tests only compared against hand-written literals
+- **Problem (test-rig integrity, not a math gap):** all ~794 oracle assertions
+  were `equivalent(sympp_output, "literal_I_typed")` — SymPy adjudicated the
+  equivalence, but the *expected answer* was hand-authored. A wrong literal that
+  happened to match a wrong SymPP result would pass undetected. The
+  `oracle.diff` / `oracle.integrate` / `oracle.simplify` helpers (which let
+  SymPy compute the reference answer independently) existed but were used zero
+  times.
+- **Fix:** added `tests/oracle/oracle_crosscheck_test.cpp`
+  (`[0][oracle][crosscheck]`). For a spread of inputs, SymPP parses and computes
+  `diff`/`integrate`/`simplify` while SymPy computes the *same* operation on the
+  *same* input; the two independently-produced results must be `equivalent`.
+  Neither side is hand-authored, so the engines genuinely check each other
+  (12 derivative, 8 antiderivative, 6 simplification inputs).
+- **Verified:** all 26 cross-check assertions pass on local `1.13.3`.
+- **Regression test:** `tests/oracle/oracle_crosscheck_test.cpp`.
+- **Scope:** indefinite integrals here share the `+C = 0` convention so the
+  antiderivatives compare equal (not merely up to a constant). Inputs are
+  limited to operations both engines support; expanding the cross-checked
+  surface is incremental future work.
+
 ### VERSION-GUARD-1 — the oracle accepted any SymPy version silently
 - **Problem (test-rig integrity, not a math gap):** the whole suite trusts the
   SymPy oracle to adjudicate `equivalent(...)`, but nothing pinned *which* SymPy
