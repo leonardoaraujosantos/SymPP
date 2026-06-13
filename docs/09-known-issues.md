@@ -14,6 +14,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### ABS-MOD-1 — symbolic complex modulus `|a + b·I|` wasn't computed
+- **Input:** `Abs(x + I*y)`, `Abs(2 + I*y)` (x, y real).
+- **Was:** the unevaluated `Abs(x + y·I)`. The `abs` factory computed the modulus
+  only for a *numeric* `a + b·I` (`rational_complex`); a symbolic one fell
+  through.
+- **Expected (SymPy):** `sqrt(x**2 + y**2)`, `sqrt(y**2 + 4)`.
+- **Fix (`src/functions/miscellaneous.cpp`):** when `re(arg)` and `im(arg)`
+  resolve to expressions free of unevaluated `Re`/`Im` nodes (now possible after
+  REIM-DIST-1) and the imaginary part is nonzero, return `√(re² + im²)`. A
+  generic `Abs(z)` keeps its `Re(z)`/`Im(z)` split and so stays unevaluated,
+  matching SymPy.
+- **Verified against SymPy:** `Abs(x+I·y) → √(x²+y²)`, `Abs(2+I·y) → √(y²+4)`;
+  generic `Abs(z)` and real `Abs(x)` are unchanged.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[3d][abs][oracle][regression]` (ABS-MOD-1).
+- **Scope:** complex numbers whose parts are real-determinable. `|exp(I·x)| = 1`
+  (modulus of a transcendental imaginary) and `arg(...)` of a complex value are
+  follow-ups.
+
 ### REIM-DIST-1 — `re`/`im` didn't distribute or handle `I`
 - **Input:** `re(I*x)`, `im(I*x)`, `re(x+I*y)`, `im(x+I*y)` (x, y real);
   `re(I*z)` (z generic).

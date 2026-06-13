@@ -1,6 +1,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -221,6 +222,28 @@ Expr abs(const Expr& arg) {
         if (!pulled.empty() && !kept.empty()) {
             return mul(mul(std::move(pulled)),
                        make<Abs>(mul(std::move(kept))));
+        }
+    }
+
+    // Symbolic complex modulus: |a + b·I| = √(a² + b²) when re/im resolve to
+    // expressions free of unevaluated Re/Im (e.g. real-symbol parts) and the
+    // imaginary part is nonzero. A generic Abs(z) keeps its Re(z)/Im(z) split
+    // and so is left unevaluated, matching SymPy.
+    {
+        std::function<bool(const Expr&)> has_re_im = [&](const Expr& e) -> bool {
+            if (e->type_id() == TypeId::Function) {
+                auto id = static_cast<const Function&>(*e).function_id();
+                if (id == FunctionId::Re || id == FunctionId::Im) return true;
+            }
+            for (const auto& a : e->args()) {
+                if (has_re_im(a)) return true;
+            }
+            return false;
+        };
+        Expr a = re(arg);
+        Expr b = im(arg);
+        if (!(b == S::Zero()) && !has_re_im(a) && !has_re_im(b)) {
+            return sqrt(add(mul(a, a), mul(b, b)));
         }
     }
 

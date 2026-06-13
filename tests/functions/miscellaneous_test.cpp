@@ -382,6 +382,23 @@ TEST_CASE("Abs: pulls out the imaginary unit (ABS-I-1)",
     REQUIRE(oracle.equivalent(abs(S::I() * x * y)->str(), "Abs(x*y)"));
 }
 
+// ABS-MOD-1: symbolic complex modulus |a + b·I| = sqrt(a² + b²) when the real
+// and imaginary parts resolve (real symbols); a generic Abs(z) stays put.
+TEST_CASE("Abs: symbolic complex modulus (ABS-MOD-1)",
+          "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    auto y = symbol("y", AssumptionMask{}.set_real(true));
+    REQUIRE(oracle.equivalent(abs(x + S::I() * y)->str(), "sqrt(x**2 + y**2)"));
+    REQUIRE(oracle.equivalent(abs(integer(2) + S::I() * y)->str(),
+                              "sqrt(y**2 + 4)"));
+    // A generic (unknown-reality) symbol keeps its Abs.
+    auto z = symbol("z");
+    REQUIRE(abs(z)->str() == "Abs(z)");
+    // A real symbol keeps its Abs (no imaginary part).
+    REQUIRE(abs(x)->str() == "Abs(x)");
+}
+
 TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));
     auto n = symbol("n", AssumptionMask{}.set_negative(true));
