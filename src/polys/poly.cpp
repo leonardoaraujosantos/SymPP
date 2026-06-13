@@ -698,6 +698,20 @@ mpq_coeffs_to_z_poly(const std::vector<mpq_class>& coeffs, const Expr& var) {
     return std::nullopt;
 }
 
+// Split f into a non-trivial factor g (over ℚ) and its cofactor, returning the
+// union of their roots; nullopt if f is irreducible over ℚ. Lets a quartic such
+// as x⁴+x²+1 = (x²+x+1)(x²−x+1) yield clean quadratic-formula roots instead of
+// Ferrari's nested radicals — matching SymPy, which factors before solving.
+[[nodiscard]] std::optional<std::vector<Expr>> roots_by_factoring(const Poly& f) {
+    auto g = kronecker_find_factor(f);
+    if (!g) return std::nullopt;
+    auto [cofactor, rem] = f.divmod(*g);
+    if (!rem.is_zero()) return std::nullopt;  // defensive: g must divide f
+    std::vector<Expr> all = g->roots();
+    for (auto& r : cofactor.roots()) all.push_back(std::move(r));
+    return all;
+}
+
 // Returns (primitive_integer_poly, scalar) such that scalar * primitive == g
 // (as Exprs after as_expr), with primitive having integer coefficients whose
 // gcd is 1 (and positive leading coefficient when possible).
@@ -1394,6 +1408,9 @@ std::vector<Expr> Poly::roots() const {
             for (auto& r : remaining.roots()) all.push_back(r);
             return all;
         }
+        // No rational root, but the quartic may still factor into two quadratics
+        // over ℚ — prefer that to Ferrari's nested radicals.
+        if (auto split = roots_by_factoring(*this)) return *split;
         return quartic_roots(coeffs_[4], coeffs_[3], coeffs_[2], coeffs_[1],
                              coeffs_[0]);
     }
@@ -1401,7 +1418,13 @@ std::vector<Expr> Poly::roots() const {
     // Pull out rational roots and recurse on the cofactor — the cofactor
     // may itself be degree ≤ 4 and fully solvable.
     auto rat = rational_roots(*this);
-    if (rat.empty()) return {};
+    if (rat.empty()) {
+        // No rational root: try a non-trivial factorization over ℚ before
+        // giving up. A degree-≥5 polynomial with no radical formula may still
+        // split into solvable (≤4) factors, e.g. (x²+x+1)(x³+2).
+        if (auto split = roots_by_factoring(*this)) return *split;
+        return {};
+    }
     Poly remaining = *this;
     for (const auto& r : rat) {
         Poly factor(std::vector<Expr>{mul(S::NegativeOne(), r), S::One()},

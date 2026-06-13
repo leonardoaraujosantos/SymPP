@@ -131,6 +131,54 @@ TEST_CASE("Poly: quadratic with irrational roots", "[4][poly][roots][oracle]") {
     REQUIRE(oracle.equivalent(roots[1]->str(), "-sqrt(2)"));
 }
 
+// POLY-FACTOR-ROOTS-1: a quartic with no rational root that nevertheless
+// factors over ℚ into two quadratics (x⁴+x²+1 = (x²+x+1)(x²−x+1)) must be
+// solved through that factorization — yielding clean ±1/2 ± √3·i/2 roots —
+// rather than via Ferrari's resolvent, which returns nested radicals like
+// sqrt((I*sqrt(3) - 1)/2). The factoring path also makes higher-degree
+// products solvable.
+TEST_CASE("Poly: factors reducible quartic into clean roots (POLY-FACTOR-ROOTS-1)",
+          "[4][poly][roots][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // x⁴ + x² + 1 = (x²+x+1)(x²−x+1): the four primitive 6th/3rd roots.
+    Poly q(pow(x, integer(4)) + pow(x, integer(2)) + integer(1), x);
+    auto qr = q.roots();
+    REQUIRE(set_equal(qr, {"-1/2 + sqrt(3)*I/2", "-1/2 - sqrt(3)*I/2",
+                           "1/2 + sqrt(3)*I/2", "1/2 - sqrt(3)*I/2"}));
+    // None of the roots should be a nested radical (no "**(1/2)" wrapping a
+    // complex subexpression — i.e. no Ferrari fallback).
+    for (const auto& r : qr) {
+        REQUIRE(r->str().find(")**(1/2)") == std::string::npos);
+    }
+    // x⁶ − 1: ±1 plus the four roots above.
+    Poly s(pow(x, integer(6)) - integer(1), x);
+    REQUIRE(set_equal(s.roots(),
+                      {"1", "-1", "-1/2 + sqrt(3)*I/2", "-1/2 - sqrt(3)*I/2",
+                       "1/2 + sqrt(3)*I/2", "1/2 - sqrt(3)*I/2"}));
+    // Degree-5 reducible with no rational root: (x²+x+1)(x³+2) → 5 roots.
+    Poly d5(expand((pow(x, integer(2)) + x + integer(1))
+                   * (pow(x, integer(3)) + integer(2))),
+            x);
+    REQUIRE(d5.roots().size() == 5);
+}
+
 // ----- Polynomial division ---------------------------------------------------
 
 namespace {

@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### POLY-FACTOR-ROOTS-1 — `solve`/`Poly::roots` returned nested radicals for factorable quartics
+- **Problem:** a quartic with no rational root but which factors over ℚ into two
+  quadratics (e.g. `x⁴+x²+1 = (x²+x+1)(x²−x+1)`) went straight to Ferrari's
+  resolvent, producing nested radicals like `sqrt((I·sqrt(3)−1)/2)` instead of
+  the clean `±1/2 ± √3·i/2`. `x⁶−1` inherited the same mess for its degree-4
+  cofactor, and a degree-≥5 polynomial with no rational root but a non-trivial
+  factorization (e.g. `(x²+x+1)(x³+2)`) returned no roots at all.
+- **Fix:** added `roots_by_factoring` in `src/polys/poly.cpp`, used by
+  `Poly::roots()` for degree 4 (before the Ferrari fallback) and degree ≥5
+  (before giving up). It calls the existing `kronecker_find_factor` to split the
+  polynomial over ℚ and recurses on each factor, so each piece is solved by the
+  cleanest applicable path (quadratic formula, Cardano, …). SymPy factors before
+  solving for the same reason.
+- **Verified:** root sets checked set-equal to `sympy.solve` for `x⁴+x²+1`,
+  `x⁶−1`, `x⁸−1`, `(x²+x+1)(x³+2)` and the existing rational/biquadratic cases;
+  the quartic roots carry no nested-radical wrapping.
+- **Regression test:** `POLY-FACTOR-ROOTS-1` in `tests/polys/poly_test.cpp`
+  (`[4][poly][roots][oracle][regression]`, 7 assertions).
+- **Scope:** helps only polynomials that are *reducible* over ℚ. Genuinely
+  irreducible quartics such as `x⁴+1` still go through Ferrari and keep a radical
+  form (`(-I)^(1/2)` etc.) — correct but not simplified to `±√2/2 ± √2·i/2`;
+  cleaning those is a separate radical-denesting gap.
+
 ### SUM-TELESCOPE-1 — `summation` returned unevaluated for telescoping rational sums
 - **Problem:** `summation` handled polynomial (Faulhaber), geometric and
   arithmetic-geometric summands, but every rational summand `c/D(k)` came back as
