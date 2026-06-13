@@ -1820,12 +1820,57 @@ namespace {
     return mul({falling_factorial(n, *m), pow(m_factorial(*m), integer(-1))});
 }
 
+// Gamma recurrence z*gamma(z) = gamma(z+1). Within a Mul, repeatedly absorb a
+// numerator factor equal to a gamma argument z (raising it to gamma(z+1)) or a
+// denominator factor equal to z-1 (lowering gamma(z) to gamma(z-1)). Iterates
+// to a fixpoint so chains collapse: x*(x+1)*gamma(x) -> gamma(x+2).
+[[nodiscard]] Expr gamma_recurrence(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    std::vector<Expr> factors(e->args().begin(), e->args().end());
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (std::size_t g = 0; g < factors.size() && !changed; ++g) {
+            auto za = as_gamma_arg(factors[g]);
+            if (!za) continue;
+            const Expr z = *za;
+            // Upward: a numerator factor equal to z.
+            for (std::size_t i = 0; i < factors.size(); ++i) {
+                if (i == g) continue;
+                if (simplify(factors[i] - z) == S::Zero()) {
+                    factors[g] = gamma(z + S::One());
+                    factors.erase(factors.begin() + static_cast<long>(i));
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) break;
+            // Downward: a denominator factor f^-1 with f == z-1.
+            for (std::size_t i = 0; i < factors.size(); ++i) {
+                if (i == g) continue;
+                if (factors[i]->type_id() == TypeId::Pow
+                    && factors[i]->args()[1] == S::NegativeOne()
+                    && simplify(factors[i]->args()[0] - (z - S::One()))
+                           == S::Zero()) {
+                    factors[g] = gamma(z - S::One());
+                    factors.erase(factors.begin() + static_cast<long>(i));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    return mul(std::move(factors));
+}
+
 [[nodiscard]] Expr combsimp_node(const Expr& e) {
-    return combsimp_binomial(simplify_func_ratio(e, as_factorial_arg));
+    return gamma_recurrence(
+        combsimp_binomial(simplify_func_ratio(e, as_factorial_arg)));
 }
 
 [[nodiscard]] Expr gammasimp_node(const Expr& e) {
-    return gamma_reflection(simplify_func_ratio(e, as_gamma_arg));
+    return gamma_recurrence(
+        gamma_reflection(simplify_func_ratio(e, as_gamma_arg)));
 }
 
 }  // namespace

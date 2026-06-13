@@ -839,6 +839,34 @@ TEST_CASE("combsimp: leaves unrelated factorials alone",
                               "factorial(n)/factorial(m)"));
 }
 
+// GAMMA-REC-1 — gamma recurrence z*gamma(z) = gamma(z+1) inside a product.
+TEST_CASE("combsimp: gamma recurrence absorbs polynomial factors",
+          "[5][combsimp][gamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // x*gamma(x) → gamma(x+1)
+    REQUIRE(oracle.equivalent(
+        combsimp(x * gamma(x))->str(), "gamma(x+1)"));
+    // (x+1)*gamma(x+1) → gamma(x+2)
+    REQUIRE(oracle.equivalent(
+        combsimp((x + integer(1)) * gamma(x + integer(1)))->str(),
+        "gamma(x+2)"));
+    // chains: x*(x+1)*gamma(x) → gamma(x+2)
+    REQUIRE(oracle.equivalent(
+        combsimp(x * (x + integer(1)) * gamma(x))->str(), "gamma(x+2)"));
+    // spectator factor preserved: y*x*gamma(x) → y*gamma(x+1)
+    REQUIRE(oracle.equivalent(
+        combsimp(y * x * gamma(x))->str(), "y*gamma(x+1)"));
+    // downward: gamma(x+1)/x → gamma(x)
+    REQUIRE(oracle.equivalent(
+        combsimp(gamma(x + integer(1)) * pow(x, integer(-1)))->str(),
+        "gamma(x)"));
+    // no false match: x*gamma(x+1) is left alone
+    REQUIRE(oracle.equivalent(
+        combsimp(x * gamma(x + integer(1)))->str(), "x*gamma(x+1)"));
+}
+
 // BINOM-COMB-1 — collapse binomial(n,k) when k or n-k is a small non-neg int.
 TEST_CASE("combsimp: collapses binomial to polynomial form",
           "[5][combsimp][binomial][oracle][regression]") {

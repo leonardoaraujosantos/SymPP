@@ -14,6 +14,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### GAMMA-REC-1 — gamma recurrence `z*gamma(z) → gamma(z+1)` wasn't applied
+- **Input:** `combsimp(x*gamma(x))`, `combsimp(x*(x+1)*gamma(x))`,
+  `combsimp(gamma(x+1)/x)`.
+- **Was:** left unevaluated — `combsimp`/`gammasimp` only handled gamma ratios,
+  reflection, and binomial collapse, never absorbed polynomial factors.
+- **Expected (SymPy):** `gamma(x+1)`, `gamma(x+2)`, `gamma(x)`.
+- **Fix (`src/simplify/simplify.cpp`):** added `gamma_recurrence`, applied by
+  both `combsimp_node` and `gammasimp_node`. Within a `Mul` it iterates to a
+  fixpoint, absorbing a numerator factor equal to a gamma argument `z` (raising
+  it to `gamma(z+1)` per Γ(z+1)=z·Γ(z)) or a denominator factor equal to `z-1`
+  (lowering `gamma(z)` to `gamma(z-1)`). The fixpoint loop lets chains collapse:
+  `x*(x+1)*gamma(x)→gamma(x+2)`. Spectator factors (`y`, `2`) are preserved, and
+  `x*gamma(x+1)` is correctly left alone.
+- **Verified against SymPy:** all six forms match `combsimp`; the reflection and
+  ratio passes still hold.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][combsimp][gamma][oracle][regression]`.
+- **Scope:** integer-step recurrence via exact factor matching. Non-integer
+  argument shifts and rational-function denominators beyond a single `z-1` term
+  are out of scope.
+
 ### BINOM-COMB-1 — `combsimp` didn't collapse `binomial(n,k)` to polynomial form
 - **Input:** `combsimp(binomial(n,n))`, `combsimp(binomial(n,n-1))`,
   `combsimp(binomial(n+1,n))`, `combsimp(binomial(n,2))`, `combsimp(binomial(n,3))`.
