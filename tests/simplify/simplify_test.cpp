@@ -154,6 +154,28 @@ TEST_CASE("simplify: combines exponential products (SIMP-2)",
     REQUIRE(simplify(exp(integer(2)) * exp(integer(3))) == exp(integer(5)));
 }
 
+// SIMP-EXP-HYP-1: a·e^g + a·e^−g → 2a·cosh(g),  a·e^g − a·e^−g → 2a·sinh(g)
+// (the mirror of TRIG-HYP-2). The argument is normalised to its positive form
+// so the output matches SymPy (2·cosh(2x), not 2·cosh(−2x)).
+TEST_CASE("simplify: exponential sum folds to cosh/sinh (SIMP-EXP-HYP-1)",
+          "[5][simplify][oracle][regression]") {
+    auto x = symbol("x");
+    auto nx = mul(S::NegativeOne(), x);
+    REQUIRE(simplify(exp(x) + exp(nx)) == integer(2) * cosh(x));
+    REQUIRE(simplify(exp(x) - exp(nx)) == integer(2) * sinh(x));
+    REQUIRE(simplify(integer(3) * exp(x) + integer(3) * exp(nx))
+            == integer(6) * cosh(x));
+    auto n2x = mul(integer(-2), x);
+    REQUIRE(simplify(exp(integer(2) * x) + exp(n2x))
+            == integer(2) * cosh(integer(2) * x));
+    REQUIRE(simplify(exp(integer(2) * x) - exp(n2x))
+            == integer(2) * sinh(integer(2) * x));
+    // Unequal coefficients do not fold (no pure cosh/sinh form).
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(
+        simplify(exp(x) + integer(2) * exp(nx))->str(), "exp(x) + 2*exp(-x)"));
+}
+
 TEST_CASE("simplify: pulls log of a positive base out of exp (SIMP-3)",
           "[5][simplify][assumptions][regression]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));

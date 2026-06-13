@@ -14,6 +14,50 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-HANG-1 — `limit` hung on a radical `∞/∞` form
+- **Input:** `limit(sqrt(x**2+x) - x, x, oo)`,
+  `limit(x/(sqrt(x**2+x)+x), x, oo)`.
+- **Was:** an effectively-infinite hang (CPU spin, no result). `lhopital_nd`
+  differentiates num/den each step; for a radical integrand the nested radicals
+  grow every iteration (the ratio never stabilises), so the per-iteration
+  `simplify`/`together`/`diff` over an ever-larger expression dominated the
+  runtime — a CAS that locks up on a finite input.
+- **Fix (`src/calculus/limit.cpp`):** a node-count budget in the `lhopital_nd`
+  loop — when `node_count(num) + node_count(den)` exceeds 400, bail to the
+  unevaluated `nan`. Legitimate limits resolve in a handful of iterations far
+  under the budget, so none are affected.
+- **Verified against SymPy:** the radical inputs now **terminate** (returning
+  `nan`) instead of hanging, and the neighbouring limits still resolve
+  (`sin(x)/x → 1`, `x·e^(-x) → 0`, `(1+1/x)^x → E`, `(x²-1)/(x-1) → 2`).
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (LIMIT-HANG-1): the radical forms return
+  *a* value (no hang).
+- **Scope:** this is a **robustness** fix — it stops the hang but does not
+  compute the limit. `sqrt(x²+x) − x = 1/2` needs asymptotic-series / Gruntz
+  machinery (the `x = 1/t` substitution that turns the ∞−∞ into a 0/0 at the
+  origin), which stays deferred-deep.
+
+### SIMP-EXP-HYP-1 — `simplify` didn't fold `e^x + e^(−x)` into `2·cosh(x)`
+- **Input:** `simplify(exp(x) + exp(-x))`, `simplify(exp(x) - exp(-x))`,
+  `simplify(exp(2x) + exp(-2x))`, `simplify(3·exp(x) + 3·exp(-x))`.
+- **Was:** unchanged (`exp(-x) + exp(x)`, …). SymPP had the cosh/sinh → exp
+  direction (TRIG-HYP-2) but not the reverse, so an exponential sum never
+  collapsed to a hyperbolic function.
+- **Expected (SymPy):** `2·cosh(x)`, `2·sinh(x)`, `2·cosh(2x)`, `6·cosh(x)`.
+- **Fix (`src/simplify/simplify.cpp`):** a new `exp_to_hyp_add` pass (mirror of
+  `hyp_to_exp_add`) collects, per argument `g`, the coefficients of `e^g` and
+  `e^(−g)`; equal coefficients fold to `2a·cosh(g)`, opposite to `2a·sinh(g)`.
+  The argument is normalised to its positive representative (`cosh` even, `sinh`
+  odd) so the output matches SymPy's `2·cosh(2x)` rather than `2·cosh(−2x)`.
+  Wired into the `simplify` pipeline after `combine_exp`. No oscillation with
+  TRIG-HYP-2: a pure `2·cosh(x)` has no `sinh` partner to convert back.
+- **Verified against SymPy:** the cosh/sinh folds for arguments `x` and `2x`
+  with integer coefficients all match exactly; an unequal-coefficient sum
+  (`e^x + 2·e^(−x)`) is correctly left alone.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][oracle][regression]` (SIMP-EXP-HYP-1).
+- **Scope:** real exponentials with equal/opposite coefficients per argument.
+
 ### SOLVESET-TRIG-SCALE-1 — `solveset(cos(2x)=1)` returned EmptySet; redundant cos union
 - **Input:** `solveset(cos(2*x) - 1, x)`, `solveset(cos(x) - 1, x)`,
   `solveset(cos(x) + 1, x)`.

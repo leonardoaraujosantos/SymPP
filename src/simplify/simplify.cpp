@@ -17,6 +17,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -115,6 +116,7 @@ namespace {
 [[nodiscard]] Expr pow_of_pow_node(const Expr& e);
 [[nodiscard]] Expr pow_of_pow(const Expr& e);
 [[nodiscard]] Expr combine_exp(const Expr& e);
+[[nodiscard]] Expr exp_to_hyp_add(const Expr& e);
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 
 }  // namespace
@@ -131,6 +133,7 @@ Expr simplify(const Expr& e) {
     current = trigsimp(current);
     current = powsimp(current);
     current = combine_exp(current);
+    current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
     current = pow_of_pow(current);
     current = combsimp(current);
@@ -459,6 +462,102 @@ template <typename NodeFn>
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
+
+// a·exp(g) + a·exp(−g) → 2a·cosh(g),  a·exp(g) − a·exp(−g) → 2a·sinh(g).
+// The mirror of hyp_to_exp_add (cosh±sinh → exp): collect, per argument g, the
+// coefficients of exp(g) and exp(−g), and fold the equal / opposite-coefficient
+// pairs into cosh / sinh. Unequal-coefficient sums (exp(x)+2·exp(−x)) are left.
+[[nodiscard]] Expr exp_to_hyp_add_node(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    auto is_exp = [](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                return fn.args()[0];
+            }
+        }
+        return std::nullopt;
+    };
+    auto as_exp_term = [&](const Expr& term)
+        -> std::optional<std::pair<Expr, Expr>> {  // (arg, coef)
+        if (auto a = is_exp(term)) return std::pair{*a, Expr{S::One()}};
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<Expr> arg;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (auto a = is_exp(f)) {
+                    if (arg) return std::nullopt;  // exp·exp — leave for combine_exp
+                    arg = *a;
+                } else {
+                    coef.push_back(f);
+                }
+            }
+            if (arg) return std::pair{*arg, mul(std::move(coef))};
+        }
+        return std::nullopt;
+    };
+
+    struct PosNeg { Expr pos = S::Zero(); Expr neg = S::Zero(); };
+    std::vector<std::pair<Expr, PosNeg>> buckets;  // keyed by the +g representative
+    std::vector<Expr> rest;
+    for (const auto& term : e->args()) {
+        auto t = as_exp_term(term);
+        if (!t) { rest.push_back(term); continue; }
+        const Expr& arg = t->first;
+        const Expr& coef = t->second;
+        Expr narg = mul(S::NegativeOne(), arg);
+        bool placed = false;
+        for (auto& [g, pn] : buckets) {
+            if (g == arg) { pn.pos = add(pn.pos, coef); placed = true; break; }
+            if (g == narg) { pn.neg = add(pn.neg, coef); placed = true; break; }
+        }
+        if (!placed) buckets.push_back({arg, PosNeg{coef, S::Zero()}});
+    }
+
+    // Prefer the non-negated argument: cosh is even (cosh(−g)=cosh g), sinh odd
+    // (sinh(−g)=−sinh g), so normalising g to its positive representative matches
+    // SymPy's printed form (2·cosh(2x), not 2·cosh(−2x)).
+    auto neg_leading = [](const Expr& g) -> bool {
+        if (is_number(g)) return is_negative(g) == std::optional<bool>{true};
+        if (g->type_id() == TypeId::Mul && !g->args().empty()
+            && is_number(g->args()[0])) {
+            return is_negative(g->args()[0]) == std::optional<bool>{true};
+        }
+        return false;
+    };
+
+    std::vector<Expr> out = rest;
+    bool changed = false;
+    for (auto& [g, pn] : buckets) {
+        const bool has_pos = !(pn.pos == S::Zero());
+        const bool has_neg = !(pn.neg == S::Zero());
+        if (has_pos && pn.pos == pn.neg) {  // a·e^g + a·e^−g = 2a·cosh g
+            Expr gg = neg_leading(g) ? mul(S::NegativeOne(), g) : g;
+            out.push_back(mul(integer(2), mul(pn.pos, cosh(gg))));
+            changed = true;
+        } else if (has_pos && pn.pos == mul(S::NegativeOne(), pn.neg)) {
+            // a·e^g − a·e^−g = 2a·sinh g
+            Expr gg = g;
+            Expr co = pn.pos;
+            if (neg_leading(g)) {  // sinh(−g) = −sinh(g)
+                gg = mul(S::NegativeOne(), g);
+                co = mul(S::NegativeOne(), co);
+            }
+            out.push_back(mul(integer(2), mul(co, sinh(gg))));
+            changed = true;
+        } else {
+            if (has_pos) out.push_back(mul(pn.pos, exp(g)));
+            if (has_neg) out.push_back(mul(pn.neg, exp(mul(S::NegativeOne(), g))));
+        }
+    }
+    if (!changed) return e;
+    if (out.empty()) return S::Zero();
+    return out.size() == 1 ? out[0] : add(std::move(out));
+}
+
+Expr exp_to_hyp_add(const Expr& e) {
+    return apply_recursive(e, exp_to_hyp_add_node);
+}
 
 Expr exp_log_sum(const Expr& e) { return apply_recursive(e, exp_log_sum_node); }
 

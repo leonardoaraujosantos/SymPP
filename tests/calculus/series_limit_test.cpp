@@ -141,6 +141,24 @@ TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
 // sides → ±oo (matching SymPy); an odd-order pole has opposite signs → the
 // two-sided limit is genuinely zoo (SymPy reports oo only via its dir='+'
 // default — SymPP's limit is two-sided, so zoo is the correct answer).
+// LIMIT-HANG-1: limit() must terminate on a radical ∞/∞ form. L'Hôpital on
+// sqrt(x²+x)−x balloons the nested radicals each step (the ratio never
+// stabilises), which used to hang; a size budget now bails to the unevaluated
+// nan instead. The true value (1/2) needs asymptotic-series / Gruntz machinery.
+TEST_CASE("limit: radical infinity ratio terminates (LIMIT-HANG-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    // The point is termination, not the value: this must return (any value),
+    // not loop forever.
+    auto a = limit(pow(pow(x, integer(2)) + x, S::Half()) - x, x, oo);
+    REQUIRE(a);  // returned something (no hang)
+    auto b = limit(x / (pow(pow(x, integer(2)) + x, S::Half()) + x), x, oo);
+    REQUIRE(b);
+    // Sanity: ordinary limits next to it still resolve.
+    REQUIRE(limit(sin(x) / x, x, S::Zero()) == integer(1));
+}
+
 // LIMIT-EXP-1: 0·∞ where an exponential dominates a polynomial. x^n·e^(-x) → 0
 // at +∞. try_product_form now tries both the 0/0 and ∞/∞ arrangements (the
 // latter, x^n / e^x, is the one L'Hôpital can crack), with an exp-aware

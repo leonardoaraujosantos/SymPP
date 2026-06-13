@@ -73,7 +73,22 @@ struct NumDen { Expr num; Expr den; };
     auto infinite_like = [](const Expr& v) noexcept {
         return is_infinity(v) || v->type_id() == TypeId::NaN;
     };
+    // Size budget: each L'Hôpital step differentiates num/den, and for a radical
+    // integrand the nested radicals grow without bound (the ratio never
+    // stabilises). Bail when the expression balloons so limit() returns the
+    // unevaluated nan instead of hanging. (sqrt(x²+x) − x needs asymptotic-series
+    // / Gruntz machinery, which is deferred; the guard just keeps it terminating.)
+    auto node_count = [](const Expr& e) {
+        std::size_t n = 0;
+        auto rec = [&](auto&& self, const Expr& x) -> void {
+            ++n;
+            for (const auto& a : x->args()) self(self, a);
+        };
+        rec(rec, e);
+        return n;
+    };
     for (int iter = 0; iter < 16; ++iter) {
+        if (node_count(num) + node_count(den) > 400) return std::nullopt;
         Expr num_at = simplify(subs(num, var, target));
         Expr den_at = simplify(subs(den, var, target));
         const bool zero_zero = (num_at == S::Zero() && den_at == S::Zero());
