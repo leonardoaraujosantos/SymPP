@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-MONOMIAL-SUB-1 — `integrate` missed the monomial substitution u = x^d
+- **Problem:** integrands of the form `x^(d-1)·f(x^d)` whose `f(x^d)` is hidden
+  inside a rational or radical expression came back unevaluated — `∫x/(x⁴+1)`,
+  `∫x³/(x⁸+1)`, `∫x/√(1−x⁴)` all returned `Integral(…)`, while SymPy gives
+  `½atan(x²)`, `¼atan(x⁴)`, `½asin(x²)`. `try_heurisch` couldn't help: its
+  substitution is structural and `x⁴` does not contain `x²` as a subexpression,
+  so `u = x²` never linearised the denominator.
+- **Fix:** added `try_monomial_substitution` in `src/integrals/integrate.cpp`
+  (run before `try_heurisch`). For `d = 2…6` it forms `t = expr/(d·x^(d-1))`,
+  rewrites every `x^k` with `d | k` to `u^(k/d)` (via `xreplace`), and — if no
+  bare `x` survives — integrates the resulting `f(u)` and back-substitutes
+  `u = x^d`. A `x^k` with `d ∤ k`, or a leftover `var`, aborts that `d`.
+- **Verified:** each antiderivative differentiates back to its integrand
+  (oracle), with the explicit `∫x/(x⁴+1) = ½atan(x²)`; unrelated integrands
+  (`x/(x²+1)`, `1/(x²+1)`) are unchanged.
+- **Regression test:** `INT-MONOMIAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  8 assertions).
+- **Scope:** numerator must be the exact `x^(d-1)` the substitution needs.
+  Cases such as `∫x²/(x⁶+1)` (clean `⅓atan(x³)`) are still intercepted earlier by
+  `try_rational`, which returns a partial result with a leftover `Integral` —
+  a separate issue in the rational-integration path.
+
 ### TRIG-ANGLE-ADD-1 — `simplify` didn't fold the angle-addition identities
 - **Problem:** `simplify` collapsed same-argument trig combinations (Pythagorean,
   power-reduction, double-angle) but left the two-argument angle-addition forms

@@ -287,6 +287,13 @@ namespace {
 // ∫2x·exp(x²) → exp(x²) that the table-based path can't recognize.
 [[nodiscard]] std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var);
 
+// Monomial substitution u = x^d: ∫ x^(d-1)·f(x^d) dx = (1/d)∫ f(u) du.
+// Catches integrands that become elementary only after rewriting x^(k) → u^(k/d)
+// — e.g. ∫x/(x⁴+1) = ½atan(x²) — which try_heurisch misses because its
+// substitution is structural (x⁴ does not contain x² as a subexpression).
+[[nodiscard]] std::optional<Expr> try_monomial_substitution(const Expr& expr,
+                                                            const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -505,6 +512,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_hyperbolic_to_exp(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_monomial_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
         return *r;
     }
@@ -688,6 +698,43 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         if (!(gp_raw == gp_simplified)) {
             if (auto r = try_with_gp(g, gp_raw)) return *r;
         }
+    }
+    return std::nullopt;
+}
+
+std::optional<Expr> try_monomial_substitution(const Expr& expr,
+                                              const Expr& var) {
+    auto u = symbol("__mono_u");
+    for (long d = 2; d <= 6; ++d) {
+        // After u = x^d, the integrand becomes t = expr / (d·x^(d-1)) du.
+        Expr t = simplify(expand_power_base(
+            expr * pow(var, integer(1 - d)) * pow(integer(d), integer(-1))));
+        // Map every var^k subexpression to u^(k/d); k must be divisible by d.
+        // A bare var or a var^k with d∤k marks the substitution invalid.
+        ExprMap<Expr> repl;
+        bool bad = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (bad || !depends_on(e, var)) return;
+            if (e->type_id() == TypeId::Pow && e->args()[0] == var
+                && e->args()[1]->type_id() == TypeId::Integer) {
+                const auto& k = static_cast<const Integer&>(*e->args()[1]);
+                if (k.fits_long() && k.to_long() % d == 0) {
+                    repl.emplace(e, pow(u, integer(k.to_long() / d)));
+                } else {
+                    bad = true;
+                }
+                return;
+            }
+            if (e == var) { bad = true; return; }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, t);
+        if (bad || repl.empty()) continue;
+        Expr t_u = xreplace(t, repl);
+        if (depends_on(t_u, var)) continue;  // leftover var → invalid
+        Expr anti = integrate(t_u, u);
+        if (is_integral_marker(anti)) continue;
+        return simplify(subs(anti, u, pow(var, integer(d))));
     }
     return std::nullopt;
 }

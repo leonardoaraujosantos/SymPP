@@ -2095,3 +2095,36 @@ TEST_CASE("integrate: reciprocal hyperbolic as a Pow (INT-RECIP-2)",
     REQUIRE(integrate(pow(cosh(x), integer(-1)), x)
             == integrate(sech(x), x));
 }
+
+// INT-MONOMIAL-SUB-1: monomial substitution u = x^d closes integrands of the
+// form x^(d-1)·f(x^d) — e.g. x/(x⁴+1) → ½atan(x²), x³/(x⁸+1) → ¼atan(x⁴),
+// x/√(1−x⁴) → ½asin(x²). The structural u-substitution (try_heurisch) misses
+// these because x⁴ does not contain x² as a subexpression. Verified by
+// differentiating the antiderivative back to the integrand.
+TEST_CASE("integrate: monomial substitution u = x^d (INT-MONOMIAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        x * pow(pow(x, integer(4)) + integer(1), integer(-1)),       // x/(x⁴+1)
+        pow(x, integer(3))
+            * pow(pow(x, integer(8)) + integer(1), integer(-1)),     // x³/(x⁸+1)
+        x * pow(integer(1) - pow(x, integer(4)), rational(-1, 2)),   // x/√(1−x⁴)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Explicit closed forms.
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(pow(x, integer(4)) + integer(1), integer(-1)), x)
+            ->str(),
+        "atan(x**2)/2"));
+    // A plain x/(x²+1) is unaffected (handled before, log form, not atan(x)).
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(pow(x, integer(2)) + integer(1), integer(-1)), x)
+            ->str(),
+        "log(x**2 + 1)/2"));
+}
