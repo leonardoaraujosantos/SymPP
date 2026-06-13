@@ -126,7 +126,7 @@ namespace {
 }
 
 // cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in
-// {1,2,3,4,6,8,12}. Returns nullopt for any other denominator.
+// {1,2,3,4,5,6,8,10,12}. Returns nullopt for any other denominator.
 [[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
     const mpz_class& den = r.get_den();  // canonical: den > 0, gcd(num,den)=1
@@ -163,6 +163,29 @@ namespace {
                            mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))),
                        rational(1, 2)));
     }
+    // Pentagon family (π/5 = 36°, π/10 = 18°). cos(π/5) = (1+√5)/4,
+    // cos(2π/5) = (√5−1)/4, cos(π/10) = √(10+2√5)/4, cos(3π/10) = √(10−2√5)/4.
+    // sin(π/5), sin(π/10), … follow via sin_pi's co-function reflection.
+    if (num == 1 && den == 5) {                      // cos(π/5)   = (1+√5)/4
+        return mul(rational(1, 4),
+                   add(integer(1), pow(integer(5), rational(1, 2))));
+    }
+    if (num == 2 && den == 5) {                      // cos(2π/5)  = (√5−1)/4
+        return mul(rational(1, 4),
+                   add(pow(integer(5), rational(1, 2)), S::NegativeOne()));
+    }
+    if (num == 1 && den == 10) {                     // cos(π/10)  = √(10+2√5)/4
+        return mul(rational(1, 4),
+                   pow(add(integer(10),
+                           mul(integer(2), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 10) {                     // cos(3π/10) = √(10−2√5)/4
+        return mul(rational(1, 4),
+                   pow(add(integer(10),
+                           mul(integer(-2), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
+    }
     return std::nullopt;
 }
 
@@ -193,7 +216,7 @@ namespace {
     return cos_pi(half - r);
 }
 
-// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,6,8,12}.
+// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,5,6,8,10,12}.
 // Computed from a dedicated table (rather than sin/cos) for a clean result.
 [[nodiscard]] std::optional<Expr> base_tan_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
@@ -217,6 +240,30 @@ namespace {
     }
     if (num == 3 && den == 8) {                  // tan(3π/8) = √2 + 1
         return add(pow(integer(2), rational(1, 2)), S::One());
+    }
+    // Pentagon family: tan(π/5) = √(5−2√5), tan(2π/5) = √(5+2√5),
+    // tan(π/10) = √(25−10√5)/5, tan(3π/10) = √(25+10√5)/5.
+    if (num == 1 && den == 5) {                  // tan(π/5)   = √(5−2√5)
+        return pow(add(integer(5),
+                       mul(integer(-2), pow(integer(5), rational(1, 2)))),
+                   rational(1, 2));
+    }
+    if (num == 2 && den == 5) {                  // tan(2π/5)  = √(5+2√5)
+        return pow(add(integer(5),
+                       mul(integer(2), pow(integer(5), rational(1, 2)))),
+                   rational(1, 2));
+    }
+    if (num == 1 && den == 10) {                 // tan(π/10)  = √(25−10√5)/5
+        return mul(rational(1, 5),
+                   pow(add(integer(25),
+                           mul(integer(-10), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 10) {                 // tan(3π/10) = √(25+10√5)/5
+        return mul(rational(1, 5),
+                   pow(add(integer(25),
+                           mul(integer(10), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
     }
     return std::nullopt;
 }

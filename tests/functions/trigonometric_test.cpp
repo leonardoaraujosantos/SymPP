@@ -126,6 +126,35 @@ TEST_CASE("cos/sin/tan: π/8 family evaluates (TRIG-PI8-1)",
                               "-sqrt(2 - sqrt(2))/2"));
 }
 
+// TRIG-PI5-1: the pentagon family (π/5 = 36°, π/10 = 18°) evaluates, matching
+// SymPy. cos(π/5) = (1+√5)/4, cos(2π/5) = (√5−1)/4, tan(π/5) = √(5−2√5), with the
+// √(10±2√5) nested radicals for the π/10 cosines; sin follows from reflection.
+TEST_CASE("cos/sin/tan: pentagon family π/5, π/10 (TRIG-PI5-1)",
+          "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 5), pi))->str(),
+                              "(1 + sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(2, 5), pi))->str(),
+                              "(sqrt(5) - 1)/4"));
+    // sin(π/10) = cos(2π/5) and sin(3π/10) = cos(π/5) via co-function reflection.
+    REQUIRE(oracle.equivalent(sin(mul(rational(1, 10), pi))->str(),
+                              "(sqrt(5) - 1)/4"));
+    REQUIRE(oracle.equivalent(sin(mul(rational(3, 10), pi))->str(),
+                              "(1 + sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 10), pi))->str(),
+                              "sqrt(10 + 2*sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 5), pi))->str(),
+                              "sqrt(5 - 2*sqrt(5))"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(2, 5), pi))->str(),
+                              "sqrt(5 + 2*sqrt(5))"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 10), pi))->str(),
+                              "sqrt(25 - 10*sqrt(5))/5"));
+    // Higher multiple reduces by symmetry: cos(3π/5) = −cos(2π/5).
+    REQUIRE(oracle.equivalent(cos(mul(rational(3, 5), pi))->str(),
+                              "-(sqrt(5) - 1)/4"));
+}
+
 // ----- Periodicity / π-shift argument reduction (regression, TRIG-3) ---------
 // sin(x+kπ)=(−1)^k sin(x), cos(x+kπ)=(−1)^k cos(x), tan(x+kπ)=tan(x) for an
 // integer k. Half-integer shifts (the co-function π/2 case) stay symbolic.

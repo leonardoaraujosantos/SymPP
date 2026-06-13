@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-PI5-1 — `sin/cos/tan` of the pentagon angles (π/5, π/10) stayed unevaluated
+- **Problem:** following TRIG-PI8-1, the remaining common special angles — the
+  pentagon family π/5 (36°) and π/10 (18°) — were still symbolic, where SymPy
+  gives `cos(π/5) = (1+√5)/4`, `cos(2π/5) = (√5−1)/4`, `tan(π/5) = √(5−2√5)`, and
+  the `√(10±2√5)` nested radicals for the π/10 cosines.
+- **Fix:** added den-5 (num 1,2) and den-10 (num 1,3) reference angles to
+  `base_cos_pi`, and the four matching `tan` values to `base_tan_pi`, in
+  `src/functions/trigonometric.cpp`. `sin` derives from the co-function
+  reflection (`sin(π/10)=cos(2π/5)`, `sin(3π/10)=cos(π/5)`, …) and every multiple
+  reduces through the existing period/reflection folds.
+- **Verified:** all `sin/cos/tan` of `{1,2,3,4,6}·π/5` and `{1,3,7,9}·π/10` plus
+  negatives checked equal to SymPy via the oracle.
+- **Regression test:** `TRIG-PI5-1` in `tests/functions/trigonometric_test.cpp`
+  (`[3b][trig][oracle][regression]`, 9 assertions).
+- **Scope:** the special-angle table now covers denominators
+  {1,2,3,4,5,6,8,10,12} — the standard constructible angles. Denominators like 7,
+  9, 11 (non-constructible / `cos` not expressible in real radicals) stay
+  symbolic, matching SymPy.
+
 ### TRIG-PI8-1 — `sin/cos/tan(π/8)` stayed unevaluated
 - **Problem:** the special-angle table covered denominators {1,2,3,4,6,12} but
   not 8, so the π/8 family (22.5°, the half-angles of π/4) came back symbolic —
