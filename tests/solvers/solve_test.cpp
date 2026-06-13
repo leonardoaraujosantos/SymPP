@@ -297,6 +297,17 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
     REQUIRE(set_equal(solve(pow(tan(x), integer(2)), x), {"0"}));
     REQUIRE(set_equal(
         solve(integer(2) * pow(sin(x), integer(2)), x), {"0", "pi"}));
+    // zero-product: a product of trig factors vanishes iff some factor does
+    REQUIRE(set_equal(solve(sin(x) * cos(x), x),
+                      {"0", "pi/2", "pi", "3*pi/2"}));
+    REQUIRE(set_equal(solve(sin(x) * (cos(x) - integer(1)), x),
+                      {"0", "pi", "2*pi"}));
+    REQUIRE(set_equal(solve(sin(x) * tan(x), x), {"0", "pi"}));
+    REQUIRE(set_equal(
+        solve((sin(x) - integer(1)) * (cos(x) + integer(1)), x),
+        {"pi/2", "pi"}));
+    REQUIRE(set_equal(solve(sin(x) * cos(x) * tan(x), x),
+                      {"0", "pi/2", "pi", "3*pi/2"}));
 }
 
 // SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as

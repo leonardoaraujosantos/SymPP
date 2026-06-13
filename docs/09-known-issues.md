@@ -38,9 +38,14 @@ truth and links the issue number.
 - **Scope:** a single `sin`/`cos`/`tan` term, linear argument, var-free
   coefficient — plus a homogeneous positive-integer power `f(B*x)^n = 0`, which
   reduces to `f(B*x) = 0` (so `sin(x)²→[0,π]`, `cos(x)²→[π/2,3π/2]`,
-  `tan(x)²→[0]`, `2·sin(x)²→[0,π]`). Trig *combinations* (`sin x + cos x`),
-  *non-homogeneous* powers (`sin(x)²−1`), products (`sin x·cos x`), and
-  phase-shifted arguments remain out of scope (decline cleanly to `[]`).
+  `tan(x)²→[0]`, `2·sin(x)²→[0,π]`) — plus a **zero-product** of var-dependent
+  factors, solved factor-by-factor (recursively) and unioned:
+  `sin x·cos x→[0,π/2,π,3π/2]`, `sin x·(cos x−1)→[0,π,2π]`,
+  `(sin x−1)(cos x+1)→[π/2,π]`. Trig *combinations* (`sin x + cos x`),
+  *non-homogeneous* powers (`sin(x)²−1`), and phase-shifted arguments remain out
+  of scope (decline cleanly). A mixed polynomial·trig product such as `x·sin x`
+  still yields only the algebraic root `[0]` — the polynomial path resolves it
+  before the trig handler runs.
 
 ### GAMMA-REC-1 — gamma recurrence `z*gamma(z) → gamma(z+1)` wasn't applied
 - **Input:** `combsimp(x*gamma(x))`, `combsimp(x*(x+1)*gamma(x))`,

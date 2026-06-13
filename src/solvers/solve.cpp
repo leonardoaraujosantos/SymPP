@@ -97,7 +97,23 @@ solve_trig(const Expr& expr, const Expr& var) {
     if (dep->type_id() == TypeId::Mul) {
         std::vector<Expr> cf, vf;
         for (const auto& f : dep->args()) (has(f, var) ? vf : cf).push_back(f);
-        if (vf.size() != 1) return std::nullopt;   // product of trig factors
+        // Zero-product: a product of var-dependent factors vanishes iff some
+        // factor does. Solve each factor (recursively, via full solve so
+        // polynomial factors like x are handled too) and union the roots.
+        if (vf.size() >= 2 && cst == S::Zero()) {
+            std::vector<Expr> roots;
+            for (const auto& fac : vf) {
+                for (auto& r : solve(fac, var)) {
+                    if (has(r, var)) continue;
+                    if (std::none_of(roots.begin(), roots.end(),
+                                     [&](const Expr& u) { return u == r; })) {
+                        roots.push_back(std::move(r));
+                    }
+                }
+            }
+            return roots;
+        }
+        if (vf.size() != 1) return std::nullopt;
         core = vf[0];
         coeff = cf.empty() ? Expr{S::One()} : mul(cf);
     } else {
