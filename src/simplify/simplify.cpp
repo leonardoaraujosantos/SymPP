@@ -1231,16 +1231,43 @@ namespace {
     if (fid != FunctionId::Sin && fid != FunctionId::Cos
         && fid != FunctionId::Tan) return e;
     const Expr& arg = e->args()[0];
-    if (arg->type_id() != TypeId::Add) return e;
-    auto add_args = arg->args();
-    if (add_args.size() < 2) return e;
-    Expr a = add_args[0];
-    Expr b;
-    if (add_args.size() == 2) {
-        b = add_args[1];
+    // Split the argument into a + b, then apply the angle-addition formula.
+    // Two sources of a split:
+    //   • an Add argument (sin(x+y) → …): a = first term, b = the rest;
+    //   • a multiple angle n·g with integer n ≥ 2 (sin(2x), cos(3x), …):
+    //     n·g = g + (n−1)·g, and the recursive pass reduces (n−1)·g.
+    Expr a, b;
+    if (arg->type_id() == TypeId::Add) {
+        auto add_args = arg->args();
+        if (add_args.size() < 2) return e;
+        a = add_args[0];
+        if (add_args.size() == 2) {
+            b = add_args[1];
+        } else {
+            std::vector<Expr> rest(add_args.begin() + 1, add_args.end());
+            b = add(std::move(rest));
+        }
+    } else if (arg->type_id() == TypeId::Mul) {
+        long n = 1;
+        bool found = false;
+        std::vector<Expr> rest;
+        for (const auto& fac : arg->args()) {
+            if (!found && fac->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*fac);
+                if (z.is_positive() && z.fits_long() && z.to_long() >= 2) {
+                    n = z.to_long();
+                    found = true;
+                    continue;
+                }
+            }
+            rest.push_back(fac);
+        }
+        if (!found || rest.empty()) return e;
+        Expr g = rest.size() == 1 ? rest[0] : mul(std::move(rest));
+        a = g;
+        b = (n == 2) ? g : mul(integer(n - 1), g);
     } else {
-        std::vector<Expr> rest(add_args.begin() + 1, add_args.end());
-        b = add(std::move(rest));
+        return e;
     }
     if (fid == FunctionId::Sin) {
         return sin(a) * cos(b) + cos(a) * sin(b);
@@ -1257,8 +1284,10 @@ namespace {
 }  // namespace
 
 Expr expand_trig(const Expr& e) {
+    // Iterate to a fixpoint: each pass peels one level of angle addition, so a
+    // multiple angle sin(n·x) needs ~n passes to fully reduce to sin(x)/cos(x).
     Expr cur = apply_recursive(e, expand_trig_node);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 32; ++i) {
         Expr next = apply_recursive(cur, expand_trig_node);
         if (next == cur) break;
         cur = next;

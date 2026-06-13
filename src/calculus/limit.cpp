@@ -6,6 +6,7 @@
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
@@ -235,6 +236,26 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     if (depth < 12) {
         // Indeterminate forms surface as nan after substitution.
         if (is_nan(direct)) {
+            // Polynomial at ±∞: the highest-degree term dominates, resolving the
+            // ∞−∞ that direct substitution leaves as nan (x²−x → +∞, x−x² → −∞).
+            if (is_infinity(target)) {
+                try {
+                    Poly p(expand(expr), var);
+                    bool poly_ok = p.degree() >= 1;
+                    for (const auto& cc : p.coeffs()) {
+                        if (has(cc, var)) { poly_ok = false; break; }
+                    }
+                    if (poly_ok) {
+                        Expr lead = mul(
+                            p.leading_coeff(),
+                            pow(var, integer(static_cast<long>(p.degree()))));
+                        Expr lim = simplify(subs(lead, var, target));
+                        if (!is_nan(lim)) return lim;
+                    }
+                } catch (const std::exception&) {
+                    // not a polynomial in var — fall through to other methods
+                }
+            }
             // Linearity over a sum: when every term has a determinate finite
             // limit, the limit is their sum. Direct substitution gives nan when
             // a single term is an ∞·0 product (e.g. the antiderivative

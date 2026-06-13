@@ -19,6 +19,7 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/matrices/matrix.hpp>
@@ -848,14 +849,88 @@ FactorList factor_list(const Poly& f) {
     return FactorList{mpq_to_expr(running_content), std::move(consolidated)};
 }
 
+namespace {
+
+// Homogeneous bivariate factorization: a polynomial all of whose monomials share
+// the same total degree (x²−y², x²+2xy+y², x³−y³, …) factors by dehomogenizing
+// — set the second variable to 1, factor the resulting univariate ℚ-polynomial
+// with the existing machinery, then re-homogenize each factor back to its own
+// degree. The product is verified to expand to the input, so a non-homogeneous
+// or otherwise-unfactorable polynomial is rejected (returns nullopt) rather than
+// risking a wrong answer. Covers the common textbook multivariate cases without
+// the full Wang/multivariate-GCD port.
+[[nodiscard]] std::optional<Expr> factor_homogeneous_bivariate(const Expr& expr,
+                                                               const Expr& var) {
+    auto syms = free_symbols(expr);
+    if (syms.size() != 2 || syms.find(var) == syms.end()) return std::nullopt;
+    Expr other;
+    for (const auto& s : syms) {
+        if (!(s == var)) { other = s; break; }
+    }
+    if (!other) return std::nullopt;
+
+    // Total (homogeneous) degree n: max over var-powers k of k + deg_other(c_k).
+    Poly px(expand(expr), var);
+    long n = 0;
+    const auto& cs = px.coeffs();
+    for (std::size_t k = 0; k < cs.size(); ++k) {
+        if (cs[k] == S::Zero()) continue;
+        long dk = static_cast<long>(Poly(expand(cs[k]), other).degree());
+        n = std::max(n, static_cast<long>(k) + dk);
+    }
+
+    // Dehomogenize and factor over ℚ.
+    Poly q(expand(subs(expr, other, S::One())), var);
+    if (!poly_coeffs_as_mpq(q)) return std::nullopt;
+    const long d = static_cast<long>(q.degree());
+    FactorList fl = factor_list(q);
+
+    // Re-homogenize a univariate-in-var factor to its own degree:
+    //   Σ aₖ·varᵏ  ↦  Σ aₖ·varᵏ·other^(deg−k).
+    auto homogenize = [&](const Poly& f) -> Expr {
+        const auto& fc = f.coeffs();
+        const long fd = static_cast<long>(f.degree());
+        std::vector<Expr> terms;
+        for (std::size_t k = 0; k < fc.size(); ++k) {
+            if (fc[k] == S::Zero()) continue;
+            Expr t = fc[k];
+            if (k > 0) t = mul(t, pow(var, integer(static_cast<long>(k))));
+            long oe = fd - static_cast<long>(k);
+            if (oe > 0) t = mul(t, pow(other, integer(oe)));
+            terms.push_back(std::move(t));
+        }
+        if (terms.empty()) return S::Zero();
+        return terms.size() == 1 ? terms[0] : add(std::move(terms));
+    };
+
+    std::vector<Expr> parts;
+    if (!(fl.content == S::One())) parts.push_back(fl.content);
+    if (n - d > 0) parts.push_back(pow(other, integer(n - d)));  // pure-other factor
+    for (const auto& [fp, m] : fl.factors) {
+        Expr hf = homogenize(fp);
+        parts.push_back(m == 1 ? hf : pow(hf, integer(static_cast<long>(m))));
+    }
+    if (parts.empty()) return std::nullopt;
+    Expr result = parts.size() == 1 ? parts[0] : mul(parts);
+
+    // Self-verify: only accept a factorization that reproduces the input.
+    if (expand(result) == expand(expr)) return result;
+    return std::nullopt;
+}
+
+}  // namespace
+
 Expr factor(const Expr& expr, const Expr& var) {
     Poly f(expr, var);
     // factor_list (square-free + rational-root + Kronecker) is defined only
-    // over ℚ-coefficient polynomials. A symbolic coefficient (i.e. a genuinely
-    // multivariate polynomial like x²−y² in x) is out of scope — return the
-    // input unfactored rather than spinning in the integer-coefficient
-    // machinery. Multivariate factorization is tracked separately.
-    if (!poly_coeffs_as_mpq(f)) return expr;
+    // over ℚ-coefficient polynomials. A genuinely multivariate polynomial has
+    // symbolic coefficients; try the homogeneous-bivariate path (verified) and
+    // otherwise return the input unfactored. Full multivariate (Wang)
+    // factorization is tracked separately.
+    if (!poly_coeffs_as_mpq(f)) {
+        if (auto h = factor_homogeneous_bivariate(expr, var)) return *h;
+        return expr;
+    }
     auto fl = factor_list(f);
     std::vector<Expr> terms;
     if (!(fl.content == S::One())) terms.push_back(fl.content);

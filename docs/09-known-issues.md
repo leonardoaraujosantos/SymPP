@@ -14,6 +14,125 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVESET-TRIG-SCALE-1 — `solveset(cos(2x)=1)` returned EmptySet; redundant cos union
+- **Input:** `solveset(cos(2*x) - 1, x)`, `solveset(cos(x) - 1, x)`,
+  `solveset(cos(x) + 1, x)`.
+- **Was:** `cos(2x) − 1` → `EmptySet` (wrong — it has solutions `{nπ}`);
+  `cos(x) − 1` → `ImageSet ∪ ImageSet` of two **identical** `{2nπ}` sets. The
+  `invert_solveset` trig branches only emitted an ImageSet when the argument was
+  exactly `var`, so a scaled argument `a·var` fell through; and the cos branch
+  always emitted a two-branch `±acos(c)` union even when the branches coincide.
+- **Expected (SymPy):** `{nπ}`, `{2nπ}`, `{2nπ + π}`.
+- **Fix (`src/solvers/solve.cpp`):** the Sin/Cos/Tan branches now accept a linear
+  argument `g = a·var` (a `linear_coeff` helper) and divide the periodic image
+  through by `a`. The cos branch emits a **single** ImageSet when
+  `acos(c) ∈ {0, π}` (`c = ±1`, where the `±` branches coincide), and the
+  two-branch union otherwise.
+- **Verified against SymPy:** `cos(2x)=1 → {nπ}`, `cos(x)=1 → {2nπ}`,
+  `cos(x)=-1 → {2nπ+π}` match exactly; `sin(2x)`, `tan(2x)=1`, `cos(3x)=1/2`,
+  `cos(x)=1/2` equal SymPy's solution sets (SymPP often emits the cleaner single
+  ImageSet where SymPy emits an equivalent union); a generic RHS keeps the
+  two-branch union.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solveset][regression]` (SOLVESET-TRIG-SCALE-1).
+- **Scope:** linear (a·var) trig arguments. Genuinely nested arguments
+  (`cos(x²)`) still need parametric back-substitution.
+
+### SOLVESET-POW0-1 — `solveset(f(x)**n)` returned EmptySet for a transcendental base
+- **Input:** `solveset(sin(x)**2, x)`, `solveset(sin(x)**4, x)`,
+  `solveset(tan(x)**2, x)`.
+- **Was:** `EmptySet` — clearly wrong (`sin(x)² = 0` has the solutions of
+  `sin(x) = 0`). `invert_solveset` only peeled a `Pow` with a *non-integer*
+  exponent (SOLVE-RAD-1); an integer power fell through to the polynomial path,
+  which can't build a `Poly` in `x` from `sin(x)` and so returned no solutions.
+- **Expected (SymPy):** the solution set of the base — `{n·π}` for `sin(x)²`,
+  `tan(x)²`; `{(2n+1)π/2}` for `cos(x)²`.
+- **Fix (`src/solvers/solve.cpp`):** in `invert_solveset`'s `Pow` branch, when the
+  exponent is a positive integer and the RHS is `0`, recurse with
+  `solveset(base)` — `g^n = 0 ⟺ g = 0`.
+- **Verified against SymPy:** `sin(x)²`, `sin(x)⁴`, `cos(x)²`, `tan(x)²` all now
+  return the (periodic) solution set instead of EmptySet, and equal SymPy's set.
+  (SymPP emits the cleaner single ImageSet `{n·π}` where SymPy emits the
+  equivalent union `{2nπ} ∪ {2nπ+π}`.) A polynomial base (`(x-1)² → {1}`) is
+  unaffected.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solveset][regression]` (SOLVESET-POW0-1).
+- **Scope:** `g^n = 0`. A non-zero RHS with a scaled trig argument
+  (`cos(2x) = 1`) still needs the scaled-argument trig inversion and remains a
+  follow-up; `rewrite(target)` (exp↔trig, etc.) is not implemented at all.
+
+### EXPAND-TRIG-MULTI-1 — `expand_trig` didn't expand multiple angles `sin(n·x)`
+- **Input:** `expand_trig(sin(2*x))`, `expand_trig(cos(2*x))`,
+  `expand_trig(sin(3*x))`, `expand_trig(cos(3*x))`, `expand_trig(sin(4*x))`.
+- **Was:** the argument unchanged (`sin(2*x)`, …). `expand_trig_node` applied the
+  angle-addition formula only when the argument was an `Add` (`sin(x+y)`); a
+  multiple angle `n·x` is a `Mul`, so it fell through.
+- **Expected (SymPy):** `2·sin(x)·cos(x)`, `2·cos²x − 1`, `3·sin x − 4·sin³x`,
+  `4·cos³x − 3·cos x`, …
+- **Fix (`src/simplify/simplify.cpp`):** `expand_trig_node` now also splits a
+  `Mul` argument with an integer factor `n ≥ 2` as `n·g = g + (n−1)·g` and
+  applies the same angle-addition formula; the fixpoint loop (raised to 32
+  passes) reduces `(n−1)·g` recursively down to `sin(x)`/`cos(x)`. Works for
+  `sin`/`cos`/`tan`, and composes with the `Add` case (`cos(2x+y)`).
+- **Verified against SymPy:** `sin/cos/tan(n·x)` for n = 2…4 and the combined
+  `cos(2x+y)` all match `sympy.expand_trig` **up to trig-identity equivalence**
+  (SymPP keeps the `cos²−sin²`/nested-product form; SymPy applies a final
+  Chebyshev normalization to the minimal all-sin / all-cos form — the two are
+  equal, just shaped differently).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][expand_trig][oracle][regression]` (EXPAND-TRIG-MULTI-1).
+- **Scope:** the expansion is correct but not minimal; collapsing to SymPy's
+  Chebyshev-reduced form (all-sin for `sin`, all-cos for `cos`) is a further
+  normalization. Downstream `fu`/`simplify` re-`trigsimp` the result, so the
+  verbose intermediate doesn't leak into their output.
+
+### LIMIT-POLY-INF-1 — polynomial `∞−∞` limits returned `nan`
+- **Input:** `limit(x**2 - x, x, oo)`, `limit(x - x**2, x, oo)`,
+  `limit(2*x**2 - 5*x, x, oo)`, `limit(-x**3 + x, x, -oo)`.
+- **Was:** `nan`. Direct substitution gave `∞ − ∞`, and (after LIMIT-EXP-1's
+  Add-linearity, which bails when a term diverges) nothing recovered the
+  dominant term.
+- **Expected (SymPy):** `oo`, `-oo`, `oo`, `oo` — a polynomial at ±∞ is governed
+  by its leading term.
+- **Fix (`src/calculus/limit.cpp`):** when direct substitution at an infinite
+  target is `nan` and the expression is a polynomial in `var` (all `Poly`
+  coefficients free of `var`), take the limit of the leading term
+  `c·var^deg` — `subs` then folds it through the infinity arithmetic with the
+  correct even/odd-degree sign at `−∞`.
+- **Verified against SymPy:** the polynomial family at both `+∞` and `−∞`
+  (signs correct for even and odd leading degree). Non-polynomial `∞−∞`
+  (`e^x − x`, `x − log x`) correctly **stays `nan`** — it needs the dominant-term
+  / Gruntz asymptotics that remain deferred.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (LIMIT-POLY-INF-1).
+- **Scope:** polynomials. Mixed exponential/logarithmic `∞−∞` still needs Gruntz.
+
+### FACTOR-HOM-1 — `factor` left common multivariate (homogeneous bivariate) polynomials unfactored
+- **Input:** `factor(x**2 - y**2, x)`, `factor(x**2 + 2*x*y + y**2, x)`,
+  `factor(x**3 - y**3, x)`, `factor(x**2*y - y**3, x)`.
+- **Was:** the input unchanged. `factor` builds a `Poly` in `var`; a genuinely
+  multivariate polynomial has symbolic (polynomial-in-the-other-variable)
+  coefficients, which the ℚ-only `factor_list` (square-free + rational-root +
+  Kronecker) can't take, so it returned the expression unfactored.
+- **Expected (SymPy):** `(x - y)*(x + y)`, `(x + y)**2`,
+  `(x - y)*(x**2 + x*y + y**2)`, `y*(x - y)*(x + y)`.
+- **Fix (`src/polys/poly.cpp`):** a `factor_homogeneous_bivariate` pass for the
+  two-symbol case. When every monomial shares the same total degree, the
+  polynomial is **dehomogenized** (other variable → 1), factored over ℚ with the
+  existing machinery, and each factor **re-homogenized** to its own degree
+  (`Σ aₖ·xᵏ ↦ Σ aₖ·xᵏ·yⁿᵈᵉᵍ⁻ᵏ`), with a `y^(n−deg)` factor for any pure-`y`
+  part. The product is **verified to expand back to the input**, so a
+  non-homogeneous or irreducible polynomial is rejected rather than mis-factored.
+- **Verified against SymPy:** difference of squares/cubes, sum of cubes,
+  perfect-square trinomials, `9x²−4y² → (3x−2y)(3x+2y)`, `x⁴−y⁴`, the pure-`y`
+  pull-out; `x²+y²` correctly stays irreducible, and univariate factoring is
+  unchanged.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[4][poly][factor][oracle][regression]` (FACTOR-HOM-1).
+- **Scope:** homogeneous **bivariate** polynomials (the common textbook cases).
+  Non-homogeneous multivariate (`x²−y²+x`, three or more variables) still needs
+  the full Wang / multivariate-GCD port and is rejected by the self-check.
+
 ### LIMIT-EXP-1 / INT-DEF-1 — `0·∞` limits with a decaying exponential, and improper definite integrals
 - **Input:** `limit(x*exp(-x), x, oo)` (and `x²·e^(-x)`, …); the definite
   integrals `∫₀^∞ x^n·e^(-x) dx`.

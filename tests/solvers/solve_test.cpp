@@ -233,6 +233,50 @@ TEST_CASE("solveset: x^2 - 4 = 0 → {2, -2}", "[10][solveset]") {
     REQUIRE(fs->size() == 2);
 }
 
+// SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as
+// g = 0. sin(x)² = 0 used to come back EmptySet because the polynomial path
+// can't see through sin; it now recurses on the base.
+TEST_CASE("solveset: f(x)^n = 0 reduces to f(x) = 0 (SOLVESET-POW0-1)",
+          "[10][solveset][regression]") {
+    auto x = symbol("x");
+    // sin(x)² = 0 → {n·π} (a periodic ImageSet), NOT EmptySet.
+    auto s = solveset(pow(sin(x), integer(2)), x);
+    REQUIRE(s->kind() != SetKind::Empty);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+    // tan(x)² = 0 → {n·π}, matching SymPy exactly.
+    auto t = solveset(pow(tan(x), integer(2)), x);
+    REQUIRE(t->kind() == SetKind::ImageSet);
+    // Higher power, same base.
+    REQUIRE(solveset(pow(sin(x), integer(4)), x)->kind() == SetKind::ImageSet);
+    // A polynomial base is unaffected: (x-1)² = 0 → {1}.
+    auto p = solveset(pow(x - integer(1), integer(2)), x);
+    REQUIRE(p->kind() == SetKind::FiniteSet);
+    REQUIRE(std::static_pointer_cast<const FiniteSet>(p)->size() == 1);
+}
+
+// SOLVESET-TRIG-SCALE-1: trig equations with a scaled argument a·x and a
+// nonzero RHS (cos(2x)=1) now invert — the periodic image divides through by a.
+// Also dedupes the cos union when acos(c) ∈ {0, π} (c = ±1), so cos(x)=1 gives a
+// single {2nπ} instead of two identical ImageSets.
+TEST_CASE("solveset: scaled-argument trig (SOLVESET-TRIG-SCALE-1)",
+          "[10][solveset][regression]") {
+    auto x = symbol("x");
+    // cos(2x) = 1 → {nπ} (was EmptySet).
+    auto s = solveset(cos(integer(2) * x) - integer(1), x);
+    REQUIRE(s->kind() == SetKind::ImageSet);
+    REQUIRE(s->str().find("__n*pi") != std::string::npos);
+    // cos(x) = 1 → a single {2nπ}, not a Union of two identical sets.
+    auto c1 = solveset(cos(x) - integer(1), x);
+    REQUIRE(c1->kind() == SetKind::ImageSet);
+    // cos(x) = -1 → {π + 2nπ} (dedup via acos(-1) = π).
+    REQUIRE(solveset(cos(x) + integer(1), x)->kind() == SetKind::ImageSet);
+    // tan(2x) = 1 stays a single ImageSet.
+    REQUIRE(solveset(tan(integer(2) * x) - integer(1), x)->kind()
+            == SetKind::ImageSet);
+    // A generic RHS keeps the two-branch union.
+    REQUIRE(solveset(cos(x) - rational(1, 2), x)->kind() == SetKind::Union);
+}
+
 TEST_CASE("solveset: no solutions → EmptySet",
           "[10][solveset]") {
     auto x = symbol("x");

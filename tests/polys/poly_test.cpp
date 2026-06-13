@@ -599,6 +599,34 @@ TEST_CASE("Poly: factor irreducible quadratic stays put",
     REQUIRE(oracle.equivalent(f->str(), "x**2 + 1"));
 }
 
+// FACTOR-HOM-1: homogeneous bivariate polynomials factor via dehomogenize →
+// factor-over-ℚ → re-homogenize, verified by re-expansion. Covers the common
+// difference-of-squares / cubes / perfect-square-trinomial multivariate cases.
+TEST_CASE("Poly: factor homogeneous bivariate (FACTOR-HOM-1)",
+          "[4][poly][factor][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) - pow(y, integer(2)), x)->str(),
+        "(x - y)*(x + y)"));
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) + integer(2) * x * y + pow(y, integer(2)), x)
+            ->str(),
+        "(x + y)**2"));
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(3)) - pow(y, integer(3)), x)->str(),
+        "(x - y)*(x**2 + x*y + y**2)"));
+    // A pure-other factor is pulled out: x²y − y³ = y(x−y)(x+y).
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) * y - pow(y, integer(3)), x)->str(),
+        "y*(x - y)*(x + y)"));
+    // Irreducible over ℚ stays put (self-verification rejects a bad split).
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) + pow(y, integer(2)), x)->str(),
+        "x**2 + y**2"));
+}
+
 TEST_CASE("Poly: factor x^4 + 4 (Sophie Germain)",
           "[4][poly][factor][oracle]") {
     auto& oracle = Oracle::instance();

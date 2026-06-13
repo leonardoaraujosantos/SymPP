@@ -164,6 +164,22 @@ TEST_CASE("limit: polynomial times decaying exponential (LIMIT-EXP-1)",
     REQUIRE(limit(x + integer(1) / x, x, oo) == oo);
 }
 
+// LIMIT-POLY-INF-1: a polynomial at ±∞ is governed by its leading term, so the
+// ∞−∞ that direct substitution leaves as nan resolves to the signed infinity.
+TEST_CASE("limit: polynomial at infinity via the leading term (LIMIT-POLY-INF-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
+    REQUIRE(limit(pow(x, integer(2)) - x, x, noo) == oo);
+    REQUIRE(limit(x - pow(x, integer(2)), x, oo) == noo);
+    REQUIRE(limit(integer(2) * pow(x, integer(2)) - integer(5) * x, x, oo) == oo);
+    // Odd leading degree flips sign at −∞.
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(3))) + x, x, oo) == noo);
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(3))) + x, x, noo) == oo);
+}
+
 TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
           "[6][limit][infinity][regression]") {
     auto x = symbol("x");

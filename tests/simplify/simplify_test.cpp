@@ -611,6 +611,29 @@ TEST_CASE("expand_trig: sin(a + b + c) recursively expands",
     REQUIRE(oracle.equivalent(s->str(), "sin(a + b + c)"));
 }
 
+// EXPAND-TRIG-MULTI-1: multiple-angle expansion. sin(n·x)/cos(n·x)/tan(n·x) for
+// an integer n ≥ 2 now expands (n·x = x + (n−1)·x, recursively), matching SymPy
+// up to trig-identity equivalence.
+TEST_CASE("expand_trig: multiple angle sin/cos(n*x) (EXPAND-TRIG-MULTI-1)",
+          "[5][expand_trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(2) * x))->str(),
+                              "2*sin(x)*cos(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(2) * x))->str(),
+                              "2*cos(x)**2 - 1"));
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(3) * x))->str(),
+                              "3*sin(x) - 4*sin(x)**3"));
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(3) * x))->str(),
+                              "4*cos(x)**3 - 3*cos(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(4) * x))->str(),
+                              "4*sin(x)*cos(x) - 8*sin(x)**3*cos(x)"));
+    // Combined with angle addition.
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(2) * x + y))->str(),
+                              "(2*cos(x)**2 - 1)*cos(y) - 2*sin(x)*sin(y)*cos(x)"));
+}
+
 // ----- fu orchestrator ------------------------------------------------------
 
 TEST_CASE("fu: picks the smaller form between identity and trigsimp",

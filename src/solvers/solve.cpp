@@ -229,8 +229,16 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
     if (var_dep->type_id() == TypeId::Pow) {
         const Expr& base = var_dep->args()[0];
         const Expr& p = var_dep->args()[1];
-        if (p->type_id() != TypeId::Rational) return std::nullopt;
         Expr rhs = mul(S::NegativeOne(), free);  // g^p = rhs
+        // g^n = 0 (n a positive integer) ⟺ g = 0. Without this, sin(x)² = 0
+        // came back EmptySet (the polynomial path can't see through sin), even
+        // though its solution set is exactly that of sin(x) = 0.
+        if (p->type_id() == TypeId::Integer
+            && is_positive(p) == std::optional<bool>{true}
+            && rhs == S::Zero()) {
+            return solveset_impl(base, var, domain);
+        }
+        if (p->type_id() != TypeId::Rational) return std::nullopt;
         // Principal-branch convention (matches SymPy): a negative real rhs has
         // no solution for a fractional power (√x = −2, x^(1/3) = −2 → ∅).
         if (is_negative(rhs) == std::optional<bool>{true}) return empty_set();
@@ -252,6 +260,32 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
     };
 
     auto n = symbol("__n");
+
+    // If g is linear in var (g == a·var, a free of var, a ≠ 0) return a, so a
+    // periodic-trig solution over a·var divides through by a to give the
+    // solution over var (cos(2x) = 1 → x ∈ {nπ}). Returns nullopt otherwise.
+    auto linear_coeff = [&](const Expr& gg) -> std::optional<Expr> {
+        if (gg == var) return Expr{S::One()};
+        if (gg->type_id() != TypeId::Mul) return std::nullopt;
+        std::vector<Expr> rest;
+        bool found = false;
+        for (const auto& f : gg->args()) {
+            if (f == var) {
+                if (found) return std::nullopt;
+                found = true;
+            } else if (has(f, var)) {
+                return std::nullopt;
+            } else {
+                rest.push_back(f);
+            }
+        }
+        if (!found) return std::nullopt;
+        return rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    };
+    // Periodic image over var: (base + period·n) / a, simplified.
+    auto periodic = [&](const Expr& base, const Expr& period, const Expr& a) {
+        return image_set(n, simplify((base + period * n) / a), integers());
+    };
     switch (fid) {
         case FunctionId::Log:
             return recurse_or_finite(exp(c));
@@ -273,31 +307,31 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
                               solveset_impl(g + c, var, domain));
         }
         case FunctionId::Sin: {
-            // sin(g) = c → g ∈ {(-1)^n · asin(c) + n·π : n ∈ ℤ}.
-            // Only emit ImageSet when g is var directly; nested g
-            // would need parametric back-substitution.
-            if (g == var) {
-                Expr image = pow(integer(-1), n) * asin(c) + n * S::Pi();
-                return image_set(n, image, integers());
+            // sin(a·var) = c → var ∈ {((-1)^n·asin(c) + n·π) / a : n ∈ ℤ}.
+            if (auto a = linear_coeff(g)) {
+                return periodic(pow(integer(-1), n) * asin(c), S::Pi(), *a);
             }
             return std::nullopt;
         }
         case FunctionId::Cos: {
-            // cos(g) = c → g ∈ {±acos(c) + 2nπ : n ∈ ℤ}. Union of two
-            // ImageSets.
-            if (g == var) {
-                auto pos = image_set(n, acos(c) + integer(2) * n * S::Pi(),
-                                       integers());
-                auto neg = image_set(n, -acos(c) + integer(2) * n * S::Pi(),
-                                       integers());
-                return set_union(pos, neg);
+            // cos(a·var) = c → var ∈ {(±acos(c) + 2nπ) / a}. Two ImageSets,
+            // but when acos(c) ∈ {0, π} (c = ±1) the ± branches coincide, so a
+            // single ImageSet suffices (cos(2x)=1 → {nπ}, not {nπ} ∪ {nπ}).
+            if (auto a = linear_coeff(g)) {
+                Expr ac = simplify(acos(c));
+                Expr two_pi = integer(2) * S::Pi();
+                if (ac == S::Zero() || ac == S::Pi()) {
+                    return periodic(ac, two_pi, *a);
+                }
+                return set_union(periodic(ac, two_pi, *a),
+                                 periodic(mul(S::NegativeOne(), ac), two_pi, *a));
             }
             return std::nullopt;
         }
         case FunctionId::Tan: {
-            if (g == var) {
-                Expr image = atan(c) + n * S::Pi();
-                return image_set(n, image, integers());
+            // tan(a·var) = c → var ∈ {(atan(c) + nπ) / a}.
+            if (auto a = linear_coeff(g)) {
+                return periodic(atan(c), S::Pi(), *a);
             }
             return std::nullopt;
         }
