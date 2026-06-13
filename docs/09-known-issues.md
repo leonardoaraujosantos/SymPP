@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-PI8-1 — `sin/cos/tan(π/8)` stayed unevaluated
+- **Problem:** the special-angle table covered denominators {1,2,3,4,6,12} but
+  not 8, so the π/8 family (22.5°, the half-angles of π/4) came back symbolic —
+  `cos(π/8)`, `tan(π/8)`, … — where SymPy returns `√(2+√2)/2`, `√2−1`, etc. A
+  prior test deliberately kept π/8 unevaluated, but that was a presentational
+  preference (the π/12 entries already emit radicals), not a correctness
+  constraint, so it diverged from SymPy for no reason.
+- **Fix:** added the den-8 reference angles to `base_cos_pi` (`cos(π/8)=√(2+√2)/2`,
+  `cos(3π/8)=√(2−√2)/2`) and `base_tan_pi` (`tan(π/8)=√2−1`, `tan(3π/8)=√2+1`) in
+  `src/functions/trigonometric.cpp`. `sin` derives from the existing co-function
+  reflection (`sin_pi(r)=cos_pi(½−r)`), and all multiples (5π/8, 7π/8, …) reduce
+  through the period/reflection folds.
+- **Verified:** every `sin/cos/tan` of `{±1,3,5,7,9,11}·π/8` checked equal to
+  SymPy via the oracle.
+- **Regression test:** `TRIG-PI8-1` in `tests/functions/trigonometric_test.cpp`
+  (`[3b][trig][oracle][regression]`, 6 assertions) — replaces the old
+  "stays unevaluated" assertion.
+- **Scope:** the π/5 / π/10 pentagon family (`cos(π/5)=(1+√5)/4`, …) is still
+  symbolic and remains a follow-up.
+
 ### INT-RATIONAL-NOPARTIAL-1 — `try_rational` leaked partial results with an `Integral` marker
 - **Problem:** when `apart()` couldn't fully split a denominator, `try_rational`
   integrated the partial-fraction sum term by term and returned the half-answer —

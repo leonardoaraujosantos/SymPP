@@ -125,8 +125,8 @@ namespace {
     return mul(std::move(rest));
 }
 
-// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6,12}.
-// Returns nullopt for any other denominator (e.g. π/8 — a nested radical).
+// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in
+// {1,2,3,4,6,8,12}. Returns nullopt for any other denominator.
 [[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
     const mpz_class& den = r.get_den();  // canonical: den > 0, gcd(num,den)=1
@@ -149,6 +149,19 @@ namespace {
         return mul(rational(1, 4),
                    add(pow(integer(6), rational(1, 2)),
                        mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))));
+    }
+    // π/8 family (22.5°): half-angles of π/4 — cos(π/8) = √(2+√2)/2,
+    // cos(3π/8) = √(2−√2)/2. sin(π/8), sin(3π/8) follow via sin_pi's reflection.
+    if (num == 1 && den == 8) {                      // cos(π/8)  = √(2+√2)/2
+        return mul(S::Half(),
+                   pow(add(integer(2), pow(integer(2), rational(1, 2))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 8) {                      // cos(3π/8) = √(2−√2)/2
+        return mul(S::Half(),
+                   pow(add(integer(2),
+                           mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))),
+                       rational(1, 2)));
     }
     return std::nullopt;
 }
@@ -180,7 +193,7 @@ namespace {
     return cos_pi(half - r);
 }
 
-// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,6}.
+// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,6,8,12}.
 // Computed from a dedicated table (rather than sin/cos) for a clean result.
 [[nodiscard]] std::optional<Expr> base_tan_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
@@ -198,6 +211,12 @@ namespace {
     }
     if (num == 5 && den == 12) {                 // tan(5π/12) = 2 + √3
         return add(integer(2), pow(integer(3), rational(1, 2)));
+    }
+    if (num == 1 && den == 8) {                  // tan(π/8)  = √2 − 1
+        return add(pow(integer(2), rational(1, 2)), S::NegativeOne());
+    }
+    if (num == 3 && den == 8) {                  // tan(3π/8) = √2 + 1
+        return add(pow(integer(2), rational(1, 2)), S::One());
     }
     return std::nullopt;
 }
