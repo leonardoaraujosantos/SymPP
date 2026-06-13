@@ -1782,8 +1782,46 @@ namespace {
     return mul(std::move(out));
 }
 
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> as_binomial(const Expr& e) {
+    if (!e || e->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*e);
+    if (f.function_id() != FunctionId::Binomial) return std::nullopt;
+    return std::make_pair(e->args()[0], e->args()[1]);
+}
+
+// combsimp on a binomial: collapse binomial(n, k) to its polynomial form when
+// either k or n-k is a small non-negative integer m, via the gamma identity
+//   binomial(n, k) = falling_factorial(n, m) / m!   (m = n-k, or m = k)
+// which is valid for symbolic n. Examples: binomial(n,n)→1,
+// binomial(n,n-1)→n, binomial(n+1,n)→n+1, binomial(n,2)→n*(n-1)/2.
+[[nodiscard]] Expr combsimp_binomial(const Expr& e) {
+    auto b = as_binomial(e);
+    if (!b) return e;
+    auto small_nonneg = [](const Expr& x) -> std::optional<long> {
+        if (x->type_id() != TypeId::Integer) return std::nullopt;
+        const auto& z = static_cast<const Integer&>(*x);
+        if (!z.fits_long()) return std::nullopt;
+        long v = z.to_long();
+        if (v < 0 || v > 50) return std::nullopt;
+        return v;
+    };
+    // m! as a single folded Integer (Mul folds numeric factors).
+    auto m_factorial = [](long m) -> Expr {
+        Expr r = S::One();
+        for (long i = 2; i <= m; ++i) r = r * integer(i);
+        return r;
+    };
+    const Expr& n = b->first;
+    const Expr& k = b->second;
+    // Prefer m = n-k (handles the symmetric tail: binomial(n,n), n-1, ...).
+    std::optional<long> m = small_nonneg(simplify(n - k));
+    if (!m) m = small_nonneg(k);   // otherwise m = k (small head: 0,1,2,...).
+    if (!m) return e;
+    return mul({falling_factorial(n, *m), pow(m_factorial(*m), integer(-1))});
+}
+
 [[nodiscard]] Expr combsimp_node(const Expr& e) {
-    return simplify_func_ratio(e, as_factorial_arg);
+    return combsimp_binomial(simplify_func_ratio(e, as_factorial_arg));
 }
 
 [[nodiscard]] Expr gammasimp_node(const Expr& e) {

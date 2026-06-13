@@ -839,6 +839,31 @@ TEST_CASE("combsimp: leaves unrelated factorials alone",
                               "factorial(n)/factorial(m)"));
 }
 
+// BINOM-COMB-1 — collapse binomial(n,k) when k or n-k is a small non-neg int.
+TEST_CASE("combsimp: collapses binomial to polynomial form",
+          "[5][combsimp][binomial][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    // n-k = 0 → 1
+    REQUIRE(oracle.equivalent(combsimp(binomial(n, n))->str(), "1"));
+    // n-k = 1 → n
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, n - integer(1)))->str(), "n"));
+    // n-k = 1 with offset numerator → n+1
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n + integer(1), n))->str(), "n + 1"));
+    // small head k=2 → n*(n-1)/2
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, integer(2)))->str(), "n*(n-1)/2"));
+    // small head k=3 → n*(n-1)*(n-2)/6
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, integer(3)))->str(), "n*(n-1)*(n-2)/6"));
+    // fully symbolic → unchanged
+    auto k = symbol("k");
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, k))->str(), "binomial(n,k)"));
+}
+
 TEST_CASE("gammasimp: gamma(n+1)/gamma(n) → n",
           "[5][gammasimp][oracle]") {
     auto& oracle = Oracle::instance();

@@ -14,6 +14,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### BINOM-COMB-1 — `combsimp` didn't collapse `binomial(n,k)` to polynomial form
+- **Input:** `combsimp(binomial(n,n))`, `combsimp(binomial(n,n-1))`,
+  `combsimp(binomial(n+1,n))`, `combsimp(binomial(n,2))`, `combsimp(binomial(n,3))`.
+- **Was:** all left unevaluated — `combsimp` only cancelled factorial *ratios*,
+  and the `binomial` factory collapses only `k ∈ {0,1}` or literal-integer args.
+- **Expected (SymPy `combsimp`):** `1`, `n`, `n+1`, `n*(n-1)/2`, `n*(n-1)*(n-2)/6`.
+- **Fix (`src/simplify/simplify.cpp`):** added `combsimp_binomial`, which folds
+  `binomial(n,k)` whenever `k` or `n-k` is a small non-negative integer `m`, via
+  the gamma identity `binomial(n,k) = falling_factorial(n,m)/m!` (valid for
+  symbolic `n`). `m = n-k` is tried first (the symmetric tail: `n`, `n-1`, …),
+  then `m = k` (the small head: `0,1,2,…`). `combsimp_node` runs this after the
+  factorial-ratio pass. Fully symbolic `binomial(n,k)` is left untouched.
+- **Verified against SymPy:** all five forms match `combsimp`; the `binomial`
+  factory's integer fast-paths (`binomial(5,2)=10`, `binomial(n,0)=1`) are intact.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][combsimp][binomial][oracle][regression]`.
+- **Scope:** one of `k` / `n-k` a non-negative integer ≤ 50. Genuinely symbolic
+  binomials and the gamma/factorial recurrence collapse (`x*gamma(x)→gamma(x+1)`)
+  remain out of scope.
+
 ### GAMMA-REFL-1 — `gammasimp` missed the Euler reflection formula
 - **Input:** `gammasimp(gamma(x)*gamma(1-x))`, `gammasimp(gamma(2*x)*gamma(1-2*x))`.
 - **Was:** left as `gamma(-x + 1)*gamma(x)` — `gammasimp` only cancelled gamma
