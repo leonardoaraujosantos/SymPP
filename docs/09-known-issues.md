@@ -36,7 +36,10 @@ truth and links the issue number.
 - **Regression test:** `tests/solvers/solve_test.cpp`
   — `[10][solve][trig][oracle][regression]` (order-independent set comparison).
 - **Scope:** a single `sin`/`cos`/`tan` term, linear argument, var-free
-  coefficient. Trig *combinations* (`sin x + cos x`), *powers* (`sin(x)²`), and
+  coefficient — plus a homogeneous positive-integer power `f(B*x)^n = 0`, which
+  reduces to `f(B*x) = 0` (so `sin(x)²→[0,π]`, `cos(x)²→[π/2,3π/2]`,
+  `tan(x)²→[0]`, `2·sin(x)²→[0,π]`). Trig *combinations* (`sin x + cos x`),
+  *non-homogeneous* powers (`sin(x)²−1`), products (`sin x·cos x`), and
   phase-shifted arguments remain out of scope (decline cleanly to `[]`).
 
 ### GAMMA-REC-1 — gamma recurrence `z*gamma(z) → gamma(z+1)` wasn't applied

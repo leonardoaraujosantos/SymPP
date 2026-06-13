@@ -290,6 +290,13 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
     REQUIRE(set_equal(solve(sin(integer(2) * x), x), {"0", "pi/2"}));
     REQUIRE(set_equal(solve(cos(integer(3) * x), x), {"pi/6", "pi/2"}));
     REQUIRE(set_equal(solve(tan(x) - integer(1), x), {"pi/4"}));
+    // homogeneous powers f(x)^n = 0 reduce to f(x) = 0
+    REQUIRE(set_equal(solve(pow(sin(x), integer(2)), x), {"0", "pi"}));
+    REQUIRE(set_equal(solve(pow(cos(x), integer(2)), x), {"pi/2", "3*pi/2"}));
+    REQUIRE(set_equal(solve(pow(sin(x), integer(3)), x), {"0", "pi"}));
+    REQUIRE(set_equal(solve(pow(tan(x), integer(2)), x), {"0"}));
+    REQUIRE(set_equal(
+        solve(integer(2) * pow(sin(x), integer(2)), x), {"0", "pi"}));
 }
 
 // SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as

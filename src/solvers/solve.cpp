@@ -91,19 +91,30 @@ solve_trig(const Expr& expr, const Expr& var) {
     } else {
         dep = expr;
     }
-    // dep = A * f(arg): isolate the trig Function and a var-free coefficient A.
+    // dep = coeff * core, coeff var-free, core the single var-dependent factor.
     Expr coeff = S::One();
+    Expr core;
+    if (dep->type_id() == TypeId::Mul) {
+        std::vector<Expr> cf, vf;
+        for (const auto& f : dep->args()) (has(f, var) ? vf : cf).push_back(f);
+        if (vf.size() != 1) return std::nullopt;   // product of trig factors
+        core = vf[0];
+        coeff = cf.empty() ? Expr{S::One()} : mul(cf);
+    } else {
+        core = dep;
+    }
+    // core is f(arg), or f(arg)^n with n a positive integer. The power form is
+    // only solved homogeneously: f(arg)^n = 0 reduces to f(arg) = 0.
     Expr fexpr;
-    if (dep->type_id() == TypeId::Function) {
-        fexpr = dep;
-    } else if (dep->type_id() == TypeId::Mul) {
-        std::vector<Expr> rest;
-        for (const auto& f : dep->args()) {
-            if (!fexpr && f->type_id() == TypeId::Function) fexpr = f;
-            else rest.push_back(f);
-        }
-        if (!fexpr || has(mul(rest), var)) return std::nullopt;
-        coeff = rest.empty() ? Expr{S::One()} : mul(rest);
+    if (core->type_id() == TypeId::Function) {
+        fexpr = core;
+    } else if (core->type_id() == TypeId::Pow
+               && core->args()[0]->type_id() == TypeId::Function
+               && core->args()[1]->type_id() == TypeId::Integer
+               && !static_cast<const Integer&>(*core->args()[1]).is_negative()
+               && core->args()[1] != S::Zero()) {
+        if (cst != S::Zero()) return std::nullopt;   // only f(arg)^n = 0
+        fexpr = core->args()[0];
     } else {
         return std::nullopt;
     }
