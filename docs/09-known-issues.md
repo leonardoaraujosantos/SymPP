@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-RATIONAL-NOPARTIAL-1 — `try_rational` leaked partial results with an `Integral` marker
+- **Problem:** when `apart()` couldn't fully split a denominator, `try_rational`
+  integrated the partial-fraction sum term by term and returned the half-answer —
+  e.g. `∫x²/(x⁶+1)` gave `−⅓atan(x) + Integral((⅓x²+⅓)/(x⁴−x²+1))`. The leaked
+  `Integral(…)` sat inside an `Add`, so the existing top-level `is_integral_marker`
+  guard missed it, and the bogus partial shadowed cleaner strategies.
+- **Fix:** added a recursive `contains_integral_marker` in
+  `src/integrals/integrate.cpp` and used it for both intermediate guards and a
+  final check in `try_rational`: if the assembled antiderivative still hides an
+  `Integral` anywhere, `try_rational` returns `nullopt`. The integral then either
+  falls through to a strategy that closes it — `∫x²/(x⁶+1) = ⅓atan(x³)` via the
+  monomial substitution (INT-MONOMIAL-SUB-1) — or is returned honestly
+  unevaluated (`∫1/(x⁶+1)`), never as a leaked partial.
+- **Verified:** `∫x²/(x⁶+1)` closes to `⅓atan(x³)` (oracle); `∫1/(x⁶+1)` and
+  `∫1/(x⁵+1)` carry no partial sum; fully-solvable rationals (`1/(x⁴−1)`,
+  `1/(x³+1)`, `x/(x⁶+1)`) are unchanged.
+- **Regression test:** `INT-RATIONAL-NOPARTIAL-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  5 assertions).
+- **Scope:** denominators that are irreducible over ℚ but elementary-integrable
+  (`1/(x⁶+1)`, `1/(x⁵+1)`) still return unevaluated — closing those needs
+  integration over an algebraic extension (Lazard–Rioboo–Trager), a larger
+  effort. The fix removes the misleading partials in the meantime.
+
 ### INT-MONOMIAL-SUB-1 — `integrate` missed the monomial substitution u = x^d
 - **Problem:** integrands of the form `x^(d-1)·f(x^d)` whose `f(x^d)` is hidden
   inside a rational or radical expression came back unevaluated — `∫x/(x⁴+1)`,

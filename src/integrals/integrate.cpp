@@ -542,6 +542,19 @@ namespace {
     return fn.name() == "Integral";
 }
 
+// Deep variant: does any subexpression carry the Integral failure marker? A
+// term-by-term integrator (e.g. over an apart() sum) can leave a partial result
+// like `atan(x)/3 + Integral(…)`, whose top node is an Add — so the shallow
+// check above misses the leaked marker.
+[[nodiscard]] bool contains_integral_marker(const Expr& e) {
+    if (!e) return false;
+    if (is_integral_marker(e)) return true;
+    for (const auto& a : e->args()) {
+        if (contains_integral_marker(a)) return true;
+    }
+    return false;
+}
+
 // Try to interpret expr as c * g'(x) * f(g(x)) for some non-trivial
 // inner expression g(x) and outer pattern f ∈ {sin, cos, exp, log,
 // reciprocal}. Strategy:
@@ -1558,13 +1571,19 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
         // no recursion.
         if (q.is_zero()) return std::nullopt;
         proper_int = integrate(proper, var);
-        if (is_integral_marker(proper_int)) return std::nullopt;
+        if (contains_integral_marker(proper_int)) return std::nullopt;
     } else {
         proper_int = integrate(apart_form, var);
-        if (is_integral_marker(proper_int)) return std::nullopt;
+        // Reject a partial decomposition: if any partial-fraction term failed to
+        // integrate, the Add still hides an Integral marker. Returning that
+        // half-answer would shadow cleaner strategies (e.g. the monomial
+        // substitution that closes ∫x²/(x⁶+1) = ⅓atan(x³)).
+        if (contains_integral_marker(proper_int)) return std::nullopt;
     }
 
-    return integrate(q.as_expr(), var) + proper_int;
+    Expr result = integrate(q.as_expr(), var) + proper_int;
+    if (contains_integral_marker(result)) return std::nullopt;
+    return result;
 }
 
 std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {

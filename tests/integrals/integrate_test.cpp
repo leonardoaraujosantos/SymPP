@@ -2128,3 +2128,38 @@ TEST_CASE("integrate: monomial substitution u = x^d (INT-MONOMIAL-SUB-1)",
             ->str(),
         "log(x**2 + 1)/2"));
 }
+
+// INT-RATIONAL-NOPARTIAL-1: try_rational must not return a half-answer with a
+// leaked Integral marker. When apart() can't fully decompose the integrand it
+// now bails, so a cleaner strategy can take over (∫x²/(x⁶+1) closes to
+// ⅓atan(x³) via monomial substitution) or the whole integral is returned
+// honestly unevaluated (∫1/(x⁶+1)) — never `…atan(x) + Integral(…)`.
+TEST_CASE("integrate: no partial rational results (INT-RATIONAL-NOPARTIAL-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x²/(x⁶+1) now closes cleanly.
+    auto F = integrate(
+        pow(x, integer(2)) * pow(pow(x, integer(6)) + integer(1), integer(-1)),
+        x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(F->str(), "atan(x**3)/3"));
+    // No leaked partials: any remaining Integral must be the whole result, not a
+    // summand alongside closed-form terms.
+    auto no_partial = [](const Expr& r) {
+        const std::string s = r->str();
+        const auto pos = s.find("Integral(");
+        return pos == std::string::npos || pos == 0;
+    };
+    for (const Expr& e : {pow(pow(x, integer(6)) + integer(1), integer(-1)),
+                          pow(pow(x, integer(5)) + integer(1), integer(-1))}) {
+        auto r = integrate(e, x);
+        INFO("integrand: " << e->str() << "  result: " << r->str());
+        REQUIRE(no_partial(r));
+    }
+    // Fully-solvable rationals are unaffected.
+    REQUIRE(oracle.equivalent(
+        diff(integrate(pow(pow(x, integer(4)) - integer(1), integer(-1)), x), x)
+            ->str(),
+        "1/(x**4 - 1)"));
+}
