@@ -74,7 +74,9 @@ namespace {
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
-    auto roots = solve_poly(expr, var);
+    // Expand first so a factored polynomial reaches the Poly machinery:
+    // solve((x-1)*(x-2)) was empty because Poly couldn't build from the Mul.
+    auto roots = solve_poly(expand(expr), var);
     // A genuine solution x = c must be free of x. solve_poly treats a
     // var-dependent "coefficient" (e.g. exp(x) in x·exp(x) − 1) as constant and
     // can hand back a rearrangement such as x = exp(x)**(-1); discard any
@@ -544,65 +546,59 @@ SetPtr solve_univariate_inequality(const Expr& lhs, const Expr& rel_op_str,
                                     const Expr& rhs, const Expr& var) {
     Expr f = lhs - rhs;
     auto roots = solve(f, var);
-    // Filter to numeric roots; sort.
-    std::vector<double> numeric_roots;
+    // Keep each real root as its EXACT expression, paired with a numeric value
+    // for ordering / sampling — so the interval endpoints are exact (−2, not
+    // −2.0000…) and the unbounded ends are the real ±∞, not a 1e30 proxy.
+    std::vector<std::pair<Expr, double>> rv;
     for (const auto& r : roots) {
-        auto d = expr_to_double(r, 30);
-        if (d) numeric_roots.push_back(*d);
+        if (auto d = expr_to_double(r, 30)) rv.push_back({r, *d});
     }
-    std::sort(numeric_roots.begin(), numeric_roots.end());
-    numeric_roots.erase(std::unique(numeric_roots.begin(), numeric_roots.end()),
-                         numeric_roots.end());
+    std::sort(rv.begin(), rv.end(),
+              [](const auto& a, const auto& b) { return a.second < b.second; });
+    rv.erase(std::unique(rv.begin(), rv.end(),
+                         [](const auto& a, const auto& b) {
+                             return a.second == b.second;
+                         }),
+             rv.end());
 
-    // Decode the relation: rel_op_str is a Symbol with one of these names.
     std::string op = rel_op_str->str();
     bool want_pos = (op == ">" || op == ">=");
     bool want_neg = (op == "<" || op == "<=");
     bool include_eq = (op == ">=" || op == "<=");
     bool not_equal = (op == "!=");
 
-    // Build the disjoint sample intervals.
-    const double huge = 1e30;
-    std::vector<double> bps;
-    bps.push_back(-huge);
-    for (auto r : numeric_roots) bps.push_back(r);
-    bps.push_back(huge);
-
-    SetPtr result = empty_set();
-    for (std::size_t i = 0; i + 1 < bps.size(); ++i) {
-        double mid = (bps[i] + bps[i + 1]) / 2.0;
-        auto v = sample_at(f, var, mid, 30);
-        if (!v) continue;
-        bool keep = false;
-        if (not_equal) keep = true;
-        else if (want_pos && *v > 0) keep = true;
-        else if (want_neg && *v < 0) keep = true;
-        if (keep) {
-            // Translate bps[i], bps[i+1] back to Exprs. -huge / +huge
-            // act as ±∞ proxies; we still emit numeric Floats since we
-            // don't have an Infinity singleton.
-            Expr lo = (i == 0) ? make<Float>(std::to_string(-huge), 30)
-                                : make<Float>(std::to_string(bps[i]), 30);
-            Expr hi = (i + 1 == bps.size() - 1)
-                          ? make<Float>(std::to_string(huge), 30)
-                          : make<Float>(std::to_string(bps[i + 1]), 30);
-            // Endpoint inclusion: at internal boundaries the boundary
-            // is a root → strict inequality excludes, ≤/≥ includes.
-            // For ±∞ proxies we always exclude.
-            bool lo_open = (i == 0) || !include_eq;
-            bool hi_open = (i + 1 == bps.size() - 1) || !include_eq;
-            result = set_union(result,
-                                interval(lo, hi, lo_open, hi_open));
-        }
-    }
-    // For !=, the "kept" intervals collectively form Reals \ {roots}.
-    if (not_equal && result->kind() != SetKind::Empty) {
-        // Collapse to Reals \ FiniteSet(roots).
+    if (not_equal) {
         std::vector<Expr> root_exprs;
-        for (auto r : numeric_roots) {
-            root_exprs.push_back(make<Float>(std::to_string(r), 30));
-        }
-        return set_complement(reals(), finite_set(std::move(root_exprs)));
+        for (const auto& [e, d] : rv) root_exprs.push_back(e);
+        return root_exprs.empty()
+                   ? reals()
+                   : set_complement(reals(), finite_set(std::move(root_exprs)));
+    }
+
+    // Sample the sign of f on each open region between consecutive roots
+    // (and the two unbounded ends), keeping the regions whose sign matches.
+    const std::size_t n = rv.size();
+    SetPtr result = empty_set();
+    for (std::size_t i = 0; i <= n; ++i) {
+        // Sample point strictly inside region i.
+        double sample;
+        if (n == 0) sample = 0.0;
+        else if (i == 0) sample = rv.front().second - 1.0;
+        else if (i == n) sample = rv.back().second + 1.0;
+        else sample = (rv[i - 1].second + rv[i].second) / 2.0;
+
+        auto v = sample_at(f, var, sample, 30);
+        if (!v) continue;
+        if (!((want_pos && *v > 0) || (want_neg && *v < 0))) continue;
+
+        Expr lo = (i == 0) ? S::NegativeInfinity() : rv[i - 1].first;
+        Expr hi = (i == n) ? S::Infinity() : rv[i].first;
+        bool lo_open = (i == 0) || !include_eq;
+        bool hi_open = (i == n) || !include_eq;
+        SetPtr piece = (i == 0 && i == n)
+                           ? reals()
+                           : interval(lo, hi, lo_open, hi_open);
+        result = set_union(result, piece);
     }
     return result;
 }

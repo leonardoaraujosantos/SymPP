@@ -433,6 +433,53 @@ TEST_CASE("inequality: x^2 - 4 > 0 outside (-2, 2)",
     REQUIRE(s->contains(integer(0)) == std::optional<bool>{false});
 }
 
+// INEQ-EXACT-1: inequality solutions use EXACT root endpoints (−2, not −2.0…)
+// and the real ±∞ (not a 1e30 proxy). solve() also now expands a factored
+// polynomial, so (x−1)(x−2) < 0 resolves to (1, 2) instead of EmptySet.
+TEST_CASE("inequality: exact endpoints, real infinity (INEQ-EXACT-1)",
+          "[10][inequality][regression]") {
+    auto x = symbol("x");
+    auto lt = symbol("<");
+    auto gt = symbol(">");
+    auto le = symbol("<=");
+    // x²−4 < 0 → (−2, 2) with EXACT integer endpoints.
+    {
+        auto s = solve_univariate_inequality(pow(x, integer(2)) - integer(4),
+                                             lt, S::Zero(), x);
+        REQUIRE(s->kind() == SetKind::Interval);
+        const auto& iv = static_cast<const Interval&>(*s);
+        REQUIRE(iv.lo() == integer(-2));
+        REQUIRE(iv.hi() == integer(2));
+        REQUIRE(iv.left_open());
+        REQUIRE(iv.right_open());
+    }
+    // x²−4 > 0 → (−∞,−2) ∪ (2,∞): a Union of rays, real infinity.
+    REQUIRE(solve_univariate_inequality(pow(x, integer(2)) - integer(4), gt,
+                                        S::Zero(), x)
+                ->kind() == SetKind::Union);
+    // x²+1 > 0 → Reals (no real roots, positive everywhere).
+    REQUIRE(solve_univariate_inequality(pow(x, integer(2)) + integer(1), gt,
+                                        S::Zero(), x)
+                ->kind() == SetKind::Reals);
+    // (x−1)(x−2) < 0 → (1, 2) — the solve-expand fix (was EmptySet).
+    {
+        auto s = solve_univariate_inequality(
+            (x - integer(1)) * (x - integer(2)), lt, S::Zero(), x);
+        REQUIRE(s->kind() == SetKind::Interval);
+        const auto& iv = static_cast<const Interval&>(*s);
+        REQUIRE(iv.lo() == integer(1));
+        REQUIRE(iv.hi() == integer(2));
+    }
+    // x²−4 ≤ 0 → [−2, 2] (closed endpoints).
+    {
+        auto s = solve_univariate_inequality(pow(x, integer(2)) - integer(4),
+                                             le, S::Zero(), x);
+        const auto& iv = static_cast<const Interval&>(*s);
+        REQUIRE_FALSE(iv.left_open());
+        REQUIRE_FALSE(iv.right_open());
+    }
+}
+
 // ----- rsolve ----------------------------------------------------------------
 
 TEST_CASE("rsolve: y(n+1) - 2*y(n) = 0 → y = C * 2^n",

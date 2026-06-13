@@ -14,6 +14,34 @@ truth and links the issue number.
 
 ## Fixed
 
+### INEQ-EXACT-1 — inequalities used float endpoints + a 1e30 ∞ proxy; `solve` ignored factored polynomials
+- **Input:** `solve_univariate_inequality(x²−4 < 0)`, `x²−4 > 0`, `x²+1 > 0`,
+  `(x−1)(x−2) < 0`; and `solve((x−1)*(x−2))`.
+- **Was:**
+  - endpoints came back as `Float`s (`−2.0000…`, `2.0000…`) instead of exact
+    integers, because every root was round-tripped through a `double`;
+  - the unbounded ends used a literal `1e30` as an `∞` proxy
+    (`x²+1>0 → (−1e30, 1e30)` instead of `Reals`), with a code comment noting
+    *"we don't have an Infinity singleton"* — stale since the infinity atoms
+    shipped;
+  - `solve((x−1)*(x−2))` returned `[]` (the `Poly` machinery couldn't build from
+    the un-expanded `Mul`), so `(x−1)(x−2) < 0` wrongly gave `EmptySet`.
+- **Expected (SymPy):** `(−2, 2)`, `(−∞,−2) ∪ (2,∞)`, `Reals`, `(1, 2)`,
+  `[1, 2]`.
+- **Fix (`src/solvers/solve.cpp`):**
+  - `solve` now `expand`s the input before the polynomial path, so a factored
+    polynomial is solved (`(x−1)(x−2) → [1, 2]`);
+  - `solve_univariate_inequality` keeps each root as its **exact** `Expr` (paired
+    with a `double` only for ordering / sign-sampling), emits the real
+    `S::Infinity()` / `S::NegativeInfinity()` at the unbounded ends, and returns
+    `reals()` when there are no roots and the sign matches.
+- **Verified against SymPy:** the family above matches exactly, including the
+  closed-endpoint `≤` case and the ray `Union`.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][inequality][regression]` (INEQ-EXACT-1).
+- **Scope:** real univariate inequalities with numeric roots. Irrational roots
+  still order via their numeric value but appear exactly in the endpoints.
+
 ### SET-COMPL-1 — `ℝ \ interval` wasn't computed, and ray membership was Unknown
 - **Input:** `set_complement(Reals, Interval(1,3))`,
   `set_complement(Reals, Interval.open(1,3))`,
