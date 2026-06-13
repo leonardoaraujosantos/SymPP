@@ -151,15 +151,22 @@ together with the Gruntz limit work.
 ### Phase 2 — Assumptions · 🟡 minimal
 
 **Shipped**: `AssumptionMask` (Real, Rational, Integer, Positive,
-Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite),
-`is_real/is_positive/is_integer/...` queries on every `Expr`,
-propagation through `Add`/`Mul`/`Pow`, `refine()` on assumption-gated
-rewrites.
+Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite, **Even, Odd**),
+`is_real/is_positive/is_integer/...` queries on every `Expr`, full deductive
+closure (positive ⇒ real ∧ nonzero ∧ nonnegative; even ⇒ integer ∧ rational;
+odd ⇒ integer ∧ nonzero; even/odd mutually exclusive; integer ∧ ¬even ⇒ odd; …)
+and propagation through `Add`/`Mul`/`Pow` (sum/product sign and parity,
+even-power-of-real ≥ 0, x²+1 > 0, …), `refine()` on assumption-gated rewrites.
+The shipped ontology is functional, not minimal — it drives the assumption-gated
+simplifications (`√(x²)→|x|`, `|x|²→x²`, log/exp splits, `(−1)^(2n)=1`).
 
-**Deferred-deep**: Even/Odd/Prime/Composite, Hermitian/Antihermitian,
-Algebraic/Transcendental, the SAT-based `ask` system. Reason: SAT
-porting is its own multi-week subsystem and our practical use cases
-hit only the basic ontology.
+**Deferred**: the *breadth* — Complex/Imaginary, Irrational/Noninteger,
+Prime/Composite, Algebraic/Transcendental, Hermitian/Antihermitian,
+Commutative (everything is assumed commutative), extended-real/infinite
+predicates — and the **SAT-based `ask(query, assumptions)`** reasoner (SymPP's
+`ask` is per-node hardcoded propagation, not a general inference engine over
+combined predicates). ~12 of SymPy's ~30+ predicates. Reason: SAT porting is its
+own multi-week subsystem and our practical use cases hit only the basic ontology.
 
 ### Phase 3 — Elementary & special functions · ✅
 

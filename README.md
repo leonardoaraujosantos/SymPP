@@ -31,7 +31,7 @@ for the multi-metric parity breakdown.
 |---|---|---|
 | 0  | Foundation & oracle harness            | ✅ |
 | 1  | Core expression tree                   | ✅ |
-| 2  | Assumptions                            | 🟡 minimal subset |
+| 2  | Assumptions                            | 🟡 core ontology (real/int/rational/sign/finite/parity) with closure + Add/Mul/Pow propagation; complex/imaginary/prime/irrational/commutative predicates + SAT-based `ask` deferred |
 | 3  | Elementary & special functions         | ✅ |
 | 4  | Polynomials                            | ✅ |
 | 5  | Simplification                         | ✅ |
