@@ -16,6 +16,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-ANGLE-ADD-1 — `simplify` didn't fold the angle-addition identities
+- **Problem:** `simplify` collapsed same-argument trig combinations (Pythagorean,
+  power-reduction, double-angle) but left the two-argument angle-addition forms
+  untouched: `sin(x)cos(y)+cos(x)sin(y)`, `cos(x)cos(y)−sin(x)sin(y)`, etc.
+  stayed as products where SymPy returns `sin(x+y)`, `cos(x+y)`, …
+- **Fix:** added `trigsimp_angle_addition` (with a `as_two_trig_term` classifier)
+  in `src/simplify/simplify.cpp`, run inside `trigsimp_node`. On a two-term `Add`
+  whose terms are products of two first-power sin/cos factors it recognises
+  `sin(a)cos(b) ± cos(a)sin(b) → sin(a±b)` and
+  `cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b)`, carrying a shared coefficient
+  through. The classifier bails on any non-clean shape (squared trig, a third
+  trig factor, a leftover function in the coefficient) so nothing is mis-folded.
+- **Verified:** each result checked equal to `sympy.simplify` for all four
+  identities, a coefficient-carrying case, and a composing case
+  (`sin(2x)cos(x)+cos(2x)sin(x) → sin(3x)`).
+- **Regression test:** `TRIG-ANGLE-ADD-1` in `tests/simplify/simplify_test.cpp`
+  (`[5][trigsimp][oracle][regression]`, 7 assertions).
+- **Scope:** matches a two-term `Add` with the exact product structure; it does
+  not yet expand `sin(3x)` into single-argument powers (the reverse direction) or
+  handle products of more than two angles.
+
 ### POLY-FACTOR-ROOTS-1 — `solve`/`Poly::roots` returned nested radicals for factorable quartics
 - **Problem:** a quartic with no rational root but which factors over ℚ into two
   quadratics (e.g. `x⁴+x²+1 = (x²+x+1)(x²−x+1)`) went straight to Ferrari's

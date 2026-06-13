@@ -832,6 +832,99 @@ struct CosDoubleTerm {
     return mul(std::move(rest));
 }
 
+// Classify an Add term as a product of exactly two first-power sin/cos factors,
+// returning the coefficient and each factor's (is_sin, arg). Anything else — a
+// bare or squared trig, a third trig factor, or a leftover function in the
+// coefficient — returns nullopt so the term is left untouched.
+struct TwoTrigTerm {
+    Expr coef;
+    bool sin1;
+    Expr arg1;
+    bool sin2;
+    Expr arg2;
+};
+[[nodiscard]] std::optional<TwoTrigTerm> as_two_trig_term(const Expr& term) {
+    if (term->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<std::pair<bool, Expr>> trigs;  // (is_sin, arg)
+    std::vector<Expr> coef_factors;
+    for (const auto& f : term->args()) {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Sin) {
+                trigs.push_back({true, f->args()[0]});
+                continue;
+            }
+            if (fn.function_id() == FunctionId::Cos) {
+                trigs.push_back({false, f->args()[0]});
+                continue;
+            }
+            return std::nullopt;  // another function (tan, …) in the term
+        }
+        // A power of a trig (sin²) or other trig-bearing factor is not a clean
+        // coefficient — bail rather than risk a wrong fold.
+        if (f->type_id() == TypeId::Pow
+            && f->args()[0]->type_id() == TypeId::Function) {
+            return std::nullopt;
+        }
+        coef_factors.push_back(f);
+    }
+    if (trigs.size() != 2) return std::nullopt;
+    return TwoTrigTerm{coef_factors.empty() ? Expr{S::One()} : mul(coef_factors),
+                       trigs[0].first, trigs[0].second, trigs[1].first,
+                       trigs[1].second};
+}
+
+// Angle-addition identities on a two-term Add (each term a product of two
+// trig factors), matching SymPy's simplify:
+//   sin(a)cos(b) ± cos(a)sin(b) → sin(a ± b)
+//   cos(a)cos(b) ∓ sin(a)sin(b) → cos(a ± b)
+// A shared coefficient g carries through (g·… → g·sin/cos(…)).
+[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
+    if (e->type_id() != TypeId::Add || e->args().size() != 2) return e;
+    auto t1 = as_two_trig_term(e->args()[0]);
+    auto t2 = as_two_trig_term(e->args()[1]);
+    if (!t1 || !t2) return e;
+    auto neg = [](const Expr& c) { return mul(S::NegativeOne(), c); };
+
+    const bool sc1 = t1->sin1 != t1->sin2;  // one sin, one cos
+    const bool sc2 = t2->sin1 != t2->sin2;
+    // sin(a±b): both terms are sin·cos.
+    if (sc1 && sc2) {
+        Expr a = t1->sin1 ? t1->arg1 : t1->arg2;   // sin argument of term 1
+        Expr b = t1->sin1 ? t1->arg2 : t1->arg1;   // cos argument of term 1
+        Expr s2 = t2->sin1 ? t2->arg1 : t2->arg2;  // sin argument of term 2
+        Expr c2 = t2->sin1 ? t2->arg2 : t2->arg1;  // cos argument of term 2
+        if (!(s2 == b && c2 == a)) return e;       // must cross-pair
+        if (t1->coef == t2->coef) {
+            return mul(t1->coef, sin(add({a, b})));
+        }
+        if (t1->coef == neg(t2->coef)) {
+            return mul(t1->coef, sin(add({a, neg(b)})));
+        }
+        return e;
+    }
+    // cos(a±b): one term is cos·cos, the other sin·sin, over the same arg pair.
+    const bool cc1 = !t1->sin1 && !t1->sin2, ss1 = t1->sin1 && t1->sin2;
+    const bool cc2 = !t2->sin1 && !t2->sin2, ss2 = t2->sin1 && t2->sin2;
+    const TwoTrigTerm* cc = nullptr;
+    const TwoTrigTerm* ss = nullptr;
+    if (cc1 && ss2) { cc = &*t1; ss = &*t2; }
+    else if (ss1 && cc2) { cc = &*t2; ss = &*t1; }
+    else return e;
+    const bool same_args =
+        (cc->arg1 == ss->arg1 && cc->arg2 == ss->arg2)
+        || (cc->arg1 == ss->arg2 && cc->arg2 == ss->arg1);
+    if (!same_args) return e;
+    Expr a = cc->arg1, b = cc->arg2;
+    if (cc->coef == ss->coef) {
+        return mul(cc->coef, cos(add({a, neg(b)})));  // cos(a−b)
+    }
+    if (cc->coef == neg(ss->coef)) {
+        return mul(cc->coef, cos(add({a, b})));  // cos(a+b)
+    }
+    return e;
+}
+
 // Hyperbolic Pythagorean: a·sinh²(x) + b·cosh²(x) using cosh² − sinh² = 1.
 // Two equivalent rewrites — pick whichever (with the rest of the Add) is
 // smallest, matching SymPy: cosh²−sinh² → 1, and 1+sinh² → cosh².
@@ -1319,6 +1412,7 @@ struct CosDoubleTerm {
 
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
+    cur = trigsimp_angle_addition(cur);
     cur = hypsimp_add(cur);
     cur = tanh_coth_pyth_add(cur);
     cur = trig_pyth_add(cur);

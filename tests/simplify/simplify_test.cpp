@@ -368,6 +368,38 @@ TEST_CASE("trigsimp: power-reduction (1 ∓ cos 2x)/2 (TRIG-PWR)",
         "cos(2*x)"));
 }
 
+// TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
+// → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
+// unfolded before. A shared coefficient carries through, and the rewrite
+// composes (sin(2x)cos(x)+cos(2x)sin(x) → sin(3x)).
+TEST_CASE("trigsimp: angle-addition identities (TRIG-ANGLE-ADD-1)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        simplify(sin(x) * cos(y) + cos(x) * sin(y))->str(), "sin(x + y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(x) * cos(y) - cos(x) * sin(y))->str(), "sin(x - y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cos(x) * cos(y) - sin(x) * sin(y))->str(), "cos(x + y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cos(x) * cos(y) + sin(x) * sin(y))->str(), "cos(x - y)"));
+    // Shared coefficient carries through.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sin(x) * cos(y) + integer(3) * cos(x) * sin(y))
+            ->str(),
+        "3*sin(x + y)"));
+    // Composes: sin(2x)cos(x) + cos(2x)sin(x) → sin(3x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * cos(x) + cos(integer(2) * x) * sin(x))
+            ->str(),
+        "sin(3*x)"));
+    // A lone product is not an Add and must be left alone (no spurious fold).
+    REQUIRE(oracle.equivalent(simplify(sin(x) * cos(y))->str(),
+                              "sin(x)*cos(y)"));
+}
+
 TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
           "[5][trigsimp][oracle][regression]") {
     auto& oracle = Oracle::instance();
