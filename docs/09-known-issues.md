@@ -14,6 +14,50 @@ truth and links the issue number.
 
 ## Fixed
 
+### ILAPLACE-QUAD-2 — inverse Laplace of a LINEAR numerator over a quadratic
+- **Input:** `inverse_laplace_transform(s/(s**2+2*s+2))`,
+  `(s+1)/(s**2+2*s+2)`, `s/((s-2)**2+1)`, `(2*s+1)/(s**2+2*s+5)`.
+- **Was:** the unevaluated marker. ILAPLACE-QUAD-1 closed the *constant*-numerator
+  case, but a numerator linear in `s` (the damped-cosine family) still fell
+  through — `inverse_laplace_term` bails as soon as the numerator contains `s`.
+- **Expected (SymPy):** `exp(-t)·cos t − exp(-t)·sin t`, `exp(-t)·cos t`,
+  `exp(2t)·cos t + 2·exp(2t)·sin t`, `2·exp(-t)·cos 2t − exp(-t)·sin 2t/2`.
+- **Fix (`src/integrals/transforms.cpp`):** new `inverse_laplace_linear_quad` —
+  split `F = num·den^(-1)`, require `num` linear and `den` an irreducible
+  quadratic (`Poly` degrees 1 and 2, `β' ≠ 0`); complete the square and
+  decompose the numerator about `(s − a)`:
+  `(α·s+β)/α' = A·(s−a) + B` with `A = α/α'`, `B = (β + α·a)/α'`, giving
+  `A·exp(a·t)·cos(b·t) + (B/b)·exp(a·t)·sin(b·t)`.
+- **Verified against SymPy:** all four inputs match; the constant-numerator
+  (ILAPLACE-QUAD-1) and pure `s/(s²+a²)` paths are unaffected (the new handler
+  requires a genuine linear numerator and `β' ≠ 0`).
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][inverse_laplace][oracle][regression]` (ILAPLACE-QUAD-2).
+- **Scope:** numerators up to degree 1 over an irreducible quadratic. Higher-
+  degree rational functions still rely on `apart` to split first.
+
+### ILAPLACE-QUAD-1 — inverse Laplace couldn't invert a completed-square quadratic
+- **Input:** `inverse_laplace_transform(1/(s**2+2*s+2))`,
+  `2/(s**2+4*s+5)`, `1/(s**2+2*s+10)`.
+- **Was:** the unevaluated `InverseLaplaceTransform(...)` marker. The inverse
+  table handled `(s−a)^n` and `c/(s²+a²)` (no linear term), but a quadratic with
+  a **linear** term — `s²+ps+q` with discriminant `< 0` — matched neither.
+- **Expected (SymPy):** `exp(-t)·sin(t)`, `2·exp(-2t)·sin(t)`,
+  `exp(-t)·sin(3t)/3` (the inverse s-shift, symmetric to LAPLACE-SHIFT-1).
+- **Fix (`src/integrals/transforms.cpp`):** a Case 3 in `inverse_laplace_term` —
+  build a `Poly` in `s`; for a degree-2 denominator `α·s²+β·s+γ` with `β ≠ 0` and
+  `b² = γ/α − (β/2α)² > 0`, complete the square (`a = −β/(2α)`) and return
+  `(num/α)·exp(a·t)·sin(b·t)/b`.
+- **Verified against SymPy:** the completed-square family matches (modulo the
+  `Heaviside(t)` factor SymPP omits); the existing `(s−a)^n` and `s²+a²` paths
+  are unchanged (β = 0 still routes to the plain `sin` case).
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][inverse_laplace][oracle][regression]` (ILAPLACE-QUAD-1).
+- **Scope:** constant numerator over an irreducible quadratic. A linear
+  numerator (`(s−a)/((s−a)²+b²) → exp(a·t)·cos(b·t)`) over the shifted quadratic
+  is the symmetric follow-up; and the `1/(s²−a²) → sinh/cosh` inverse still
+  prints via the complex `−I·sin(i·t)` form rather than `sinh`.
+
 ### LAPLACE-SHIFT-1 — Laplace transform missed `sinh`/`cosh` and the s-shift theorem
 - **Input:** `laplace_transform(sinh(t))`, `cosh(t)`, `exp(-t)·sin(t)`,
   `t·exp(t)`, `t²·exp(t)`, `exp(2t)·cos(t)`.

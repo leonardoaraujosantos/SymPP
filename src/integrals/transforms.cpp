@@ -334,6 +334,33 @@ match_linear_pow(const Expr& den, const Expr& s) {
             return mul({num_const, sin(mul(a, t)), pow(a, S::NegativeOne())});
         }
     }
+
+    // Case 3: irreducible quadratic with a linear term, den = α·s² + β·s + γ and
+    // discriminant β² − 4αγ < 0. Complete the square: den = α((s − a)² + b²) with
+    // a = −β/(2α), b² = γ/α − a². Then num_const/den → (num_const/α)·exp(a·t)·
+    // sin(b·t)/b — the inverse s-shift symmetric to LAPLACE-SHIFT-1
+    // (1/((s+1)²+1) → exp(−t)·sin t).
+    if (den->type_id() == TypeId::Add) {
+        Poly p(den, s);
+        if (p.degree() == 2) {
+            const auto& c = p.coeffs();  // low → high: [γ, β, α]
+            const Expr& gamma = c[0];
+            const Expr& beta = c[1];
+            const Expr& alpha = c[2];
+            if (!has(alpha, s) && !has(beta, s) && !has(gamma, s)
+                && !(beta == S::Zero())) {  // β == 0 is Case 2
+                Expr a = mul(beta, pow(mul(integer(-2), alpha), S::NegativeOne()));
+                Expr b_sq = mul(gamma, pow(alpha, S::NegativeOne()))
+                            - pow(a, integer(2));
+                if (is_positive(b_sq) == std::optional<bool>{true}) {
+                    Expr b = sqrt(b_sq);
+                    return mul({num_const, pow(alpha, S::NegativeOne()),
+                                exp(mul(a, t)), sin(mul(b, t)),
+                                pow(b, S::NegativeOne())});
+                }
+            }
+        }
+    }
     return std::nullopt;
 }
 
@@ -375,6 +402,57 @@ inverse_laplace_s_over_quad(const Expr& F, const Expr& s, const Expr& t) {
     return mul(coef, cos(mul(a, t)));
 }
 
+// (α·s + β) / (α'·s² + β'·s + γ') with a linear numerator over an irreducible
+// quadratic (β' ≠ 0). Complete the square — den = α'((s−a)² + b²),
+// a = −β'/(2α'), b² = γ'/α' − a² — and decompose the numerator about (s − a):
+//   (α·s + β)/α' = A·(s − a) + B,   A = α/α',  B = (β + α·a)/α'.
+// Then iL = A·exp(a·t)·cos(b·t) + (B/b)·exp(a·t)·sin(b·t)
+// (the linear-numerator companion to ILAPLACE-QUAD-1: s/(s²+2s+2) →
+//  exp(−t)(cos t − sin t)).
+[[nodiscard]] std::optional<Expr> inverse_laplace_linear_quad(
+    const Expr& F, const Expr& s, const Expr& t) {
+    Expr num, den;
+    if (F->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_f;
+        for (const auto& f : F->args()) {
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*f->args()[1]).is_negative()) {
+                if (den) return std::nullopt;
+                long e = static_cast<const Integer&>(*f->args()[1]).to_long();
+                den = pow(f->args()[0], integer(-e));
+            } else {
+                num_f.push_back(f);
+            }
+        }
+        if (!den) return std::nullopt;
+        num = mul(std::move(num_f));
+    } else {
+        return std::nullopt;
+    }
+    Poly dp(den, s);
+    if (dp.degree() != 2) return std::nullopt;
+    Poly np(num, s);
+    if (np.degree() != 1) return std::nullopt;  // constant num → ILAPLACE-QUAD-1
+    const auto& dc = dp.coeffs();  // [γ', β', α']
+    const Expr& gamma = dc[0];
+    const Expr& beta_d = dc[1];
+    const Expr& alpha = dc[2];
+    if (has(alpha, s) || has(beta_d, s) || has(gamma, s)) return std::nullopt;
+    if (beta_d == S::Zero()) return std::nullopt;  // pure s²+a²: other path
+    Expr a = mul(beta_d, pow(mul(integer(-2), alpha), S::NegativeOne()));
+    Expr b_sq = mul(gamma, pow(alpha, S::NegativeOne())) - pow(a, integer(2));
+    if (is_positive(b_sq) != std::optional<bool>{true}) return std::nullopt;
+    Expr b = sqrt(b_sq);
+    const auto& nc = np.coeffs();  // [β, α]
+    const Expr& beta_n = nc[0];
+    const Expr& alpha_n = nc[1];
+    Expr A = mul(alpha_n, pow(alpha, S::NegativeOne()));
+    Expr B = mul(add(beta_n, mul(alpha_n, a)), pow(alpha, S::NegativeOne()));
+    return add(mul({A, exp(mul(a, t)), cos(mul(b, t))}),
+               mul({B, pow(b, S::NegativeOne()), exp(mul(a, t)), sin(mul(b, t))}));
+}
+
 }  // namespace
 
 Expr inverse_laplace_transform(const Expr& F, const Expr& s, const Expr& t) {
@@ -390,6 +468,10 @@ Expr inverse_laplace_transform(const Expr& F, const Expr& s, const Expr& t) {
     }
     // s/(s²+a²) — handle before generic numerator-only case.
     if (auto r = inverse_laplace_s_over_quad(F, s, t); r.has_value()) {
+        return *r;
+    }
+    // (α·s+β)/(irreducible quadratic with a linear term).
+    if (auto r = inverse_laplace_linear_quad(F, s, t); r.has_value()) {
         return *r;
     }
     if (auto r = inverse_laplace_term(F, s, t); r.has_value()) {

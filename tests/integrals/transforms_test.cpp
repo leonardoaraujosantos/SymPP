@@ -173,6 +173,67 @@ TEST_CASE("inverse_laplace: 1/(s-2)^3 → t^2 * exp(2t) / 2",
     REQUIRE(oracle.equivalent(f->str(), "t**2 * exp(2*t) / 2"));
 }
 
+// ILAPLACE-QUAD-1: inverse Laplace of a constant over an irreducible quadratic
+// WITH a linear term (completed square) — the inverse s-shift symmetric to
+// LAPLACE-SHIFT-1. 1/((s-a)²+b²) → exp(a·t)·sin(b·t)/b.
+TEST_CASE("inverse_laplace: completed-square quadratic (ILAPLACE-QUAD-1)",
+          "[8][inverse_laplace][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto s = symbol("s");
+    auto t = symbol("t");
+    // 1/(s²+2s+2) = 1/((s+1)²+1) → exp(-t)·sin(t).
+    auto F1 = pow(pow(s, integer(2)) + integer(2) * s + integer(2),
+                  S::NegativeOne());
+    REQUIRE(oracle.equivalent(inverse_laplace_transform(F1, s, t)->str(),
+                              "exp(-t)*sin(t)"));
+    // 2/(s²+4s+5) → 2·exp(-2t)·sin(t).
+    auto F2 = integer(2)
+              * pow(pow(s, integer(2)) + integer(4) * s + integer(5),
+                    S::NegativeOne());
+    REQUIRE(oracle.equivalent(inverse_laplace_transform(F2, s, t)->str(),
+                              "2*exp(-2*t)*sin(t)"));
+    // 1/(s²+2s+10) → exp(-t)·sin(3t)/3.
+    auto F3 = pow(pow(s, integer(2)) + integer(2) * s + integer(10),
+                  S::NegativeOne());
+    REQUIRE(oracle.equivalent(inverse_laplace_transform(F3, s, t)->str(),
+                              "exp(-t)*sin(3*t)/3"));
+    // No regression: a pure s²+a² (β = 0) still uses the plain sin path.
+    auto F4 = pow(pow(s, integer(2)) + integer(4), S::NegativeOne());
+    REQUIRE(oracle.equivalent(inverse_laplace_transform(F4, s, t)->str(),
+                              "sin(2*t)/2"));
+}
+
+// ILAPLACE-QUAD-2: linear numerator over the completed-square quadratic —
+// (α·s+β)/((s-a)²+b²) → exp(a·t)·(A·cos b·t + (B/b)·sin b·t). The damped-cosine
+// companion to ILAPLACE-QUAD-1.
+TEST_CASE("inverse_laplace: linear numerator over quadratic (ILAPLACE-QUAD-2)",
+          "[8][inverse_laplace][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto s = symbol("s");
+    auto t = symbol("t");
+    auto den = pow(s, integer(2)) + integer(2) * s + integer(2);  // (s+1)²+1
+    // s/(s²+2s+2) → exp(-t)·cos t − exp(-t)·sin t.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(s * pow(den, S::NegativeOne()), s, t)->str(),
+        "exp(-t)*cos(t) - exp(-t)*sin(t)"));
+    // (s+1)/(s²+2s+2) → exp(-t)·cos t.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform((s + integer(1)) * pow(den, S::NegativeOne()),
+                                  s, t)->str(),
+        "exp(-t)*cos(t)"));
+    // s/((s-2)²+1) → exp(2t)·cos t + 2·exp(2t)·sin t.
+    auto den2 = pow(s, integer(2)) - integer(4) * s + integer(5);
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(s * pow(den2, S::NegativeOne()), s, t)->str(),
+        "exp(2*t)*cos(t) + 2*exp(2*t)*sin(t)"));
+    // No regression: s/(s²+4) (β=0) still gives cos(2t).
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(
+            s * pow(pow(s, integer(2)) + integer(4), S::NegativeOne()), s, t)
+            ->str(),
+        "cos(2*t)"));
+}
+
 // ----- Fourier --------------------------------------------------------------
 
 TEST_CASE("fourier: δ(t) → 1", "[8][fourier]") {
