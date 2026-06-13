@@ -14,6 +14,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-DEDUP-1 — `solve` returned duplicate roots for repeated factors
+- **Input:** `solve((x+2)**2)`, `solve(x**2*(x-1))`,
+  `solve((x-1)**2*(x+1))`, `solve((x-1)**3)`.
+- **Was:** `[-2, -2]`, `[0, 0, 1]`, `[-1, 1, 1]`, `[1, 1, 1]` — `solve_poly`
+  emits a root once per (square-free) factor, so a repeated factor produced
+  duplicates. (Surfaced after SOLVE/INEQ's `expand` made factored polynomials
+  reachable.)
+- **Expected (SymPy):** `[-2]`, `[0, 1]`, `[-1, 1]`, `[1]` — SymPy's `solve`
+  returns the distinct solution set.
+- **Fix (`src/solvers/solve.cpp`):** collapse structurally-equal roots in
+  `solve`, preserving order.
+- **Verified against SymPy:** the repeated-factor cases now return the distinct
+  set; genuinely distinct roots (`(x-1)(x-2)(x-3) → {1,2,3}`) are unchanged.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-DEDUP-1).
+- **Scope:** root-set deduplication. Multiplicity is not reported (SymPy's
+  `solve` default also drops it; `roots()` keeps it — not implemented).
+
 ### INEQ-EXACT-1 — inequalities used float endpoints + a 1e30 ∞ proxy; `solve` ignored factored polynomials
 - **Input:** `solve_univariate_inequality(x²−4 < 0)`, `x²−4 > 0`, `x²+1 > 0`,
   `(x−1)(x−2) < 0`; and `solve((x−1)*(x−2))`.

@@ -43,6 +43,25 @@ TEST_CASE("solve: lhs == rhs form", "[10][solve]") {
     REQUIRE(roots[0] == integer(2));
 }
 
+// SOLVE-DEDUP-1: solve returns the DISTINCT solution set. A repeated factor
+// ((x+2)², x²·(x−1)) used to yield duplicate roots; SymPy's solve dedupes.
+TEST_CASE("solve: distinct roots for repeated factors (SOLVE-DEDUP-1)",
+          "[10][solve][regression]") {
+    auto x = symbol("x");
+    // (x+2)² → {−2}, not {−2, −2}.
+    REQUIRE(solve(pow(x + integer(2), integer(2)), x).size() == 1);
+    // x²·(x−1) → {0, 1}.
+    REQUIRE(solve(pow(x, integer(2)) * (x - integer(1)), x).size() == 2);
+    // (x−1)²·(x+1) → {1, −1}.
+    REQUIRE(solve(pow(x - integer(1), integer(2)) * (x + integer(1)), x).size()
+            == 2);
+    // (x−1)³ → {1}.
+    REQUIRE(solve(pow(x - integer(1), integer(3)), x).size() == 1);
+    // Distinct roots are unaffected: (x−1)(x−2)(x−3) → 3 roots.
+    REQUIRE(solve((x - integer(1)) * (x - integer(2)) * (x - integer(3)), x)
+                .size() == 3);
+}
+
 TEST_CASE("solve: quadratic with rational roots", "[10][solve]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

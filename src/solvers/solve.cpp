@@ -82,6 +82,20 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // can hand back a rearrangement such as x = exp(x)**(-1); discard any
     // candidate that still contains var rather than return a non-solution.
     std::erase_if(roots, [&](const Expr& r) { return has(r, var); });
+    // Deduplicate: solve_poly emits a root once per factor, so a repeated factor
+    // ((x+2)² , x²·(x−1)) yields duplicates. SymPy's solve returns the distinct
+    // solution set, so collapse structurally-equal roots (order preserved).
+    {
+        std::vector<Expr> distinct;
+        for (auto& r : roots) {
+            bool seen = false;
+            for (const auto& u : distinct) {
+                if (u == r) { seen = true; break; }
+            }
+            if (!seen) distinct.push_back(std::move(r));
+        }
+        roots = std::move(distinct);
+    }
     if (!roots.empty()) return roots;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
