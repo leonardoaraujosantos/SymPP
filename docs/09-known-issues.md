@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-TELESCOPE-1 — `summation` returned unevaluated for telescoping rational sums
+- **Problem:** `summation` handled polynomial (Faulhaber), geometric and
+  arithmetic-geometric summands, but every rational summand `c/D(k)` came back as
+  an unevaluated `Sum(…)`: `Σ 1/(k(k+1))`, `Σ 1/(k(k+2))`, `Σ 1/(4k²−1)` all had
+  closed forms in SymPy (`n/(n+1)`, …) and none in SymPP.
+- **Fix:** added `telescope_rational` in `src/calculus/summation.cpp`. For a
+  summand `c/D(k)` where `D` is a quadratic with two distinct rational roots
+  `r₁,r₂` whose difference `d = r₁−r₂` is a nonzero integer, partial fractions
+  give `c/(lead·d)·[u(k) − u(k+d)]` with `u(k)=1/(k−r₁)`, which telescopes to
+  `c/(lead·d)·[Σ_{j=0}^{d−1} u(lo+j) − Σ_{j=1}^{d} u(hi+j)]`. A pole inside the
+  summation range (an integer root ≥ `lo`) is detected and the sum is left
+  unevaluated rather than producing a bogus closed form (`Σ 1/(k(k−1))` stays).
+- **Verified:** closed forms checked equal to `sympy.summation` for 9 summands
+  (unit and non-unit leading coefficients, pole gaps `d∈{1,2,3}`, scaled
+  numerators, shifted factors like `(3k−1)(3k+2)`).
+- **Regression test:** `SUM-TELESCOPE-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  6 assertions).
+- **Scope:** limited to a denominator that is one quadratic with two distinct
+  integer-spaced rational roots and a var-free numerator. Higher-degree
+  denominators (≥3 linear factors) and non-integer-spaced roots — which need
+  full partial-fraction grouping or Gosper's algorithm — remain open.
+
 ### SOLVE-TRIG-LINEAR-1 — `solve` returned `[]` for `a·sin(x)+b·cos(x)+c` (R-method)
 - **Problem:** `solve` had no path for a linear combination of sin and cos of the
   same argument. `sin(x)+cos(x)`, `√3·sin(x)+cos(x)`, `sin(x)+cos(x)−1`,

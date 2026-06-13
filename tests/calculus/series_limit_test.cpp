@@ -326,6 +326,48 @@ TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
     REQUIRE(oracle.equivalent(s->str(), "(n*(n+1)/2)**2"));
 }
 
+// SUM-TELESCOPE-1: Σ of a rational summand c/D(k), where D is a quadratic with
+// two distinct linear factors whose roots differ by an integer, telescopes to a
+// closed form (the sum was returned unevaluated before). Verified equivalent to
+// SymPy's summation — the presented form may differ.
+TEST_CASE("summation: telescoping rational sums (SUM-TELESCOPE-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto one = integer(1);
+    // Σ 1/(k(k+1)) = n/(n+1).
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + one), integer(-1)), k, one, n)->str(),
+        "n/(n+1)"));
+    // Σ 1/(k(k+2)), poles two apart → two telescoping chains.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + integer(2)), integer(-1)), k, one, n)->str(),
+        "3/4 - 1/(2*(n+1)) - 1/(2*(n+2))"));
+    // Σ 1/(4k²-1) = n/(2n+1).
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(4) * pow(k, integer(2)) - one, integer(-1)), k,
+                  one, n)
+            ->str(),
+        "n/(2*n+1)"));
+    // A constant numerator scales through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * pow(k * (k + one), integer(-1)), k, one, n)
+            ->str(),
+        "3*n/(n+1)"));
+    // Non-unit leading coefficient: 1/((2k-1)(2k+1)) = n/(2n+1).
+    REQUIRE(oracle.equivalent(
+        summation(
+            pow((integer(2) * k - one) * (integer(2) * k + one), integer(-1)), k,
+            one, n)
+            ->str(),
+        "n/(2*n+1)"));
+    // A pole inside the range (root k=1) must stay unevaluated, not produce a
+    // bogus closed form.
+    auto pole = summation(pow(k * (k - one), integer(-1)), k, one, n);
+    REQUIRE(pole->str().find("Sum(") != std::string::npos);
+}
+
 TEST_CASE("summation: constant Σ c from 1 to n → c*n",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();

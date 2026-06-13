@@ -1,21 +1,25 @@
 #include <sympp/calculus/summation.hpp>
 
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/special.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -28,6 +32,79 @@ namespace {
 [[nodiscard]] Expr sum_marker(const Expr& expr, const Expr& var,
                               const Expr& lo, const Expr& hi) {
     return function_symbol("Sum")(std::vector<Expr>{expr, var, lo, hi});
+}
+
+// Telescoping sum of a rational summand c / D(var), where D is a quadratic that
+// factors into two distinct linear factors whose roots differ by a nonzero
+// integer. Partial fractions give c/(lead·(k−r1)(k−r2)) = c/(lead·d)·[u(k) −
+// u(k+d)] with u(k) = 1/(k−r1) and d = r1 − r2 > 0, which telescopes to
+//   c/(lead·d) · [ Σ_{j=0}^{d−1} u(lo+j) − Σ_{j=1}^{d} u(hi+j) ].
+// Returns nullopt unless the summand has this shape. The closed form is exact
+// (equivalent to SymPy's, though it may be presented differently).
+[[nodiscard]] std::optional<Expr> telescope_rational(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    // Split expr = c · D^{-1}: c var-free, D one or more reciprocal factors.
+    Expr c = S::One();
+    Expr denom;
+    auto take_recip = [&](const Expr& f) -> bool {
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+            denom = denom ? mul({denom, f->args()[0]}) : f->args()[0];
+            return true;
+        }
+        return false;
+    };
+    if (expr->type_id() == TypeId::Pow) {
+        if (!take_recip(expr)) return std::nullopt;
+    } else if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> cf;
+        for (const auto& f : expr->args()) {
+            if (take_recip(f)) continue;
+            if (has(f, var)) return std::nullopt;  // var in the numerator
+            cf.push_back(f);
+        }
+        if (!cf.empty()) c = mul(std::move(cf));
+    } else {
+        return std::nullopt;
+    }
+    if (!denom || !has(denom, var)) return std::nullopt;
+    // D must be a quadratic with two distinct rational roots.
+    Poly p(expand(denom), var);
+    if (p.degree() != 2) return std::nullopt;
+    std::vector<Expr> rts = p.roots();
+    if (rts.size() != 2) return std::nullopt;
+    Expr r1 = rts[0], r2 = rts[1];
+    auto is_rat = [](const Expr& e) {
+        return e->type_id() == TypeId::Integer
+               || e->type_id() == TypeId::Rational;
+    };
+    if (!is_rat(r1) || !is_rat(r2) || r1 == r2) return std::nullopt;
+    const Expr lead = p.leading_coeff();
+    // d = r1 − r2 must be a nonzero integer; orient it positive.
+    Expr d_expr = simplify(r1 - r2);
+    if (d_expr->type_id() != TypeId::Integer
+        || !static_cast<const Integer&>(*d_expr).fits_long()) {
+        return std::nullopt;
+    }
+    long d = static_cast<const Integer&>(*d_expr).to_long();
+    if (d == 0) return std::nullopt;
+    if (d < 0) {
+        std::swap(r1, r2);
+        d = -d;
+    }
+    // Guard against a pole inside the range: an integer root ≥ lo makes a
+    // summand undefined. A non-integer root is never hit by an integer index.
+    auto safe_root = [&](const Expr& r) {
+        if (r->type_id() != TypeId::Integer) return true;
+        return is_positive(simplify(lo - r)) == std::optional<bool>{true};
+    };
+    if (!safe_root(r1) || !safe_root(r2)) return std::nullopt;
+    auto u = [&](const Expr& k) { return pow(k - r1, integer(-1)); };
+    Expr first = S::Zero(), second = S::Zero();
+    for (long j = 0; j < d; ++j) first = add({first, u(lo + integer(j))});
+    for (long j = 1; j <= d; ++j) second = add({second, u(hi + integer(j))});
+    Expr scale = pow(mul({lead, integer(d)}), integer(-1));
+    return simplify(
+        mul({c, scale, add({first, mul({S::NegativeOne(), second})})}));
 }
 
 }  // namespace
@@ -179,6 +256,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             }
         }
     }
+
+    // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
+    if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;
 
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).
