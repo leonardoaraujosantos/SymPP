@@ -252,6 +252,46 @@ TEST_CASE("solveset: x^2 - 4 = 0 → {2, -2}", "[10][solveset]") {
     REQUIRE(fs->size() == 2);
 }
 
+// SOLVE-TRIG-1: solve() of a single trig equation A*f(B*x)+C=0 returns
+// representative roots over one principal period (matching SymPy's solve),
+// where solveset would yield an infinite ImageSet. Compared as a set, since
+// the root order is presentation-dependent.
+TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
+          "[10][solve][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        // Every wanted root must be matched (oracle-equivalent) by a distinct
+        // returned root.
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    REQUIRE(set_equal(solve(sin(x), x), {"0", "pi"}));
+    REQUIRE(set_equal(solve(cos(x), x), {"pi/2", "3*pi/2"}));
+    REQUIRE(set_equal(solve(tan(x), x), {"0"}));
+    REQUIRE(set_equal(solve(sin(x) - integer(1), x), {"pi/2"}));
+    REQUIRE(set_equal(solve(cos(x) + integer(1), x), {"pi"}));
+    REQUIRE(set_equal(solve(integer(2) * sin(x) - integer(1), x),
+                      {"pi/6", "5*pi/6"}));
+    REQUIRE(set_equal(solve(cos(x) - integer(1), x), {"0", "2*pi"}));
+    // scaled argument: invert then divide by B
+    REQUIRE(set_equal(solve(sin(integer(2) * x), x), {"0", "pi/2"}));
+    REQUIRE(set_equal(solve(cos(integer(3) * x), x), {"pi/6", "pi/2"}));
+    REQUIRE(set_equal(solve(tan(x) - integer(1), x), {"pi/4"}));
+}
+
 // SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as
 // g = 0. sin(x)² = 0 used to come back EmptySet because the polynomial path
 // can't see through sin; it now recurses on the base.

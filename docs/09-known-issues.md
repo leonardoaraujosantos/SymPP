@@ -14,6 +14,31 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-TRIG-1 — `solve` returned `[]` for transcendental trig equations
+- **Input:** `solve(sin(x), x)`, `solve(cos(x), x)`, `solve(2*sin(x)-1, x)`,
+  `solve(sin(2*x), x)`, `solve(cos(3*x), x)`, `solve(tan(x)-1, x)`.
+- **Was:** empty `[]` — these have infinite (periodic) solution sets, so
+  `solveset` returns an `ImageSet` and the vector-returning `solve` surfaced
+  nothing finite.
+- **Expected (SymPy `solve`):** representative roots over one period:
+  `[0, pi]`, `[pi/2, 3*pi/2]`, `[pi/6, 5*pi/6]`, `[0, pi/2]`, `[pi/6, pi/2]`,
+  `[pi/4]`.
+- **Fix (`src/solvers/solve.cpp`):** added `solve_trig`, tried in `solve`
+  before the `solveset` fallback. It matches a single trig term
+  `A*f(B*x) + C = 0` (`f ∈ {sin,cos,tan}`, `A`,`C` var-free, `B*x` linear with
+  no additive phase), forms `c = -C/A`, and inverts the *inner* function to its
+  principal solutions — `sin`: {asin c, π−asin c}; `cos`: {acos c, 2π−acos c};
+  `tan`: {atan c} — then divides each by `B` and dedupes. This mirrors SymPy,
+  which inverts and divides by `B` rather than enumerating every `x ∈ [0,2π)`.
+- **Verified against SymPy:** all ten forms match `solve` as a set (root order
+  is presentation-dependent). Pre-existing paths unchanged: `sinh(x)→[0]`,
+  `log(x)-1→[E]`, polynomials, radicals.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][trig][oracle][regression]` (order-independent set comparison).
+- **Scope:** a single `sin`/`cos`/`tan` term, linear argument, var-free
+  coefficient. Trig *combinations* (`sin x + cos x`), *powers* (`sin(x)²`), and
+  phase-shifted arguments remain out of scope (decline cleanly to `[]`).
+
 ### GAMMA-REC-1 — gamma recurrence `z*gamma(z) → gamma(z+1)` wasn't applied
 - **Input:** `combsimp(x*gamma(x))`, `combsimp(x*(x+1)*gamma(x))`,
   `combsimp(gamma(x+1)/x)`.

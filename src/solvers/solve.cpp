@@ -71,6 +71,78 @@ namespace {
     return false;
 }
 
+// Solve A*f(B*var) + C = 0 for f in {sin, cos, tan} over one principal period,
+// returning representative roots. This mirrors SymPy's `solve`, which inverts
+// the inner function and divides by B (rather than enumerating every x in
+// [0, 2pi)). Returns nullopt unless expr is a single trig term, linear in var
+// with a var-free coefficient and no additive phase. Periodic/infinite sets
+// remain the domain of solveset.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_trig(const Expr& expr, const Expr& var) {
+    // Split off the var-free additive constant C; the rest must be one term.
+    Expr dep, cst = S::Zero();
+    if (expr->type_id() == TypeId::Add) {
+        std::vector<Expr> dv, fv;
+        for (const auto& t : expr->args())
+            (has(t, var) ? dv : fv).push_back(t);
+        if (dv.size() != 1) return std::nullopt;
+        dep = dv[0];
+        if (!fv.empty()) cst = (fv.size() == 1) ? fv[0] : add(fv);
+    } else {
+        dep = expr;
+    }
+    // dep = A * f(arg): isolate the trig Function and a var-free coefficient A.
+    Expr coeff = S::One();
+    Expr fexpr;
+    if (dep->type_id() == TypeId::Function) {
+        fexpr = dep;
+    } else if (dep->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        for (const auto& f : dep->args()) {
+            if (!fexpr && f->type_id() == TypeId::Function) fexpr = f;
+            else rest.push_back(f);
+        }
+        if (!fexpr || has(mul(rest), var)) return std::nullopt;
+        coeff = rest.empty() ? Expr{S::One()} : mul(rest);
+    } else {
+        return std::nullopt;
+    }
+    const FunctionId id = static_cast<const Function&>(*fexpr).function_id();
+    if (id != FunctionId::Sin && id != FunctionId::Cos
+        && id != FunctionId::Tan) {
+        return std::nullopt;
+    }
+    // arg must be B*var with B var-free and nonzero (no additive phase).
+    const Expr& arg = fexpr->args()[0];
+    Expr B = simplify(arg * pow(var, integer(-1)));
+    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    // f(arg) = c, c = -C/A.
+    Expr c = simplify(mul({S::NegativeOne(), cst, pow(coeff, integer(-1))}));
+    std::vector<Expr> thetas;   // principal solutions for the inner argument.
+    switch (id) {
+        case FunctionId::Sin:
+            thetas = {asin(c), simplify(S::Pi() - asin(c))};
+            break;
+        case FunctionId::Cos:
+            thetas = {acos(c), simplify(integer(2) * S::Pi() - acos(c))};
+            break;
+        case FunctionId::Tan:
+            thetas = {atan(c)};
+            break;
+        default:
+            return std::nullopt;
+    }
+    std::vector<Expr> roots;   // var = theta / B, deduplicated.
+    for (auto& th : thetas) {
+        Expr r = simplify(th * pow(B, integer(-1)));
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& u) { return u == r; })) {
+            roots.push_back(std::move(r));
+        }
+    }
+    return roots;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
@@ -103,6 +175,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // a root vector. (Infinite/periodic solution sets, e.g. sin(x)=0, stay
     // the domain of solveset and yield no finite vector here.)
     if (has_function_of_var(expr, var) || has_radical_of_var(expr, var)) {
+        // Single-trig equations have an infinite (periodic) solution set, so
+        // solveset returns an ImageSet and the FiniteSet branch below misses
+        // them. Surface SymPy-style representative roots over one period first.
+        if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
         SetPtr s = solveset(expr, var);
         if (s && s->kind() == SetKind::FiniteSet) {
             auto elems = static_cast<const FiniteSet&>(*s).elements();
