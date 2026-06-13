@@ -1732,12 +1732,62 @@ namespace {
     return mul(std::move(out));
 }
 
+// Euler reflection: gamma(z)*gamma(1-z) -> pi / sin(pi*z). Scans the Mul for
+// two numerator gamma factors whose arguments sum to 1 and folds each such
+// pair. The surviving argument is chosen as the one free of a leading additive
+// constant (prefer `z` over `1-z`) so the output matches SymPy's `pi/sin(pi*z)`.
+[[nodiscard]] Expr gamma_reflection(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    const auto& args = e->args();
+
+    std::vector<Expr> g_args;            // arg of each numerator gamma factor
+    std::vector<std::size_t> g_idx;      // its position in `args`
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (auto a = as_gamma_arg(args[i]); a) {
+            g_args.push_back(*a);
+            g_idx.push_back(i);
+        }
+    }
+
+    std::vector<bool> consumed(args.size(), false);
+    std::vector<bool> used(g_args.size(), false);
+    std::vector<Expr> replacements;
+    for (std::size_t i = 0; i < g_args.size(); ++i) {
+        if (used[i]) continue;
+        for (std::size_t j = i + 1; j < g_args.size(); ++j) {
+            if (used[j]) continue;
+            if (simplify(g_args[i] + g_args[j]) != S::One()) continue;
+            // Prefer the argument without an additive integer term so the
+            // result reads pi/sin(pi*z) rather than pi/sin(pi*(1-z)).
+            const Expr& z =
+                (g_args[j]->type_id() == TypeId::Add
+                 && g_args[i]->type_id() != TypeId::Add)
+                    ? g_args[i]
+                    : (g_args[i]->type_id() == TypeId::Add ? g_args[j]
+                                                           : g_args[i]);
+            replacements.push_back(
+                mul({S::Pi(), pow(sin(mul({S::Pi(), z})), integer(-1))}));
+            used[i] = used[j] = true;
+            consumed[g_idx[i]] = consumed[g_idx[j]] = true;
+            break;
+        }
+    }
+    if (replacements.empty()) return e;
+
+    std::vector<Expr> out;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (!consumed[i]) out.push_back(args[i]);
+    }
+    for (auto& r : replacements) out.push_back(std::move(r));
+    return mul(std::move(out));
+}
+
 [[nodiscard]] Expr combsimp_node(const Expr& e) {
     return simplify_func_ratio(e, as_factorial_arg);
 }
 
 [[nodiscard]] Expr gammasimp_node(const Expr& e) {
-    return simplify_func_ratio(e, as_gamma_arg);
+    return gamma_reflection(simplify_func_ratio(e, as_gamma_arg));
 }
 
 }  // namespace

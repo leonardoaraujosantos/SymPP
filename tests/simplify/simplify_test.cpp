@@ -857,6 +857,27 @@ TEST_CASE("gammasimp: gamma(n+3)/gamma(n) → n*(n+1)*(n+2)",
     REQUIRE(oracle.equivalent(out->str(), "n*(n+1)*(n+2)"));
 }
 
+// GAMMA-REFL-1 — Euler reflection: gamma(z)*gamma(1-z) → pi/sin(pi*z).
+TEST_CASE("gammasimp: gamma(x)*gamma(1-x) → pi/sin(pi*x)",
+          "[5][gammasimp][reflection][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // gamma(x)*gamma(1-x)
+    auto e = gamma(x) * gamma(integer(1) - x);
+    REQUIRE(oracle.equivalent(gammasimp(e)->str(), "pi/sin(pi*x)"));
+    // scaled argument: gamma(2x)*gamma(1-2x) → pi/sin(2*pi*x)
+    auto e2 = gamma(integer(2) * x) * gamma(integer(1) - integer(2) * x);
+    REQUIRE(oracle.equivalent(gammasimp(e2)->str(), "pi/sin(2*pi*x)"));
+    // extra spectator factor is preserved
+    auto y = symbol("y");
+    auto e3 = gamma(x) * gamma(integer(1) - x) * y;
+    REQUIRE(oracle.equivalent(gammasimp(e3)->str(), "y*pi/sin(pi*x)"));
+    // ratio simplification still works alongside reflection
+    auto n = symbol("n");
+    auto e4 = gamma(n + integer(1)) * pow(gamma(n), integer(-1));
+    REQUIRE(oracle.equivalent(gammasimp(e4)->str(), "n"));
+}
+
 #include <sympp/core/float.hpp>
 
 // ----- cse -------------------------------------------------------------------

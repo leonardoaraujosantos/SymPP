@@ -14,6 +14,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### GAMMA-REFL-1 — `gammasimp` missed the Euler reflection formula
+- **Input:** `gammasimp(gamma(x)*gamma(1-x))`, `gammasimp(gamma(2*x)*gamma(1-2*x))`.
+- **Was:** left as `gamma(-x + 1)*gamma(x)` — `gammasimp` only cancelled gamma
+  *ratios* (`gamma(a)/gamma(b)` with integer `a-b`), never products.
+- **Expected (SymPy `gammasimp`):** `pi/sin(pi*x)`, `pi/sin(2*pi*x)`.
+- **Fix (`src/simplify/simplify.cpp`):** added `gamma_reflection`, which scans a
+  `Mul` for two numerator gamma factors whose arguments sum to 1 and folds each
+  pair via Γ(z)·Γ(1−z) = π/sin(πz). The surviving argument is chosen free of a
+  leading additive constant so the output reads `pi/sin(pi*z)` rather than the
+  equivalent `pi/sin(pi*(1-z))`. `gammasimp_node` now runs the reflection pass
+  after the existing ratio pass, so both compose (`gamma(n+1)/gamma(n)` → `n`
+  still holds, and a spectator factor `y` is preserved).
+- **Verified against SymPy:** all three forms match `gammasimp`.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][gammasimp][reflection][oracle][regression]`.
+- **Scope:** numerator gamma pairs with arguments summing to 1 (any shared
+  scalar multiple of the argument works). Reflection of gamma *ratios* or of
+  more general argument relations is out of scope.
+
 ### CONJ-FN-1 / ARG-CX-1 — conjugate over analytic functions; arg of a complex value
 - **Input:** `conjugate(exp(I*x))` (x real), `conjugate(cosh(z))`;
   `arg(I)`, `arg(1+I)`, `arg(-1+I)`, `arg(-I)`.
