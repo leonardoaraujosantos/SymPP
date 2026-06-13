@@ -254,6 +254,81 @@ solve_trig_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
+// case) for representative roots over one principal period, matching SymPy's
+// solve. Requires both sin and cos of the SAME argument B*var, with var-free
+// coefficients a, b (not both zero). Homogeneous (c = 0) reduces to
+// tan(B*var) = -b/a, a single root. Otherwise a*sin+b*cos = R*sin(B*var+phi)
+// with R = sqrt(a^2+b^2), phi = atan2(b, a), so sin(B*var+phi) = -c/R yields two
+// representatives; an out-of-range -c/R (|.|>1) has no real solution.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_trig_linear(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Add) return std::nullopt;
+    Expr a = S::Zero();   // coefficient of sin(theta)
+    Expr b = S::Zero();   // coefficient of cos(theta)
+    Expr c = S::Zero();   // var-free additive constant
+    Expr theta;           // shared trig argument
+    bool have_sin = false, have_cos = false;
+    auto same_theta = [&](const Expr& t) {
+        if (!theta) { theta = t; return true; }
+        return theta == t;
+    };
+    for (const auto& term : expr->args()) {
+        if (!has(term, var)) {
+            c = (c == S::Zero()) ? term : add({c, term});
+            continue;
+        }
+        // term = coeff * f(theta): split a var-free coeff from one trig factor.
+        Expr coeff = S::One();
+        Expr trig = term;
+        if (term->type_id() == TypeId::Mul) {
+            std::vector<Expr> cf, vf;
+            for (const auto& f : term->args())
+                (has(f, var) ? vf : cf).push_back(f);
+            if (vf.size() != 1) return std::nullopt;
+            trig = vf.front();
+            coeff = cf.empty() ? Expr{S::One()} : mul(cf);
+        }
+        if (trig->type_id() != TypeId::Function) return std::nullopt;
+        const FunctionId id = static_cast<const Function&>(*trig).function_id();
+        if (id == FunctionId::Sin) {
+            if (have_sin || !same_theta(trig->args()[0])) return std::nullopt;
+            a = coeff;
+            have_sin = true;
+        } else if (id == FunctionId::Cos) {
+            if (have_cos || !same_theta(trig->args()[0])) return std::nullopt;
+            b = coeff;
+            have_cos = true;
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!have_sin || !have_cos) return std::nullopt;  // single-term: other paths
+    // theta = B*var with B var-free and nonzero.
+    Expr B = simplify(theta * pow(var, integer(-1)));
+    if (has(B, var) || simplify(B * var - theta) != S::Zero()) return std::nullopt;
+    std::vector<Expr> roots;
+    if (c == S::Zero()) {
+        // tan(theta) = -b/a → theta = atan(-b/a), one representative.
+        Expr t = simplify(mul({S::NegativeOne(), b, pow(a, integer(-1))}));
+        roots.push_back(simplify(atan(t) * pow(B, integer(-1))));
+        return roots;
+    }
+    Expr R = simplify(pow(add({mul({a, a}), mul({b, b})}), rational(1, 2)));
+    Expr cR = simplify(mul({S::NegativeOne(), c, pow(R, integer(-1))}));
+    if (!trig_value_in_range(cR)) return roots;  // empty: no real solution
+    Expr phi = atan2(b, a);
+    for (const Expr& th : {Expr{asin(cR)}, Expr{simplify(S::Pi() - asin(cR))}}) {
+        Expr r = simplify((th - phi) * pow(B, integer(-1)));
+        if (has(r, var)) continue;
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& u) { return u == r; })) {
+            roots.push_back(std::move(r));
+        }
+    }
+    return roots;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
@@ -291,6 +366,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         // them. Surface SymPy-style representative roots over one period first.
         if (auto tp = solve_trig_poly(expr, var); tp && !tp->empty())
             return *tp;
+        if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
+            return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
         SetPtr s = solveset(expr, var);
         if (s && s->kind() == SetKind::FiniteSet) {

@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-TRIG-LINEAR-1 — `solve` returned `[]` for `a·sin(x)+b·cos(x)+c` (R-method)
+- **Problem:** `solve` had no path for a linear combination of sin and cos of the
+  same argument. `sin(x)+cos(x)`, `√3·sin(x)+cos(x)`, `sin(x)+cos(x)−1`,
+  `3·sin(x)+4·cos(x)`, `sin(2x)+cos(2x)` all came back `[]` (two distinct trig
+  atoms, so neither the single-term nor the polynomial-in-one-function path
+  applied).
+- **Fix:** added `solve_trig_linear` in `src/solvers/solve.cpp`. It recognises
+  `a·sin(B·x)+b·cos(B·x)+c` (var-free `a,b,c`, shared argument `B·x`). The
+  homogeneous case (`c=0`) reduces to `tan(B·x)=−b/a`, a single representative
+  `atan(−b/a)/B`. Otherwise it applies the R-method: `a·sin+b·cos = R·sin(B·x+φ)`
+  with `R=√(a²+b²)`, `φ=atan2(b,a)`, so `sin(B·x+φ)=−c/R` yields two
+  representatives `(θ−φ)/B`. The `trig_value_in_range` guard makes
+  `|c|>R` return no real solution (`sin(x)+cos(x)−5 → []`).
+- **Verified:** every solution set checked set-equal to `sympy.solve` for 8
+  equations (homogeneous, non-homogeneous, scaled argument, irrational
+  coefficient, out-of-range); transcendental forms that don't share a closed
+  shape were confirmed numerically equal.
+- **Regression test:** `SOLVE-TRIG-LINEAR-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][trig][oracle][regression]`, 8 assertions).
+- **Scope:** sin and cos must share the same argument. Multiple-angle mixes
+  (`sin(2x)−sin(x)`, `cos(2x)−cos(x)`) and products (`sin(x)·cos(x)−1/2`, needing
+  the double-angle identity) remain open.
+
 ### SOLVE-TRIG-POLY-1 — `solve` returned `[]` for a polynomial in one trig function
 - **Problem:** `solve` handled a *single* trig term `A·f(B·x)+C=0` (SOLVE-TRIG-1)
   but came back empty for any higher-degree polynomial in one trig function:

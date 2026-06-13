@@ -362,6 +362,47 @@ TEST_CASE("solve: polynomial in a single trig function (SOLVE-TRIG-POLY-1)",
     REQUIRE(solve(pow(sin(x), integer(2)) - integer(4), x).empty());
 }
 
+// SOLVE-TRIG-LINEAR-1: solve() of a linear combination a·sin(B·x)+b·cos(B·x)+c
+// (the R-method). Homogeneous (c=0) reduces to tan(B·x)=-b/a (one root);
+// otherwise a·sin+b·cos = R·sin(B·x+φ) with R=√(a²+b²), φ=atan2(b,a), giving
+// two representatives. Matches SymPy's solve as a set.
+TEST_CASE("solve: linear combination a*sin+b*cos (SOLVE-TRIG-LINEAR-1)",
+          "[10][solve][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // Homogeneous: tan(x) = -b/a, a single representative.
+    REQUIRE(set_equal(solve(sin(x) + cos(x), x), {"-pi/4"}));
+    REQUIRE(set_equal(solve(sin(x) - cos(x), x), {"pi/4"}));
+    REQUIRE(set_equal(solve(cos(x) - sin(x), x), {"pi/4"}));
+    REQUIRE(set_equal(
+        solve(pow(integer(3), rational(1, 2)) * sin(x) + cos(x), x), {"-pi/6"}));
+    REQUIRE(set_equal(solve(integer(3) * sin(x) + integer(4) * cos(x), x),
+                      {"-atan(4/3)"}));
+    // Non-homogeneous: R-method gives two representatives.
+    REQUIRE(set_equal(solve(sin(x) + cos(x) - integer(1), x), {"0", "pi/2"}));
+    // Scaled argument: divide through by B = 2.
+    REQUIRE(set_equal(solve(sin(integer(2) * x) + cos(integer(2) * x), x),
+                      {"-pi/8"}));
+    // Out of range: |c| > sqrt(a²+b²) has no real solution.
+    REQUIRE(solve(sin(x) + cos(x) - integer(5), x).empty());
+}
+
 // SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as
 // g = 0. sin(x)² = 0 used to come back EmptySet because the polynomial path
 // can't see through sin; it now recurses on the base.
