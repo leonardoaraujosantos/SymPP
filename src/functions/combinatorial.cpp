@@ -72,6 +72,10 @@ Expr Factorial::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Factorial::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:
@@ -122,6 +126,10 @@ Expr Fibonacci::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Fibonacci::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -163,6 +171,10 @@ Expr Catalan::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Catalan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -206,6 +218,10 @@ std::optional<bool> Gcd::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     const auto& b = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -240,6 +256,10 @@ std::optional<bool> Lcm::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     const auto& b = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -340,6 +360,10 @@ Expr Subfactorial::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Subfactorial::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Nonnegative:
             if (is_integer(a) == true && is_nonnegative(a) == true) return true;
@@ -385,6 +409,10 @@ std::optional<bool> Binomial::ask(AssumptionKey k) const noexcept {
     const auto& n = args_[0];
     const auto& kk = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
             if (is_integer(n) == true && is_integer(kk) == true) return true;
             return std::nullopt;
@@ -436,6 +464,10 @@ Expr GammaFn::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> GammaFn::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Positive:
             // Gamma(x) > 0 for x > 0.
             if (is_positive(a) == true) return true;
@@ -551,6 +583,10 @@ Expr LogGamma::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> LogGamma::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_positive(a) == true) return true;
             return std::nullopt;

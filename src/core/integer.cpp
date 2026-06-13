@@ -98,6 +98,10 @@ std::string Integer::str() const {
 std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
     int s = sgn(value_);
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real: return true;
         case AssumptionKey::Rational: return true;
         case AssumptionKey::Integer: return true;

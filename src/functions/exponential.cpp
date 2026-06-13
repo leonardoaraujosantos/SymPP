@@ -103,6 +103,10 @@ Expr Exp::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Exp::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -133,6 +137,10 @@ Expr Log::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Log::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             // log is real iff arg > 0.
             if (is_positive(a) == true) return true;

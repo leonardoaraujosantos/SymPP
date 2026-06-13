@@ -90,10 +90,37 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         && static_cast<const Integer&>(*exp).fits_long()
         && (static_cast<const Integer&>(*exp).to_long() % 2 == 0);
     switch (k) {
+        case AssumptionKey::Complex:
+            if (base->ask(AssumptionKey::Complex) == true
+                && exp->ask(AssumptionKey::Integer) == true
+                && base->ask(AssumptionKey::Nonzero) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Imaginary: {
+            // (imaginary)^n: odd positive integer n → imaginary (i³ = −i),
+            // even → real. Requires a nonzero base.
+            const bool pos_int =
+                exp->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*exp).is_positive()
+                && static_cast<const Integer&>(*exp).fits_long();
+            if (pos_int && base->ask(AssumptionKey::Imaginary) == true) {
+                long n = static_cast<const Integer&>(*exp).to_long();
+                return (n % 2 == 1);
+            }
+            return std::nullopt;
+        }
+
         case AssumptionKey::Real: {
             // positive base + real exp → real
             if (base->ask(AssumptionKey::Positive) == true
                 && exp->ask(AssumptionKey::Real) == true) return true;
+            // (imaginary)^(even positive integer) → real (i² = −1).
+            if (exp->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*exp).is_positive()
+                && static_cast<const Integer&>(*exp).fits_long()
+                && (static_cast<const Integer&>(*exp).to_long() % 2 == 0)
+                && base->ask(AssumptionKey::Imaginary) == true) {
+                return true;
+            }
             // real base + integer exp → real (when 0^neg can't occur)
             if (base->ask(AssumptionKey::Real) == true
                 && exp->ask(AssumptionKey::Integer) == true

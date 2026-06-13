@@ -497,3 +497,48 @@ TEST_CASE("refine: matches SymPy on assumption-gated rewrite",
     auto r = refine(pow(pow(x, a), b));
     REQUIRE(oracle.equivalent(r->str(), "x**(a*b)"));
 }
+
+// ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.
+// imaginary ⇒ complex ∧ ¬real ∧ finite; I·(real≠0) is imaginary; I·I and
+// imaginary² are real; sums of imaginaries are imaginary. Matches SymPy.
+TEST_CASE("assumptions: imaginary / complex predicates (ASSUME-IMAG-1)",
+          "[2][assumptions][imaginary][regression]") {
+    using sympp::is_imaginary;
+    using sympp::is_complex;
+    using sympp::is_real;
+    auto xr = symbol("xr", AssumptionMask{}.set_real(true).set_zero(false));
+    auto yr = symbol("yr", AssumptionMask{}.set_real(true).set_zero(false));
+    auto xi = symbol("xi", AssumptionMask{}.set_imaginary(true));
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+
+    // I itself.
+    REQUIRE(is_imaginary(S::I()) == T);
+    REQUIRE(is_real(S::I()) == F);
+    REQUIRE(is_complex(S::I()) == T);
+    // A declared-imaginary symbol: imaginary ⇒ complex ∧ ¬real ∧ finite.
+    REQUIRE(is_imaginary(xi) == T);
+    REQUIRE(is_real(xi) == F);
+    REQUIRE(sympp::is_finite(xi) == T);
+    // Real numbers / symbols are complex but not imaginary; 0 is real.
+    REQUIRE(is_imaginary(integer(2)) == F);
+    REQUIRE(is_complex(integer(2)) == T);
+    REQUIRE(is_imaginary(xr) == F);
+    REQUIRE(is_imaginary(integer(0)) == F);
+    REQUIRE(is_real(integer(0)) == T);
+    // Mul propagation: I·(real ≠ 0) is imaginary and not real.
+    REQUIRE(is_imaginary(S::I() * xr) == T);
+    REQUIRE(is_real(S::I() * xr) == F);
+    REQUIRE(is_imaginary(integer(2) * S::I()) == T);
+    // Even number of imaginary factors → real: I·I, imaginary².
+    REQUIRE(is_real(S::I() * S::I()) == T);          // folds to −1
+    REQUIRE(is_imaginary(pow(xi, integer(2))) == F);
+    REQUIRE(is_real(pow(xi, integer(2))) == T);
+    REQUIRE(is_imaginary(pow(xi, integer(3))) == T);  // odd power stays imaginary
+    // real · real is not imaginary.
+    REQUIRE(is_imaginary(xr * yr) == F);
+    // Add: imaginary + imaginary is imaginary; real + imaginary is not.
+    REQUIRE(is_imaginary(S::I() * xr + S::I() * yr) == T);
+    REQUIRE(is_imaginary(xr + S::I() * yr) == F);
+    REQUIRE(is_complex(xr + S::I() * yr) == T);
+}

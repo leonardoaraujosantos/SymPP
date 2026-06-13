@@ -273,6 +273,10 @@ Expr Sin::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Sin::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -297,6 +301,10 @@ Expr Cos::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Cos::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -321,6 +329,10 @@ Expr Tan::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Tan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             // tan is real wherever cos(arg) ≠ 0; we don't have that info in
             // general so only return true when the arg is itself real (and
@@ -653,6 +665,10 @@ Expr Asin::rebuild(std::vector<Expr> new_args) const { return asin(new_args[0]);
 std::optional<bool> Asin::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             // Real iff arg is real and |arg| <= 1. We don't track |arg|<=1
             // precisely yet; conservatively flag real only when arg is itself
@@ -671,6 +687,10 @@ Expr Acos::rebuild(std::vector<Expr> new_args) const { return acos(new_args[0]);
 std::optional<bool> Acos::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -690,6 +710,10 @@ Expr Atan::rebuild(std::vector<Expr> new_args) const { return atan(new_args[0]);
 std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
@@ -739,6 +763,10 @@ std::optional<bool> Atan2::ask(AssumptionKey k) const noexcept {
     const auto& y = args_[0];
     const auto& x = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(y) == true && is_real(x) == true) return true;
             return std::nullopt;

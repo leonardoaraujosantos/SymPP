@@ -35,6 +35,11 @@ enum class AssumptionKey : std::uint8_t {
     // Parity (integers only).
     Even,          // = 2k for some integer k (implies integer; 0 is even)
     Odd,           // = 2k+1 (implies integer, nonzero)
+
+    // Complex domain.
+    Complex,       // a finite complex number (real ⇒ complex, imaginary ⇒ complex)
+    Imaginary,     // a nonzero real multiple of i (implies complex, ¬real, finite;
+                   // 0 is NOT imaginary — it is real)
 };
 
 }  // namespace sympp

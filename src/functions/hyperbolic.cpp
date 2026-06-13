@@ -87,6 +87,10 @@ namespace {
 [[nodiscard]] std::optional<bool> ask_real_finite_for_real_arg(
         const Expr& arg, AssumptionKey k) noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(arg) == true) return true;
@@ -135,6 +139,10 @@ Expr Cosh::rebuild(std::vector<Expr> new_args) const { return cosh(new_args[0]);
 std::optional<bool> Cosh::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;

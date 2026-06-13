@@ -72,6 +72,10 @@ std::optional<bool> RootOf::ask(AssumptionKey k) const noexcept {
     // Without numerically resolving, we can't say much. Real roots are real,
     // but we don't know which roots are real here. Be conservative.
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Finite:
             return true;
         default:

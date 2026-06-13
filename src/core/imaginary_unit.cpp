@@ -10,10 +10,13 @@ std::size_t ImaginaryUnit::hash() const noexcept {
 }
 
 std::optional<bool> ImaginaryUnit::ask(AssumptionKey k) const noexcept {
-    // I is finite and non-zero, but not real / integer / rational / signed.
+    // I is a finite, non-zero, purely-imaginary complex number — not real /
+    // integer / rational / signed.
     switch (k) {
         case AssumptionKey::Finite:
         case AssumptionKey::Nonzero:
+        case AssumptionKey::Imaginary:
+        case AssumptionKey::Complex:
             return true;
         case AssumptionKey::Real:
         case AssumptionKey::Integer:

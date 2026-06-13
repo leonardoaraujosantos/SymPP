@@ -146,6 +146,10 @@ Expr Abs::diff_arg(std::size_t /*i*/) const {
 std::optional<bool> Abs::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // |x| is always real (for any complex x, |x| ∈ ℝ_≥0)
         case AssumptionKey::Negative:
@@ -235,6 +239,10 @@ Expr Sign::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Sign::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -286,6 +294,10 @@ Re::Re(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Re::rebuild(std::vector<Expr> new_args) const { return re(new_args[0]); }
 std::optional<bool> Re::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // re(z) is always real for any complex z
         case AssumptionKey::Finite:
@@ -302,6 +314,10 @@ Im::Im(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Im::rebuild(std::vector<Expr> new_args) const { return im(new_args[0]); }
 std::optional<bool> Im::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // im(z) ∈ ℝ
         case AssumptionKey::Finite:
@@ -330,6 +346,10 @@ Arg::Arg(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Arg::rebuild(std::vector<Expr> new_args) const { return arg_(new_args[0]); }
 std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;
         default:
@@ -393,6 +413,10 @@ Expr MinFn::rebuild(std::vector<Expr> new_args) const { return min(std::move(new
 std::optional<bool> MinFn::ask(AssumptionKey k) const noexcept {
     // Min preserves real / integer / rational under all-true closure.
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:
@@ -413,6 +437,10 @@ MaxFn::MaxFn(std::vector<Expr> args)
 Expr MaxFn::rebuild(std::vector<Expr> new_args) const { return max(std::move(new_args)); }
 std::optional<bool> MaxFn::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:

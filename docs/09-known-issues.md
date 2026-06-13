@@ -14,6 +14,37 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-IMAG-1 — no Imaginary / Complex assumption predicates
+- **Was:** the assumption vocabulary had no `Imaginary` or `Complex` key, so
+  `I.is_imaginary`, `is_real(I·x)`, `is_complex(x)` had no answer — SymPP modelled
+  complex values structurally (`a + b·I`) but couldn't *reason* about
+  imaginariness.
+- **Fix:** added `Complex` and `Imaginary` to `AssumptionKey`, mask fields +
+  builders (`set_complex`/`set_imaginary`), hash, and deductive closure
+  (`imaginary ⇒ complex ∧ ¬real ∧ finite ∧ nonzero ∧ ¬rational/integer/sign/
+  parity`; `real ⇒ complex ∧ ¬imaginary`; `zero ⇒ ¬imaginary` since 0 is real).
+  Wired:
+  - `ImaginaryUnit::ask` — `I` is imaginary, complex, finite, ¬real;
+  - generic `ask()` derivations — `real ∨ imaginary ⇒ complex`,
+    `real ⇒ ¬imaginary`, `imaginary ⇒ ¬real`;
+  - `Mul::ask` — an odd number of imaginary factors (rest real, all nonzero) is
+    imaginary (`I·real = imaginary`), an even number is real (`I·I = −1`);
+  - `Add::ask` — a sum of imaginaries is imaginary, a real + imaginary mix is
+    complex but neither;
+  - `Pow::ask` — `imaginary^(odd integer)` is imaginary, `^(even)` is real.
+  - the infinities answer `¬complex` (∞/zoo aren't finite complex numbers).
+- **Verified against SymPy:** `I`, `2·I`, `I·x` (x real ≠ 0), `xi` (declared
+  imaginary), `xi²`, `xi³`, `I·I`, `x·y` (reals), `x_r + I·y_r`, plain reals and
+  `0` — the `is_imaginary` / `is_real` / `is_complex` triples match
+  `sympy`'s on 9/10 (the 10th, `x_r + I·x_r` → `is_real`, is conservatively
+  `Unknown` in SymPP vs `False` in SymPy — proving ¬real needs imaginary-part
+  cancellation analysis).
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[2][assumptions][imaginary][regression]` (ASSUME-IMAG-1).
+- **Scope:** the imaginary/complex ontology + arithmetic propagation. Still
+  deferred: irrational/prime/algebraic/hermitian/commutative predicates and the
+  SAT-based `ask(query, assumptions)` reasoner. ~14 of SymPy's ~30+ predicates.
+
 ### REWRITE-EXP-1 — no `rewrite(target)` API (exp ↔ trig)
 - **Was:** SymPP had no analogue of SymPy's `expr.rewrite(target)` — a common
   cross-cutting operation (Euler / hyperbolic identities, used in solving and

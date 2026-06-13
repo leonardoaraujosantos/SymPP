@@ -66,6 +66,10 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
     int s = sgn(value_);
     bool is_int = (value_.get_den() == 1);
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real: return true;
         case AssumptionKey::Rational: return true;
         case AssumptionKey::Integer: return is_int;

@@ -92,6 +92,10 @@ namespace {
 
 [[nodiscard]] std::optional<bool> int_ask(AssumptionKey k, const Expr& a) noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:
@@ -196,6 +200,10 @@ Expr Frac::rebuild(std::vector<Expr> new_args) const { return frac(new_args[0]);
 std::optional<bool> Frac::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Nonnegative:
             if (is_real(a) == true) return true;
@@ -231,6 +239,10 @@ std::optional<bool> Mod::ask(AssumptionKey k) const noexcept {
     const auto& p = args_[0];
     const auto& q = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
