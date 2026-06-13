@@ -671,6 +671,39 @@ TEST_CASE("together: 1/(x-1) - 1/(x+1)", "[4][together][oracle]") {
     REQUIRE(oracle.equivalent(t->str(), "2/((x - 1)*(x + 1))"));
 }
 
+// TOGETHER-LCM-1: combine a sum of fractions over the LCM of the denominators,
+// not their product — so a shared denominator factor isn't duplicated
+// (a/b + c/b → (a+c)/b, not (a·b + b·c)/b²). Fixes as_numer_denom, which feeds
+// together / cancel / apart / simplify.
+TEST_CASE("together: shared denominator uses the LCM (TOGETHER-LCM-1)",
+          "[4][together][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto c = symbol("c");
+    // a/b + c/b → (a + c)/b.
+    REQUIRE(oracle.equivalent(
+        together(a / b + c / b)->str(), "(a + c)/b"));
+    // 3 terms over the same denominator.
+    auto d = symbol("d");
+    REQUIRE(oracle.equivalent(
+        together(a / b + c / b + d / b)->str(), "(a + c + d)/b"));
+    // Shared (x+1) collapses to 1 instead of an (x+1)² bloat.
+    REQUIRE(together(x / (x + integer(1)) + integer(1) / (x + integer(1)))
+            == integer(1));
+    // Power relationship: LCM is (x-1)², not (x-1)³.
+    REQUIRE(oracle.equivalent(
+        together(pow(x - integer(1), integer(-1))
+                 + pow(x - integer(1), integer(-2)))->str(),
+        "x/(x - 1)**2"));
+    // Distinct denominators still cross-multiply correctly.
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        together(pow(x, integer(-1)) + pow(y, integer(-1)))->str(),
+        "(x + y)/(x*y)"));
+}
+
 TEST_CASE("cancel: (x^2 - 1)/(x - 1) = x + 1", "[4][cancel][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

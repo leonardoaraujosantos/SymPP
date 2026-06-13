@@ -169,6 +169,16 @@ Expr simplify(const Expr& e) {
             // than propagating out of simplify().
         }
     }
+
+    // 6. Global anti-bloat guard. simplify() must never return something
+    //    structurally larger than its (canonical) input — SymPy's simplify
+    //    makes the same guarantee via a complexity measure. The pattern
+    //    pipeline expands eagerly, which inflates already-compact forms
+    //    ((x+1)**3, (exp(x)-1)/(exp(x/2)+1), a/b + c/b); when the pipeline
+    //    result ends up bigger, fall back to the canonical input.
+    if (node_count(current) > node_count(canon)) {
+        return canon;
+    }
     return current;
 }
 
@@ -519,6 +529,55 @@ as_trig_square_term(const Expr& term) {
     return total;
 }
 
+// If `f` is cos(2·g) — a Cos whose argument is a Mul carrying a literal
+// integer-2 factor — return g; otherwise nullopt. Used to fold a double-angle
+// cosine back into the sin²/cos² buckets via cos(2g) = cos²(g) − sin²(g), which
+// lets trigsimp recover the power-reduction identities (1 − cos 2x)/2 = sin²x.
+[[nodiscard]] std::optional<Expr> cos_double_arg(const Expr& f) {
+    if (f->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*f);
+    if (fn.function_id() != FunctionId::Cos) return std::nullopt;
+    const Expr& a = f->args()[0];
+    if (a->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<Expr> rest;
+    bool found_two = false;
+    for (const auto& g : a->args()) {
+        if (!found_two && g == integer(2)) { found_two = true; continue; }
+        rest.push_back(g);
+    }
+    if (!found_two || rest.empty()) return std::nullopt;
+    return mul(std::move(rest));
+}
+
+// Decompose a term as coef·cos(2·arg). Mirrors as_trig_square_term but for the
+// double-angle cosine. Returns nullopt when there is no such cosine, or more
+// than one (an unusual structure we leave alone).
+struct CosDoubleTerm {
+    Expr arg;
+    Expr coef;
+};
+[[nodiscard]] std::optional<CosDoubleTerm> as_cos_double_term(const Expr& term) {
+    if (auto g = cos_double_arg(term); g) {
+        return CosDoubleTerm{*g, S::One()};
+    }
+    if (term->type_id() == TypeId::Mul) {
+        std::optional<Expr> arg;
+        std::vector<Expr> coef_factors;
+        for (const auto& f : term->args()) {
+            if (auto g = cos_double_arg(f); g) {
+                if (arg) return std::nullopt;  // multiple — leave alone
+                arg = *g;
+            } else {
+                coef_factors.push_back(f);
+            }
+        }
+        if (arg) {
+            return CosDoubleTerm{*arg, mul(std::move(coef_factors))};
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Expr trigsimp_add(const Expr& e) {
     if (e->type_id() != TypeId::Add) return e;
 
@@ -533,23 +592,49 @@ as_trig_square_term(const Expr& term) {
     };
 
     for (const auto& term : e->args()) {
-        auto t = as_trig_square_term(term);
-        if (!t) { non_trig.push_back(term); continue; }
-        auto& cp = find_or_create(t->arg);
-        if (t->is_sin) cp.sin_coef = add(cp.sin_coef, t->coef);
-        else cp.cos_coef = add(cp.cos_coef, t->coef);
+        if (auto t = as_trig_square_term(term)) {
+            auto& cp = find_or_create(t->arg);
+            if (t->is_sin) cp.sin_coef = add(cp.sin_coef, t->coef);
+            else cp.cos_coef = add(cp.cos_coef, t->coef);
+            continue;
+        }
+        // q·cos(2x) = q·(cos²x − sin²x): fold into the same buckets so the
+        // candidate comparison below can pick the power-reduced sin²/cos² form.
+        if (auto d = as_cos_double_term(term)) {
+            auto& cp = find_or_create(d->arg);
+            cp.cos_coef = add(cp.cos_coef, d->coef);
+            cp.sin_coef = add(cp.sin_coef, S::NegativeOne() * d->coef);
+            continue;
+        }
+        non_trig.push_back(term);
     }
 
     if (by_arg.empty()) return e;
 
-    // Pythagorean candidate: a·sin²(x) + b·cos²(x) → b + (a − b)·sin²(x).
-    auto pythagorean_form = [&] {
+    // Sin Pythagorean candidate: a·sin²(x) + b·cos²(x) → b + (a − b)·sin²(x).
+    auto sin_pythagorean_form = [&] {
         std::vector<Expr> out = non_trig;
         for (auto& [arg, cp] : by_arg) {
             out.push_back(cp.cos_coef);
             Expr diff = cp.sin_coef - cp.cos_coef;
             if (!(diff == S::Zero())) {
                 out.push_back(diff * pow(sin(arg), integer(2)));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
+
+    // Cos Pythagorean candidate: a·sin²(x) + b·cos²(x) → a + (b − a)·cos²(x).
+    // Needed so e.g. (1 + cos 2x)/2 reduces to cos²(x) rather than 1 − sin²(x).
+    auto cos_pythagorean_form = [&] {
+        std::vector<Expr> out = non_trig;
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(cp.sin_coef);
+            Expr diff = cp.cos_coef - cp.sin_coef;
+            if (!(diff == S::Zero())) {
+                out.push_back(diff * pow(cos(arg), integer(2)));
             }
         }
         if (out.empty()) return Expr{S::Zero()};
@@ -577,9 +662,15 @@ as_trig_square_term(const Expr& term) {
         return add(std::move(out));
     }();
 
-    return count_leaves(double_angle_form) < count_leaves(pythagorean_form)
-            ? double_angle_form
-            : pythagorean_form;
+    // Pick whichever of the three equivalent forms has the fewest leaves.
+    Expr best = sin_pythagorean_form;
+    if (count_leaves(cos_pythagorean_form) < count_leaves(best)) {
+        best = cos_pythagorean_form;
+    }
+    if (count_leaves(double_angle_form) < count_leaves(best)) {
+        best = double_angle_form;
+    }
+    return best;
 }
 
 // 2·sin(x)·cos(x) = sin(2x).  More generally, k·sin(x)·cos(x) → (k/2)·sin(2x).

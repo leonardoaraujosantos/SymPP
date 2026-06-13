@@ -14,6 +14,364 @@ truth and links the issue number.
 
 ## Fixed
 
+### TOGETHER-LCM-1 — `together` combined fractions over the product, not the LCM, of denominators
+- **Input:** `together(a/b + c/b)`, `together(x/(x+1) + 1/(x+1))`,
+  `together(1/(x-1) + 1/(x-1)**2)`.
+- **Was:** `(a*b + b*c)*b**(-2)`, `(x + x*(x+1) + 1)*(x+1)**(-2)` (which is
+  actually `1`), and `(...)*(x-1)**(-3)`. `as_numer_denom`'s `Add` branch used
+  the **product** of the part denominators as the common denominator and
+  cross-multiplied, so a shared factor was squared (`b·b`, `(x+1)²`) and the
+  result was left inflated and unreduced.
+- **Expected (SymPy):** `(a + c)/b`, `1`, `x/(x-1)**2`.
+- **Fix (`src/polys/poly.cpp`):** `as_numer_denom` now combines a sum of
+  fractions over the **LCM** of the denominators. Each denominator is decomposed
+  into `base^power` factors (`accumulate_denom_factors`, peeling `Pow(base,+int)`
+  and `Mul`, treating anything else — Symbol, `(x+1)`, non-integer power — as an
+  opaque base); the common denominator takes the max power per base, and each
+  numerator is scaled by its per-base power deficit. Distinct denominators still
+  cross-multiply (`1/x + 1/y → (x+y)/(x·y)`); a shared factor is no longer
+  duplicated, and an exact cancellation (`x/(x+1)+1/(x+1)`) collapses through the
+  canonical `Mul` to `1`.
+- **Verified against SymPy:** `a/b+c/b`, the 3-term `a/b+c/b+d/b`, the `(x+1)`
+  and `(x-1)²` shared-factor cases, `1/x+1/x**2`, and the distinct-denominator
+  baseline all match. The fix flows through to `simplify` (the SIMP-4 follow-up
+  `simplify(a/b+c/b) → (a+c)/b` now works) and leaves `cancel` / `apart`
+  unchanged.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[4][together][oracle][regression]` (TOGETHER-LCM-1).
+- **Scope:** structural factor sharing (identical bases, power relationships).
+  Denominators sharing a *non-obvious* polynomial factor (`x²−1` and `x+1`)
+  still combine over their product — that needs the multivariate-GCD work
+  (CANCEL-1) to detect; the result stays correct, just not minimal.
+
+### MAT-CHARPOLY-1 — `Matrix::charpoly` returned an unexpanded cofactor form
+- **Input:** `Matrix{{1,2},{3,4}}.charpoly(λ)` and other square matrices.
+- **Was:** `(λ - 1)*(λ - 4) - 6` — the raw cofactor-expansion shape produced by
+  `det(λI − A)`. Mathematically a characteristic polynomial, but not the form a
+  caller expects.
+- **Expected (SymPy):** the expanded, like-terms-collected polynomial
+  `λ² − 5λ − 2` (SymPy's `charpoly().as_expr()`).
+- **Fix (`src/matrices/matrix.cpp`):** `charpoly` now returns
+  `expand(det(λI − A))`. `eigenvals` is unaffected (it rebuilds a `Poly`, which
+  expands regardless).
+- **Verified against SymPy:** the expanded polynomial matches for 2×2, 3×3,
+  singular, and symbolic matrices (`λ² − 2λx + x² − 1` for `[[x,1],[1,x]]`).
+  (Term *ordering* still differs — SymPP's canonical `Add` order vs SymPy's
+  descending-degree — but the polynomials are identical; ordering is a separate
+  printer concern.)
+- **Regression test:** `tests/matrices/matrix_test.cpp`
+  — `[9][matrix][charpoly][oracle][regression]` (MAT-CHARPOLY-1): no surviving
+  `)*(` factor, and oracle-equivalence for 2×2 / 3×3 / symbolic.
+- **Scope:** the rest of the dense-matrix surface (det, inverse, rank, rref,
+  nullspace, eigenvals, eigenvects) was cross-checked against SymPy in this pass
+  and already matches.
+
+### INT-RECIP-2 — `∫1/cosh(x)` (reciprocal hyperbolic as a `Pow`) wasn't integrated
+- **Input:** `integrate(1/cosh(x))`, `integrate(1/sinh(x))`, and affine variants
+  (`1/cosh(2x)`, `1/sinh(3x+1)`).
+- **Was:** the unevaluated `Integral(cosh(x)**(-1), x)` — the hyperbolic analogue
+  of INT-RECIP-1. `integrate(sech(x))` / `integrate(csch(x))` worked, but the
+  `Pow(cosh(x), -1)` form fell through.
+- **Expected (SymPy):** `∫1/cosh(x) = atan(sinh(x))`,
+  `∫1/sinh(x) = log(tanh(x/2))`.
+- **Fix (`src/integrals/integrate.cpp`):** extended the INT-RECIP-1
+  reciprocal-first-power `Pow` branch with `Pow(cosh(u), -1) → sech(u)` and
+  `Pow(sinh(u), -1) → csch(u)`, reusing the Sech/Csch antiderivatives
+  (`atan(sinh)/a`, `log(tanh(u/2))/a`).
+- **Verified against SymPy:** all four inputs integrate (each confirmed by
+  differentiating back), and `∫1/cosh(x)` now equals `∫sech(x)` structurally.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][hyperbolic][oracle][regression]` (INT-RECIP-2).
+
+### INT-RECIP-1 — `∫1/cos(x)` (reciprocal trig as a `Pow`) wasn't integrated
+- **Input:** `integrate(1/cos(x))`, `integrate(1/sin(x))`, and affine variants
+  (`1/cos(2x+1)`, `1/sin(3x)`).
+- **Was:** the unevaluated `Integral(cos(x)**(-1), x)` — even though
+  `integrate(sec(x))` and `integrate(cos(x)**(-2))` both worked. `1/cos(x)`
+  parses as `Pow(cos(x), -1)`: the `exp == -1` log rule only fires for an
+  *affine* base (not `cos(x)`), and the reciprocal-trig branch only matched
+  `exp == -2`, so the first power fell through.
+- **Expected (SymPy):** the same antiderivative as `∫sec(x)` /
+  `∫csc(x)` (a half-angle log form, ≡ `log|sec x + tan x|`).
+- **Fix (`src/integrals/integrate.cpp`):** a reciprocal-first-power branch in the
+  `Pow` case — `Pow(cos(u), -1) → sec(u)` and `Pow(sin(u), -1) → csc(u)` for an
+  affine `u` route to the exact antiderivatives the Sec/Csc function table
+  already used.
+- **Verified against SymPy:** all four inputs integrate (each confirmed by
+  differentiating back to the integrand), and `∫1/cos(x)` now equals `∫sec(x)`
+  structurally.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][trig][oracle][regression]` (INT-RECIP-1).
+- **Scope:** `1/cos`, `1/sin` of an affine argument. The hyperbolic reciprocals
+  written as a `Pow` are done in INT-RECIP-2 above.
+
+### INT-IMPROPER-1 — improper rational functions over a linear denominator weren't integrated
+- **Input:** `integrate(x/(x+1))`, `integrate(x**2/(x+1))`,
+  `integrate((x**2+1)/(x-1))`, `integrate((x+1)/x)`.
+- **Was:** the unevaluated `Integral(...)` marker. `try_rational` does the
+  polynomial division (`x/(x+1) → 1 + (−1)/(x+1)`), but when `apart` left the
+  proper remainder as a single `c/(x+a)` term, the `apart_form == proper` branch
+  only handled a **degree-2** denominator (`if (den_p.degree() != 2) return
+  nullopt`) and dropped everything else — so a linear denominator fell through to
+  the marker even though its integral is an elementary log.
+- **Expected (SymPy):** `x - log(x + 1)`, `x**2/2 - x + log(x + 1)`,
+  `x**2/2 + x + 2*log(x - 1)`, `x + log(x)`.
+- **Fix (`src/integrals/integrate.cpp`):** in that branch (with `q ≠ 0`) the
+  proper remainder is now closed by the **general** integrator
+  `integrate(proper, var)` instead of the degree-2-only helpers. That reaches the
+  affine-log rule for a linear denominator and the arctan / linear-over-quadratic
+  helpers for a quadratic one; the remainder is a *proper* fraction so its own
+  `try_rational` bails immediately (`q' == 0`), giving no recursion.
+- **Verified against SymPy:** all four inputs now integrate (each confirmed by
+  differentiating the antiderivative back to the integrand), and the
+  previously-working quadratic-denominator improper cases (`x**3/(x**2-1)`,
+  `x**2/(x**2+1)`) are unchanged.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][rational][oracle][regression]` (INT-IMPROPER-1): the linear
+  family verified by differentiation, plus a quadratic-denominator
+  no-regression guard.
+- **Scope:** rational integrands. (`1/cos(x)` written as `Pow(cos(x), -1)` is
+  fixed in INT-RECIP-1 above.)
+
+### SPECVAL-1 — `gamma` poles and `polygamma(n, 1)` special values weren't evaluated
+- **Input:** `gamma(0)`, `gamma(-1)`, `gamma(-3)`; `polygamma(0, 1)` /
+  `digamma(1)`, `polygamma(1, 1)`, `polygamma(2, 1)`, `polygamma(3, 1)`.
+- **Was:** `gamma(0)` etc. stayed an unevaluated `gamma(0)` (the factory comment
+  even read *"= pole; keep symbolic"*), and every `polygamma(n, 1)` stayed
+  symbolic — including `digamma(1)`, which the DIGAMMA-1 entry had flagged as a
+  follow-up (`ψ(1) = −γ`).
+- **Expected (SymPy):** `gamma(non-positive integer) = zoo`;
+  `polygamma(0,1) = -EulerGamma`, `polygamma(1,1) = pi**2/6`,
+  `polygamma(2,1) = -2*zeta(3)`, `polygamma(3,1) = pi**4/15`.
+- **Fix (`src/functions/combinatorial.cpp`):**
+  - `gamma`: a non-positive integer argument now returns `S::ComplexInfinity()`
+    (a simple pole) instead of an unevaluated node.
+  - `polygamma`: at `x = 1` with non-negative integer order `n`,
+    `ψ⁽⁰⁾(1) = −γ` and `ψ⁽ⁿ⁾(1) = (−1)^(n+1)·n!·ζ(n+1)` (the `(−1)^(n+1)` folds
+    to ±1 through the existing parity rule in the `pow` factory; `ζ(even)` then
+    closes to a `π` power via the existing `zeta` evaluation).
+- **Verified against SymPy:** all listed inputs match; `gamma` of positive
+  integers / half-integers and `polygamma` of a non-unit argument
+  (`polygamma(1, 2)`, `polygamma(1, x)`) are unaffected (the rule does not
+  over-fire).
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[3i][gamma][regression]` and `[3i][polygamma][oracle][regression]`
+  (SPECVAL-1).
+- **Scope:** `gamma` poles and the `x = 1` polygamma family. The
+  `polygamma(n, x)` recurrence for other integer `x` (`ψ⁽¹⁾(2) = −1 + π²/6`) and
+  `harmonic`/`li`/Bessel special values (those functions have no `FunctionId`
+  implementation yet) are follow-ups.
+
+### SOLVE-RAD-1 — `solve` couldn't handle radical equations (`sqrt(x) = 2`)
+- **Input:** `solve(sqrt(x) - 2, x)`, `solve(x**(1/3) - 2, x)`,
+  `solve(x**(2/3) - 4, x)`, `solve(sqrt(x+1) - 2, x)`, `solve(sqrt(x) - y, x)`.
+- **Was:** `[]` for all of them. The polynomial path can't build a `Poly` over a
+  fractional power, and the `invert_solveset` chain only peeled `Function` heads
+  (log/exp/sin/…), bailing on a `Pow` head — and `solve` only routed to
+  `solveset` when the expression contained a `Function` of the variable, never a
+  radical.
+- **Expected (SymPy):** `[4]`, `[8]`, `[8]`, `[3]`, `[y**2]`.
+- **Fix (`src/solvers/solve.cpp`):**
+  - `invert_solveset` gained a `Pow` branch: `g^p = c` with `p` a **non-integer**
+    rational inverts to `g = c^(1/p)`, recursing on `g` when it isn't the bare
+    variable. Integer powers are deliberately left to the polynomial solver so
+    `x**2 = 4` still yields **both** `±2` (not just the principal root).
+  - Principal-branch convention (matches SymPy): a provably-negative real RHS
+    gives `∅` (`sqrt(x) = −2`, `x**(1/3) = −2`).
+  - `solve` now also routes to `solveset` when the equation carries a radical of
+    the variable (new `has_radical_of_var`), not only a `Function`.
+- **Verified against SymPy:** all five inputs match, the negative-RHS cases give
+  `[]`, the symbolic RHS gives `[y**2]`, and integer powers (`x²−4 → [−2, 2]`,
+  `x³−8`, `x²−1`) are unchanged.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-RAD-1): each radical form, the
+  no-real-solution branch, and the integer-power no-regression guard.
+- **Scope:** single radical head reachable through the invert chain. Equations
+  mixing a radical with polynomial terms (`sqrt(x) + x − 6`) still need the
+  general radical-elimination machinery and are a follow-up.
+
+### POLE-SIGN-1 — `limit` at a finite pole returned unsigned `zoo` instead of `±oo`
+- **Input:** `limit(1/x**2, x, 0)`, `limit(1/x**4, x, 0)`,
+  `limit(-1/x**2, x, 0)`, `limit(1/(x-1)**2, x, 1)`.
+- **Was:** `zoo` for all of them. After ZERODIV-1, direct substitution at the
+  pole correctly produced `zoo` (the unsigned 1/0), but `limit` returned that as
+  the answer without analysing the approach direction.
+- **Expected (SymPy):** `oo`, `oo`, `-oo`, `oo` — an even-order pole diverges
+  with the same sign from both sides.
+- **Fix (`src/calculus/limit.cpp`):** new `signed_pole` — when direct
+  substitution at a finite numeric target yields `zoo`, sample the sign of the
+  expression at `target ± 1e-6` (exact substitution + `evalf`, reusing the
+  infinity atoms for already-infinite samples). Matching signs ⇒ `+oo` / `-oo`;
+  opposite signs ⇒ the limit is genuinely two-sided and stays `zoo`; an
+  inconclusive sample (non-real, no definite sign) also stays `zoo`.
+- **Verified against SymPy:** all four even-pole inputs match (`±oo`), plus
+  scaled/shifted variants (`2/(x-3)**2 → oo`, `-5/x**4 → -oo`). An **odd** pole
+  (`1/x`, `1/x**3`) keeps `zoo`: it is `+∞` from the right and `−∞` from the
+  left, so the two-sided limit is genuinely the unsigned `zoo`. SymPy reports
+  `oo` there only because its `limit` defaults to `dir='+'` (one-sided);
+  SymPP's `limit` is two-sided, so `zoo` is the correct answer — a principled,
+  documented divergence.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (POLE-SIGN-1): even poles → `±oo`,
+  shifted pole, odd pole stays `zoo`.
+- **Scope:** finite numeric targets. Symbolic targets and essential
+  singularities are out of scope; the one-sided `limit(f, x, c, dir)` API itself
+  remains a separate feature gap.
+
+### SOLVE-VAR-1 — `solve` returned a "solution" still containing the solve variable
+- **Input:** `solve(x*exp(x) - 1, x)`, `solve(x*exp(x) - 2, x)`,
+  `solve(exp(x) + x, x)`, `solve(x*log(x) - 1, x)`.
+- **Was:** `[exp(x)**(-1)]`, `[2*exp(x)**(-1)]`, `[-exp(x)]`, `[log(x)**(-1)]` —
+  every one a *rearrangement* that still contains `x`, i.e. not a solution at
+  all. `solve_poly` builds a polynomial in `x` and treats a var-dependent
+  "coefficient" (the `exp(x)` in `x·exp(x) − 1`) as a constant, then solves the
+  apparent linear equation `x = 1/exp(x)`.
+- **Expected (SymPy):** `LambertW(1)`, `LambertW(2)`, `-LambertW(1)`,
+  `exp(LambertW(1))`. SymPP has no Lambert-W solver, so the correct answer is
+  *"none found"* (empty) — never a `x`-containing value.
+- **Fix (`src/solvers/solve.cpp`):** a correctness guard — a genuine solution
+  `x = c` must be free of `x`. `solve()` now drops any candidate with
+  `has(root, var)` (both from the `solve_poly` path and from the `solveset`
+  finite-set path), and `solveset_impl`'s polynomial fallback rejects the same
+  rearrangements before building its `FiniteSet`.
+- **Verified against SymPy:** the four inputs now return `[]` (no false
+  solution); every genuine solve is preserved — `x²−1 → [−1, 1]`,
+  `x²−5x+6 → [2, 3]`, `log(x)−1 → [E]`, `exp(x)−2 → [log 2]`, `x³−x → [−1,0,1]`,
+  `x²−y → [±√y]` (free of `x`).
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-VAR-1): the four Lambert-W inputs yield no
+  `x`-containing root, plus sanity guards that genuine polynomial/parametric
+  solves still return their roots.
+- **Scope:** this removes the *wrong* answers. Actually solving these (Lambert-W)
+  and radical equations like `sqrt(x) − 2 = 0 → 4` (still `[]`, since `sqrt` is a
+  `Pow` the invert chain doesn't peel) are separate missing-feature follow-ups.
+
+### ZERODIV-1 — `0^(negative)` (i.e. `1/0`) escaped as the malformed `0**(-1)`
+- **Input:** `1/0`, `pow(0, -1)`, `0**(-2)`, `0**(-1/2)`, `2/0`, and
+  `limit(1/x**2, x, 0)`.
+- **Was:** the literal unevaluated `0**(-1)` — a malformed object (neither a
+  number nor an infinity). The `pow` factory fell through to `number_pow(0, -1)`
+  which returns `nullopt` for division by zero (`src/core/number_arith.cpp`
+  already carried the comment *"0^negative — ComplexInfinity (Phase 1e+)"* but
+  never produced it), so the unevaluated `Pow` leaked out. It then poisoned
+  downstream consumers: `limit(1/x**2, x, 0)` returned `0**(-1)` instead of an
+  infinity.
+- **Expected (SymPy):** `zoo` (ComplexInfinity) for every `0**(negative)` — SymPy
+  gives `0**-1 == 0**-2 == 0**Rational(-1,2) == zoo`.
+- **Fix (`src/core/pow.cpp`):** an explicit early rule — `base == 0` and a
+  provably-negative exponent → `S::ComplexInfinity()`. Placed after
+  `pow_with_infinity` (so `0**(-oo)` is still handled there) and after the
+  `x**0 → 1` rule (so `0**0 = 1` wins). `0**(positive)` (→ 0) and symbolic /
+  unknown-sign exponents are untouched.
+- **Verified against SymPy:** `1/0`, `0**-1`, `0**-2`, `0**(-1/2)`, `2/0`,
+  `1/(x-x)` all give `zoo`; `0**2 → 0`, `0**0 → 1`, `x**-1`, `5**-1 → 1/5`
+  unchanged.
+- **Regression test:** `tests/core/infinity_test.cpp`
+  — `[1][infinity][regression]` (ZERODIV-1): the `0**negative` family, `1/0`,
+  the unaffected non-singular cases, and `limit(1/x**2, x, 0)` no longer leaking
+  `0**(-1)`.
+- **Scope:** this fixes the malformed-output bug. Refining the pole `zoo` to the
+  signed `±oo` (so `limit(1/x**2, x, 0) = oo`) is done in POLE-SIGN-1 above.
+
+### TRIG-PWR — `trigsimp` didn't apply the power-reduction / half-angle identities
+- **Input:** `(1 − cos 2x)/2`, `(1 + cos 2x)/2`, `1 − cos 2x`, `1 + cos 2x`,
+  `3·(1 − cos 2x)/2`.
+- **Was:** unchanged (`1/2 − cos(2x)/2`, …). `trigsimp_add` collapsed sums of
+  `a·sin²x + b·cos²x`, but a `cos(2x)` term (cosine to the first power) was not
+  recognised, so the reverse power-reduction direction never fired.
+- **Expected (SymPy):** `sin²x`, `cos²x`, `2·sin²x`, `2·cos²x`, `3·sin²x`.
+- **Fix (`src/simplify/simplify.cpp`):** a `q·cos(2·g)` term is now folded into
+  the per-argument sin²/cos² buckets via `cos(2g) = cos²g − sin²g`
+  (`as_cos_double_term` / `cos_double_arg`, restricted to a literal integer-2
+  factor in the argument). A third **cos-based Pythagorean** candidate
+  (`a + (b − a)·cos²x`) was added alongside the existing sin-based and
+  double-angle candidates; `trigsimp_add` returns whichever of the three has the
+  fewest leaves. Because the selection always takes the global minimum, there is
+  no oscillation: a bare `cos(2x)` stays `cos(2x)`, and the existing
+  `1 − 2·sin²x → cos 2x` collapse is preserved (the `cos 2x` form has fewer
+  leaves there).
+- **Verified against SymPy:** all five inputs plus the no-oscillation guards
+  match `sympy.trigsimp`. `(1 − cos 4x)/2` stays unreduced in **both** SymPP and
+  SymPy (the literal-`cos(2·g)` restriction mirrors SymPy's own behaviour).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][trigsimp][oracle][regression]` (TRIG-PWR): the (1 ∓ cos 2x)/2 family,
+  scaled/unhalved variants, and the `cos(2x)` / `1 − 2·sin²x` no-oscillation
+  guards.
+- **Scope:** the `cos(2·g)` ↔ sin²/cos² family. `sin⁴x − cos⁴x → −cos 2x` (a
+  4th-power difference) is a separate, narrower follow-up not covered here.
+
+### SIMP-4 — `simplify` could return a form *larger than its input*
+- **Input:** `simplify((x+1)**3)`, `simplify((x+1)**2)`,
+  `simplify((exp(x)-1)/(exp(x/2)+1))`.
+- **Was:** `3*x + 3*x**2 + x**3 + 1`, `2*x + x**2 + 1`, and a 14-node nested
+  fraction (`((exp(x/2)+1)*exp(x) - (exp(x/2)+1))*(exp(x/2)+1)**(-2)`) — each
+  *bigger* than the input. The pipeline expands eagerly (`expand()` at step 2)
+  and never compared the final result against the original, so already-compact
+  forms got inflated. (SIMP-1 had added a *local* strictly-simpler guard for the
+  univariate rational-cancel step only; the global pipeline had none.)
+- **Expected (SymPy):** `(x + 1)**3`, `(x + 1)**2`, `(exp(x) - 1)/(exp(x/2) + 1)`
+  — SymPy's `simplify` guarantees it never returns something more complicated
+  than the input (it scores candidates by a complexity measure).
+- **Fix (`src/simplify/simplify.cpp`):** a global anti-bloat guard at the end of
+  `simplify()` — when `node_count(current) > node_count(canon)` (the canonical
+  input), return `canon`. Genuine reductions are unaffected because they shrink
+  the node count: `(x+1)*(x-1) → x**2-1`, `sin²+cos² → 1`, `(x²-1)/(x-1) → x+1`
+  all still fire. Rationalization that legitimately grows the count
+  (`1/√2 → √2/2`, `√8 → 2√2`) is preserved (radsimp's form is not larger by
+  `node_count`).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][regression]` / `[5][simplify][oracle][regression]`
+  ((x+1)**2/(x+1)**3 stay factored; genuine reductions still fire; exp fraction
+  no longer bloats).
+- **Scope:** the guard prevents *growth*; it does not add new reductions. Cases
+  where SymPy reduces *below* the input but SymPP cannot yet — `exp(x/2)-1` from
+  the exp fraction (needs generator-aware `cancel` in `exp(x/2)`), or `(a+c)/b`
+  from `a/b + c/b` (a `together` defect that emits `b**-2` at equal node count)
+  — remain separate follow-ups; SymPP now returns the input form rather than a
+  bloated one in those cases.
+
+### DERIV-1 — derivatives of undefined / untabulated functions were silently `0`
+- **Input:** `diff(f(x))` for an undefined `f`, `diff(x*g(x))`, `diff(f(x)**2)`,
+  `diff(besselj(0,x))`, `diff(zeta(x))`, `diff(li(x))`, `diff(beta(x,y))`,
+  `diff(fresnels(x))`.
+- **Was:** `0` (and, in products/sums, the function term was *dropped*:
+  `diff(x*g(x)) = g(x)`). `Function::diff_arg`'s default returned `S::Zero()`,
+  so **every** function without an explicit derivative rule — including all
+  undefined functions `f(x)` — differentiated to a silently-wrong `0`. The
+  header already documented a "Derivative marker" contract that the
+  implementation never honoured. DIGAMMA-1 had patched `gamma`/`loggamma`
+  case-by-case but left the unsafe default and the architectural hole (no
+  `Derivative` node existed).
+- **Expected (SymPy):** `Derivative(f(x), x)`, `x*Derivative(g(x), x) + g(x)`,
+  `2*f(x)*Derivative(f(x), x)`, `Derivative(besselj(0, x), x)` (or the closed
+  form), `Derivative(zeta(x), x)`, etc. — never `0` for a var-dependent argument.
+- **Fix:**
+  - New unevaluated **`Derivative`** node (`include/sympp/core/derivative.hpp`,
+    `src/core/derivative.cpp`, `TypeId::Derivative` which already existed in the
+    enum). Holds `(expr, var, order)`; prints `Derivative(f(x), x)` and
+    `Derivative(f(x), (x, n))` for higher order, matching SymPy. The `derivative()`
+    factory folds same-variable nesting into a single bumped order.
+  - `Function::diff_arg` default now returns `derivative(shared_from_this(),
+    args_[i])` — the unevaluated partial w.r.t. the i-th argument slot — instead
+    of `0`. Subclasses with a closed form (sin, exp, gamma, Si, Ei, erf, …) still
+    override and are unaffected.
+  - `diff()` computes the inner derivative *before* the partial (so an argument
+    independent of `var` short-circuits to `0` with no spurious
+    `Derivative(f, const)`), and handles `TypeId::Derivative` for higher orders.
+  - With this, the chain/product/power/sum rules compose the node correctly:
+    `diff(f(x))`, `diff(x*g(x))`, `diff(f(x)**2)`, `diff(f(x)+x**2)` all match
+    SymPy **exactly**; the previously-wrong specials (besselj, li, beta,
+    fresnels, …) now return a correct unevaluated `Derivative` rather than `0`.
+- **Regression test:** `tests/calculus/diff_test.cpp`
+  — `[6a][diff][derivative][regression]` (undefined-function Derivative,
+  product/power/sum carry, independent-variable → 0, second-order order bump).
+- **Scope:** the node makes the result *correct* (never wrong). Adding the
+  remaining closed-form reductions SymPy applies (besselj recurrence,
+  `li'(x)=1/log(x)`, `fresnels'(x)=sin(πx²/2)`, beta via polygamma) is a
+  mechanical follow-up — `li`/`fresnels`/`fresnelc` first need a `FunctionId`
+  (they currently parse as undefined functions, for which `Derivative` already
+  matches SymPy). `zeta` already matches SymPy (both keep it unevaluated).
+
 ### DIGAMMA-1 — `gamma`/`loggamma` derivatives were silently `0`
 - **Input:** `diff(gamma(x))`, `diff(loggamma(x))`, `diff(gamma(x²))`.
 - **Was:** `0` — `GammaFn`/`LogGamma` had no `diff_arg` override, so they fell

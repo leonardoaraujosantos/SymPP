@@ -130,6 +130,36 @@ TEST_CASE("gamma: stays symbolic for symbolic arg", "[3i][gamma]") {
     REQUIRE(gamma(x)->str() == "gamma(x)");
 }
 
+// SPECVAL-1: gamma has a simple pole at every non-positive integer → zoo; and
+// the polygamma special values at x = 1 (ψ⁽⁰⁾(1) = −γ,
+// ψ⁽ⁿ⁾(1) = (−1)^(n+1) n! ζ(n+1)). Both match SymPy.
+TEST_CASE("gamma: non-positive integers are poles → zoo (SPECVAL-1)",
+          "[3i][gamma][regression]") {
+    REQUIRE(gamma(integer(0)) == S::ComplexInfinity());
+    REQUIRE(gamma(integer(-1)) == S::ComplexInfinity());
+    REQUIRE(gamma(integer(-3)) == S::ComplexInfinity());
+    // Positive integers / half-integers are unaffected.
+    REQUIRE(gamma(integer(5)) == integer(24));
+}
+
+TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
+          "[3i][polygamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    // ψ⁽⁰⁾(1) = −EulerGamma (also reachable via digamma(1)).
+    REQUIRE(oracle.equivalent(polygamma(integer(0), integer(1))->str(),
+                              "-EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(1))->str(), "-EulerGamma"));
+    // ψ⁽¹⁾(1) = π²/6, ψ⁽²⁾(1) = −2ζ(3), ψ⁽³⁾(1) = π⁴/15.
+    REQUIRE(oracle.equivalent(polygamma(integer(1), integer(1))->str(),
+                              "pi**2/6"));
+    REQUIRE(oracle.equivalent(polygamma(integer(2), integer(1))->str(),
+                              "-2*zeta(3)"));
+    REQUIRE(oracle.equivalent(polygamma(integer(3), integer(1))->str(),
+                              "pi**4/15"));
+    // A non-unit argument stays symbolic (the x = 1 rule must not over-fire).
+    REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
+}
+
 // ----- loggamma --------------------------------------------------------------
 
 TEST_CASE("loggamma: classic values", "[3i][loggamma]") {

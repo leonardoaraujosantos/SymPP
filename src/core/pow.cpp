@@ -457,6 +457,13 @@ Expr pow(const Expr& base, const Expr& exp) {
     // Infinity / nan in the base or exponent (1^oo = nan, so this must run
     // before the 1^x → 1 rule below).
     if (auto inf = pow_with_infinity(base, exp); inf.has_value()) return *inf;
+    // 0^(negative) → zoo (the value of 1/0). 0^0 = 1 (handled above) and
+    // 0^(positive) = 0 (number_pow) are fine; only division-by-zero needs
+    // folding so it never escapes as the malformed 0**(-1). (Infinity exponents
+    // are already resolved by pow_with_infinity above.)
+    if (base == S::Zero() && is_negative(exp) == true) {
+        return S::ComplexInfinity();
+    }
     // 1^x → 1
     if (base == S::One()) return S::One();
 

@@ -139,6 +139,38 @@ namespace {
                 }
             }
         }
+        // Reciprocal (first power) trig of an affine argument written as a Pow:
+        //   1/cos(ax+b) = sec(ax+b),  1/sin(ax+b) = csc(ax+b).
+        // Route to the same antiderivatives the Sec/Csc function table uses, so
+        // ∫1/cos(x) matches ∫sec(x) (they were inconsistent — the Pow form fell
+        // through to the unevaluated marker).
+        if (exp == S::NegativeOne() && base->type_id() == TypeId::Function) {
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.args().size() == 1) {
+                const auto& inner = bfn.args()[0];
+                auto inner_aff = as_affine(inner, var);
+                if (inner_aff && !(inner_aff->first == S::Zero())) {
+                    const Expr& a = inner_aff->first;
+                    if (bfn.function_id() == FunctionId::Cos) {  // sec
+                        Expr s = sin(inner);
+                        return (log(s + S::One()) - log(s - S::One()))
+                               / (integer(2) * a);
+                    }
+                    if (bfn.function_id() == FunctionId::Sin) {  // csc
+                        Expr c = cos(inner);
+                        return (log(c - S::One()) - log(c + S::One()))
+                               / (integer(2) * a);
+                    }
+                    // Hyperbolic counterparts: 1/cosh = sech, 1/sinh = csch.
+                    if (bfn.function_id() == FunctionId::Cosh) {  // sech
+                        return atan(sinh(inner)) / a;
+                    }
+                    if (bfn.function_id() == FunctionId::Sinh) {  // csch
+                        return log(tanh(inner / integer(2))) / a;
+                    }
+                }
+            }
+        }
     }
 
     // 1/x: ∫ 1/x dx = log(x). 1/x is Pow(x, -1) — caught above.
@@ -1465,25 +1497,19 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
 
     Expr proper_int;
     if (apart_form == proper) {
-        // apart couldn't split the proper part — it is a single irreducible
-        // quadratic denominator with a constant or linear numerator. For a bare
-        // proper fraction (q == 0) defer to the dedicated quadratic helpers
-        // downstream (re-integrating here would recurse). For the improper case
-        // (q ≠ 0) the polynomial quotient must still be integrated, so close the
-        // remainder directly via those helpers instead of dropping the whole
-        // result to the marker.
+        // apart left the proper part as a single partial-fraction term — a
+        // linear denominator c/(x+a), or an irreducible quadratic it can't split
+        // further. For a bare proper fraction (q == 0) defer to the downstream
+        // affine/quadratic strategies; re-integrating here would recurse. For
+        // the improper case (q ≠ 0) the polynomial quotient must still be
+        // integrated, so close the remainder with the general integrator: it
+        // reaches the affine-log rule for a linear denominator and the
+        // arctan / linear-over-quadratic helpers for a quadratic one, and its own
+        // try_rational bails on this now-proper fraction (q' == 0), so there is
+        // no recursion.
         if (q.is_zero()) return std::nullopt;
-        if (den_p.degree() != 2) return std::nullopt;
-        if (r_poly.degree() <= 0) {
-            auto inv = try_arctan_quadratic(
-                pow(den_p.as_expr(), S::NegativeOne()), var);
-            if (!inv) return std::nullopt;
-            proper_int = mul(r_poly.as_expr(), inv.value());
-        } else {
-            auto lin = try_linear_over_quadratic(proper, var);
-            if (!lin) return std::nullopt;
-            proper_int = lin.value();
-        }
+        proper_int = integrate(proper, var);
+        if (is_integral_marker(proper_int)) return std::nullopt;
     } else {
         proper_int = integrate(apart_form, var);
         if (is_integral_marker(proper_int)) return std::nullopt;

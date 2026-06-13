@@ -14,6 +14,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/matrices/matrix.hpp>
@@ -111,6 +112,64 @@ TEST_CASE("solve: exp(x) - 2 = 0 -> x = log(2)", "[10][solve][transcendental][re
     auto roots = solve(exp(x) - integer(2), x);
     REQUIRE(roots.size() == 1);
     REQUIRE(oracle.equivalent(roots[0]->str(), "log(2)"));
+}
+
+// SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
+// g = c^(1/p). The polynomial path can't see through a fractional power, so
+// these used to come back empty. Matches SymPy, including the principal-branch
+// convention (negative real RHS → no solution) and integer powers still
+// returning every root.
+TEST_CASE("solve: radical equations via fractional-power invert (SOLVE-RAD-1)",
+          "[10][solve][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto half = rational(1, 2);
+    // sqrt(x) - 2 = 0 -> x = 4.
+    auto r1 = solve(pow(x, half) - integer(2), x);
+    REQUIRE(r1.size() == 1);
+    REQUIRE(oracle.equivalent(r1[0]->str(), "4"));
+    // x^(1/3) - 2 = 0 -> x = 8.
+    auto r2 = solve(pow(x, rational(1, 3)) - integer(2), x);
+    REQUIRE(r2.size() == 1);
+    REQUIRE(oracle.equivalent(r2[0]->str(), "8"));
+    // sqrt(x+1) - 2 = 0 -> x = 3 (recursion through the inner argument).
+    auto r3 = solve(pow(x + integer(1), half) - integer(2), x);
+    REQUIRE(r3.size() == 1);
+    REQUIRE(oracle.equivalent(r3[0]->str(), "3"));
+    // Symbolic RHS: sqrt(x) - y = 0 -> x = y**2.
+    auto r4 = solve(pow(x, half) - y, x);
+    REQUIRE(r4.size() == 1);
+    REQUIRE(oracle.equivalent(r4[0]->str(), "y**2"));
+    // Principal-branch: sqrt(x) + 2 = 0 has no (real) solution.
+    REQUIRE(solve(pow(x, half) + integer(2), x).empty());
+    // Integer powers are untouched: x**2 - 4 still returns BOTH roots.
+    REQUIRE(solve(pow(x, integer(2)) - integer(4), x).size() == 2);
+}
+
+// SOLVE-VAR-1: solve must never return a "solution" that still contains the
+// variable being solved for. solve_poly treats a var-dependent coefficient
+// (exp(x) in x·exp(x) − 1) as constant and used to hand back the rearrangement
+// x = exp(x)**(-1); that is not a solution. SymPP has no LambertW solver, so the
+// correct answer here is "none found" (empty), never a var-containing value.
+TEST_CASE("solve: never returns a var-dependent rearrangement (SOLVE-VAR-1)",
+          "[10][solve][regression]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // x·exp(x) − 1 = 0 : Lambert-W territory; no finite elementary root.
+    for (const auto& e : {x * exp(x) - integer(1), x * exp(x) - integer(2),
+                          exp(x) + x, x * log(x) - integer(1)}) {
+        auto roots = solve(e, x);
+        for (const auto& r : roots) {
+            INFO("offending root: " << r->str());
+            REQUIRE_FALSE(has(r, x));
+        }
+    }
+    // Genuine solves are unaffected (sanity guard around the filter).
+    REQUIRE(solve(pow(x, integer(2)) - integer(1), x).size() == 2);
+    auto par = solve(pow(x, integer(2)) - y, x);  // x = ±sqrt(y): free of x
+    REQUIRE(par.size() == 2);
+    for (const auto& r : par) REQUIRE_FALSE(has(r, x));
 }
 
 TEST_CASE("solve: sinh(x) - 1 = 0 -> x = asinh(1)", "[10][solve][transcendental][regression]") {

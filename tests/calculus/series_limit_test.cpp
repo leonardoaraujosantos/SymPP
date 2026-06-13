@@ -4,6 +4,7 @@
 
 #include <sympp/calculus/limit.hpp>
 #include <sympp/calculus/series.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -133,6 +134,25 @@ TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
     auto e = pow(integer(1) + integer(2) / x, x);
     auto v = limit(e, x, S::Infinity());
     REQUIRE(oracle.equivalent(v->str(), "exp(2)"));
+}
+
+// POLE-SIGN-1: at a finite pole, direct substitution yields zoo; resolve the
+// sign by sampling both sides. An even-order pole has matching signs on both
+// sides → ±oo (matching SymPy); an odd-order pole has opposite signs → the
+// two-sided limit is genuinely zoo (SymPy reports oo only via its dir='+'
+// default — SymPP's limit is two-sided, so zoo is the correct answer).
+TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero()) == S::Infinity());
+    REQUIRE(limit(pow(x, integer(-4)), x, S::Zero()) == S::Infinity());
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(-2))), x, S::Zero())
+            == S::NegativeInfinity());
+    // Shifted pole: 1/(x-1)^2 → +oo as x → 1.
+    REQUIRE(limit(pow(x - integer(1), integer(-2)), x, integer(1))
+            == S::Infinity());
+    // Odd pole stays the unsigned zoo (two-sided): 1/x as x → 0.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero()) == S::ComplexInfinity());
 }
 
 TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",

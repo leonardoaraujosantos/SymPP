@@ -13,6 +13,8 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/derivative.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
@@ -195,4 +197,46 @@ TEST_CASE("diff: tanh derivative", "[6a][diff][hyperbolic]") {
     auto d = diff(tanh(x), x);
     // 1 - tanh(x)^2
     REQUIRE(oracle.equivalent(d->str(), "1 - tanh(x)**2"));
+}
+
+// ----- Unevaluated Derivative for functions with no closed-form rule ---------
+//
+// DERIV-1: diff() must NOT silently collapse the derivative of an undefined /
+// untabulated function to 0 (the old Function::diff_arg default). It now keeps
+// an unevaluated Derivative node, exactly as SymPy does.
+
+TEST_CASE("diff: undefined function keeps an unevaluated Derivative",
+          "[6a][diff][derivative][regression]") {
+    auto x = symbol("x");
+    auto f = function_symbol("f");
+    // d/dx f(x) = Derivative(f(x), x), NOT 0.
+    auto d = diff(f(x), x);
+    REQUIRE(d != S::Zero());
+    REQUIRE(d->type_id() == TypeId::Derivative);
+    REQUIRE(d->str() == "Derivative(f(x), x)");
+}
+
+TEST_CASE("diff: product / power / sum rules carry the Derivative node",
+          "[6a][diff][derivative][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto g = function_symbol("g");
+    auto f = function_symbol("f");
+    // Product rule: d/dx (x*g(x)) = x*Derivative(g(x), x) + g(x).
+    REQUIRE(oracle.equivalent(diff(x * g(x), x)->str(),
+                              "x*Derivative(g(x), x) + g(x)"));
+    // Power rule: d/dx f(x)**2 = 2*f(x)*Derivative(f(x), x).
+    REQUIRE(oracle.equivalent(diff(pow(f(x), integer(2)), x)->str(),
+                              "2*f(x)*Derivative(f(x), x)"));
+    // A function of an independent variable still differentiates to 0.
+    auto y = symbol("y");
+    REQUIRE(diff(f(y), x) == S::Zero());
+}
+
+TEST_CASE("diff: second derivative of an undefined function bumps the order",
+          "[6a][diff][derivative][regression]") {
+    auto x = symbol("x");
+    auto f = function_symbol("f");
+    auto d2 = diff(f(x), x, 2);
+    REQUIRE(d2->str() == "Derivative(f(x), (x, 2))");
 }

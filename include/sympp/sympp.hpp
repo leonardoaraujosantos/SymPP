@@ -8,6 +8,7 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/boolean.hpp>
+#include <sympp/core/derivative.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/expr_cache.hpp>
 #include <sympp/core/expr_collections.hpp>

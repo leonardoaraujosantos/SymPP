@@ -371,7 +371,10 @@ Expr Matrix::charpoly(const Expr& lambda_var) const {
         throw std::invalid_argument("Matrix: charpoly requires square matrix");
     }
     Matrix lambda_I = Matrix::identity(rows_).scalar_mul(lambda_var);
-    return (lambda_I - *this).det();
+    // Expand the cofactor determinant into a collected polynomial in lambda —
+    // SymPy's charpoly always returns the expanded form (λ²−5λ−2), not the
+    // factored cofactor expansion ((λ−1)(λ−4)−6) that det() produces.
+    return expand((lambda_I - *this).det());
 }
 
 std::vector<Expr> Matrix::eigenvals() const {

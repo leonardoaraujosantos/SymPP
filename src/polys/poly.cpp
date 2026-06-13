@@ -873,6 +873,48 @@ namespace {
 
 struct NumerDenom { Expr numer; Expr denom; };
 
+// Decompose a denominator into base^power factors (powers accumulated by
+// structural base equality). Pow(base, +int) and Mul are peeled; anything else
+// (a Symbol, an Add like (x+1), a Function, a non-integer power) is an opaque
+// base of power 1. Used to combine a sum of fractions over the LCM of the
+// denominators instead of their product.
+using FactorPowers = std::vector<std::pair<Expr, long>>;
+
+void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
+    if (d == S::One()) return;
+    if (d->type_id() == TypeId::Pow) {
+        const Expr& base = d->args()[0];
+        const Expr& ex = d->args()[1];
+        if (ex->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*ex);
+            if (z.is_positive() && z.fits_long()) {
+                accumulate_denom_factors(base, mult * z.to_long(), fp);
+                return;
+            }
+        }
+    }
+    if (d->type_id() == TypeId::Mul) {
+        for (const auto& f : d->args()) accumulate_denom_factors(f, mult, fp);
+        return;
+    }
+    for (auto& [b, p] : fp) {
+        if (b == d) { p += mult; return; }
+    }
+    fp.push_back({d, mult});
+}
+
+// Build Π base^power from a factor-power list (skipping zero powers).
+[[nodiscard]] Expr build_from_factors(const FactorPowers& fp) {
+    std::vector<Expr> factors;
+    for (const auto& [b, p] : fp) {
+        if (p == 0) continue;
+        factors.push_back(p == 1 ? b : pow(b, integer(p)));
+    }
+    if (factors.empty()) return S::One();
+    if (factors.size() == 1) return factors[0];
+    return mul(std::move(factors));
+}
+
 // Walk an Expr and split into (numer, denom) such that numer/denom == e.
 // No reduction beyond what the canonical factories provide — caller should
 // run cancel() afterwards to get a reduced fraction.
@@ -920,22 +962,44 @@ struct NumerDenom { Expr numer; Expr denom; };
         std::vector<NumerDenom> parts;
         parts.reserve(e->args().size());
         for (const auto& a : e->args()) parts.push_back(as_numer_denom(a));
-        // Common denominator: product of all part denominators.
-        std::vector<Expr> denom_factors;
-        denom_factors.reserve(parts.size());
-        for (const auto& p : parts) denom_factors.push_back(p.denom);
-        Expr common = mul(denom_factors);
-        // Numerator: Σ_i (p_i.numer * Π_{j≠i} p_j.denom)
+
+        // Common denominator = LCM of the part denominators (max power per
+        // base), not their product — so a shared factor isn't duplicated
+        // (a/b + c/b → (a+c)/b, not (a·b + b·c)/b²).
+        std::vector<FactorPowers> part_fp;
+        part_fp.reserve(parts.size());
+        FactorPowers lcm;
+        for (const auto& p : parts) {
+            FactorPowers fp;
+            accumulate_denom_factors(p.denom, 1, fp);
+            for (const auto& [b, pw] : fp) {
+                bool found = false;
+                for (auto& [lb, lp] : lcm) {
+                    if (lb == b) { if (pw > lp) lp = pw; found = true; break; }
+                }
+                if (!found) lcm.push_back({b, pw});
+            }
+            part_fp.push_back(std::move(fp));
+        }
+        Expr common = build_from_factors(lcm);
+
+        // Numerator term i = numer_i · (LCM / denom_i), the cofactor being the
+        // per-base power deficit of denom_i relative to the LCM.
         std::vector<Expr> result_nums;
         result_nums.reserve(parts.size());
         for (std::size_t i = 0; i < parts.size(); ++i) {
-            std::vector<Expr> factors;
-            factors.reserve(parts.size());
-            factors.push_back(parts[i].numer);
-            for (std::size_t j = 0; j < parts.size(); ++j) {
-                if (i != j) factors.push_back(parts[j].denom);
+            FactorPowers cof;
+            for (const auto& [b, lp] : lcm) {
+                long dp = 0;
+                for (const auto& [db, de] : part_fp[i]) {
+                    if (db == b) { dp = de; break; }
+                }
+                if (lp - dp > 0) cof.push_back({b, lp - dp});
             }
-            result_nums.push_back(mul(factors));
+            Expr cofactor = build_from_factors(cof);
+            result_nums.push_back(cofactor == S::One()
+                                      ? parts[i].numer
+                                      : mul(parts[i].numer, cofactor));
         }
         return {add(std::move(result_nums)), common};
     }

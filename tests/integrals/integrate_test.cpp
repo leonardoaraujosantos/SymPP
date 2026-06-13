@@ -2003,3 +2003,71 @@ TEST_CASE("vpaintegral: ∫_0^1 exp(x²) dx (intractable symbolically)",
     REQUIRE(resp.ok);
     REQUIRE(resp.raw.at("result").get<bool>());
 }
+
+// INT-IMPROPER-1: improper rational functions (deg numerator ≥ deg denominator)
+// over a LINEAR denominator used to come back unevaluated. try_rational does the
+// polynomial division, but when apart left the proper remainder as a single
+// c/(x+a) term the code only closed a degree-2 denominator and dropped the rest
+// to the Integral marker. It now integrates the remainder through the general
+// integrator (affine-log rule), so ∫x/(x+1) = x − log(x+1), etc.
+TEST_CASE("integrate: improper rational over a linear denominator (INT-IMPROPER-1)",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {x / (x + integer(1)),
+                          pow(x, integer(2)) / (x + integer(1)),
+                          (pow(x, integer(2)) + integer(1)) / (x - integer(1)),
+                          (x + integer(1)) / x}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Quadratic-denominator improper cases still close (no regression).
+    auto g = pow(x, integer(3)) / (pow(x, integer(2)) - integer(1));
+    auto Fg = integrate(g, x);
+    REQUIRE(Fg->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(Fg, x)->str(), g->str()));
+}
+
+// INT-RECIP-1: 1/cos(x) and 1/sin(x) written as Pow(cos/sin, -1) used to fall
+// through to the marker, even though the Sec/Csc functions and cos(x)**(-2)
+// already integrated. The reciprocal first power now routes to the same sec/csc
+// antiderivatives (including affine arguments).
+TEST_CASE("integrate: reciprocal trig as a Pow (INT-RECIP-1)",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {pow(cos(x), integer(-1)),
+                          pow(sin(x), integer(-1)),
+                          pow(cos(integer(2) * x + integer(1)), integer(-1)),
+                          pow(sin(integer(3) * x), integer(-1))}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // 1/cos(x) and sec(x) now give the same antiderivative.
+    REQUIRE(integrate(pow(cos(x), integer(-1)), x)
+            == integrate(sec(x), x));
+}
+
+// INT-RECIP-2: hyperbolic analogue of INT-RECIP-1 — 1/cosh(x) and 1/sinh(x)
+// written as Pow(cosh/sinh, -1) route to the sech/csch antiderivatives.
+TEST_CASE("integrate: reciprocal hyperbolic as a Pow (INT-RECIP-2)",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {pow(cosh(x), integer(-1)),
+                          pow(sinh(x), integer(-1)),
+                          pow(cosh(integer(2) * x), integer(-1)),
+                          pow(sinh(integer(3) * x + integer(1)), integer(-1))}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // 1/cosh(x) and sech(x) now give the same antiderivative.
+    REQUIRE(integrate(pow(cosh(x), integer(-1)), x)
+            == integrate(sech(x), x));
+}

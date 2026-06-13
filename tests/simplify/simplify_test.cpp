@@ -90,6 +90,32 @@ TEST_CASE("simplify: sin^2 + cos^2 still collapses to 1 (no cancel hang)",
     REQUIRE(simplify(e) == integer(1));
 }
 
+// SIMP-4: anti-bloat guard. simplify() eagerly expands, which used to inflate
+// already-compact forms ((x+1)**n, exp fractions) — returning something larger
+// than the input. simplify() now falls back to the canonical input when the
+// pipeline result is structurally bigger, matching SymPy's "never return
+// something more complicated" contract.
+TEST_CASE("simplify: does not expand-bloat (x+1)**3 / (x+1)**2 (SIMP-4)",
+          "[5][simplify][regression]") {
+    auto x = symbol("x");
+    // SymPy keeps these factored — they are simpler than the expanded sum.
+    REQUIRE(simplify(pow(x + integer(1), integer(3))) == pow(x + integer(1), integer(3)));
+    REQUIRE(simplify(pow(x + integer(1), integer(2))) == pow(x + integer(1), integer(2)));
+}
+
+TEST_CASE("simplify: genuine reductions still fire under the guard (SIMP-4)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x+1)*(x-1) genuinely shrinks to x**2 - 1 — the guard must not block it.
+    REQUIRE(oracle.equivalent(
+        simplify((x + integer(1)) * (x - integer(1)))->str(), "x**2 - 1"));
+    // An exp fraction must not come back larger than it went in.
+    auto e = (exp(x) - integer(1)) * pow(exp(x / integer(2)) + integer(1), integer(-1));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "(exp(x) - 1)/(exp(x/2) + 1)"));
+}
+
 TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
           "[5][simplify][assumptions][regression]") {
     auto xp = symbol("x", AssumptionMask{}.set_positive(true));
@@ -270,6 +296,35 @@ TEST_CASE("trigsimp: sin(x)^2 + cos(x)^2 → 1", "[5][trigsimp][oracle]") {
     auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
     auto s = trigsimp(e);
     REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+// TRIG-PWR: power-reduction / half-angle. A q·cos(2x) term folds into the
+// sin²/cos² buckets (cos 2x = cos²x − sin²x), so trigsimp recovers
+// (1 ∓ cos 2x)/2 = sin²x / cos²x — matching SymPy — without re-expanding a bare
+// cos(2x) (the double-angle collapses 1 − 2·sin²x → cos 2x still win on leaves).
+TEST_CASE("trigsimp: power-reduction (1 ∓ cos 2x)/2 (TRIG-PWR)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto half = rational(1, 2);
+    auto cos2x = cos(integer(2) * x);
+    // (1 − cos 2x)/2 = sin²x,  (1 + cos 2x)/2 = cos²x.
+    REQUIRE(oracle.equivalent(trigsimp(half * (integer(1) - cos2x))->str(),
+                              "sin(x)**2"));
+    REQUIRE(oracle.equivalent(trigsimp(half * (integer(1) + cos2x))->str(),
+                              "cos(x)**2"));
+    // Unhalved and scaled variants.
+    REQUIRE(oracle.equivalent(trigsimp(integer(1) - cos2x)->str(),
+                              "2*sin(x)**2"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * half * (integer(1) - cos2x))->str(),
+        "3*sin(x)**2"));
+    // No oscillation: a bare cos(2x) stays cos(2x), and the existing
+    // double-angle collapse 1 − 2·sin²x → cos 2x is preserved.
+    REQUIRE(trigsimp(cos2x) == cos2x);
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) - integer(2) * pow(sin(x), integer(2)))->str(),
+        "cos(2*x)"));
 }
 
 TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",

@@ -1,4 +1,5 @@
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/special.hpp>  // zeta
 
 #include <optional>
 #include <utility>
@@ -466,7 +467,8 @@ Expr gamma(const Expr& arg) {
                 return make<Integer>(std::move(r));
             }
         }
-        // gamma(0) and gamma(negative integer) = pole; keep symbolic.
+        // gamma has a simple pole at every non-positive integer → zoo.
+        if (!z.is_positive()) return S::ComplexInfinity();
     }
     // Half-integer: gamma(p/2) = C·sqrt(pi) with C exact rational.
     // Bound the recurrence so a huge numerator can never spin.
@@ -599,6 +601,19 @@ Expr PolyGammaFn::diff_arg(std::size_t i) const {
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
+    // Special values at x = 1 for a non-negative integer order:
+    //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
+    if (x == S::One() && n->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*n);
+        if (n == S::Zero()) {
+            return mul(S::NegativeOne(), S::EulerGamma());
+        }
+        if (z.is_positive()) {
+            Expr np1 = add(n, S::One());
+            // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
+            return mul(pow(S::NegativeOne(), np1), mul(factorial(n), zeta(np1)));
+        }
+    }
     return make<PolyGammaFn>(n, x);
 }
 

@@ -58,20 +58,40 @@ namespace {
     return false;
 }
 
+// A non-integer power of var (e.g. sqrt(x) = x^(1/2)) that the polynomial path
+// cannot handle but the invert chain can (g^p = c → g = c^(1/p)).
+[[nodiscard]] bool has_radical_of_var(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Pow && has(e->args()[0], var)
+        && e->args()[1]->type_id() == TypeId::Rational) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_radical_of_var(a, var)) return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     auto roots = solve_poly(expr, var);
+    // A genuine solution x = c must be free of x. solve_poly treats a
+    // var-dependent "coefficient" (e.g. exp(x) in x·exp(x) − 1) as constant and
+    // can hand back a rearrangement such as x = exp(x)**(-1); discard any
+    // candidate that still contains var rather than return a non-solution.
+    std::erase_if(roots, [&](const Expr& r) { return has(r, var); });
     if (!roots.empty()) return roots;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
     // _invert chain; route through it and surface any finite solution set as
     // a root vector. (Infinite/periodic solution sets, e.g. sin(x)=0, stay
     // the domain of solveset and yield no finite vector here.)
-    if (has_function_of_var(expr, var)) {
+    if (has_function_of_var(expr, var) || has_radical_of_var(expr, var)) {
         SetPtr s = solveset(expr, var);
         if (s && s->kind() == SetKind::FiniteSet) {
-            return static_cast<const FiniteSet&>(*s).elements();
+            auto elems = static_cast<const FiniteSet&>(*s).elements();
+            std::erase_if(elems, [&](const Expr& r) { return has(r, var); });
+            return elems;
         }
     }
     return roots;
@@ -202,6 +222,23 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
                                                        const SetPtr& domain) {
     auto [var_dep, free] = split_var_free(expr, var);
     if (var_dep == var || var_dep == S::Zero()) return std::nullopt;
+
+    // Radical: g^p = c with p a non-integer rational → g = c^(1/p). Integer
+    // powers are deliberately left to the polynomial solver, which finds every
+    // root (e.g. x² = 4 → ±2) rather than just the principal one.
+    if (var_dep->type_id() == TypeId::Pow) {
+        const Expr& base = var_dep->args()[0];
+        const Expr& p = var_dep->args()[1];
+        if (p->type_id() != TypeId::Rational) return std::nullopt;
+        Expr rhs = mul(S::NegativeOne(), free);  // g^p = rhs
+        // Principal-branch convention (matches SymPy): a negative real rhs has
+        // no solution for a fractional power (√x = −2, x^(1/3) = −2 → ∅).
+        if (is_negative(rhs) == std::optional<bool>{true}) return empty_set();
+        Expr inv = pow(rhs, pow(p, integer(-1)));  // rhs^(1/p)
+        if (base == var) return finite_set({inv});
+        return solveset_impl(base - inv, var, domain);
+    }
+
     if (var_dep->type_id() != TypeId::Function) return std::nullopt;
     if (var_dep->args().size() != 1) return std::nullopt;
     const auto& fn = static_cast<const Function&>(*var_dep);
@@ -286,6 +323,9 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain) {
     std::vector<Expr> kept;
     kept.reserve(roots.size());
     for (auto& r : roots) {
+        // Reject rearrangements that still contain var (solve_poly can return
+        // x = exp(x)**(-1) for x·exp(x) − 1 by treating exp(x) as a constant).
+        if (has(r, var)) continue;
         auto m = domain->contains(r);
         if (m == std::optional<bool>{false}) continue;
         kept.push_back(std::move(r));

@@ -6,9 +6,12 @@
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/float.hpp>
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/mul.hpp>
+#include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
@@ -163,9 +166,40 @@ struct NumDen { Expr num; Expr den; };
     return lhopital_nd(num, den, var, target);
 }
 
+// Direct substitution at a finite pole yields zoo (the unsigned 1/0). Recover
+// the signed infinity by sampling the sign of the expression just either side of
+// the target: equal signs ⇒ ±oo (1/x² → +oo, −1/x² → −oo), opposite signs ⇒ the
+// limit is genuinely two-sided and stays zoo (1/x). Inconclusive samples (a
+// non-real value, or no definite sign) also keep zoo.
+[[nodiscard]] std::optional<Expr> signed_pole(const Expr& expr, const Expr& var,
+                                              const Expr& target) {
+    if (!is_number(target)) return std::nullopt;
+    auto side_sign = [&](const Expr& point) -> int {
+        Expr v = simplify(subs(expr, var, point));
+        if (v->type_id() == TypeId::Infinity) return 1;
+        if (v->type_id() == TypeId::NegativeInfinity) return -1;
+        if (is_infinity(v) || v->type_id() == TypeId::NaN) return 0;
+        Expr f = evalf(v, 30);
+        if (is_positive(f) == std::optional<bool>{true}) return 1;
+        if (is_negative(f) == std::optional<bool>{true}) return -1;
+        return 0;
+    };
+    Expr h = pow(integer(10), integer(-6));  // 1e-6
+    int s_right = side_sign(add(target, h));
+    int s_left = side_sign(add(target, mul(S::NegativeOne(), h)));
+    if (s_right == 0 || s_left == 0 || s_right != s_left) return std::nullopt;
+    return s_right > 0 ? S::Infinity() : S::NegativeInfinity();
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     Expr direct = simplify(subs(expr, var, target));
+
+    // A finite-target pole surfaces as zoo; resolve its sign when both sides
+    // agree, otherwise leave the unsigned zoo.
+    if (direct->type_id() == TypeId::ComplexInfinity) {
+        if (auto s = signed_pole(expr, var, target)) return *s;
+    }
 
     if (depth < 12) {
         // Indeterminate forms surface as nan after substitution.
