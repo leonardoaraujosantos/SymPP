@@ -310,6 +310,58 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
                       {"0", "pi/2", "pi", "3*pi/2"}));
 }
 
+// SOLVE-TRIG-POLY-1: solve() of a polynomial in a single trig function
+// (sin(x)²−1, 2cos(x)²−cos(x)−1, …) substitutes u = f(B·x), solves the
+// polynomial in u, and inverts each in-range root to representative angles —
+// matching SymPy's solve as a set. Out-of-range roots (|c|>1 for sin/cos)
+// contribute no real solution.
+TEST_CASE("solve: polynomial in a single trig function (SOLVE-TRIG-POLY-1)",
+          "[10][solve][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // sin² − 1 = 0 → sin = ±1.
+    REQUIRE(set_equal(solve(pow(sin(x), integer(2)) - integer(1), x),
+                      {"-pi/2", "pi/2", "3*pi/2"}));
+    // 2·sin² − 1 = 0 → sin = ±1/√2 (four representatives over [0, 2π)).
+    REQUIRE(set_equal(solve(integer(2) * pow(sin(x), integer(2)) - integer(1), x),
+                      {"-pi/4", "pi/4", "3*pi/4", "5*pi/4"}));
+    // sin² − sin = 0 → sin = 0 or 1.
+    REQUIRE(set_equal(solve(pow(sin(x), integer(2)) - sin(x), x),
+                      {"0", "pi/2", "pi"}));
+    // cos² − 1/4 = 0 → cos = ±1/2.
+    REQUIRE(set_equal(
+        solve(pow(cos(x), integer(2)) - rational(1, 4), x),
+        {"pi/3", "2*pi/3", "4*pi/3", "5*pi/3"}));
+    // tan² − 1 = 0 → tan = ±1 (no range limit on tan).
+    REQUIRE(set_equal(solve(pow(tan(x), integer(2)) - integer(1), x),
+                      {"-pi/4", "pi/4"}));
+    // Quadratic in cos with two distinct roots, one of them ±1 (endpoints).
+    REQUIRE(set_equal(
+        solve(integer(2) * pow(cos(x), integer(2)) - cos(x) - integer(1), x),
+        {"0", "2*pi/3", "4*pi/3", "2*pi"}));
+    // Scaled argument: sin(2x)² − 1 inverts then divides by B = 2.
+    REQUIRE(set_equal(solve(pow(sin(integer(2) * x), integer(2)) - integer(1), x),
+                      {"-pi/4", "pi/4", "3*pi/4"}));
+    // Out-of-range: sin² = 4 has no real solution → empty.
+    REQUIRE(solve(pow(sin(x), integer(2)) - integer(4), x).empty());
+}
+
 // SOLVESET-POW0-1: g^n = 0 (n a positive integer) has the same solution set as
 // g = 0. sin(x)² = 0 used to come back EmptySet because the polynomial path
 // can't see through sin; it now recurses on the base.

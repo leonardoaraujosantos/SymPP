@@ -71,6 +71,53 @@ namespace {
     return false;
 }
 
+// For sin/cos, a real solution of f(x) = c exists only when |c| <= 1. Reject a
+// c that is a real number outside [-1, 1] (those have purely complex solutions,
+// which the inverse functions would leave as unevaluated asin/acos). A
+// non-numeric c (a symbolic parameter, or an in-range irrational like 1/3) is
+// accepted — SymPy returns asin(c) there too.
+[[nodiscard]] bool trig_value_in_range(const Expr& c) {
+    Expr v = evalf(c, 30);
+    if (v->type_id() != TypeId::Float) return true;  // symbolic → accept
+    try {
+        return std::fabs(std::stod(v->str())) <= 1.0 + 1e-9;
+    } catch (...) {
+        return true;
+    }
+}
+
+// Append the representative roots of f(B*var) = c over one principal period
+// (var = theta/B), deduplicating into `roots`. Mirrors SymPy's `solve`, which
+// inverts the inner function and divides by B rather than enumerating every x
+// in [0, 2pi). For sin/cos an out-of-range numeric c contributes nothing.
+void append_trig_roots(FunctionId id, const Expr& c, const Expr& B,
+                       const Expr& var, std::vector<Expr>& roots) {
+    std::vector<Expr> thetas;
+    switch (id) {
+        case FunctionId::Sin:
+            if (!trig_value_in_range(c)) return;
+            thetas = {asin(c), simplify(S::Pi() - asin(c))};
+            break;
+        case FunctionId::Cos:
+            if (!trig_value_in_range(c)) return;
+            thetas = {acos(c), simplify(integer(2) * S::Pi() - acos(c))};
+            break;
+        case FunctionId::Tan:
+            thetas = {atan(c)};
+            break;
+        default:
+            return;
+    }
+    for (auto& th : thetas) {
+        Expr r = simplify(th * pow(B, integer(-1)));
+        if (has(r, var)) continue;
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& u) { return u == r; })) {
+            roots.push_back(std::move(r));
+        }
+    }
+}
+
 // Solve A*f(B*var) + C = 0 for f in {sin, cos, tan} over one principal period,
 // returning representative roots. This mirrors SymPy's `solve`, which inverts
 // the inner function and divides by B (rather than enumerating every x in
@@ -145,27 +192,64 @@ solve_trig(const Expr& expr, const Expr& var) {
     if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
     // f(arg) = c, c = -C/A.
     Expr c = simplify(mul({S::NegativeOne(), cst, pow(coeff, integer(-1))}));
-    std::vector<Expr> thetas;   // principal solutions for the inner argument.
-    switch (id) {
-        case FunctionId::Sin:
-            thetas = {asin(c), simplify(S::Pi() - asin(c))};
-            break;
-        case FunctionId::Cos:
-            thetas = {acos(c), simplify(integer(2) * S::Pi() - acos(c))};
-            break;
-        case FunctionId::Tan:
-            thetas = {atan(c)};
-            break;
-        default:
-            return std::nullopt;
-    }
     std::vector<Expr> roots;   // var = theta / B, deduplicated.
-    for (auto& th : thetas) {
-        Expr r = simplify(th * pow(B, integer(-1)));
-        if (std::none_of(roots.begin(), roots.end(),
-                         [&](const Expr& u) { return u == r; })) {
-            roots.push_back(std::move(r));
+    append_trig_roots(id, c, B, var, roots);
+    return roots;
+}
+
+// Solve a polynomial in a single trig function — e.g. sin(x)^2 - 1,
+// 2*cos(x)^2 - cos(x) - 1, sin(x)^2 - sin(x). Substitute u = f(B*var), solve
+// the resulting polynomial in u, then invert each in-range root to
+// representative angles over one principal period (matching SymPy's `solve`).
+// Returns nullopt unless expr is a polynomial in exactly one trig atom
+// f(B*var), f in {sin, cos, tan} and B var-free. This subsumes the single-term
+// and homogeneous-power cases of solve_trig and additionally handles higher
+// degrees; the structural zero-product path stays in solve_trig.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_trig_poly(const Expr& expr, const Expr& var) {
+    // Collect the distinct var-dependent trig atoms without descending into
+    // their arguments (so sin(x) inside sin(x)^2 counts once).
+    std::vector<Expr> atoms;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (e->type_id() == TypeId::Function && has(e, var)) {
+            const FunctionId fid =
+                static_cast<const Function&>(*e).function_id();
+            if (fid == FunctionId::Sin || fid == FunctionId::Cos
+                || fid == FunctionId::Tan) {
+                if (std::none_of(atoms.begin(), atoms.end(),
+                                 [&](const Expr& a) { return a == e; })) {
+                    atoms.push_back(e);
+                }
+                return;
+            }
         }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (atoms.size() != 1) return std::nullopt;
+    const Expr g = atoms.front();
+    const FunctionId id = static_cast<const Function&>(*g).function_id();
+    // arg must be B*var with B var-free and nonzero (no additive phase).
+    const Expr& arg = g->args()[0];
+    Expr B = simplify(arg * pow(var, integer(-1)));
+    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    // Substitute u for the trig atom; the remainder must be a polynomial in u
+    // alone (a leftover var means a mixed poly·trig term such as x*sin(x)).
+    Expr u = symbol("u_trig_subst");
+    Expr eu = subs(expr, g, u);
+    if (has(eu, var)) return std::nullopt;
+    std::vector<Expr> cvals;
+    try {
+        Poly p(expand(eu), u);
+        cvals = p.roots();
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (cvals.empty()) return std::nullopt;
+    std::vector<Expr> roots;
+    for (auto& c : cvals) {
+        if (has(c, var) || has(c, u)) continue;
+        append_trig_roots(id, c, B, var, roots);
     }
     return roots;
 }
@@ -205,6 +289,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         // Single-trig equations have an infinite (periodic) solution set, so
         // solveset returns an ImageSet and the FiniteSet branch below misses
         // them. Surface SymPy-style representative roots over one period first.
+        if (auto tp = solve_trig_poly(expr, var); tp && !tp->empty())
+            return *tp;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
         SetPtr s = solveset(expr, var);
         if (s && s->kind() == SetKind::FiniteSet) {

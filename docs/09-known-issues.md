@@ -16,6 +16,32 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-TRIG-POLY-1 — `solve` returned `[]` for a polynomial in one trig function
+- **Problem:** `solve` handled a *single* trig term `A·f(B·x)+C=0` (SOLVE-TRIG-1)
+  but came back empty for any higher-degree polynomial in one trig function:
+  `sin(x)²−1`, `2·sin(x)²−1`, `sin(x)²−sin(x)`, `cos(x)²−1/4`, `tan(x)²−1`,
+  `2·cos(x)²−cos(x)−1` all yielded `[]`. The single-term path bailed because the
+  power form was only solved homogeneously (`f^n = 0`), so any constant term
+  killed it, and the polynomial path can't see through `sin`.
+- **Fix:** added `solve_trig_poly` in `src/solvers/solve.cpp`. It detects a
+  polynomial in exactly one trig atom `f(B·x)` (`f ∈ {sin,cos,tan}`, `B`
+  var-free), substitutes `u = f(B·x)`, solves the polynomial in `u` via the
+  existing `Poly` root finder, then inverts each in-range root to representative
+  angles over one principal period — matching SymPy's `solve` as a set. The
+  per-function inversion is now a shared `append_trig_roots` helper reused by
+  both `solve_trig` and `solve_trig_poly`. A numeric root with `|c|>1` for
+  sin/cos contributes no real solution (`sin(x)²=4 → []`), via a `trig_value_in_range`
+  guard; an in-range irrational `c` (e.g. `asin(1/3)`) is preserved unevaluated,
+  exactly as SymPy reports it.
+- **Verified:** every solution set checked set-equal to `sympy.solve` for 9
+  equations (sin/cos/tan, scaled argument, quadratic-with-endpoints, out-of-range).
+- **Regression test:** `SOLVE-TRIG-POLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][trig][oracle][regression]`, 8 assertions).
+- **Scope:** still one trig function per equation. Mixed-function equations
+  (`sin·cos`, `sin(2x)−sin(x)`) and the `a·sin+b·cos` R-method remain open; the
+  structural zero-product path (SOLVE-TRIG-1) continues to cover products of
+  distinct trig factors.
+
 ### ORACLE-XCHECK-1/2/3 — oracle tests only compared against hand-written literals
 - **Problem (test-rig integrity, not a math gap):** all ~794 oracle assertions
   were `equivalent(sympp_output, "literal_I_typed")` — SymPy adjudicated the
