@@ -357,6 +357,22 @@ namespace {
 // Function, not Pow(E, ·)), so this matches SymPy's `simplify`/`powsimp`. e^0
 // folds to 1, so e.g. e^x · e^(−x) → 1.
 [[nodiscard]] Expr combine_exp_node(const Expr& e) {
+    // (exp(g))^k → exp(k·g) for an INTEGER exponent k. A symbolic or fractional
+    // exponent is left as a Pow (matching SymPy, which keeps exp(x)**n and
+    // sqrt(exp(x)) for branch-cut safety). The Mul case below merges products;
+    // this closes the standalone power.
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& base = e->args()[0];
+        const Expr& ex = e->args()[1];
+        if (ex->type_id() == TypeId::Integer
+            && base->type_id() == TypeId::Function) {
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.function_id() == FunctionId::Exp && bfn.args().size() == 1) {
+                return exp(expand(mul(ex, bfn.args()[0])));
+            }
+        }
+        return e;
+    }
     if (e->type_id() != TypeId::Mul) return e;
     auto exp_arg_of = [](const Expr& f) -> std::optional<Expr> {
         // exp(a) → a; (exp(a))^k → k·a.

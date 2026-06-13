@@ -14,6 +14,46 @@ truth and links the issue number.
 
 ## Fixed
 
+### LAPLACE-SHIFT-1 — Laplace transform missed `sinh`/`cosh` and the s-shift theorem
+- **Input:** `laplace_transform(sinh(t))`, `cosh(t)`, `exp(-t)·sin(t)`,
+  `t·exp(t)`, `t²·exp(t)`, `exp(2t)·cos(t)`.
+- **Was:** the unevaluated `LaplaceTransform(...)` marker. The table covered
+  `t^n`, `exp`, `sin`, `cos`, but not the hyperbolics, and the `Mul` case only
+  pulled out constant factors — so any `exp(a·t)·g(t)` product (damped
+  oscillations, `t^n·exp`) fell through.
+- **Expected (SymPy):** `1/(s²−1)`, `s/(s²−1)`, `1/((s+1)²+1)`, `1/(s−1)²`,
+  `2/(s−1)³`, `(s−2)/((s−2)²+1)`.
+- **Fix (`src/integrals/transforms.cpp`):**
+  - `sinh`/`cosh` table entries: `L{sinh(a·t)} = a/(s²−a²)`,
+    `L{cosh(a·t)} = s/(s²−a²)`.
+  - the **s-shift theorem** in the `Mul` case: every `exp(a·t)` factor is pulled
+    out, the `a`'s summed, and the rest's transform `G(s)` is shifted to
+    `G(s − a)` — closing the damped-oscillation and `t^n·exp` families.
+- **Verified against SymPy:** all six inputs match, including the scaled
+  `3·exp(−2t)·sin(3t) → 9/((s+2)²+9)`; the existing `t`, `sin`, `cos`, `exp`,
+  linearity entries are unchanged.
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][laplace][oracle][regression]` (LAPLACE-SHIFT-1).
+- **Scope:** the table + s-shift. The general Meijer-G-driven transform of
+  arbitrary inputs stays deferred (it depends on the hypergeometric machinery).
+
+### SIMP-EXP-POW-1 — `simplify((exp(x))**2)` didn't fold to `exp(2x)`
+- **Input:** `simplify(exp(x)**2)`, `exp(x)**3`, `exp(x)**(-1)`, `exp(x+1)**2`.
+- **Was:** unchanged (`exp(x)**2`, …). `combine_exp` merged `exp` factors inside
+  a `Mul`, but a standalone `Pow(exp(g), k)` was never folded.
+- **Expected (SymPy):** `exp(2*x)`, `exp(3*x)`, `exp(-x)`, `exp(2*x + 2)`.
+- **Fix (`src/simplify/simplify.cpp`):** `combine_exp_node` now folds a
+  `Pow(exp(g), k)` with an **integer** `k` to `exp(expand(k·g))`. A fractional or
+  symbolic exponent is left as a `Pow` — matching SymPy, which keeps
+  `sqrt(exp(x))` and `exp(x)**n` for branch-cut safety.
+- **Verified against SymPy:** `exp(x)**{2,3,-1}` and `exp(x+1)**2` fold exactly;
+  `exp(x)**(1/2)` (≡ SymPy's `sqrt(exp(x))`) and `exp(x)**n` are left unfolded.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][oracle][regression]` (SIMP-EXP-POW-1).
+- **Scope:** integer power of a single `exp`. A power of a *product* of exps
+  (`(exp(x)·exp(y))**2`) needs a second combine pass and is left as-is (still
+  correct, just not maximally combined).
+
 ### LIMIT-HANG-1 — `limit` hung on a radical `∞/∞` form
 - **Input:** `limit(sqrt(x**2+x) - x, x, oo)`,
   `limit(x/(sqrt(x**2+x)+x), x, oo)`.

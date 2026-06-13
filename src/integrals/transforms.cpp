@@ -101,6 +101,16 @@ namespace {
                         auto denom = pow(s, integer(2)) + pow(*coeff, integer(2));
                         return mul(s, pow(denom, S::NegativeOne()));
                     }
+                    case FunctionId::Sinh: {
+                        // L{sinh(a*t)} = a/(s^2 - a^2)
+                        auto denom = pow(s, integer(2)) - pow(*coeff, integer(2));
+                        return mul(*coeff, pow(denom, S::NegativeOne()));
+                    }
+                    case FunctionId::Cosh: {
+                        // L{cosh(a*t)} = s/(s^2 - a^2)
+                        auto denom = pow(s, integer(2)) - pow(*coeff, integer(2));
+                        return mul(s, pow(denom, S::NegativeOne()));
+                    }
                     default:
                         break;
                 }
@@ -108,18 +118,48 @@ namespace {
         }
     }
 
-    // Mul with a constant factor: pull it out and recurse.
     if (f->type_id() == TypeId::Mul) {
         std::vector<Expr> consts;
-        std::vector<Expr> rest;
+        std::vector<Expr> var_factors;
         for (const auto& a : f->args()) {
-            if (has(a, t)) rest.push_back(a);
+            if (has(a, t)) var_factors.push_back(a);
             else consts.push_back(a);
         }
-        if (!consts.empty() && !rest.empty()) {
-            Expr inner = mul(std::move(rest));
+        Expr cfac = consts.empty() ? S::One() : mul(std::move(consts));
+
+        // First shift: L{exp(a*t)·g(t)} = G(s − a), where G = L{g}. Pull every
+        // exp(a*t) factor out, sum the a's, and shift s in the rest's transform.
+        // This closes the damped-oscillation / t·exp families
+        // (exp(-t)·sin t, t·exp t, exp(2t)·cos t, …).
+        Expr a_shift = S::Zero();
+        std::vector<Expr> rest;
+        for (const auto& vf : var_factors) {
+            if (vf->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*vf);
+                if (fn.function_id() == FunctionId::Exp
+                    && fn.args().size() == 1) {
+                    if (auto c = extract_linear_coeff(fn.args()[0], t)) {
+                        a_shift = add(a_shift, *c);
+                        continue;
+                    }
+                }
+            }
+            rest.push_back(vf);
+        }
+        if (!(a_shift == S::Zero())) {
+            Expr g = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+            if (auto G = laplace_term(g, t, s); G.has_value()) {
+                Expr shifted = subs(*G, s, s - a_shift);
+                return mul(cfac, shifted);
+            }
+            return std::nullopt;
+        }
+
+        // No exp factor — just pull out the constant and recurse on the rest.
+        if (!(cfac == S::One()) && !var_factors.empty()) {
+            Expr inner = mul(std::move(var_factors));
             if (auto sub = laplace_term(inner, t, s); sub.has_value()) {
-                return mul(mul(std::move(consts)), *sub);
+                return mul(cfac, *sub);
             }
         }
     }

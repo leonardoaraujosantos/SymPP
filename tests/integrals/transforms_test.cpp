@@ -8,6 +8,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/transforms.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -56,6 +57,36 @@ TEST_CASE("laplace: cos(a*t) -> s/(s^2 + a^2)", "[8][laplace][oracle]") {
     auto a = symbol("a");
     auto F = laplace_transform(cos(a * t), t, s);
     REQUIRE(oracle.equivalent(F->str(), "s/(s**2 + a**2)"));
+}
+
+// LAPLACE-SHIFT-1: hyperbolic table entries (sinh/cosh) and the s-shift theorem
+// L{exp(a·t)·g(t)} = G(s − a), which closes the damped-oscillation and t^n·exp
+// families.
+TEST_CASE("laplace: sinh/cosh and the s-shift theorem (LAPLACE-SHIFT-1)",
+          "[8][laplace][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto s = symbol("s");
+    // L{sinh(a·t)} = a/(s²−a²),  L{cosh(a·t)} = s/(s²−a²).
+    auto a = symbol("a");
+    REQUIRE(oracle.equivalent(laplace_transform(sinh(a * t), t, s)->str(),
+                              "a/(s**2 - a**2)"));
+    REQUIRE(oracle.equivalent(laplace_transform(cosh(a * t), t, s)->str(),
+                              "s/(s**2 - a**2)"));
+    // s-shift: L{exp(-t)·sin t} = 1/((s+1)²+1).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(exp(mul(S::NegativeOne(), t)) * sin(t), t, s)->str(),
+        "1/((s + 1)**2 + 1)"));
+    // L{t·exp t} = 1/(s−1)²,  L{t²·exp t} = 2/(s−1)³.
+    REQUIRE(oracle.equivalent(
+        laplace_transform(t * exp(t), t, s)->str(), "(s - 1)**(-2)"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(t, integer(2)) * exp(t), t, s)->str(),
+        "2/(s - 1)**3"));
+    // L{exp(2t)·cos t} = (s−2)/((s−2)²+1).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(exp(integer(2) * t) * cos(t), t, s)->str(),
+        "(s - 2)/((s - 2)**2 + 1)"));
 }
 
 TEST_CASE("laplace: linearity over Add", "[8][laplace][oracle]") {

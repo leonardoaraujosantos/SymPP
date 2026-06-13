@@ -154,6 +154,25 @@ TEST_CASE("simplify: combines exponential products (SIMP-2)",
     REQUIRE(simplify(exp(integer(2)) * exp(integer(3))) == exp(integer(5)));
 }
 
+// SIMP-EXP-POW-1: (exp(g))^k → exp(k·g) for an INTEGER k (argument expanded). A
+// fractional / symbolic exponent is left as a Pow, matching SymPy (which keeps
+// sqrt(exp(x)) and exp(x)**n for branch-cut safety).
+TEST_CASE("simplify: integer power of exp folds into the argument (SIMP-EXP-POW-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto n = symbol("n");
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(2)))->str(), "exp(2*x)"));
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(3)))->str(), "exp(3*x)"));
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(-1)))->str(), "exp(-x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(pow(exp(x + integer(1)), integer(2)))->str(), "exp(2*x + 2)"));
+    // Fractional and symbolic exponents are NOT folded.
+    REQUIRE(simplify(pow(exp(x), rational(1, 2)))
+            == pow(exp(x), rational(1, 2)));
+    REQUIRE(simplify(pow(exp(x), n)) == pow(exp(x), n));
+}
+
 // SIMP-EXP-HYP-1: a·e^g + a·e^−g → 2a·cosh(g),  a·e^g − a·e^−g → 2a·sinh(g)
 // (the mirror of TRIG-HYP-2). The argument is normalised to its positive form
 // so the output matches SymPy (2·cosh(2x), not 2·cosh(−2x)).
