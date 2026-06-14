@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-TRIG-PHASE-1 — `solve` returned `[]` for trig arguments with an additive phase
+- **Problem:** `solve(sin(x+1)-1/2)`, `solve(cos(2x+π/3))`, `solve(tan(x+1)-1)`
+  and similar all returned `[]`. The trig solvers (`solve_trig`,
+  `solve_trig_poly`) only accepted a bare `B·x` argument — any additive phase
+  inside the inner function (`x+1`, `2x+π/3`) failed the `arg == B·var` test.
+- **Fix:** added an `affine_arg` helper in `src/solvers/solve.cpp` that
+  decomposes a trig argument as `B·var + P` (B, P var-free, B ≠ 0) via a
+  degree-1 polynomial read. `append_trig_roots` now takes the phase `P` and
+  inverts each principal angle θ as `var = (θ − P)/B`. Both `solve_trig` and
+  `solve_trig_poly` route their argument through `affine_arg`, so a bare `B·x`
+  (P = 0) is just the special case.
+- **Verified:** `sin(x+1)-1/2`, `cos(2x+π/3)`, `sin(2x+1)`, `tan(x+1)-1`,
+  `sin(x+1)²-1/4` each return representative roots that substitute back to
+  satisfy the equation (checked against SymPy); the bare-argument and
+  scaled-argument cases (`2sin(x)-1`, `cos(2x)-1/2`) are unchanged.
+- **Regression test:** `SOLVE-TRIG-PHASE-1` in
+  `tests/solvers/solve_test.cpp` (`[10][solve][trig][oracle][regression]`,
+  6 assertions).
+- **Scope:** single trig atom with an argument affine in the variable. A
+  nonlinear inner argument (`sin(x²)`) or genuinely transcendental mixed
+  equations (`tan(x) = x`, `sin(x) + x`) remain separate gaps.
+
 ### INT-BIQUAD-NUM-1 — `∫x²/(x⁴+1)` (even numerator over a biquadratic) was unevaluated
 - **Problem:** `INT-BIQUADRATIC-1` only handled `1/(biquadratic)`. A polynomial
   numerator over the same irreducible biquadratic — `∫x²/(x⁴+1)`,

@@ -577,6 +577,52 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
                       {"0", "pi/2", "pi", "3*pi/2"}));
 }
 
+// SOLVE-TRIG-PHASE-1: solve() of a trig equation whose argument carries an
+// additive phase — sin(x+1), cos(2x+π/3), tan(x+1) — inverts the inner function
+// and solves the affine argument B·x+P=θ for x=(θ−P)/B. Previously these
+// returned [] because the solver only accepted a bare B·x argument.
+TEST_CASE("solve: trig equations with an additive phase (SOLVE-TRIG-PHASE-1)",
+          "[10][solve][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    const Expr pi = S::Pi();
+    // sin(x+1) = 1/2  ->  x+1 = pi/6 or 5pi/6
+    REQUIRE(set_equal(solve(sin(x + integer(1)) - rational(1, 2), x),
+                      {"pi/6 - 1", "5*pi/6 - 1"}));
+    // cos(2x + pi/3) = 0  ->  2x+pi/3 = pi/2 or 3pi/2
+    REQUIRE(set_equal(solve(cos(integer(2) * x + pi / integer(3)), x),
+                      {"pi/12", "7*pi/12"}));
+    // sin(2x + 1) = 0  ->  2x+1 = 0 or pi
+    REQUIRE(set_equal(solve(sin(integer(2) * x + integer(1)), x),
+                      {"-1/2", "(pi - 1)/2"}));
+    // tan(x + 1) = 1  ->  x+1 = pi/4
+    REQUIRE(set_equal(solve(tan(x + integer(1)) - integer(1), x),
+                      {"pi/4 - 1"}));
+    // phase with a polynomial-in-trig form: sin(x+1)^2 = 1/4
+    REQUIRE(set_equal(
+        solve(pow(sin(x + integer(1)), integer(2)) - rational(1, 4), x),
+        {"pi/6 - 1", "5*pi/6 - 1", "-pi/6 - 1", "7*pi/6 - 1"}));
+    // bare argument (P = 0) still works through the same path
+    REQUIRE(set_equal(solve(integer(2) * sin(x) - integer(1), x),
+                      {"pi/6", "5*pi/6"}));
+}
+
 // SOLVE-TRIG-POLY-1: solve() of a polynomial in a single trig function
 // (sin(x)²−1, 2cos(x)²−cos(x)−1, …) substitutes u = f(B·x), solves the
 // polynomial in u, and inverts each in-range root to representative angles —

@@ -91,8 +91,12 @@ namespace {
 // (var = theta/B), deduplicating into `roots`. Mirrors SymPy's `solve`, which
 // inverts the inner function and divides by B rather than enumerating every x
 // in [0, 2pi). For sin/cos an out-of-range numeric c contributes nothing.
+// Append the representative roots of f(B·var + P) = c, where the inner argument
+// is affine in var: B·var + P with B, P var-free and B ≠ 0. Each principal angle
+// θ of f gives var = (θ − P)/B. P defaults to 0 (a pure B·var argument).
 void append_trig_roots(FunctionId id, const Expr& c, const Expr& B,
-                       const Expr& var, std::vector<Expr>& roots) {
+                       const Expr& var, std::vector<Expr>& roots,
+                       const Expr& P = S::Zero()) {
     std::vector<Expr> thetas;
     switch (id) {
         case FunctionId::Sin:
@@ -110,13 +114,34 @@ void append_trig_roots(FunctionId id, const Expr& c, const Expr& B,
             return;
     }
     for (auto& th : thetas) {
-        Expr r = simplify(th * pow(B, integer(-1)));
+        Expr r = simplify((th - P) * pow(B, integer(-1)));
         if (has(r, var)) continue;
         if (std::none_of(roots.begin(), roots.end(),
                          [&](const Expr& u) { return u == r; })) {
             roots.push_back(std::move(r));
         }
     }
+}
+
+// Decompose a trig argument that is affine in var: arg = B·var + P with B, P
+// var-free and B ≠ 0. Returns {B, P} or nullopt if arg is not affine (degree > 1
+// in var, var-dependent coefficients, or no var). Handles a bare B·var (P = 0)
+// and an additive phase such as 2·x + π/3.
+[[nodiscard]] std::optional<std::pair<Expr, Expr>>
+affine_arg(const Expr& arg, const Expr& var) {
+    if (!has(arg, var)) return std::nullopt;
+    Expr B, P;
+    try {
+        Poly p(expand(arg), var);
+        if (p.degree() != 1) return std::nullopt;
+        const auto& cf = p.coeffs();
+        P = cf[0];
+        B = cf[1];
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (has(B, var) || has(P, var) || B == S::Zero()) return std::nullopt;
+    return std::make_pair(B, P);
 }
 
 // Solve A*f(B*var) + C = 0 for f in {sin, cos, tan} over one principal period,
@@ -187,14 +212,16 @@ solve_trig(const Expr& expr, const Expr& var) {
         && id != FunctionId::Tan) {
         return std::nullopt;
     }
-    // arg must be B*var with B var-free and nonzero (no additive phase).
+    // arg must be affine in var: B*var + P, B var-free nonzero (P is the phase).
     const Expr& arg = fexpr->args()[0];
-    Expr B = simplify(arg * pow(var, integer(-1)));
-    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    auto bp = affine_arg(arg, var);
+    if (!bp) return std::nullopt;
+    const Expr& B = bp->first;
+    const Expr& P = bp->second;
     // f(arg) = c, c = -C/A.
     Expr c = simplify(mul({S::NegativeOne(), cst, pow(coeff, integer(-1))}));
-    std::vector<Expr> roots;   // var = theta / B, deduplicated.
-    append_trig_roots(id, c, B, var, roots);
+    std::vector<Expr> roots;   // var = (theta - P) / B, deduplicated.
+    append_trig_roots(id, c, B, var, roots, P);
     return roots;
 }
 
@@ -230,10 +257,12 @@ solve_trig_poly(const Expr& expr, const Expr& var) {
     if (atoms.size() != 1) return std::nullopt;
     const Expr g = atoms.front();
     const FunctionId id = static_cast<const Function&>(*g).function_id();
-    // arg must be B*var with B var-free and nonzero (no additive phase).
+    // arg must be affine in var: B*var + P, B var-free nonzero (P is the phase).
     const Expr& arg = g->args()[0];
-    Expr B = simplify(arg * pow(var, integer(-1)));
-    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    auto bp = affine_arg(arg, var);
+    if (!bp) return std::nullopt;
+    const Expr& B = bp->first;
+    const Expr& P = bp->second;
     // Substitute u for the trig atom; the remainder must be a polynomial in u
     // alone (a leftover var means a mixed poly·trig term such as x*sin(x)).
     Expr u = symbol("u_trig_subst");
@@ -250,7 +279,7 @@ solve_trig_poly(const Expr& expr, const Expr& var) {
     std::vector<Expr> roots;
     for (auto& c : cvals) {
         if (has(c, var) || has(c, u)) continue;
-        append_trig_roots(id, c, B, var, roots);
+        append_trig_roots(id, c, B, var, roots, P);
     }
     return roots;
 }
