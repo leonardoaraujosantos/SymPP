@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-EXP-2 — polynomial × exponential series Σ P(k)·rᵏ/k! stayed unevaluated
+- **Problem:** `Σ k/k!`, `Σ k²/k!`, `Σ (2k+3)/k!`, `Σ k·xᵏ/k!` came back
+  unevaluated. `SUM-EXP-1` closed only a bare `rᵏ/k!`; a polynomial numerator
+  `P(k)` was an unrecognized factor and bailed.
+- **Fix:** generalized `sum_exponential_series` in
+  `src/calculus/summation.cpp` to collect a polynomial numerator `P(var)` and
+  fold it through the **falling-factorial basis**: since
+  `Σ_{k≥0} k^{(m)}·rᵏ/k! = rᵐ·eʳ`, writing `P = Σ_m c_m·k^{(m)}` gives
+  `Σ P(k)·rᵏ/k! = (Σ_m c_m·rᵐ)·eʳ = Q(r)·eʳ`. The transform
+  (`exp_series_poly_transform`) extracts the monic falling factorials top-down
+  (a triangular solve, no Stirling-number table). Head terms for `lo > 0` use
+  the full `P(k)·rᵏ/k!`.
+- **Verified:** `Σ k/k! = e`, `Σ k²/k! = 2e`, `Σ k³/k! = 5e`,
+  `Σ (k+1)/k! = 2e`, `Σ (2k+3)/k! = 5e`, `Σ k·xᵏ/k! = x·eˣ`,
+  `Σ_{k≥1} k/k! = e` — all match SymPy; the bare-`rᵏ/k!` cases are unchanged.
+- **Regression test:** extended `SUM-EXP-1` in
+  `tests/calculus/series_limit_test.cpp`; the `SUM-3` unrecognised-sum stand-in
+  moved to `Σ 1/(k!+1)` (no elementary closed form), since `Σ k/k!` now closes.
+
 ### SUM-EXP-1 — exponential series Σ rᵏ/k! stayed unevaluated
 - **Problem:** `Σ_{k=0}^∞ 1/k!`, `Σ x^k/k!`, `Σ 2^k/k!`, `Σ (−1)^k/k!` all came
   back as an unevaluated `Sum(...)`. SymPP already closed the convergent

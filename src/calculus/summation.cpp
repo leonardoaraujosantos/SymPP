@@ -177,8 +177,39 @@ namespace {
 
 // Σ_{k=lo}^∞ c·r^k / k! = c·e^r, minus the omitted head Σ_{k=0}^{lo-1} when
 // lo > 0. The exponential series converges for every r, so no convergence test
-// is needed. Recognizes c · (∏ baseᵢ^(aᵢ·var + bᵢ)) · factorial(var)^(-1): each
-// base contributes baseᵢ^{aᵢ} to the rate r and baseᵢ^{bᵢ} to the constant c.
+// is needed. Recognizes c · P(var) · (∏ baseᵢ^(aᵢ·var + bᵢ)) · factorial(var)^(-1):
+// the bases give the rate r = ∏ baseᵢ^{aᵢ} (and a constant from the bᵢ), and the
+// polynomial numerator P(var) is folded in through the falling-factorial basis,
+// since Σ_{k≥0} k^{(m)} rᵏ/k! = rᵐ e^r. Writing P = Σ_m c_m·k^{(m)} then gives
+// Σ P(k) rᵏ/k! = (Σ_m c_m rᵐ) e^r = Q(r) e^r. So Σ k/k! = e, Σ k²/k! = 2e, etc.
+//
+// Falling-factorial transform: returns Q(r) for a polynomial whose power-basis
+// coefficients are `coeffs` (ascending). Extracts the monic falling factorials
+// k^{(m)} = k(k−1)…(k−m+1) top-down (a triangular solve, no Stirling numbers).
+[[nodiscard]] Expr exp_series_poly_transform(std::vector<Expr> coeffs,
+                                             const Expr& var, const Expr& rate) {
+    std::vector<Expr> q_terms;
+    for (long m = static_cast<long>(coeffs.size()) - 1; m >= 0; --m) {
+        Expr cm = simplify(coeffs[static_cast<std::size_t>(m)]);
+        if (cm == S::Zero()) continue;
+        q_terms.push_back(mul(cm, pow(rate, integer(m))));
+        if (m >= 1) {
+            // Subtract cm · ∏_{i=0}^{m−1}(var − i) from the remaining coeffs.
+            std::vector<Expr> ff_factors;
+            for (long i = 0; i < m; ++i) {
+                ff_factors.push_back(add(var, integer(-i)));
+            }
+            Poly ff(expand(mul(std::move(ff_factors))), var);
+            const auto& fc = ff.coeffs();
+            for (std::size_t j = 0; j < fc.size(); ++j) {
+                coeffs[j] = simplify(
+                    add(coeffs[j], mul(S::NegativeOne(), mul(cm, fc[j]))));
+            }
+        }
+    }
+    return q_terms.empty() ? Expr{S::Zero()} : add(std::move(q_terms));
+}
+
 [[nodiscard]] std::optional<Expr> sum_exponential_series(
     const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (hi->type_id() != TypeId::Infinity) return std::nullopt;
@@ -193,8 +224,9 @@ namespace {
         factors.push_back(expr);
     }
     bool has_factorial = false;
-    Expr cst = S::One();   // var-free constant prefactor c
-    Expr rate = S::One();  // r
+    Expr cst = S::One();                // var-free constant prefactor c
+    Expr rate = S::One();               // r
+    std::vector<Expr> poly_factors;     // var-dependent numerator P(var)
     for (const auto& f : factors) {
         // 1/var! = factorial(var)^(-1).
         if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
@@ -228,22 +260,40 @@ namespace {
                 return std::nullopt;
             }
         }
-        return std::nullopt;  // unrecognized var-dependent factor
+        // Any other var-dependent factor must be polynomial in var (the
+        // numerator P): k, (k+1), k², … are folded via the falling-factorial
+        // transform; a non-polynomial factor (sin(k), 1/k, …) bails.
+        poly_factors.push_back(f);
     }
     if (!has_factorial) return std::nullopt;
     rate = simplify(rate);
     cst = simplify(cst);
+
+    // Build P(var) and its closed form Q(r): Σ P(k) r^k/k! = Q(r) e^r.
+    Expr poly = poly_factors.empty() ? Expr{S::One()}
+                                     : mul(std::move(poly_factors));
+    std::vector<Expr> pcoeffs;
+    try {
+        Poly p(expand(poly), var);
+        pcoeffs = p.coeffs();
+    } catch (const std::exception&) {
+        return std::nullopt;  // numerator is not a polynomial in var
+    }
+    Expr q_of_r = exp_series_poly_transform(pcoeffs, var, rate);
     Expr e_r = exp(rate);
+    Expr tail = mul(q_of_r, e_r);  // Σ_{k≥0} P(k) r^k/k!
+
     const long L = loz.to_long();
-    if (L == 0) return simplify(mul(cst, e_r));
-    // Subtract the omitted head terms Σ_{k=0}^{L-1} r^k/k!.
+    if (L == 0) return simplify(mul(cst, tail));
+    // Subtract the omitted head terms Σ_{k=0}^{L-1} P(k) r^k/k!.
     std::vector<Expr> head;
     for (long kk = 0; kk < L; ++kk) {
-        head.push_back(mul(pow(rate, integer(kk)),
-                           pow(factorial(integer(kk)), integer(-1))));
+        head.push_back(mul({subs(poly, var, integer(kk)),
+                            pow(rate, integer(kk)),
+                            pow(factorial(integer(kk)), integer(-1))}));
     }
     return simplify(
-        mul(cst, add(e_r, mul(S::NegativeOne(), add(std::move(head))))));
+        mul(cst, add(tail, mul(S::NegativeOne(), add(std::move(head))))));
 }
 
 }  // namespace

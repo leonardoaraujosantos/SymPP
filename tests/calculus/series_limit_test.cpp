@@ -661,13 +661,13 @@ TEST_CASE("summation: infinite geometric series",
 }
 
 // Regression (SUM-3): an unrecognised sum must return an unevaluated Sum
-// marker, never the bare summand. Σ k/k! (= E, via k/k! = 1/(k-1)!, which SymPP
-// doesn't close yet) stands in for the general case; the plain Σ 1/k! now
-// closes to E via the exponential series, and Σ 1/k^s via ZETA.
+// marker, never the bare summand. Σ 1/(k!+1) (no elementary closed form) stands
+// in for the general case; the exponential-series family Σ P(k)·r^k/k! and the
+// p-series Σ 1/k^s now close, so they no longer serve as the placeholder.
 TEST_CASE("summation: unrecognised sum stays an unevaluated Sum",
           "[6][summation][regression]") {
     auto k = symbol("k");
-    auto e = mul(k, pow(factorial(k), integer(-1)));
+    auto e = pow(add(factorial(k), integer(1)), integer(-1));
     auto s = summation(e, k, integer(1), S::Infinity());
     REQUIRE(s->type_id() == TypeId::Function);   // undefined-function marker
     REQUIRE(s->str().rfind("Sum(", 0) == 0);     // starts with "Sum("
@@ -733,6 +733,25 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     REQUIRE(oracle.equivalent(
         summation(mul(integer(3), inv_fact), k, integer(0), oo)->str(),
         "3*E"));
+    // Polynomial numerators fold via the falling-factorial basis:
+    // Σ k/k! = e, Σ k²/k! = 2e, Σ k³/k! = 5e, Σ (2k+3)/k! = 5e.
+    REQUIRE(oracle.equivalent(
+        summation(mul(k, inv_fact), k, integer(0), oo)->str(), "E"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(k, integer(2)), inv_fact), k, integer(0), oo)->str(),
+        "2*E"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(k, integer(3)), inv_fact), k, integer(0), oo)->str(),
+        "5*E"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(add(mul(integer(2), k), integer(3)), inv_fact), k,
+                  integer(0), oo)
+            ->str(),
+        "5*E"));
+    // Polynomial × geometric: Σ k·x^k/k! = x·e^x.
+    REQUIRE(oracle.equivalent(
+        summation(mul({k, pow(x, k), inv_fact}), k, integer(0), oo)->str(),
+        "x*exp(x)"));
 }
 
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).
