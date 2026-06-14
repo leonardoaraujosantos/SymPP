@@ -80,6 +80,9 @@ enum class FunctionId : std::uint16_t {
     Totient,
     Prime,
     PrimePi,
+    Mobius,
+    DivisorCount,
+    DivisorSigma,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

@@ -154,6 +154,51 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// mobius(n): the Möbius function μ(n) — 0 if n has a squared prime factor, else
+// (−1)^(number of distinct primes). Evaluates for a positive integer. Mirrors
+// SymPy's mobius.
+class SYMPP_EXPORT Mobius final : public Function {
+public:
+    explicit Mobius(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Mobius;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "mobius";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// divisor_count(n): the number of positive divisors of n (σ₀). Mirrors SymPy.
+class SYMPP_EXPORT DivisorCount final : public Function {
+public:
+    explicit DivisorCount(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::DivisorCount;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "divisor_count";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// divisor_sigma(n): the sum of the positive divisors of n (σ₁). Mirrors SymPy's
+// single-argument divisor_sigma.
+class SYMPP_EXPORT DivisorSigma final : public Function {
+public:
+    explicit DivisorSigma(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::DivisorSigma;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "divisor_sigma";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -227,6 +272,9 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr totient(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr prime(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr primepi(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr mobius(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);

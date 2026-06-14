@@ -282,6 +282,38 @@ TEST_CASE("prime/primepi: nth prime and prime counting (PRIME-PRIMEPI-1)",
     REQUIRE(prime(integer(0))->type_id() == TypeId::Function);
 }
 
+// ARITH-FN-1: the multiplicative arithmetic functions computed from the prime
+// factorization — mobius μ, divisor_count σ₀, divisor_sigma σ₁. All evaluate for
+// positive integers and stay symbolic for symbols / non-positive arguments.
+// Matches SymPy.
+TEST_CASE("mobius/divisor_count/divisor_sigma (ARITH-FN-1)",
+          "[3i][mobius][divisor][oracle]") {
+    auto& oracle = Oracle::instance();
+    // Möbius μ(n): 0 on a squared factor, else (−1)^#primes.
+    REQUIRE(mobius(integer(1)) == integer(1));
+    REQUIRE(mobius(integer(7)) == integer(-1));    // prime
+    REQUIRE(mobius(integer(30)) == integer(-1));   // 2·3·5, three primes
+    REQUIRE(mobius(integer(12)) == integer(0));    // 2²·3 — squared factor
+    REQUIRE(mobius(integer(210)) == integer(1));   // 2·3·5·7, four primes
+    // divisor_count σ₀(n) = ∏(eᵢ+1).
+    REQUIRE(divisor_count(integer(1)) == integer(1));
+    REQUIRE(divisor_count(integer(7)) == integer(2));
+    REQUIRE(divisor_count(integer(12)) == integer(6));
+    REQUIRE(divisor_count(integer(36)) == integer(9));
+    // divisor_sigma σ₁(n) = sum of divisors.
+    REQUIRE(divisor_sigma(integer(1)) == integer(1));
+    REQUIRE(divisor_sigma(integer(6)) == integer(12));   // perfect: σ = 2n
+    REQUIRE(divisor_sigma(integer(12)) == integer(28));
+    REQUIRE(divisor_sigma(integer(28)) == integer(56));  // perfect
+    // Cross-check a larger value against SymPy.
+    REQUIRE(oracle.equivalent(divisor_sigma(integer(720))->str(), "2418"));
+    // Symbolic / non-positive arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(mobius(n)->type_id() == TypeId::Function);
+    REQUIRE(divisor_count(integer(0))->type_id() == TypeId::Function);
+    REQUIRE(divisor_sigma(integer(-4))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("catalan: integer values", "[3i][catalan]") {
     REQUIRE(catalan(integer(0)) == integer(1));
     REQUIRE(catalan(integer(1)) == integer(1));

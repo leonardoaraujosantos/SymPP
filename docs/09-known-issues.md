@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### ARITH-FN-1 — `mobius`, `divisor_count`, `divisor_sigma` were missing
+- **Problem:** the multiplicative arithmetic functions stayed symbolic —
+  `mobius(30)`, `divisor_count(12)`, `divisor_sigma(12)` parsed only as undefined
+  functions, where SymPy gives `−1`, `6`, `28`.
+- **Fix:** added `Mobius`, `DivisorCount`, `DivisorSigma` functions sharing one
+  trial-division `factorize` helper in `src/functions/combinatorial.cpp`. From the
+  `(prime, exponent)` list: `μ(n)` is 0 on any squared factor else `(−1)^#primes`;
+  `σ₀(n)=∏(eᵢ+1)`; `σ₁(n)=∏(p^(eᵢ+1)−1)/(p−1)`. Symbolic and non-positive
+  arguments stay unevaluated, matching SymPy.
+- **Verified:** all three checked against SymPy for `{1,2,7,12,30,36,60,100,210,
+  720,9973}`, including perfect numbers (`σ₁(6)=12`, `σ₁(28)=56`) and a large
+  composite (`σ₁(720)=2418`).
+- **Regression test:** `ARITH-FN-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][mobius][divisor][oracle]`, 17 assertions).
+- **Scope:** single-argument `divisor_sigma` (σ₁) only; SymPy's two-argument
+  `divisor_sigma(n, k)` (σ_k) and `isprime`/`factorint`/`divisors` remain.
+
 ### PRIME-PRIMEPI-1 — `prime(n)` and `primepi(n)` were missing
 - **Problem:** following TOTIENT-1, the prime-indexing/counting functions stayed
   symbolic — `prime(5)`, `primepi(10)` parsed only as undefined functions, where

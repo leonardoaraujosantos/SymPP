@@ -290,6 +290,107 @@ Expr primepi(const Expr& arg) {
 }
 
 // ============================================================================
+// Multiplicative arithmetic functions (mobius / divisor_count / divisor_sigma)
+// ============================================================================
+
+namespace {
+// Trial-division factorization of n > 0 into (prime, exponent) pairs.
+[[nodiscard]] std::vector<std::pair<mpz_class, long>> factorize(mpz_class n) {
+    std::vector<std::pair<mpz_class, long>> factors;
+    for (mpz_class p = 2; p * p <= n; ++p) {
+        if (mpz_divisible_p(n.get_mpz_t(), p.get_mpz_t())) {
+            long e = 0;
+            while (mpz_divisible_p(n.get_mpz_t(), p.get_mpz_t())) {
+                n /= p;
+                ++e;
+            }
+            factors.emplace_back(p, e);
+        }
+    }
+    if (n > 1) factors.emplace_back(n, 1L);  // remaining prime factor > √n
+    return factors;
+}
+}  // namespace
+
+Mobius::Mobius(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Mobius);
+}
+Expr Mobius::rebuild(std::vector<Expr> new_args) const {
+    return mobius(new_args[0]);
+}
+std::optional<bool> Mobius::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr mobius(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<Mobius>(arg);
+        if (z.value() == 1) return integer(1);  // μ(1) = 1
+        auto factors = factorize(z.value());
+        for (const auto& [p, e] : factors) {
+            (void)p;
+            if (e > 1) return integer(0);  // a squared factor ⇒ μ = 0
+        }
+        return integer(factors.size() % 2 == 0 ? 1 : -1);
+    }
+    return make<Mobius>(arg);
+}
+
+DivisorCount::DivisorCount(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::DivisorCount);
+}
+Expr DivisorCount::rebuild(std::vector<Expr> new_args) const {
+    return divisor_count(new_args[0]);
+}
+std::optional<bool> DivisorCount::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr divisor_count(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<DivisorCount>(arg);
+        // σ₀(n) = ∏ (eᵢ + 1).
+        mpz_class result = 1;
+        for (const auto& [p, e] : factorize(z.value())) {
+            (void)p;
+            result *= (e + 1);
+        }
+        return make<Integer>(std::move(result));
+    }
+    return make<DivisorCount>(arg);
+}
+
+DivisorSigma::DivisorSigma(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::DivisorSigma);
+}
+Expr DivisorSigma::rebuild(std::vector<Expr> new_args) const {
+    return divisor_sigma(new_args[0]);
+}
+std::optional<bool> DivisorSigma::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr divisor_sigma(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<DivisorSigma>(arg);
+        // σ₁(n) = ∏ (p^(eᵢ+1) − 1)/(p − 1).
+        mpz_class result = 1;
+        for (const auto& [p, e] : factorize(z.value())) {
+            mpz_class num;
+            mpz_pow_ui(num.get_mpz_t(), p.get_mpz_t(),
+                       static_cast<unsigned long>(e + 1));
+            num -= 1;
+            result *= num / (p - 1);
+        }
+        return make<Integer>(std::move(result));
+    }
+    return make<DivisorSigma>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 
