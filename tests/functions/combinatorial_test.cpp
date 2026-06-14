@@ -9,6 +9,7 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
@@ -405,10 +406,37 @@ TEST_CASE("gcd: integer values", "[3i][gcd]") {
     REQUIRE(gcd(integer(-12), integer(8)) == integer(4));  // non-negative result
     REQUIRE(gcd(integer(0), integer(5)) == integer(5));
     REQUIRE(gcd(integer(0), integer(0)) == integer(0));
-    // Symbolic args stay unevaluated.
+    // Symbolic (multivariate) args stay unevaluated.
     auto x = symbol("x");
     auto y = symbol("y");
     REQUIRE(gcd(x, y)->type_id() == TypeId::Function);
+}
+
+// GCD-POLY-1: univariate polynomial GCD. SymPy's convention is the primitive
+// integer gcd (integer coefficients, content 1, positive leading) scaled by the
+// gcd of the integer contents: gcd(x²−1, x−1) = x−1, gcd(2x²−2, 2x−2) = 2x−2,
+// gcd(6x²+11x+3, 2x²−x−6) = 2x+3. Previously these stayed an unevaluated node.
+TEST_CASE("gcd: univariate polynomial GCD (GCD-POLY-1)",
+          "[3i][gcd][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    auto chk = [&](const Expr& g, const std::string& want) {
+        REQUIRE(oracle.equivalent(g->str(), want));
+    };
+    chk(gcd(sq(x) - integer(1), x - integer(1)), "x - 1");
+    chk(gcd(sq(x) - integer(1), sq(x) + integer(2) * x + integer(1)), "x + 1");
+    chk(gcd(pow(x, integer(3)) - integer(1), sq(x) - integer(1)), "x - 1");
+    // Content is preserved.
+    chk(gcd(integer(2) * sq(x) - integer(2), integer(2) * x - integer(2)),
+        "2*x - 2");
+    // Primitive integer form (not monic): gcd(6x²+11x+3, 2x²−x−6) = 2x+3.
+    chk(gcd(integer(6) * sq(x) + integer(11) * x + integer(3),
+            integer(2) * sq(x) - x - integer(6)),
+        "2*x + 3");
+    // Coprime polynomials → 1; constant vs polynomial → 1.
+    chk(gcd(sq(x) + integer(1), x - integer(1)), "1");
+    chk(gcd(sq(x) - integer(1), integer(2)), "1");
 }
 
 TEST_CASE("lcm: integer values", "[3i][lcm]") {
@@ -427,7 +455,10 @@ TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
     REQUIRE(parsing::parse("lcm(x, y)") == lcm(x, y));
     REQUIRE(gcd(x, y)->str() == "gcd(x, y)");
     REQUIRE(lcm(x, y)->str() == "lcm(x, y)");
-    REQUIRE(subs(gcd(x, integer(18)), x, integer(12)) == integer(6));
+    // gcd(x, n) = 1 over ℚ[x] (x and a constant are coprime), matching SymPy.
+    REQUIRE(gcd(x, integer(18)) == integer(1));
+    // subs reaches inside and re-evaluates: gcd(x, y)|_{y=x} = gcd(x, x) = x.
+    REQUIRE(subs(gcd(x, y), y, x) == x);
     REQUIRE(subs(lcm(x, integer(6)), x, integer(4)) == integer(12));
 }
 

@@ -18,9 +18,12 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/polys/poly.hpp>
 
 namespace sympp {
 
@@ -642,6 +645,60 @@ std::optional<bool> Gcd::ask(AssumptionKey k) const noexcept {
     }
 }
 
+namespace {
+// Integer content of a polynomial: gcd of its coefficients. Returns nullopt if
+// any coefficient is not an integer (so the caller skips content scaling).
+[[nodiscard]] std::optional<mpz_class> integer_content(const Poly& p) {
+    mpz_class g = 0;
+    for (const auto& c : p.coeffs()) {
+        if (c->type_id() != TypeId::Integer) return std::nullopt;
+        mpz_gcd(g.get_mpz_t(), g.get_mpz_t(),
+                static_cast<const Integer&>(*c).value().get_mpz_t());
+    }
+    return g;
+}
+
+// Convert the monic gcd `g` to SymPy's convention: the primitive integer
+// polynomial (integer coefficients, content 1, positive leading) scaled by
+// `content` — e.g. monic x+3/2 with content 2 → 2·(2x+3) is wrong; with
+// content 1 → 2x+3. Clears denominators, divides by the integer content, then
+// multiplies by the requested content factor.
+[[nodiscard]] Expr gcd_to_primitive(const Poly& g, const mpz_class& content,
+                                    const Expr& var) {
+    const auto& cs = g.coeffs();
+    mpz_class lcm_den = 1;
+    for (const auto& c : cs) {
+        if (c->type_id() == TypeId::Rational) {
+            mpz_lcm(lcm_den.get_mpz_t(), lcm_den.get_mpz_t(),
+                    static_cast<const Rational&>(*c).denominator().get_mpz_t());
+        }
+    }
+    std::vector<mpz_class> ints(cs.size());
+    mpz_class g_int = 0;
+    for (std::size_t i = 0; i < cs.size(); ++i) {
+        mpz_class m;
+        if (cs[i]->type_id() == TypeId::Integer) {
+            m = static_cast<const Integer&>(*cs[i]).value() * lcm_den;
+        } else {
+            const auto& q = static_cast<const Rational&>(*cs[i]);
+            m = q.numerator() * lcm_den / q.denominator();
+        }
+        ints[i] = m;
+        mpz_gcd(g_int.get_mpz_t(), g_int.get_mpz_t(), m.get_mpz_t());
+    }
+    if (g_int == 0) g_int = 1;
+    std::vector<Expr> terms;
+    for (std::size_t i = 0; i < ints.size(); ++i) {
+        mpz_class coeff = content * (ints[i] / g_int);
+        if (coeff == 0) continue;
+        terms.push_back(mul(make<Integer>(std::move(coeff)),
+                            pow(var, integer(static_cast<long>(i)))));
+    }
+    if (terms.empty()) return S::Zero();
+    return add(std::move(terms));
+}
+}  // namespace
+
 Expr gcd(const Expr& a, const Expr& b) {
     if (a->type_id() == TypeId::Integer && b->type_id() == TypeId::Integer) {
         // mpz_gcd yields the non-negative gcd (handles signs and zero:
@@ -650,6 +707,34 @@ Expr gcd(const Expr& a, const Expr& b) {
         mpz_gcd(r.get_mpz_t(), static_cast<const Integer&>(*a).value().get_mpz_t(),
                 static_cast<const Integer&>(*b).value().get_mpz_t());
         return make<Integer>(std::move(r));
+    }
+    // Univariate polynomial GCD. SymPy's convention is
+    //   gcd = gcd(int-content a, int-content b) · monic-gcd(primitive parts),
+    // e.g. gcd(x²−1, x−1) = x−1 and gcd(2x²−2, 2x−2) = 2x−2.
+    {
+        ExprSet vars;
+        for (const auto& s : free_symbols(a)) vars.insert(s);
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+        if (vars.size() == 1) {
+            const Expr& var = *vars.begin();
+            try {
+                Poly pa(expand(a), var);
+                Poly pb(expand(b), var);
+                Poly g = gcd(pa, pb);  // monic gcd over ℚ
+                // Content factor: gcd of the integer contents (1 if either side
+                // has non-integer coefficients).
+                mpz_class content = 1;
+                if (auto ca = integer_content(pa)) {
+                    if (auto cb = integer_content(pb)) {
+                        mpz_gcd(content.get_mpz_t(), ca->get_mpz_t(),
+                                cb->get_mpz_t());
+                    }
+                }
+                return gcd_to_primitive(g, content, var);
+            } catch (const std::exception&) {
+                // not polynomial in `var` — fall through to the symbolic node
+            }
+        }
     }
     return make<Gcd>(a, b);
 }

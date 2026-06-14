@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### GCD-POLY-1 — `gcd` of polynomials stayed unevaluated
+- **Problem:** `gcd(x²−1, x−1)` returned an unevaluated `gcd(...)` node instead
+  of `x−1`. The `gcd` function only handled two integers, even though the `Poly`
+  class already provides a Euclidean polynomial GCD.
+- **Fix:** in `src/functions/combinatorial.cpp`, `gcd(a, b)` now detects a common
+  single variable (via `free_symbols`), builds `Poly`s, and computes the GCD.
+  SymPy's convention is the **primitive integer** gcd (integer coefficients,
+  content 1, positive leading) scaled by the gcd of the integer contents, so the
+  monic `Poly` GCD is re-primitivized (`gcd_to_primitive`): clear denominators,
+  divide by the integer content, then multiply by `gcd(content a, content b)`.
+- **Verified:** `gcd(x²−1, x−1) = x−1`, `gcd(2x²−2, 2x−2) = 2x−2`,
+  `gcd(6x²+11x+3, 2x²−x−6) = 2x+3` (primitive, not the monic `x+3/2`),
+  `gcd(x²+1, x−1) = 1`, `gcd(x²−1, 2) = 1`, `gcd(x, 18) = 1` — all match SymPy.
+- **Regression test:** `GCD-POLY-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][gcd][oracle][regression]`).
+- **Note:** `gcd(x, n)` now eagerly evaluates to `1` (x and a constant are
+  coprime over ℚ[x]), matching SymPy; the parse-round-trip test that relied on
+  the old lazy node was updated. Multivariate GCD (`gcd(x²−y², x−y)`) remains an
+  unevaluated node — the `Poly` class is univariate.
+
 ### LIMIT-CONJUGATE-1 — `x − √(x²+1)` and radical ∞−∞ limits returned nan
 - **Problem:** `limit(x − √(x²+1), ∞)` returned `nan` instead of `0`; likewise
   `x − √(x²−1)`, `√(x+1) − √x`. Direct substitution gives the indeterminate
