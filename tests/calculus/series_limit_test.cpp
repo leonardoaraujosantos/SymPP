@@ -50,6 +50,35 @@ TEST_CASE("series: cos(x) about 0 to order 5", "[6][series][oracle]") {
     REQUIRE(oracle.equivalent(s->str(), "1 - x**2/2 + x**4/24"));
 }
 
+// SERIES-SINGULAR-1: series() at a point where direct substitution gives a
+// non-finite coefficient. A genuine singularity (log(x), 1/x at 0) cannot be
+// Taylor-expanded — return the input unchanged, matching SymPy. A removable
+// singularity (0/0 like sin(x)/x) has a finite limit, so the limit fallback
+// recovers the correct Taylor coefficients. Previously these produced zoo/nan
+// garbage.
+TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    // Genuine singularities: returned unevaluated (no zoo garbage).
+    REQUIRE(series(log(x), x, zero, 6) == log(x));
+    REQUIRE(series(pow(x, integer(-1)), x, zero, 6) == pow(x, integer(-1)));
+    REQUIRE(series(pow(x, rational(1, 2)), x, zero, 6)
+            == pow(x, rational(1, 2)));
+    REQUIRE(series(pow(x, integer(-2)), x, zero, 6) == pow(x, integer(-2)));
+    // Removable singularities: the Taylor series via the limit fallback.
+    REQUIRE(oracle.equivalent(series(sin(x) * pow(x, integer(-1)), x, zero, 6)
+                                  ->str(),
+                              "1 - x**2/6 + x**4/120"));
+    REQUIRE(oracle.equivalent(
+        series((exp(x) - integer(1)) * pow(x, integer(-1)), x, zero, 6)->str(),
+        "1 + x/2 + x**2/6 + x**3/24 + x**4/120 + x**5/720"));
+    // An ordinary analytic function is unaffected.
+    REQUIRE(oracle.equivalent(series(exp(x), x, zero, 4)->str(),
+                              "1 + x + x**2/2 + x**3/6"));
+}
+
 // ----- limit ----------------------------------------------------------------
 
 TEST_CASE("limit: polynomial substitution", "[6][limit]") {

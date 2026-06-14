@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### SERIES-SINGULAR-1 — `series` emitted zoo/nan garbage at a singular point
+- **Problem:** `series` built Taylor coefficients by substituting `x=x0` into each
+  derivative. At a point where the function is singular this gave non-finite
+  values that poisoned the whole sum: `series(log(x), x, 0)` →
+  `zoo + x·zoo + …`, and removable singularities like `sin(x)/x` → `nan`. SymPy
+  returns `log(x)`/`1/x`/`sqrt(x)` as-is and gives the proper Taylor series for
+  `sin(x)/x`.
+- **Fix in `src/calculus/series.cpp`:** when a coefficient `subs(dᵏf, x, x0)` is
+  non-finite, fall back to `limit(dᵏf, x, x0)`. A removable singularity has a
+  finite limit, so the correct Taylor coefficient is recovered
+  (`sin(x)/x → 1 − x²/6 + …`); a genuine singularity stays non-finite, so the
+  series can't be formed and the input is returned unchanged
+  (`series(log(x),x,0)=log(x)`), matching SymPy.
+- **Verified:** `log(x)`, `1/x`, `√x`, `1/x²` return as-is; `sin(x)/x`,
+  `(eˣ−1)/x` give the SymPy Taylor series; ordinary analytic functions unchanged.
+- **Regression test:** `SERIES-SINGULAR-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][series][oracle][regression]`,
+  7 assertions).
+- **Scope:** genuine poles return the function unexpanded rather than a Laurent
+  series (`cot(x)`, `eˣ/x` — SymPy gives `1/x − x/3 + …`), and a few removable
+  cases whose high-order derivative limits don't resolve (`tan(x)/x`) also return
+  unexpanded — graceful, never garbage. A true Laurent/Puiseux `series` is a
+  larger effort.
+
 ### SOLVE-LAMBERT-1 — `solve` returned `[]` for Lambert-W equations
 - **Problem:** `x·eˣ−1`, `x·e^(2x)−1`, `x·eˣ+1` all came back empty, where SymPy
   inverts them with the Lambert W function: `[W(1)]`, `[W(2)/2]`, `[W(−1)]`.
