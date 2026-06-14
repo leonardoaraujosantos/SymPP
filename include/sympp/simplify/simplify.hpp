@@ -27,6 +27,7 @@
 // Reference: sympy/simplify/simplify.py::simplify and the supporting
 // per-rule files in sympy/simplify/.
 
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -171,5 +172,14 @@ struct CSEResult {
 //
 // Reference: sympy/simplify/fu.py::fu
 [[nodiscard]] SYMPP_EXPORT Expr fu(const Expr& e);
+
+// rewrite(expr, target) — re-express named functions in terms of `target`,
+// the analogue of SymPy's `expr.rewrite(target)`. Currently supports
+// target == "exp": sin/cos/tan and sinh/cosh/tanh become exponentials
+// (e.g. sin(x) → −i·(e^{ix} − e^{−ix})/2, cosh(x) → (e^x + e^{−x})/2).
+// Unknown targets return the expression unchanged.
+//
+// Reference: sympy/core/basic.py::Basic.rewrite
+[[nodiscard]] SYMPP_EXPORT Expr rewrite(const Expr& e, std::string_view target);
 
 }  // namespace sympp

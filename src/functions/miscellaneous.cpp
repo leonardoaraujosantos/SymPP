@@ -1,6 +1,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 
 #include <algorithm>
+#include <functional>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -20,10 +21,26 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
 namespace {
+
+// True if the expression tree contains an unevaluated Re or Im node — used to
+// decide whether a complex value's real/imaginary split fully resolved.
+[[nodiscard]] bool contains_re_im(const Expr& e) {
+    if (e->type_id() == TypeId::Function) {
+        auto id = static_cast<const Function&>(*e).function_id();
+        if (id == FunctionId::Re || id == FunctionId::Im) return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_re_im(a)) return true;
+    }
+    return false;
+}
 
 // Detect a leading minus sign on a Mul: -1 * rest. Returns the stripped tail
 // if so, std::nullopt otherwise. Number negatives stay as-is for the abs path
@@ -146,6 +163,10 @@ Expr Abs::diff_arg(std::size_t /*i*/) const {
 std::optional<bool> Abs::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // |x| is always real (for any complex x, |x| ∈ ℝ_≥0)
         case AssumptionKey::Negative:
@@ -206,8 +227,9 @@ Expr abs(const Expr& arg) {
         std::vector<Expr> pulled;
         std::vector<Expr> kept;
         for (const auto& f : arg->args()) {
+            // I has modulus 1, so |I·x| = |x|.
             if (is_number(f) || is_positive(f) == true
-                || is_negative(f) == true) {
+                || is_negative(f) == true || f == S::I()) {
                 pulled.push_back(abs(f));
             } else {
                 kept.push_back(f);
@@ -216,6 +238,18 @@ Expr abs(const Expr& arg) {
         if (!pulled.empty() && !kept.empty()) {
             return mul(mul(std::move(pulled)),
                        make<Abs>(mul(std::move(kept))));
+        }
+    }
+
+    // Symbolic complex modulus: |a + b·I| = √(a² + b²) when re/im resolve to
+    // expressions free of unevaluated Re/Im (e.g. real-symbol parts) and the
+    // imaginary part is nonzero. A generic Abs(z) keeps its Re(z)/Im(z) split
+    // and so is left unevaluated, matching SymPy.
+    {
+        Expr a = re(arg);
+        Expr b = im(arg);
+        if (!(b == S::Zero()) && !contains_re_im(a) && !contains_re_im(b)) {
+            return sqrt(add(mul(a, a), mul(b, b)));
         }
     }
 
@@ -235,6 +269,10 @@ Expr Sign::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Sign::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -286,6 +324,10 @@ Re::Re(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Re::rebuild(std::vector<Expr> new_args) const { return re(new_args[0]); }
 std::optional<bool> Re::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // re(z) is always real for any complex z
         case AssumptionKey::Finite:
@@ -302,6 +344,10 @@ Im::Im(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Im::rebuild(std::vector<Expr> new_args) const { return im(new_args[0]); }
 std::optional<bool> Im::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;  // im(z) ∈ ℝ
         case AssumptionKey::Finite:
@@ -330,6 +376,10 @@ Arg::Arg(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 Expr Arg::rebuild(std::vector<Expr> new_args) const { return arg_(new_args[0]); }
 std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             return true;
         default:
@@ -337,11 +387,58 @@ std::optional<bool> Arg::ask(AssumptionKey k) const noexcept {
     }
 }
 
+namespace {
+
+// Decompose a Mul as c · Iᵏ · w, with c the product of the real factors,
+// k = (number of I factors) mod 4, and w the remaining (non-real, non-I) part.
+// Returns nullopt unless something was actually peeled off (k > 0 or c ≠ 1), so
+// the re()/im() recursion below terminates.
+struct MulComplexParts { Expr c; int k; Expr w; };
+[[nodiscard]] std::optional<MulComplexParts> decompose_mul_complex(
+    const Expr& arg) {
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    Expr c = S::One();
+    int k = 0;
+    std::vector<Expr> rest;
+    for (const auto& f : arg->args()) {
+        if (f == S::I()) {
+            k = (k + 1) % 4;
+        } else if (is_real(f) == true) {
+            c = mul(c, f);
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (k == 0 && c == S::One()) return std::nullopt;  // nothing extracted
+    Expr w = rest.empty() ? Expr{S::One()}
+                          : (rest.size() == 1 ? rest[0] : mul(std::move(rest)));
+    return MulComplexParts{std::move(c), k, std::move(w)};
+}
+
+}  // namespace
+
 Expr re(const Expr& arg) {
     // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
     // Numeric complex a + b·I → a.
     if (auto z = rational_complex(arg); z.has_value()) return z->first;
+    // Linearity over a sum: re(Σ aᵢ) = Σ re(aᵢ).
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(re(a));
+        return add(std::move(terms));
+    }
+    // c · Iᵏ · w: re pulls out the real c and rotates by Iᵏ —
+    //   re(c·w) = c·re(w),  re(c·I·w) = −c·im(w),  (k mod 4 cycles the sign).
+    if (auto d = decompose_mul_complex(arg)) {
+        switch (d->k) {
+            case 0: return mul(d->c, re(d->w));
+            case 1: return mul(mul(S::NegativeOne(), d->c), im(d->w));
+            case 2: return mul(mul(S::NegativeOne(), d->c), re(d->w));
+            case 3: return mul(d->c, im(d->w));
+        }
+    }
     // Linearity: re(-x) = -re(x)
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Re>(*p));
@@ -353,6 +450,22 @@ Expr im(const Expr& arg) {
     if (is_real(arg) == true) return S::Zero();
     // Numeric complex a + b·I → b.
     if (auto z = rational_complex(arg); z.has_value()) return z->second;
+    // Linearity over a sum: im(Σ aᵢ) = Σ im(aᵢ).
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(im(a));
+        return add(std::move(terms));
+    }
+    // c · Iᵏ · w: im(c·w) = c·im(w),  im(c·I·w) = c·re(w),  (k mod 4 cycles).
+    if (auto d = decompose_mul_complex(arg)) {
+        switch (d->k) {
+            case 0: return mul(d->c, im(d->w));
+            case 1: return mul(d->c, re(d->w));
+            case 2: return mul(mul(S::NegativeOne(), d->c), im(d->w));
+            case 3: return mul(mul(S::NegativeOne(), d->c), re(d->w));
+        }
+    }
     if (auto p = strip_neg_factor(arg); p.has_value()) {
         return mul(S::NegativeOne(), make<Im>(*p));
     }
@@ -365,12 +478,48 @@ Expr conjugate(const Expr& arg) {
     if (auto z = rational_complex(arg); z.has_value()) {
         return add(z->first, mul(mul(S::NegativeOne(), z->second), S::I()));
     }
-    // conjugate(conjugate(x)) = x
     if (arg->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*arg);
+        // conjugate(conjugate(x)) = x.
         if (fn.function_id() == FunctionId::Conjugate) {
             return arg->args()[0];
         }
+        // conjugate(f(g)) = f(conjugate(g)) for an entire function with real
+        // Taylor coefficients (exp / sin / cos / tan / sinh / cosh / tanh) —
+        // e.g. conjugate(exp(I·x)) = exp(−I·x). log is excluded (branch cut).
+        if (fn.args().size() == 1) {
+            Expr cg = conjugate(fn.args()[0]);
+            switch (fn.function_id()) {
+                case FunctionId::Exp:  return exp(cg);
+                case FunctionId::Sin:  return sin(cg);
+                case FunctionId::Cos:  return cos(cg);
+                case FunctionId::Tan:  return tan(cg);
+                case FunctionId::Sinh: return sinh(cg);
+                case FunctionId::Cosh: return cosh(cg);
+                case FunctionId::Tanh: return tanh(cg);
+                default: break;
+            }
+        }
+    }
+    // conjugate is a ring homomorphism: it distributes over products and sums
+    // (conjugate(a·b) = ā·b̄, conjugate(a+b) = ā+b̄) and over an integer power.
+    // Recursion reduces each part (conjugate(I) = −I, conjugate(real) = real),
+    // so conjugate(I·x) = −I·conjugate(x).
+    if (arg->type_id() == TypeId::Mul) {
+        std::vector<Expr> factors;
+        factors.reserve(arg->args().size());
+        for (const auto& f : arg->args()) factors.push_back(conjugate(f));
+        return mul(std::move(factors));
+    }
+    if (arg->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& a : arg->args()) terms.push_back(conjugate(a));
+        return add(std::move(terms));
+    }
+    if (arg->type_id() == TypeId::Pow
+        && arg->args()[1]->type_id() == TypeId::Integer) {
+        return pow(conjugate(arg->args()[0]), arg->args()[1]);
     }
     return make<Conjugate>(arg);
 }
@@ -378,6 +527,14 @@ Expr conjugate(const Expr& arg) {
 Expr arg_(const Expr& arg) {
     if (is_positive(arg) == true) return S::Zero();
     if (is_negative(arg) == true) return S::Pi();
+    // arg(z) = atan2(im z, re z), applied when there is a (resolved) imaginary
+    // part: arg(I) = atan2(1, 0) = π/2, arg(1+I) = atan2(1, 1) = π/4. A real
+    // value (im = 0) of unknown sign stays unevaluated.
+    Expr a = re(arg);
+    Expr b = im(arg);
+    if (!(b == S::Zero()) && !contains_re_im(a) && !contains_re_im(b)) {
+        return atan2(b, a);
+    }
     return make<Arg>(arg);
 }
 
@@ -393,6 +550,10 @@ Expr MinFn::rebuild(std::vector<Expr> new_args) const { return min(std::move(new
 std::optional<bool> MinFn::ask(AssumptionKey k) const noexcept {
     // Min preserves real / integer / rational under all-true closure.
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:
@@ -413,6 +574,10 @@ MaxFn::MaxFn(std::vector<Expr> args)
 Expr MaxFn::rebuild(std::vector<Expr> new_args) const { return max(std::move(new_args)); }
 std::optional<bool> MaxFn::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:

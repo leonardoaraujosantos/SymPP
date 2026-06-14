@@ -38,6 +38,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Even) == true) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;
+            // A (nonzero) imaginary value is not real.
+            if (direct(e, AssumptionKey::Imaginary) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Rational: {
@@ -72,6 +74,21 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         case AssumptionKey::Finite: {
             // No simple universal implications here; numeric / structural
             // overrides handle the definite cases.
+            return std::nullopt;
+        }
+        case AssumptionKey::Complex: {
+            // real ∨ imaginary ⇒ complex. Covers every real number and symbol
+            // without each node having to answer Complex directly.
+            if (direct(e, AssumptionKey::Real) == true) return true;
+            if (direct(e, AssumptionKey::Imaginary) == true) return true;
+            if (direct(e, AssumptionKey::Integer) == true) return true;
+            if (direct(e, AssumptionKey::Rational) == true) return true;
+            return std::nullopt;
+        }
+        case AssumptionKey::Imaginary: {
+            // A real value is not imaginary; 0 is real, not imaginary.
+            if (direct(e, AssumptionKey::Real) == true) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return false;
             return std::nullopt;
         }
         default:

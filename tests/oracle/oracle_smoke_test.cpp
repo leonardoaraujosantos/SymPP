@@ -1,6 +1,9 @@
 // Smoke tests for the Oracle harness itself.
 // If these fail, nothing else can be trusted — the validation rig is broken.
 
+#include <string>
+#include <utility>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "oracle/oracle.hpp"
@@ -15,6 +18,42 @@ TEST_CASE("oracle: ping returns SymPy version", "[0][oracle]") {
     REQUIRE(resp.result_str() == "pong");
     REQUIRE_FALSE(resp.raw.value("sympy_version", "").empty());
     INFO("SymPy version reported by oracle: " << resp.raw.value("sympy_version", "?"));
+}
+
+// VERSION-GUARD-1 — pin the oracle to SymPy versions we have actually
+// validated against. The whole suite trusts SymPy to adjudicate "equivalent",
+// so a silent upgrade to an unvetted release could change that verdict (a new
+// auto-simplification, a different canonical form) without any test noticing.
+// Fail loudly here instead: an untested version forces a deliberate
+// re-validation and an allowlist bump rather than letting drift slip through.
+// CI installs 1.14; local development commonly runs 1.13.x — both are vetted.
+namespace {
+[[nodiscard]] std::pair<int, int> parse_major_minor(const std::string& v) {
+    const auto d1 = v.find('.');
+    if (d1 == std::string::npos) return {-1, -1};
+    const auto d2 = v.find('.', d1 + 1);
+    const int major = std::stoi(v.substr(0, d1));
+    const int minor = std::stoi(v.substr(d1 + 1, d2 - d1 - 1));
+    return {major, minor};
+}
+}  // namespace
+
+TEST_CASE("oracle: SymPy version is one we validate against (VERSION-GUARD-1)",
+          "[0][oracle]") {
+    auto& oracle = Oracle::instance();
+    const std::string version = oracle.sympy_version();
+    INFO("oracle SymPy version: " << version);
+    const auto [major, minor] = parse_major_minor(version);
+    REQUIRE(major == 1);
+    // Allowlist of validated minor releases. When CI/dev moves to a new SymPy,
+    // re-run the suite against it and add its minor here in the same commit.
+    const bool validated = (minor == 13 || minor == 14);
+    if (!validated) {
+        FAIL("Untested SymPy version "
+             << version
+             << " — re-validate the oracle suite against it, then add its "
+                "major.minor to the allowlist in VERSION-GUARD-1.");
+    }
 }
 
 TEST_CASE("oracle: srepr matches SymPy", "[0][oracle]") {

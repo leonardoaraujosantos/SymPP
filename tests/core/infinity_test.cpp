@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/calculus/limit.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
@@ -62,4 +63,26 @@ TEST_CASE("infinity: powers", "[1][infinity]") {
     REQUIRE(pow(integer(0), oo) == S::Zero());            // 0^oo
     REQUIRE(pow(S::NegativeInfinity(), integer(2)) == oo);
     REQUIRE(pow(S::NegativeInfinity(), integer(3)) == S::NegativeInfinity());
+}
+
+// ZERODIV-1: 0^(negative) is division by zero and must fold to zoo (the value
+// of 1/0), not escape as the malformed unevaluated Pow `0**(-1)`. SymPy:
+// 0**-1 == 0**-2 == 0**Rational(-1,2) == zoo. This also stops limits at a pole
+// (1/x**2 → 0) from returning a `0**(-1)` placeholder.
+TEST_CASE("infinity: 0^(negative) folds to zoo (ZERODIV-1)",
+          "[1][infinity][regression]") {
+    auto zoo = S::ComplexInfinity();
+    REQUIRE(pow(integer(0), integer(-1)) == zoo);            // 1/0
+    REQUIRE(pow(integer(0), integer(-2)) == zoo);
+    REQUIRE(pow(integer(0), rational(-1, 2)) == zoo);
+    REQUIRE((integer(1) / integer(0)) == zoo);
+    REQUIRE((integer(2) / integer(0)) == zoo);
+    // The non-singular cases are unaffected.
+    REQUIRE(pow(integer(0), integer(2)) == S::Zero());       // 0^positive
+    REQUIRE(pow(integer(0), integer(0)) == S::One());        // 0^0
+    auto x = symbol("x");
+    // No 0**(-1) leak. The even pole resolves to the signed +oo (POLE-SIGN-1);
+    // the only requirement here is that it is an infinity atom, not a malformed
+    // Pow.
+    REQUIRE(is_infinity(limit(pow(x, integer(-2)), x, S::Zero())));
 }

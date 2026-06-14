@@ -438,6 +438,28 @@ TEST_CASE("matrix: charpoly of [[2,0],[0,3]] = (λ-2)(λ-3)",
     REQUIRE(oracle.equivalent(cp->str(), "(lam - 2)*(lam - 3)"));
 }
 
+// MAT-CHARPOLY-1: charpoly returns the EXPANDED polynomial (like SymPy), not the
+// factored cofactor expansion that det() produces.
+TEST_CASE("matrix: charpoly is returned expanded (MAT-CHARPOLY-1)",
+          "[9][matrix][charpoly][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto lam = symbol("lam");
+    Matrix a = {{integer(1), integer(2)}, {integer(3), integer(4)}};
+    auto cpa = a.charpoly(lam);
+    // Structurally expanded: no surviving product of (lam - c) factors.
+    REQUIRE(cpa->str().find(")*(") == std::string::npos);
+    REQUIRE(oracle.equivalent(cpa->str(), "lam**2 - 5*lam - 2"));
+    // 3x3 and symbolic stay correct too.
+    Matrix c = {{integer(1), integer(2), integer(3)},
+                {integer(0), integer(1), integer(4)},
+                {integer(5), integer(6), integer(0)}};
+    REQUIRE(oracle.equivalent(c.charpoly(lam)->str(),
+                              "lam**3 - 2*lam**2 - 38*lam - 1"));
+    auto x = symbol("x");
+    Matrix s = {{x, integer(1)}, {integer(1), x}};
+    REQUIRE(oracle.equivalent(s.charpoly(lam)->str(), "lam**2 - 2*lam*x + x**2 - 1"));
+}
+
 TEST_CASE("matrix: eigenvals of diagonal [[2, 5]] = {2, 5}",
           "[9][matrix][eigenvals]") {
     Matrix m = {{integer(2), integer(0)}, {integer(0), integer(5)}};

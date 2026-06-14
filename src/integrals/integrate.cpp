@@ -4,14 +4,18 @@
 #include <utility>
 #include <vector>
 
+#include <sympp/calculus/limit.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <gmpxx.h>
+
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
@@ -139,6 +143,38 @@ namespace {
                 }
             }
         }
+        // Reciprocal (first power) trig of an affine argument written as a Pow:
+        //   1/cos(ax+b) = sec(ax+b),  1/sin(ax+b) = csc(ax+b).
+        // Route to the same antiderivatives the Sec/Csc function table uses, so
+        // ∫1/cos(x) matches ∫sec(x) (they were inconsistent — the Pow form fell
+        // through to the unevaluated marker).
+        if (exp == S::NegativeOne() && base->type_id() == TypeId::Function) {
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.args().size() == 1) {
+                const auto& inner = bfn.args()[0];
+                auto inner_aff = as_affine(inner, var);
+                if (inner_aff && !(inner_aff->first == S::Zero())) {
+                    const Expr& a = inner_aff->first;
+                    if (bfn.function_id() == FunctionId::Cos) {  // sec
+                        Expr s = sin(inner);
+                        return (log(s + S::One()) - log(s - S::One()))
+                               / (integer(2) * a);
+                    }
+                    if (bfn.function_id() == FunctionId::Sin) {  // csc
+                        Expr c = cos(inner);
+                        return (log(c - S::One()) - log(c + S::One()))
+                               / (integer(2) * a);
+                    }
+                    // Hyperbolic counterparts: 1/cosh = sech, 1/sinh = csch.
+                    if (bfn.function_id() == FunctionId::Cosh) {  // sech
+                        return atan(sinh(inner)) / a;
+                    }
+                    if (bfn.function_id() == FunctionId::Sinh) {  // csch
+                        return log(tanh(inner / integer(2))) / a;
+                    }
+                }
+            }
+        }
     }
 
     // 1/x: ∫ 1/x dx = log(x). 1/x is Pow(x, -1) — caught above.
@@ -253,6 +289,26 @@ namespace {
 // ∫2x·exp(x²) → exp(x²) that the table-based path can't recognize.
 [[nodiscard]] std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var);
 
+// Monomial substitution u = x^d: ∫ x^(d-1)·f(x^d) dx = (1/d)∫ f(u) du.
+// Catches integrands that become elementary only after rewriting x^(k) → u^(k/d)
+// — e.g. ∫x/(x⁴+1) = ½atan(x²) — which try_heurisch misses because its
+// substitution is structural (x⁴ does not contain x² as a subexpression).
+[[nodiscard]] std::optional<Expr> try_monomial_substitution(const Expr& expr,
+                                                            const Expr& var);
+
+// Radical substitution u = x^(1/d): for an integrand that is a function of
+// x^(1/d) (every var-power has a rational exponent and d = lcm of their
+// denominators > 1), substitute x = u^d, dx = d·u^(d-1) du, integrate in u, and
+// back-substitute. Closes ∫exp(√x), ∫1/(1+√x), ∫1/(1+x^(1/3)), …
+[[nodiscard]] std::optional<Expr> try_radical_substitution(const Expr& expr,
+                                                           const Expr& var);
+
+// Linear-radical substitution u = √(a·x+b): for an integrand containing √(a·x+b)
+// with a non-trivial linear inner (b≠0), substitute x = (u²−b)/a, dx = (2u/a) du,
+// integrate in u, and back-substitute. Closes ∫1/(x·√(x+1)), ∫√(x+1)/x, …
+[[nodiscard]] std::optional<Expr> try_linear_radical_substitution(
+    const Expr& expr, const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -338,6 +394,13 @@ namespace {
 // logs. Returns nullopt unless the denominator is a degree-2 polynomial in
 // var with numeric coefficients and positive discriminant.
 [[nodiscard]] std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var);
+
+// ∫ 1/(a₄·x⁴ + a₂·x² + a₀) dx for a biquadratic that is irreducible over ℚ but
+// factors into two real quadratics over ℚ(√q): x⁴+p·x²+q = (x²+a·x+b)(x²−a·x+b)
+// with b=√q, a=√(2√q−p). Partial fractions give two (linear)/(irreducible
+// quadratic) pieces, each integrated to a log + arctan. Closes ∫1/(x⁴+1).
+[[nodiscard]] std::optional<Expr> try_biquadratic(const Expr& expr,
+                                                  const Expr& var);
 
 // ∫ (p·x + q)/(a·x² + b·x + c) dx for an irreducible quadratic denominator:
 // split the numerator into the part proportional to the denominator's
@@ -447,6 +510,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_arctan_quadratic(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_biquadratic(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_linear_over_quadratic(expr, var); r.has_value()) {
         return *r;
     }
@@ -471,7 +537,16 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_hyperbolic_to_exp(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_monomial_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_radical_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_linear_radical_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -496,6 +571,19 @@ namespace {
     if (!e || e->type_id() != TypeId::Function) return false;
     const auto& fn = static_cast<const Function&>(*e);
     return fn.name() == "Integral";
+}
+
+// Deep variant: does any subexpression carry the Integral failure marker? A
+// term-by-term integrator (e.g. over an apart() sum) can leave a partial result
+// like `atan(x)/3 + Integral(…)`, whose top node is an Add — so the shallow
+// check above misses the leaked marker.
+[[nodiscard]] bool contains_integral_marker(const Expr& e) {
+    if (!e) return false;
+    if (is_integral_marker(e)) return true;
+    for (const auto& a : e->args()) {
+        if (contains_integral_marker(a)) return true;
+    }
+    return false;
 }
 
 // Try to interpret expr as c * g'(x) * f(g(x)) for some non-trivial
@@ -656,6 +744,159 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         }
     }
     return std::nullopt;
+}
+
+std::optional<Expr> try_monomial_substitution(const Expr& expr,
+                                              const Expr& var) {
+    auto u = symbol("__mono_u");
+    for (long d = 2; d <= 6; ++d) {
+        // After u = x^d, the integrand becomes t = expr / (d·x^(d-1)) du.
+        Expr t = simplify(expand_power_base(
+            expr * pow(var, integer(1 - d)) * pow(integer(d), integer(-1))));
+        // Map every var^k subexpression to u^(k/d); k must be divisible by d.
+        // A bare var or a var^k with d∤k marks the substitution invalid.
+        ExprMap<Expr> repl;
+        bool bad = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (bad || !depends_on(e, var)) return;
+            if (e->type_id() == TypeId::Pow && e->args()[0] == var
+                && e->args()[1]->type_id() == TypeId::Integer) {
+                const auto& k = static_cast<const Integer&>(*e->args()[1]);
+                if (k.fits_long() && k.to_long() % d == 0) {
+                    repl.emplace(e, pow(u, integer(k.to_long() / d)));
+                } else {
+                    bad = true;
+                }
+                return;
+            }
+            if (e == var) { bad = true; return; }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, t);
+        if (bad || repl.empty()) continue;
+        Expr t_u = xreplace(t, repl);
+        if (depends_on(t_u, var)) continue;  // leftover var → invalid
+        Expr anti = integrate(t_u, u);
+        if (is_integral_marker(anti)) continue;
+        return simplify(subs(anti, u, pow(var, integer(d))));
+    }
+    return std::nullopt;
+}
+
+namespace {
+// Read the rational exponent of a var-power node (bare var → 1).
+[[nodiscard]] std::optional<mpq_class> var_power_exponent(const Expr& e,
+                                                         const Expr& var) {
+    if (e == var) return mpq_class(1);
+    if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+        const Expr& ex = e->args()[1];
+        if (ex->type_id() == TypeId::Integer) {
+            return mpq_class(static_cast<const Integer&>(*ex).value());
+        }
+        if (ex->type_id() == TypeId::Rational) {
+            return static_cast<const Rational&>(*ex).value();
+        }
+    }
+    return std::nullopt;
+}
+}  // namespace
+
+std::optional<Expr> try_radical_substitution(const Expr& expr,
+                                             const Expr& var) {
+    // d = lcm of the denominators of every var exponent; bail if all integer.
+    mpz_class d = 1;
+    bool has_frac = false, bad = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (bad || !depends_on(e, var)) return;
+        if (e == var) return;  // exponent 1 → denominator 1
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+            auto q = var_power_exponent(e, var);
+            if (!q) { bad = true; return; }  // var^(symbolic)
+            mpz_class den = q->get_den();
+            if (den > 1) has_frac = true;
+            mpz_class g;
+            mpz_gcd(g.get_mpz_t(), d.get_mpz_t(), den.get_mpz_t());
+            d = d / g * den;
+            return;  // do not descend into the var base
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (bad || !has_frac || d <= 1 || !d.fits_slong_p()) return std::nullopt;
+    const long dl = d.get_si();
+    auto u = symbol("__rad_u");
+    // Rewrite each var-power x^e → u^(e·d) (an integer power).
+    ExprMap<Expr> repl;
+    bool bad2 = false;
+    auto build = [&](auto&& self, const Expr& e) -> void {
+        if (bad2 || !depends_on(e, var)) return;
+        if (e == var) {
+            repl.emplace(e, pow(u, integer(dl)));
+            return;
+        }
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+            auto q = var_power_exponent(e, var);
+            if (!q) { bad2 = true; return; }
+            mpq_class ed = *q * mpq_class(d);  // integer
+            repl.emplace(e, pow(u, integer(ed.get_num().get_si())));
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    build(build, expr);
+    if (bad2) return std::nullopt;
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;  // var survived (non-power use)
+    // dx = d·u^(d-1) du.
+    Expr integrand_u =
+        simplify(mul({g, integer(dl), pow(u, integer(dl - 1))}));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(var, rational(1, dl))));
+}
+
+std::optional<Expr> try_linear_radical_substitution(const Expr& expr,
+                                                    const Expr& var) {
+    // Find a √(a·var+b) factor: a Pow(base, 1/2) whose base is linear in var with
+    // a non-zero constant term (a bare √var is try_radical_substitution's job).
+    Expr radical, a, b;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (radical || !depends_on(e, var)) return;
+        if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) {
+            const Expr& base = e->args()[0];
+            try {
+                Poly p(expand(base), var);
+                if (p.degree() == 1) {
+                    const auto& coeffs = p.coeffs();  // [b, a]
+                    if (!depends_on(coeffs[0], var)
+                        && !depends_on(coeffs[1], var)
+                        && !(coeffs[0] == S::Zero())) {  // b ≠ 0
+                        b = coeffs[0];
+                        a = coeffs[1];
+                        radical = e;
+                        return;
+                    }
+                }
+            } catch (...) {
+            }
+        }
+        for (const auto& arg : e->args()) self(self, arg);
+    };
+    scan(scan, expr);
+    if (!radical) return std::nullopt;
+    // u = √(a·var+b) ⇒ var = (u²−b)/a, dx = (2u/a) du.
+    auto u = symbol("__lrad_u");
+    Expr x_of_u = (pow(u, integer(2)) - b) / a;
+    ExprMap<Expr> repl;
+    repl.emplace(radical, u);
+    repl.emplace(var, x_of_u);
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;
+    Expr integrand_u =
+        simplify(mul({g, integer(2), u, pow(a, integer(-1))}));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(a * var + b, rational(1, 2))));
 }
 
 // True if `e` is a polynomial in `var` (only non-negative integer powers of
@@ -1408,6 +1649,14 @@ std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var) {
 }
 
 std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
+    // Defer to monomial substitution when one applies (e.g. x²/(x⁶+1) →
+    // ⅓·atan(x³)): a partial-fraction expansion would yield the same
+    // antiderivative in a far messier form. The later try_monomial_substitution
+    // in the dispatch chain picks these up; bare quadratics like x/(x²+1) are
+    // not monomial candidates and are unaffected.
+    if (try_monomial_substitution(expr, var).has_value()) {
+        return std::nullopt;
+    }
     // Bring to single fraction.
     Expr t = together(expr);
     Expr num = S::One();
@@ -1465,31 +1714,31 @@ std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
 
     Expr proper_int;
     if (apart_form == proper) {
-        // apart couldn't split the proper part — it is a single irreducible
-        // quadratic denominator with a constant or linear numerator. For a bare
-        // proper fraction (q == 0) defer to the dedicated quadratic helpers
-        // downstream (re-integrating here would recurse). For the improper case
-        // (q ≠ 0) the polynomial quotient must still be integrated, so close the
-        // remainder directly via those helpers instead of dropping the whole
-        // result to the marker.
+        // apart left the proper part as a single partial-fraction term — a
+        // linear denominator c/(x+a), or an irreducible quadratic it can't split
+        // further. For a bare proper fraction (q == 0) defer to the downstream
+        // affine/quadratic strategies; re-integrating here would recurse. For
+        // the improper case (q ≠ 0) the polynomial quotient must still be
+        // integrated, so close the remainder with the general integrator: it
+        // reaches the affine-log rule for a linear denominator and the
+        // arctan / linear-over-quadratic helpers for a quadratic one, and its own
+        // try_rational bails on this now-proper fraction (q' == 0), so there is
+        // no recursion.
         if (q.is_zero()) return std::nullopt;
-        if (den_p.degree() != 2) return std::nullopt;
-        if (r_poly.degree() <= 0) {
-            auto inv = try_arctan_quadratic(
-                pow(den_p.as_expr(), S::NegativeOne()), var);
-            if (!inv) return std::nullopt;
-            proper_int = mul(r_poly.as_expr(), inv.value());
-        } else {
-            auto lin = try_linear_over_quadratic(proper, var);
-            if (!lin) return std::nullopt;
-            proper_int = lin.value();
-        }
+        proper_int = integrate(proper, var);
+        if (contains_integral_marker(proper_int)) return std::nullopt;
     } else {
         proper_int = integrate(apart_form, var);
-        if (is_integral_marker(proper_int)) return std::nullopt;
+        // Reject a partial decomposition: if any partial-fraction term failed to
+        // integrate, the Add still hides an Integral marker. Returning that
+        // half-answer would shadow cleaner strategies (e.g. the monomial
+        // substitution that closes ∫x²/(x⁶+1) = ⅓atan(x³)).
+        if (contains_integral_marker(proper_int)) return std::nullopt;
     }
 
-    return integrate(q.as_expr(), var) + proper_int;
+    Expr result = integrate(q.as_expr(), var) + proper_int;
+    if (contains_integral_marker(result)) return std::nullopt;
+    return result;
 }
 
 std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
@@ -1796,12 +2045,108 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
         //   ∫ 1/(a·(x − r)²) dx = −2/(2a·x + b).
         return integer(-2) / (integer(2) * a * var + b);
     }
-    if (is_positive(disc) != true) return std::nullopt;
+    if (is_positive(disc) == true) {
+        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D.
+        Expr root_d = sqrt(disc);
+        Expr arg = (integer(2) * a * var + b) / root_d;
+        return simplify(integer(2) * atan(arg) / root_d);
+    }
+    // D < 0 ⇒ two distinct real roots. Rational roots are split into clean logs
+    // by try_rational (which runs first); irrational roots reach here, where the
+    // partial-fraction logs carry √Δ (Δ = b²−4ac = −D):
+    //   ∫ 1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)] / √Δ.
+    Expr delta = simplify(mul(S::NegativeOne(), disc));  // b² − 4ac > 0
+    if (is_positive(delta) != true) return std::nullopt;
+    Expr root_delta = sqrt(delta);
+    Expr lin = integer(2) * a * var + b;
+    return simplify((log(lin - root_delta) - log(lin + root_delta))
+                    / root_delta);
+}
 
-    // ∫ 1/(a·x² + b·x + c) dx = 2·atan((2a·x + b)/√D) / √D.
-    Expr root_d = sqrt(disc);
-    Expr arg = (integer(2) * a * var + b) / root_d;
-    return simplify(integer(2) * atan(arg) / root_d);
+std::optional<Expr> try_biquadratic(const Expr& expr, const Expr& var) {
+    // Split into numerator N and the quartic denominator: N · base^(-1).
+    Expr num = S::One();
+    Expr base;
+    if (expr->type_id() == TypeId::Pow && expr->args()[1] == S::NegativeOne()) {
+        base = expr->args()[0];
+    } else if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_factors;
+        for (const auto& f : expr->args()) {
+            if (!base && f->type_id() == TypeId::Pow
+                && f->args()[1] == S::NegativeOne()
+                && depends_on(f->args()[0], var)) {
+                base = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
+        }
+        if (!base) return std::nullopt;
+        num = num_factors.empty() ? Expr{S::One()} : mul(std::move(num_factors));
+    } else {
+        return std::nullopt;
+    }
+    if (!depends_on(base, var)) return std::nullopt;
+    Poly poly(expand(base), var);
+    if (poly.degree() != 4) return std::nullopt;
+    const auto& cf = poly.coeffs();  // [a0, a1, a2, a3, a4]
+    // Biquadratic: no x or x³ term, rational coefficients.
+    if (!(cf[1] == S::Zero()) || !(cf[3] == S::Zero())) return std::nullopt;
+    if (is_rational(cf[0]) != true || is_rational(cf[2]) != true
+        || is_rational(cf[4]) != true) {
+        return std::nullopt;
+    }
+    // Numerator must be an even polynomial of degree ≤ 2: n₀ + n₂·x². (Odd
+    // numerators — x, x³ — are handled more cleanly by the substitution paths.)
+    Expr n0 = S::Zero();
+    Expr n2 = S::Zero();
+    try {
+        Poly np(expand(num), var);
+        if (np.degree() > 2) return std::nullopt;
+        const auto& nc = np.coeffs();
+        if (nc.size() > 0) n0 = nc[0];
+        if (nc.size() > 1 && !(nc[1] == S::Zero())) return std::nullopt;  // odd
+        if (nc.size() > 2) n2 = nc[2];
+        if (has(n0, var) || has(n2, var)) return std::nullopt;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    const Expr& a4 = cf[4];
+    Expr p = simplify(cf[2] / a4);  // normalize to x⁴ + p·x² + q
+    Expr q = simplify(cf[0] / a4);
+    if (is_positive(q) != true) return std::nullopt;
+    Expr b = sqrt(q);                          // √q
+    Expr two_b = simplify(integer(2) * b);
+    // Real, irreducible quadratic factors need 2√q − p > 0 and 2√q + p > 0.
+    if (is_positive(simplify(two_b - p)) != true
+        || is_positive(simplify(two_b + p)) != true) {
+        return std::nullopt;
+    }
+    Expr a = sqrt(simplify(two_b - p));        // √(2√q − p)
+    // Partial fractions of (n₀ + n₂·x²)/((x²+a·x+b)(x²−a·x+b)) exploit the mirror
+    // symmetry (x → −x): the two numerators are P₁·x+Q and −P₁·x+Q, with
+    //   S_Q = n₀/b,  D_P = (n₂ − S_Q)/a,  P₁ = −D_P/2,  Q = S_Q/2.
+    Expr s_q = simplify(n0 * pow(b, integer(-1)));
+    Expr d_p = simplify((n2 - s_q) * pow(a, integer(-1)));
+    Expr cap_p = simplify(mul(rational(-1, 2), d_p));   // P₁
+    Expr cap_q = simplify(mul(rational(1, 2), s_q));    // Q
+    // ∫ (α·x + β)/(x² + γ·x + b) for an irreducible quadratic (4b − γ² > 0):
+    //   (α/2)·log(x² + γ·x + b)
+    //   + (β − αγ/2)·(2/√(4b − γ²))·atan((2x + γ)/√(4b − γ²)).
+    auto integ_lin_quad = [&](const Expr& alpha, const Expr& beta,
+                              const Expr& gamma) -> Expr {
+        Expr quad = pow(var, integer(2)) + gamma * var + b;
+        Expr root = sqrt(simplify(integer(4) * b - gamma * gamma));
+        Expr log_part = mul({alpha, rational(1, 2), log(quad)});
+        Expr atan_coef = simplify(beta - alpha * gamma * rational(1, 2));
+        Expr atan_part =
+            mul({atan_coef, integer(2), pow(root, integer(-1)),
+                 atan((integer(2) * var + gamma) * pow(root, integer(-1)))});
+        return log_part + atan_part;
+    };
+    Expr r1 = integ_lin_quad(cap_p, cap_q, a);
+    Expr r2 = integ_lin_quad(mul(S::NegativeOne(), cap_p), cap_q,
+                             mul(S::NegativeOne(), a));
+    return simplify(mul(pow(a4, integer(-1)), r1 + r2));
 }
 
 std::optional<Expr> try_linear_over_quadratic(const Expr& expr,
@@ -2187,7 +2532,19 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
     auto antider = integrate(expr, var);
-    return subs(antider, var, upper) - subs(antider, var, lower);
+    // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
+    // (or when direct substitution lands on the unevaluated nan / an infinity —
+    // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative
+    // rather than substituting the bound literally.
+    auto eval_at = [&](const Expr& bound) -> Expr {
+        if (is_infinity(bound)) return limit(antider, var, bound);
+        Expr v = subs(antider, var, bound);
+        if (v->type_id() == TypeId::NaN || is_infinity(v)) {
+            return limit(antider, var, bound);
+        }
+        return v;
+    };
+    return eval_at(upper) - eval_at(lower);
 }
 
 std::optional<Expr> manualintegrate(const Expr& expr, const Expr& var) {

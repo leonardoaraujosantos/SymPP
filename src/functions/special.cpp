@@ -67,6 +67,10 @@ Expr Erf::rebuild(std::vector<Expr> new_args) const { return erf(new_args[0]); }
 std::optional<bool> Erf::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
@@ -111,6 +115,10 @@ Expr Erfc::rebuild(std::vector<Expr> new_args) const { return erfc(new_args[0]);
 std::optional<bool> Erfc::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
@@ -177,6 +185,10 @@ Expr HeavisideFn::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> HeavisideFn::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
@@ -211,6 +223,10 @@ std::optional<bool> DiracDeltaFn::ask(AssumptionKey k) const noexcept {
     // DiracDelta is a distribution; the only safe predicate at the function-
     // value level is nonneg (it's never negative).
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Nonnegative:
             return true;
         default:

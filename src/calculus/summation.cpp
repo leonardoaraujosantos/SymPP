@@ -1,21 +1,26 @@
 #include <sympp/calculus/summation.hpp>
 
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/special.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -28,6 +33,143 @@ namespace {
 [[nodiscard]] Expr sum_marker(const Expr& expr, const Expr& var,
                               const Expr& lo, const Expr& hi) {
     return function_symbol("Sum")(std::vector<Expr>{expr, var, lo, hi});
+}
+
+// Telescoping sum of a rational summand c / D(var), where D is a quadratic that
+// factors into two distinct linear factors whose roots differ by a nonzero
+// integer. Partial fractions give c/(lead·(k−r1)(k−r2)) = c/(lead·d)·[u(k) −
+// u(k+d)] with u(k) = 1/(k−r1) and d = r1 − r2 > 0, which telescopes to
+//   c/(lead·d) · [ Σ_{j=0}^{d−1} u(lo+j) − Σ_{j=1}^{d} u(hi+j) ].
+// Returns nullopt unless the summand has this shape. The closed form is exact
+// (equivalent to SymPy's, though it may be presented differently).
+[[nodiscard]] std::optional<Expr> telescope_rational(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    // Split expr = c · D^{-1}: c var-free, D one or more reciprocal factors.
+    Expr c = S::One();
+    Expr denom;
+    auto take_recip = [&](const Expr& f) -> bool {
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+            denom = denom ? mul({denom, f->args()[0]}) : f->args()[0];
+            return true;
+        }
+        return false;
+    };
+    if (expr->type_id() == TypeId::Pow) {
+        if (!take_recip(expr)) return std::nullopt;
+    } else if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> cf;
+        for (const auto& f : expr->args()) {
+            if (take_recip(f)) continue;
+            if (has(f, var)) return std::nullopt;  // var in the numerator
+            cf.push_back(f);
+        }
+        if (!cf.empty()) c = mul(std::move(cf));
+    } else {
+        return std::nullopt;
+    }
+    if (!denom || !has(denom, var)) return std::nullopt;
+    // D must be a quadratic with two distinct rational roots.
+    Poly p(expand(denom), var);
+    if (p.degree() != 2) return std::nullopt;
+    std::vector<Expr> rts = p.roots();
+    if (rts.size() != 2) return std::nullopt;
+    Expr r1 = rts[0], r2 = rts[1];
+    auto is_rat = [](const Expr& e) {
+        return e->type_id() == TypeId::Integer
+               || e->type_id() == TypeId::Rational;
+    };
+    if (!is_rat(r1) || !is_rat(r2) || r1 == r2) return std::nullopt;
+    const Expr lead = p.leading_coeff();
+    // d = r1 − r2 must be a nonzero integer; orient it positive.
+    Expr d_expr = simplify(r1 - r2);
+    if (d_expr->type_id() != TypeId::Integer
+        || !static_cast<const Integer&>(*d_expr).fits_long()) {
+        return std::nullopt;
+    }
+    long d = static_cast<const Integer&>(*d_expr).to_long();
+    if (d == 0) return std::nullopt;
+    if (d < 0) {
+        std::swap(r1, r2);
+        d = -d;
+    }
+    // Guard against a pole inside the range: an integer root ≥ lo makes a
+    // summand undefined. A non-integer root is never hit by an integer index.
+    auto safe_root = [&](const Expr& r) {
+        if (r->type_id() != TypeId::Integer) return true;
+        return is_positive(simplify(lo - r)) == std::optional<bool>{true};
+    };
+    if (!safe_root(r1) || !safe_root(r2)) return std::nullopt;
+    auto u = [&](const Expr& k) { return pow(k - r1, integer(-1)); };
+    Expr first = S::Zero(), second = S::Zero();
+    for (long j = 0; j < d; ++j) first = add({first, u(lo + integer(j))});
+    for (long j = 1; j <= d; ++j) second = add({second, u(hi + integer(j))});
+    Expr scale = pow(mul({lead, integer(d)}), integer(-1));
+    return simplify(
+        mul({c, scale, add({first, mul({S::NegativeOne(), second})})}));
+}
+
+// Σ_{k=lo}^{hi} P(k)·r^k for a polynomial P (degree ≥ 1) and a concrete numeric
+// ratio r ≠ 1. Finds the antidifference S(k) = Q(k)·r^k, where Q is a polynomial
+// of the same degree satisfying r·Q(k+1) − Q(k) = P(k); the coefficients solve
+// top-down since q_j = [P_j − r·Σ_{i>j} C(i,j) q_i]/(r−1). Then the sum is
+// S(hi+1) − S(lo). Returns nullopt unless the summand has this shape.
+[[nodiscard]] std::optional<Expr> sum_poly_geometric(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Split off one geometric factor base^(c·var+d); the rest is the polynomial.
+    Expr geo;
+    std::vector<Expr> poly_factors;
+    for (const auto& f : expr->args()) {
+        if (!geo && f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+            && is_number(f->args()[0]) && has(f->args()[1], var)) {
+            geo = f;
+        } else {
+            poly_factors.push_back(f);
+        }
+    }
+    if (!geo || poly_factors.empty()) return std::nullopt;
+    Expr c = diff(geo->args()[1], var);
+    if (has(c, var)) return std::nullopt;  // exponent not linear in var
+    Expr d = simplify(geo->args()[1] - c * var);
+    if (has(d, var)) return std::nullopt;
+    Expr ratio = pow(geo->args()[0], c);
+    if (!is_number(ratio) || ratio == S::One()) return std::nullopt;
+    Expr prefactor = pow(geo->args()[0], d);
+    // Coefficients of P (P_i = coeff of var^i); must be a clean polynomial.
+    std::vector<Expr> pc;
+    try {
+        Poly pp(expand(mul(poly_factors)), var);
+        for (const auto& cc : pp.coeffs()) {
+            if (has(cc, var)) return std::nullopt;
+            pc.push_back(cc);
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    const long p = static_cast<long>(pc.size()) - 1;
+    if (p < 1) return std::nullopt;  // degree 0 is plain geometric
+    const Expr inv_rm1 = pow(simplify(ratio - integer(1)), integer(-1));
+    std::vector<Expr> q(static_cast<std::size_t>(p) + 1);
+    for (long j = p; j >= 0; --j) {
+        Expr s = pc[static_cast<std::size_t>(j)];
+        for (long i = j + 1; i <= p; ++i) {
+            s = s - ratio * binomial(integer(i), integer(j))
+                        * q[static_cast<std::size_t>(i)];
+        }
+        q[static_cast<std::size_t>(j)] = simplify(s * inv_rm1);
+    }
+    auto eval_q = [&](const Expr& m) -> Expr {
+        std::vector<Expr> terms;
+        terms.reserve(static_cast<std::size_t>(p) + 1);
+        for (long i = 0; i <= p; ++i) {
+            terms.push_back(q[static_cast<std::size_t>(i)]
+                            * pow(m, integer(i)));
+        }
+        return add(std::move(terms));
+    };
+    Expr s_hi = eval_q(hi + integer(1)) * pow(ratio, hi + integer(1));
+    Expr s_lo = eval_q(lo) * pow(ratio, lo);
+    return simplify(prefactor * (s_hi - s_lo));
 }
 
 }  // namespace
@@ -72,26 +214,27 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         return simplify((hi - lo + integer(1)) * (lo + hi) / integer(2));
     }
 
-    // Σ k^p with integer p ∈ {2, 3} via the standard formulas (telescoped
-    // from 1..n form).
+    // Σ kᵖ for a positive integer p via Faulhaber's formula, using Bernoulli
+    // numbers (SymPy's B₁ = +1/2 convention):
+    //   Σ_{k=1}^n kᵖ = 1/(p+1) · Σ_{j=0}^{p} C(p+1, j) B_j n^(p+1−j).
     if (expr->type_id() == TypeId::Pow && expr->args()[0] == var
         && expr->args()[1]->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*expr->args()[1]);
         if (z.fits_long()) {
             long p = z.to_long();
-            auto sum_to_n = [&](const Expr& n) -> Expr {
-                if (p == 2) {
-                    // n(n+1)(2n+1)/6
-                    return n * (n + integer(1))
-                           * (integer(2) * n + integer(1)) / integer(6);
-                }
-                if (p == 3) {
-                    // (n(n+1)/2)²
-                    return pow(n * (n + integer(1)) / integer(2), integer(2));
-                }
-                return Expr{};
-            };
-            if (p == 2 || p == 3) {
+            if (p >= 2 && p <= 200) {  // p=1 handled above; cap for cost
+                auto sum_to_n = [&](const Expr& n) -> Expr {
+                    std::vector<Expr> terms;
+                    terms.reserve(static_cast<std::size_t>(p) + 1);
+                    for (long j = 0; j <= p; ++j) {
+                        terms.push_back(mul(
+                            {binomial(integer(p + 1), integer(j)),
+                             bernoulli(integer(j)),
+                             pow(n, integer(p + 1 - j))}));
+                    }
+                    return mul(pow(integer(p + 1), integer(-1)),
+                               add(std::move(terms)));
+                };
                 Expr s_hi = sum_to_n(hi);
                 Expr s_lo = sum_to_n(lo - integer(1));
                 return simplify(s_hi - s_lo);
@@ -179,6 +322,14 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             }
         }
     }
+
+    // Polynomial × geometric: Σ P(k)·r^k for a polynomial P and concrete ratio
+    // r ≠ 1 (covers k²·2^k, (2k+1)·3^k, k³/2^k — the general arithmetic-geometric
+    // case the degree-1 block above doesn't reach).
+    if (auto pg = sum_poly_geometric(expr, var, lo, hi); pg) return *pg;
+
+    // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
+    if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;
 
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).

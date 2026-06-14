@@ -219,6 +219,10 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
     bool negative_signbit = mpfr_signbit(value_) != 0;
     int s = zero ? 0 : (negative_signbit ? -1 : 1);
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real: return true;
         // mpmath/SymPy: Floats are *not* known to be rational/integer in the
         // assumption sense even when the value would fit. Match that.

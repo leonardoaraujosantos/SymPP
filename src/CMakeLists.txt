@@ -10,6 +10,7 @@ target_sources(sympp
         core/assumption_mask.cpp
         core/basic.cpp
         core/boolean.cpp
+        core/derivative.cpp
         core/expand.cpp
         core/expr_cache.cpp
         core/float.cpp
@@ -76,6 +77,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_mask.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/boolean.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/derivative.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_cache.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/expr_collections.hpp

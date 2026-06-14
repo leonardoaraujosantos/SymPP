@@ -17,6 +17,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/exponential.hpp>
 
 #include "oracle/oracle.hpp"
@@ -110,6 +111,31 @@ TEST_CASE("log: stays unevaluated on a generic symbol", "[3c][log]") {
     REQUIRE(e->str() == "log(x)");
 }
 
+// LOG-BASE-1: the two-argument log_b(x) = log(x)/log(b) (matching SymPy).
+// Reduces to standard one-argument logs, so diff/simplify handle it; exact
+// integer powers fold (log(8, 2) = 3). Previously log(x, 2) became an opaque
+// user-function node with an unevaluated derivative.
+TEST_CASE("log: two-argument log base b (LOG-BASE-1)",
+          "[3c][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // General base: log_b(x) = log(x)/log(b).
+    REQUIRE(oracle.equivalent(log(x, integer(2))->str(), "log(x)/log(2)"));
+    REQUIRE(oracle.equivalent(log(x, integer(10))->str(), "log(x)/log(10)"));
+    // Base E collapses to the natural log.
+    REQUIRE(log(x, S::E()) == log(x));
+    // Exact integer powers fold to the exponent.
+    REQUIRE(log(integer(8), integer(2)) == integer(3));
+    REQUIRE(log(integer(100), integer(10)) == integer(2));
+    REQUIRE(log(integer(1024), integer(2)) == integer(10));
+    // A non-power integer does not fold.
+    REQUIRE(oracle.equivalent(log(integer(7), integer(2))->str(),
+                              "log(7)/log(2)"));
+    // The derivative now evaluates: d/dx log_b(x) = 1/(x·log b).
+    REQUIRE(oracle.equivalent(diff(log(x, integer(2)), x)->str(),
+                              "1/(x*log(2))"));
+}
+
 // ----- Inverse pair simplification ------------------------------------------
 
 TEST_CASE("exp(log(x)) = x for positive x", "[3c][exp][log]") {
@@ -117,11 +143,15 @@ TEST_CASE("exp(log(x)) = x for positive x", "[3c][exp][log]") {
     REQUIRE(exp(log(x)) == x);
 }
 
-TEST_CASE("exp(log(x)) stays unevaluated for unknown x", "[3c][exp][log]") {
+TEST_CASE("exp(log(x)) = x even for unknown x (principal branch)",
+          "[3c][exp][log][regression]") {
+    // exp(log(z)) = z holds for every z ≠ 0 on the principal branch, so no
+    // positivity assumption is required (matching SymPy). A concrete negative
+    // argument is unaffected: log(−3) expands to iπ + log(3) before reaching
+    // exp, so this rule only fires for an unevaluated log(w).
     auto x = symbol("x");
-    auto e = exp(log(x));
-    REQUIRE(e->type_id() == TypeId::Function);
-    REQUIRE(e->str() == "exp(log(x))");
+    REQUIRE(exp(log(x)) == x);
+    REQUIRE(exp(log(x + integer(1))) == x + integer(1));
 }
 
 TEST_CASE("exp(c*log(p)) = p^c for positive p (ASSUME-6)",
@@ -133,8 +163,34 @@ TEST_CASE("exp(c*log(p)) = p^c for positive p (ASSUME-6)",
     REQUIRE(exp(log(p) / integer(2)) == pow(p, rational(1, 2)));
     REQUIRE(exp(mul(S::NegativeOne(), log(p))) == pow(p, integer(-1)));
     REQUIRE(exp(x * log(p)) == pow(p, x));
-    // Generic (non-positive) base stays unevaluated (branch-cut conservative).
-    REQUIRE(exp(integer(2) * log(x))->str() == "exp(2*log(x))");
+    // Generic base with a NUMERIC coefficient folds unconditionally — w^n is
+    // exactly exp(n·log w) by definition (matching SymPy: exp(2·log x) = x²).
+    REQUIRE(exp(integer(2) * log(x)) == pow(x, integer(2)));
+    REQUIRE(exp(log(x) / integer(2)) == pow(x, rational(1, 2)));
+    REQUIRE(exp(mul(S::NegativeOne(), log(x))) == pow(x, integer(-1)));
+    // A SYMBOLIC coefficient over a generic (non-positive) base stays an exp,
+    // since pow's branch for a concrete negative base could differ.
+    REQUIRE(exp(x * log(symbol("y")))->str() == "exp(x*log(y))");
+}
+
+// EXP-LOGSUM-1: exp of a sum containing numeric-coefficient log terms pulls
+// them out as a product — exp(log x + 1) = E·x, exp(log x + log y) = x·y,
+// exp(log x − log y) = x/y. Non-log terms remain inside the exp.
+TEST_CASE("exp: sum with log terms factors out (EXP-LOGSUM-1)",
+          "[3c][exp][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(exp(log(x) + integer(1))->str(), "E*x"));
+    REQUIRE(oracle.equivalent(exp(log(x) + log(y))->str(), "x*y"));
+    REQUIRE(oracle.equivalent(
+        exp(log(x) + mul(S::NegativeOne(), log(y)))->str(), "x/y"));
+    REQUIRE(oracle.equivalent(
+        exp(log(x) + integer(2) * log(y))->str(), "x*y**2"));
+    // A non-log additive term stays inside the exp: exp(log x + y) = x·exp(y).
+    REQUIRE(oracle.equivalent(exp(log(x) + y)->str(), "x*exp(y)"));
+    // No extractable log term → unchanged.
+    REQUIRE(oracle.equivalent(exp(x + integer(1))->str(), "exp(x + 1)"));
 }
 
 TEST_CASE("log(exp(x)) = x for real x", "[3c][exp][log]") {

@@ -66,6 +66,12 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_odd(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Odd);
 }
+[[nodiscard]] inline std::optional<bool> is_imaginary(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Imaginary);
+}
+[[nodiscard]] inline std::optional<bool> is_complex(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Complex);
+}
 
 // Structural parity of an integer-valued expression. Conservative: reports
 // even/odd only when provable from the form — `2·n` (n a known integer) is even,

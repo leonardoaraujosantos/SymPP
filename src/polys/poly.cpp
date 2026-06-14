@@ -19,6 +19,7 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/matrices/matrix.hpp>
@@ -697,6 +698,20 @@ mpq_coeffs_to_z_poly(const std::vector<mpq_class>& coeffs, const Expr& var) {
     return std::nullopt;
 }
 
+// Split f into a non-trivial factor g (over ℚ) and its cofactor, returning the
+// union of their roots; nullopt if f is irreducible over ℚ. Lets a quartic such
+// as x⁴+x²+1 = (x²+x+1)(x²−x+1) yield clean quadratic-formula roots instead of
+// Ferrari's nested radicals — matching SymPy, which factors before solving.
+[[nodiscard]] std::optional<std::vector<Expr>> roots_by_factoring(const Poly& f) {
+    auto g = kronecker_find_factor(f);
+    if (!g) return std::nullopt;
+    auto [cofactor, rem] = f.divmod(*g);
+    if (!rem.is_zero()) return std::nullopt;  // defensive: g must divide f
+    std::vector<Expr> all = g->roots();
+    for (auto& r : cofactor.roots()) all.push_back(std::move(r));
+    return all;
+}
+
 // Returns (primitive_integer_poly, scalar) such that scalar * primitive == g
 // (as Exprs after as_expr), with primitive having integer coefficients whose
 // gcd is 1 (and positive leading coefficient when possible).
@@ -848,14 +863,88 @@ FactorList factor_list(const Poly& f) {
     return FactorList{mpq_to_expr(running_content), std::move(consolidated)};
 }
 
+namespace {
+
+// Homogeneous bivariate factorization: a polynomial all of whose monomials share
+// the same total degree (x²−y², x²+2xy+y², x³−y³, …) factors by dehomogenizing
+// — set the second variable to 1, factor the resulting univariate ℚ-polynomial
+// with the existing machinery, then re-homogenize each factor back to its own
+// degree. The product is verified to expand to the input, so a non-homogeneous
+// or otherwise-unfactorable polynomial is rejected (returns nullopt) rather than
+// risking a wrong answer. Covers the common textbook multivariate cases without
+// the full Wang/multivariate-GCD port.
+[[nodiscard]] std::optional<Expr> factor_homogeneous_bivariate(const Expr& expr,
+                                                               const Expr& var) {
+    auto syms = free_symbols(expr);
+    if (syms.size() != 2 || syms.find(var) == syms.end()) return std::nullopt;
+    Expr other;
+    for (const auto& s : syms) {
+        if (!(s == var)) { other = s; break; }
+    }
+    if (!other) return std::nullopt;
+
+    // Total (homogeneous) degree n: max over var-powers k of k + deg_other(c_k).
+    Poly px(expand(expr), var);
+    long n = 0;
+    const auto& cs = px.coeffs();
+    for (std::size_t k = 0; k < cs.size(); ++k) {
+        if (cs[k] == S::Zero()) continue;
+        long dk = static_cast<long>(Poly(expand(cs[k]), other).degree());
+        n = std::max(n, static_cast<long>(k) + dk);
+    }
+
+    // Dehomogenize and factor over ℚ.
+    Poly q(expand(subs(expr, other, S::One())), var);
+    if (!poly_coeffs_as_mpq(q)) return std::nullopt;
+    const long d = static_cast<long>(q.degree());
+    FactorList fl = factor_list(q);
+
+    // Re-homogenize a univariate-in-var factor to its own degree:
+    //   Σ aₖ·varᵏ  ↦  Σ aₖ·varᵏ·other^(deg−k).
+    auto homogenize = [&](const Poly& f) -> Expr {
+        const auto& fc = f.coeffs();
+        const long fd = static_cast<long>(f.degree());
+        std::vector<Expr> terms;
+        for (std::size_t k = 0; k < fc.size(); ++k) {
+            if (fc[k] == S::Zero()) continue;
+            Expr t = fc[k];
+            if (k > 0) t = mul(t, pow(var, integer(static_cast<long>(k))));
+            long oe = fd - static_cast<long>(k);
+            if (oe > 0) t = mul(t, pow(other, integer(oe)));
+            terms.push_back(std::move(t));
+        }
+        if (terms.empty()) return S::Zero();
+        return terms.size() == 1 ? terms[0] : add(std::move(terms));
+    };
+
+    std::vector<Expr> parts;
+    if (!(fl.content == S::One())) parts.push_back(fl.content);
+    if (n - d > 0) parts.push_back(pow(other, integer(n - d)));  // pure-other factor
+    for (const auto& [fp, m] : fl.factors) {
+        Expr hf = homogenize(fp);
+        parts.push_back(m == 1 ? hf : pow(hf, integer(static_cast<long>(m))));
+    }
+    if (parts.empty()) return std::nullopt;
+    Expr result = parts.size() == 1 ? parts[0] : mul(parts);
+
+    // Self-verify: only accept a factorization that reproduces the input.
+    if (expand(result) == expand(expr)) return result;
+    return std::nullopt;
+}
+
+}  // namespace
+
 Expr factor(const Expr& expr, const Expr& var) {
     Poly f(expr, var);
     // factor_list (square-free + rational-root + Kronecker) is defined only
-    // over ℚ-coefficient polynomials. A symbolic coefficient (i.e. a genuinely
-    // multivariate polynomial like x²−y² in x) is out of scope — return the
-    // input unfactored rather than spinning in the integer-coefficient
-    // machinery. Multivariate factorization is tracked separately.
-    if (!poly_coeffs_as_mpq(f)) return expr;
+    // over ℚ-coefficient polynomials. A genuinely multivariate polynomial has
+    // symbolic coefficients; try the homogeneous-bivariate path (verified) and
+    // otherwise return the input unfactored. Full multivariate (Wang)
+    // factorization is tracked separately.
+    if (!poly_coeffs_as_mpq(f)) {
+        if (auto h = factor_homogeneous_bivariate(expr, var)) return *h;
+        return expr;
+    }
     auto fl = factor_list(f);
     std::vector<Expr> terms;
     if (!(fl.content == S::One())) terms.push_back(fl.content);
@@ -872,6 +961,48 @@ Expr factor(const Expr& expr, const Expr& var) {
 namespace {
 
 struct NumerDenom { Expr numer; Expr denom; };
+
+// Decompose a denominator into base^power factors (powers accumulated by
+// structural base equality). Pow(base, +int) and Mul are peeled; anything else
+// (a Symbol, an Add like (x+1), a Function, a non-integer power) is an opaque
+// base of power 1. Used to combine a sum of fractions over the LCM of the
+// denominators instead of their product.
+using FactorPowers = std::vector<std::pair<Expr, long>>;
+
+void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
+    if (d == S::One()) return;
+    if (d->type_id() == TypeId::Pow) {
+        const Expr& base = d->args()[0];
+        const Expr& ex = d->args()[1];
+        if (ex->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*ex);
+            if (z.is_positive() && z.fits_long()) {
+                accumulate_denom_factors(base, mult * z.to_long(), fp);
+                return;
+            }
+        }
+    }
+    if (d->type_id() == TypeId::Mul) {
+        for (const auto& f : d->args()) accumulate_denom_factors(f, mult, fp);
+        return;
+    }
+    for (auto& [b, p] : fp) {
+        if (b == d) { p += mult; return; }
+    }
+    fp.push_back({d, mult});
+}
+
+// Build Π base^power from a factor-power list (skipping zero powers).
+[[nodiscard]] Expr build_from_factors(const FactorPowers& fp) {
+    std::vector<Expr> factors;
+    for (const auto& [b, p] : fp) {
+        if (p == 0) continue;
+        factors.push_back(p == 1 ? b : pow(b, integer(p)));
+    }
+    if (factors.empty()) return S::One();
+    if (factors.size() == 1) return factors[0];
+    return mul(std::move(factors));
+}
 
 // Walk an Expr and split into (numer, denom) such that numer/denom == e.
 // No reduction beyond what the canonical factories provide — caller should
@@ -920,22 +1051,44 @@ struct NumerDenom { Expr numer; Expr denom; };
         std::vector<NumerDenom> parts;
         parts.reserve(e->args().size());
         for (const auto& a : e->args()) parts.push_back(as_numer_denom(a));
-        // Common denominator: product of all part denominators.
-        std::vector<Expr> denom_factors;
-        denom_factors.reserve(parts.size());
-        for (const auto& p : parts) denom_factors.push_back(p.denom);
-        Expr common = mul(denom_factors);
-        // Numerator: Σ_i (p_i.numer * Π_{j≠i} p_j.denom)
+
+        // Common denominator = LCM of the part denominators (max power per
+        // base), not their product — so a shared factor isn't duplicated
+        // (a/b + c/b → (a+c)/b, not (a·b + b·c)/b²).
+        std::vector<FactorPowers> part_fp;
+        part_fp.reserve(parts.size());
+        FactorPowers lcm;
+        for (const auto& p : parts) {
+            FactorPowers fp;
+            accumulate_denom_factors(p.denom, 1, fp);
+            for (const auto& [b, pw] : fp) {
+                bool found = false;
+                for (auto& [lb, lp] : lcm) {
+                    if (lb == b) { if (pw > lp) lp = pw; found = true; break; }
+                }
+                if (!found) lcm.push_back({b, pw});
+            }
+            part_fp.push_back(std::move(fp));
+        }
+        Expr common = build_from_factors(lcm);
+
+        // Numerator term i = numer_i · (LCM / denom_i), the cofactor being the
+        // per-base power deficit of denom_i relative to the LCM.
         std::vector<Expr> result_nums;
         result_nums.reserve(parts.size());
         for (std::size_t i = 0; i < parts.size(); ++i) {
-            std::vector<Expr> factors;
-            factors.reserve(parts.size());
-            factors.push_back(parts[i].numer);
-            for (std::size_t j = 0; j < parts.size(); ++j) {
-                if (i != j) factors.push_back(parts[j].denom);
+            FactorPowers cof;
+            for (const auto& [b, lp] : lcm) {
+                long dp = 0;
+                for (const auto& [db, de] : part_fp[i]) {
+                    if (db == b) { dp = de; break; }
+                }
+                if (lp - dp > 0) cof.push_back({b, lp - dp});
             }
-            result_nums.push_back(mul(factors));
+            Expr cofactor = build_from_factors(cof);
+            result_nums.push_back(cofactor == S::One()
+                                      ? parts[i].numer
+                                      : mul(parts[i].numer, cofactor));
         }
         return {add(std::move(result_nums)), common};
     }
@@ -1255,6 +1408,9 @@ std::vector<Expr> Poly::roots() const {
             for (auto& r : remaining.roots()) all.push_back(r);
             return all;
         }
+        // No rational root, but the quartic may still factor into two quadratics
+        // over ℚ — prefer that to Ferrari's nested radicals.
+        if (auto split = roots_by_factoring(*this)) return *split;
         return quartic_roots(coeffs_[4], coeffs_[3], coeffs_[2], coeffs_[1],
                              coeffs_[0]);
     }
@@ -1262,7 +1418,13 @@ std::vector<Expr> Poly::roots() const {
     // Pull out rational roots and recurse on the cofactor — the cofactor
     // may itself be degree ≤ 4 and fully solvable.
     auto rat = rational_roots(*this);
-    if (rat.empty()) return {};
+    if (rat.empty()) {
+        // No rational root: try a non-trivial factorization over ℚ before
+        // giving up. A degree-≥5 polynomial with no radical formula may still
+        // split into solvable (≤4) factors, e.g. (x²+x+1)(x³+2).
+        if (auto split = roots_by_factoring(*this)) return *split;
+        return {};
+    }
     Poly remaining = *this;
     for (const auto& r : rat) {
         Poly factor(std::vector<Expr>{mul(S::NegativeOne(), r), S::One()},

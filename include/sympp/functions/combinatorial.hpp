@@ -109,6 +109,157 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Euler's totient φ(n): the count of integers in [1, n] coprime to n. Evaluates
+// for a positive integer; stays symbolic otherwise. Mirrors SymPy's totient.
+class SYMPP_EXPORT Totient final : public Function {
+public:
+    explicit Totient(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Totient;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "totient";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// prime(n): the n-th prime (prime(1)=2, prime(5)=11). Evaluates for a positive
+// integer index; stays symbolic otherwise. Mirrors SymPy's prime.
+class SYMPP_EXPORT Prime final : public Function {
+public:
+    explicit Prime(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Prime;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "prime";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// primepi(n): the count of primes ≤ n. Evaluates for an integer; stays symbolic
+// otherwise. Mirrors SymPy's primepi.
+class SYMPP_EXPORT PrimePi final : public Function {
+public:
+    explicit PrimePi(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::PrimePi;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "primepi";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// mobius(n): the Möbius function μ(n) — 0 if n has a squared prime factor, else
+// (−1)^(number of distinct primes). Evaluates for a positive integer. Mirrors
+// SymPy's mobius.
+class SYMPP_EXPORT Mobius final : public Function {
+public:
+    explicit Mobius(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Mobius;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "mobius";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// divisor_count(n): the number of positive divisors of n (σ₀). Mirrors SymPy.
+class SYMPP_EXPORT DivisorCount final : public Function {
+public:
+    explicit DivisorCount(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::DivisorCount;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "divisor_count";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// divisor_sigma(n): the sum of the positive divisors of n (σ₁). Mirrors SymPy's
+// single-argument divisor_sigma.
+class SYMPP_EXPORT DivisorSigma final : public Function {
+public:
+    explicit DivisorSigma(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::DivisorSigma;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "divisor_sigma";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// harmonic(n): the n-th harmonic number Hₙ = Σ_{k=1}^n 1/k. Evaluates for a
+// non-negative integer; stays symbolic otherwise. Mirrors SymPy's harmonic.
+class SYMPP_EXPORT Harmonic final : public Function {
+public:
+    explicit Harmonic(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Harmonic;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "harmonic";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// factorial2(n): the double factorial n!! = n(n−2)(n−4)…. Evaluates for an
+// integer ≥ −1 (factorial2(0)=factorial2(−1)=1); stays symbolic otherwise.
+// Mirrors SymPy's factorial2.
+class SYMPP_EXPORT Factorial2 final : public Function {
+public:
+    explicit Factorial2(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Factorial2;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "factorial2";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// bernoulli(n): the n-th Bernoulli number Bₙ (SymPy's convention B₁ = +1/2).
+// Evaluates for a non-negative integer; stays symbolic otherwise.
+class SYMPP_EXPORT Bernoulli final : public Function {
+public:
+    explicit Bernoulli(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Bernoulli;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "bernoulli";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// euler(n): the n-th Euler number Eₙ (1, 0, −1, 0, 5, …; odd indices are 0).
+// Evaluates for a non-negative integer; stays symbolic otherwise.
+class SYMPP_EXPORT Euler final : public Function {
+public:
+    explicit Euler(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Euler;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "euler";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -179,6 +330,16 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr beta(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr totient(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr prime(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr primepi(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr mobius(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr bernoulli(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr euler(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);

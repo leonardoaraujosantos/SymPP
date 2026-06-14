@@ -91,6 +91,8 @@ assumption_registry() {
         case AssumptionKey::Finite:      return "finite";
         case AssumptionKey::Even:        return "even";
         case AssumptionKey::Odd:         return "odd";
+        case AssumptionKey::Complex:     return "complex";
+        case AssumptionKey::Imaginary:   return "imaginary";
     }
     return "unknown";
 }

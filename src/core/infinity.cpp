@@ -26,6 +26,10 @@ std::size_t NaN::hash() const noexcept { return 0x00'1F'17'00'00'00'0004ULL; }
 std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
     // +oo is positive and non-zero, but neither finite nor (ordinary) real.
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return false;  // not a finite complex number
+
         case AssumptionKey::Positive:
         case AssumptionKey::Nonnegative:
         case AssumptionKey::Nonzero:
@@ -46,6 +50,10 @@ std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
 
 std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return false;  // not a finite complex number
+
         case AssumptionKey::Negative:
         case AssumptionKey::Nonpositive:
         case AssumptionKey::Nonzero:
@@ -67,6 +75,10 @@ std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
 std::optional<bool> ComplexInfinity::ask(AssumptionKey k) const noexcept {
     // zoo has no determined sign and is not real/finite; it is non-zero.
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return false;  // not a finite complex number
+
         case AssumptionKey::Nonzero:
             return true;
         case AssumptionKey::Finite:

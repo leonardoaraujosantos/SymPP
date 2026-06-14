@@ -104,11 +104,55 @@ TEST_CASE("sin/cos/tan: π/12 family exact values", "[3b][trig][regression][orac
                               "-sqrt(6)/4 + sqrt(2)/4"));
 }
 
-TEST_CASE("cos: π/8 (genuinely nested radical) stays unevaluated",
-          "[3b][trig][regression]") {
-    // cos(π/8) = √(2+√2)/2 — a nested radical, deliberately not in the table.
-    auto r = cos(mul(rational(1, 8), S::Pi()));
-    REQUIRE(r->type_id() == TypeId::Function);
+// TRIG-PI8-1: the π/8 family (half-angles of π/4) evaluates to its nested
+// radical, matching SymPy. cos(π/8) = √(2+√2)/2, tan(π/8) = √2−1, and sin
+// follows from the co-function reflection; higher multiples reduce by symmetry.
+TEST_CASE("cos/sin/tan: π/8 family evaluates (TRIG-PI8-1)",
+          "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 8), pi))->str(),
+                              "sqrt(2 + sqrt(2))/2"));
+    REQUIRE(oracle.equivalent(sin(mul(rational(1, 8), pi))->str(),
+                              "sqrt(2 - sqrt(2))/2"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 8), pi))->str(),
+                              "sqrt(2) - 1"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(3, 8), pi))->str(),
+                              "sqrt(2) + 1"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(3, 8), pi))->str(),
+                              "sqrt(2 - sqrt(2))/2"));
+    // Higher multiple reduces by symmetry: cos(5π/8) = −cos(3π/8).
+    REQUIRE(oracle.equivalent(cos(mul(rational(5, 8), pi))->str(),
+                              "-sqrt(2 - sqrt(2))/2"));
+}
+
+// TRIG-PI5-1: the pentagon family (π/5 = 36°, π/10 = 18°) evaluates, matching
+// SymPy. cos(π/5) = (1+√5)/4, cos(2π/5) = (√5−1)/4, tan(π/5) = √(5−2√5), with the
+// √(10±2√5) nested radicals for the π/10 cosines; sin follows from reflection.
+TEST_CASE("cos/sin/tan: pentagon family π/5, π/10 (TRIG-PI5-1)",
+          "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto pi = S::Pi();
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 5), pi))->str(),
+                              "(1 + sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(2, 5), pi))->str(),
+                              "(sqrt(5) - 1)/4"));
+    // sin(π/10) = cos(2π/5) and sin(3π/10) = cos(π/5) via co-function reflection.
+    REQUIRE(oracle.equivalent(sin(mul(rational(1, 10), pi))->str(),
+                              "(sqrt(5) - 1)/4"));
+    REQUIRE(oracle.equivalent(sin(mul(rational(3, 10), pi))->str(),
+                              "(1 + sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(cos(mul(rational(1, 10), pi))->str(),
+                              "sqrt(10 + 2*sqrt(5))/4"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 5), pi))->str(),
+                              "sqrt(5 - 2*sqrt(5))"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(2, 5), pi))->str(),
+                              "sqrt(5 + 2*sqrt(5))"));
+    REQUIRE(oracle.equivalent(tan(mul(rational(1, 10), pi))->str(),
+                              "sqrt(25 - 10*sqrt(5))/5"));
+    // Higher multiple reduces by symmetry: cos(3π/5) = −cos(2π/5).
+    REQUIRE(oracle.equivalent(cos(mul(rational(3, 5), pi))->str(),
+                              "-(sqrt(5) - 1)/4"));
 }
 
 // ----- Periodicity / π-shift argument reduction (regression, TRIG-3) ---------

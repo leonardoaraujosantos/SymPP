@@ -77,6 +77,16 @@ enum class FunctionId : std::uint16_t {
     Catalan,
     Gcd,
     Lcm,
+    Totient,
+    Prime,
+    PrimePi,
+    Mobius,
+    DivisorCount,
+    DivisorSigma,
+    Harmonic,
+    Factorial2,
+    Bernoulli,
+    Euler,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

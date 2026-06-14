@@ -4,10 +4,12 @@
 
 #include <sympp/calculus/limit.hpp>
 #include <sympp/calculus/series.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/functions/miscellaneous.hpp>  // sign, abs
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
@@ -46,6 +48,35 @@ TEST_CASE("series: cos(x) about 0 to order 5", "[6][series][oracle]") {
     auto s = series(cos(x), x, S::Zero(), 5);
     // 1 + 0*x - x^2/2 + 0 + x^4/24
     REQUIRE(oracle.equivalent(s->str(), "1 - x**2/2 + x**4/24"));
+}
+
+// SERIES-SINGULAR-1: series() at a point where direct substitution gives a
+// non-finite coefficient. A genuine singularity (log(x), 1/x at 0) cannot be
+// Taylor-expanded — return the input unchanged, matching SymPy. A removable
+// singularity (0/0 like sin(x)/x) has a finite limit, so the limit fallback
+// recovers the correct Taylor coefficients. Previously these produced zoo/nan
+// garbage.
+TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    // Genuine singularities: returned unevaluated (no zoo garbage).
+    REQUIRE(series(log(x), x, zero, 6) == log(x));
+    REQUIRE(series(pow(x, integer(-1)), x, zero, 6) == pow(x, integer(-1)));
+    REQUIRE(series(pow(x, rational(1, 2)), x, zero, 6)
+            == pow(x, rational(1, 2)));
+    REQUIRE(series(pow(x, integer(-2)), x, zero, 6) == pow(x, integer(-2)));
+    // Removable singularities: the Taylor series via the limit fallback.
+    REQUIRE(oracle.equivalent(series(sin(x) * pow(x, integer(-1)), x, zero, 6)
+                                  ->str(),
+                              "1 - x**2/6 + x**4/120"));
+    REQUIRE(oracle.equivalent(
+        series((exp(x) - integer(1)) * pow(x, integer(-1)), x, zero, 6)->str(),
+        "1 + x/2 + x**2/6 + x**3/24 + x**4/120 + x**5/720"));
+    // An ordinary analytic function is unaffected.
+    REQUIRE(oracle.equivalent(series(exp(x), x, zero, 4)->str(),
+                              "1 + x + x**2/2 + x**3/6"));
 }
 
 // ----- limit ----------------------------------------------------------------
@@ -135,6 +166,108 @@ TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
     REQUIRE(oracle.equivalent(v->str(), "exp(2)"));
 }
 
+// POLE-SIGN-1: at a finite pole, direct substitution yields zoo; resolve the
+// sign by sampling both sides. An even-order pole has matching signs on both
+// sides → ±oo (matching SymPy); an odd-order pole has opposite signs → the
+// two-sided limit is genuinely zoo (SymPy reports oo only via its dir='+'
+// default — SymPP's limit is two-sided, so zoo is the correct answer).
+// LIMIT-HANG-1: limit() must terminate on a radical ∞/∞ form. L'Hôpital on
+// sqrt(x²+x)−x balloons the nested radicals each step (the ratio never
+// stabilises), which used to hang; a size budget now bails to the unevaluated
+// nan instead. The true value (1/2) needs asymptotic-series / Gruntz machinery.
+TEST_CASE("limit: radical infinity ratio terminates (LIMIT-HANG-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    // The point is termination, not the value: this must return (any value),
+    // not loop forever.
+    auto a = limit(pow(pow(x, integer(2)) + x, S::Half()) - x, x, oo);
+    REQUIRE(a);  // returned something (no hang)
+    auto b = limit(x / (pow(pow(x, integer(2)) + x, S::Half()) + x), x, oo);
+    REQUIRE(b);
+    // Sanity: ordinary limits next to it still resolve.
+    REQUIRE(limit(sin(x) / x, x, S::Zero()) == integer(1));
+}
+
+// LIMIT-EXP-1: 0·∞ where an exponential dominates a polynomial. x^n·e^(-x) → 0
+// at +∞. try_product_form now tries both the 0/0 and ∞/∞ arrangements (the
+// latter, x^n / e^x, is the one L'Hôpital can crack), with an exp-aware
+// reciprocal so e^(-x) stays in the denominator across iterations; limit also
+// gained linearity over Add / Mul so a sum/product of such terms resolves.
+TEST_CASE("limit: polynomial times decaying exponential (LIMIT-EXP-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    REQUIRE(limit(x * exp(mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, integer(2)) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(pow(x, integer(5)) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(x * exp(mul(integer(-2), x)), x, oo) == S::Zero());
+    // Linearity: a sum of decaying terms.
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x))
+                      - exp(mul(integer(-2), x)),
+                  x, oo) == S::Zero());
+    // A genuinely divergent term must NOT be coerced to a finite value.
+    REQUIRE(limit(x + integer(1) / x, x, oo) == oo);
+}
+
+// LIMIT-POLY-INF-1: a polynomial at ±∞ is governed by its leading term, so the
+// ∞−∞ that direct substitution leaves as nan resolves to the signed infinity.
+TEST_CASE("limit: polynomial at infinity via the leading term (LIMIT-POLY-INF-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
+    REQUIRE(limit(pow(x, integer(2)) - x, x, noo) == oo);
+    REQUIRE(limit(x - pow(x, integer(2)), x, oo) == noo);
+    REQUIRE(limit(integer(2) * pow(x, integer(2)) - integer(5) * x, x, oo) == oo);
+    // Odd leading degree flips sign at −∞.
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(3))) + x, x, oo) == noo);
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(3))) + x, x, noo) == oo);
+}
+
+TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero()) == S::Infinity());
+    REQUIRE(limit(pow(x, integer(-4)), x, S::Zero()) == S::Infinity());
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(-2))), x, S::Zero())
+            == S::NegativeInfinity());
+    // Shifted pole: 1/(x-1)^2 → +oo as x → 1.
+    REQUIRE(limit(pow(x - integer(1), integer(-2)), x, integer(1))
+            == S::Infinity());
+    // Odd pole stays the unsigned zoo (two-sided): 1/x as x → 0.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero()) == S::ComplexInfinity());
+}
+
+// LIMIT-SIGN-1: an expression with sign(g) or abs(g) where g → 0 is
+// discontinuous at the target. Direct substitution wrongly used sign(0)=0 (so
+// limit(sign(x),x,0) returned 0); it now samples g's sign on each side. Matching
+// sides give the value (sign(x²) → 1); a sign change means the two-sided limit
+// does not exist (nan), e.g. sign(x) and |x|/x. Matches SymPy's two-sided limit.
+TEST_CASE("limit: discontinuous sign/abs at the target (LIMIT-SIGN-1)",
+          "[6][limit][regression]") {
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
+    // sign(g) with a genuine sign change ⇒ two-sided DNE (nan).
+    REQUIRE(is_nan(limit(sign(x), x, zero)));
+    REQUIRE(is_nan(limit(sign(mul(S::NegativeOne(), x)), x, zero)));  // sign(-x)
+    REQUIRE(is_nan(limit(sign(pow(x, integer(3))), x, zero)));  // sign(x³)
+    // No sign change ⇒ the constant sign: sign(x²) → 1.
+    REQUIRE(limit(sign(pow(x, integer(2))), x, zero) == integer(1));
+    // |x|/x = sign(x): DNE. (Previously returned 0 via L'Hôpital → sign(x) → 0.)
+    REQUIRE(is_nan(limit(sympp::abs(x) * pow(x, integer(-1)), x, zero)));
+    REQUIRE(is_nan(limit(x * pow(sympp::abs(x), integer(-1)), x, zero)));  // x/|x|
+    // sign·(→0) is determinate: sign(x)·x → 0; and plain |x| is continuous → 0.
+    REQUIRE(limit(sign(x) * x, x, zero) == zero);
+    REQUIRE(limit(sympp::abs(x), x, zero) == zero);
+    // sign away from the discontinuity is unaffected: sign(x−2) → −1 at 0.
+    REQUIRE(limit(sign(x - integer(2)), x, zero) == integer(-1));
+}
+
 TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",
           "[6][limit][infinity][oracle][regression]") {
     auto& oracle = Oracle::instance();
@@ -150,6 +283,39 @@ TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",
     // deg num < deg den → 0.
     auto r3 = limit((x + integer(1)) / pow(x, integer(2)), x, S::Infinity());
     REQUIRE(r3 == S::Zero());
+}
+
+// LIMIT-RAT-SYM-1: rational functions at ∞ with symbolic (var-free) coefficients.
+// Direct ∞ substitution is unreliable and L'Hôpital mishandled these — (x+a)/x
+// returned 0. A degree/leading-coefficient comparison resolves them, which in
+// turn makes (1+a/x)^x → eᵃ (the 1^∞ form whose inner ∞·0 limit is a). Matches
+// SymPy.
+TEST_CASE("limit: rational at ∞ with symbolic coefficients (LIMIT-RAT-SYM-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto oo = S::Infinity();
+    // equal degree → leading-coefficient ratio (symbolic).
+    REQUIRE(oracle.equivalent(limit((x + a) / x, x, oo)->str(), "1"));
+    REQUIRE(oracle.equivalent(limit(a * x / (x + integer(1)), x, oo)->str(),
+                              "a"));
+    REQUIRE(oracle.equivalent(
+        limit((a * pow(x, integer(2)) + integer(1))
+                  / (pow(x, integer(2)) + x),
+              x, oo)
+            ->str(),
+        "a"));
+    // lower degree numerator → 0; higher → ∞ (sign from symbolic a is left to a²).
+    REQUIRE(limit((x + a) / pow(x, integer(2)), x, oo) == S::Zero());
+    REQUIRE(limit((pow(x, integer(2)) + a) / (x + integer(1)), x, oo) == oo);
+    // 1^∞ with a symbolic parameter: (1 + a/x)^x → eᵃ.
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) + a / x, x), x, oo)->str(), "exp(a)"));
+    // Numeric cases unchanged.
+    REQUIRE(oracle.equivalent(limit(pow(integer(1) + integer(2) / x, x), x, oo)
+                                  ->str(),
+                              "exp(2)"));
 }
 
 TEST_CASE("limit: 0*oo and oo/oo forms at oo",
@@ -249,6 +415,76 @@ TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
     REQUIRE(oracle.equivalent(s->str(), "(n*(n+1)/2)**2"));
 }
 
+// SUM-FAULHABER-1: Σ kᵖ for any positive integer p via Faulhaber's formula
+// (Bernoulli-number coefficients). Previously only p ∈ {2,3} were closed; higher
+// powers came back unevaluated. Matches SymPy.
+TEST_CASE("summation: Σ kᵖ for higher p (SUM-FAULHABER-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto sum_pow = [&](int p) {
+        return summation(pow(k, integer(p)), k, integer(1), n);
+    };
+    REQUIRE(oracle.equivalent(sum_pow(4)->str(),
+                              "n**5/5 + n**4/2 + n**3/3 - n/30"));
+    REQUIRE(oracle.equivalent(sum_pow(5)->str(),
+                              "n**6/6 + n**5/2 + 5*n**4/12 - n**2/12"));
+    REQUIRE(oracle.equivalent(
+        sum_pow(6)->str(),
+        "n**7/7 + n**6/2 + n**5/2 - n**3/6 + n/42"));
+    // No leftover Sum() marker for any of them.
+    for (int p = 4; p <= 12; ++p) {
+        REQUIRE(sum_pow(p)->str().find("Sum(") == std::string::npos);
+    }
+    // A partial range still works: Σ_{k=2}^n k⁴ = (Σ_{1}^n) − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(4)), k, integer(2), n)->str(),
+        "n**5/5 + n**4/2 + n**3/3 - n/30 - 1"));
+}
+
+// SUM-TELESCOPE-1: Σ of a rational summand c/D(k), where D is a quadratic with
+// two distinct linear factors whose roots differ by an integer, telescopes to a
+// closed form (the sum was returned unevaluated before). Verified equivalent to
+// SymPy's summation — the presented form may differ.
+TEST_CASE("summation: telescoping rational sums (SUM-TELESCOPE-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto one = integer(1);
+    // Σ 1/(k(k+1)) = n/(n+1).
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + one), integer(-1)), k, one, n)->str(),
+        "n/(n+1)"));
+    // Σ 1/(k(k+2)), poles two apart → two telescoping chains.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + integer(2)), integer(-1)), k, one, n)->str(),
+        "3/4 - 1/(2*(n+1)) - 1/(2*(n+2))"));
+    // Σ 1/(4k²-1) = n/(2n+1).
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(4) * pow(k, integer(2)) - one, integer(-1)), k,
+                  one, n)
+            ->str(),
+        "n/(2*n+1)"));
+    // A constant numerator scales through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * pow(k * (k + one), integer(-1)), k, one, n)
+            ->str(),
+        "3*n/(n+1)"));
+    // Non-unit leading coefficient: 1/((2k-1)(2k+1)) = n/(2n+1).
+    REQUIRE(oracle.equivalent(
+        summation(
+            pow((integer(2) * k - one) * (integer(2) * k + one), integer(-1)), k,
+            one, n)
+            ->str(),
+        "n/(2*n+1)"));
+    // A pole inside the range (root k=1) must stay unevaluated, not produce a
+    // bogus closed form.
+    auto pole = summation(pow(k * (k - one), integer(-1)), k, one, n);
+    REQUIRE(pole->str().find("Sum(") != std::string::npos);
+}
+
 TEST_CASE("summation: constant Σ c from 1 to n → c*n",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();
@@ -297,6 +533,41 @@ TEST_CASE("summation: Σ k·2^k from 1 to 3 → 34 (numeric)",
     auto k = symbol("k");
     auto s = summation(k * pow(integer(2), k), k, integer(1), integer(3));
     REQUIRE(s == integer(34));
+}
+
+// SUM-POLYGEOM-1: Σ P(k)·r^k for a polynomial P of degree ≥ 2 and a concrete
+// ratio r ≠ 1 — the general arithmetic-geometric sum (k²·2^k, (2k+1)·3^k,
+// k²/2^k). Found via the antidifference Q(k)·r^k with r·Q(k+1)−Q(k)=P(k).
+// Previously only degree 1 (k·r^k) was closed. Matches SymPy.
+TEST_CASE("summation: polynomial × geometric (SUM-POLYGEOM-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto sum1n = [&](const Expr& e) {
+        return summation(e, k, integer(1), n);
+    };
+    auto pw = [&](int b) { return pow(integer(b), k); };
+    // Σ k²·2^k.
+    auto s2 = sum1n(pow(k, integer(2)) * pw(2));
+    REQUIRE(s2->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(s2->str(),
+                              "2*(2**n*n**2 - 2*2**n*n + 3*2**n - 3)"));
+    // Σ k³·2^k.
+    auto s3 = sum1n(pow(k, integer(3)) * pw(2));
+    REQUIRE(s3->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(
+        s3->str(), "2*(2**n*n**3 - 3*2**n*n**2 + 9*2**n*n - 13*2**n + 13)"));
+    // Σ (2k+1)·3^k → n·3^(n+1).
+    REQUIRE(oracle.equivalent(
+        sum1n((integer(2) * k + integer(1)) * pw(3))->str(), "n*3**(n+1)"));
+    // Negative ratio direction: Σ k²/2^k.
+    auto sneg = sum1n(pow(k, integer(2)) * pow(integer(2), mul(S::NegativeOne(), k)));
+    REQUIRE(sneg->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(sneg->str(), "6 - (n**2 + 4*n + 6)/2**n"));
+    // A concrete numeric range: Σ_{k=1}^3 k²·2^k = 2 + 16 + 72 = 90.
+    REQUIRE(summation(pow(k, integer(2)) * pw(2), k, integer(1), integer(3))
+            == integer(90));
 }
 
 // Regression: geometric detection used to require the exponent to be

@@ -40,14 +40,16 @@ namespace {
         }
         return std::nullopt;
     }
-    // Mul with leading -1.
+    // Mul with a negative numeric leading coefficient: −1·g, but also −½·√3,
+    // −3·g, … . Negate the coefficient and keep the rest, yielding the positive
+    // form so the special-value tables (asin(√3/2), …) still fire.
     if (e->type_id() == TypeId::Mul) {
         const auto& args = e->args();
-        if (!args.empty() && args[0]->type_id() == TypeId::Integer) {
-            const auto& n = static_cast<const Integer&>(*args[0]);
-            if (n.value() == -1) {
-                if (args.size() == 2) return args[1];
-                std::vector<Expr> rest(args.begin() + 1, args.end());
+        if (!args.empty() && is_number(args[0])) {
+            const auto& n = static_cast<const Number&>(*args[0]);
+            if (n.is_negative()) {
+                std::vector<Expr> rest(args.begin(), args.end());
+                rest[0] = mul(S::NegativeOne(), args[0]);  // −(−½) = ½
                 return mul(std::move(rest));
             }
         }
@@ -125,8 +127,8 @@ namespace {
     return mul(std::move(rest));
 }
 
-// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in {1,2,3,4,6,12}.
-// Returns nullopt for any other denominator (e.g. π/8 — a nested radical).
+// cos(r·π) for a reference angle r ∈ [0, 1/2] with denominator in
+// {1,2,3,4,5,6,8,10,12}. Returns nullopt for any other denominator.
 [[nodiscard]] std::optional<Expr> base_cos_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
     const mpz_class& den = r.get_den();  // canonical: den > 0, gcd(num,den)=1
@@ -149,6 +151,42 @@ namespace {
         return mul(rational(1, 4),
                    add(pow(integer(6), rational(1, 2)),
                        mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))));
+    }
+    // π/8 family (22.5°): half-angles of π/4 — cos(π/8) = √(2+√2)/2,
+    // cos(3π/8) = √(2−√2)/2. sin(π/8), sin(3π/8) follow via sin_pi's reflection.
+    if (num == 1 && den == 8) {                      // cos(π/8)  = √(2+√2)/2
+        return mul(S::Half(),
+                   pow(add(integer(2), pow(integer(2), rational(1, 2))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 8) {                      // cos(3π/8) = √(2−√2)/2
+        return mul(S::Half(),
+                   pow(add(integer(2),
+                           mul(S::NegativeOne(), pow(integer(2), rational(1, 2)))),
+                       rational(1, 2)));
+    }
+    // Pentagon family (π/5 = 36°, π/10 = 18°). cos(π/5) = (1+√5)/4,
+    // cos(2π/5) = (√5−1)/4, cos(π/10) = √(10+2√5)/4, cos(3π/10) = √(10−2√5)/4.
+    // sin(π/5), sin(π/10), … follow via sin_pi's co-function reflection.
+    if (num == 1 && den == 5) {                      // cos(π/5)   = (1+√5)/4
+        return mul(rational(1, 4),
+                   add(integer(1), pow(integer(5), rational(1, 2))));
+    }
+    if (num == 2 && den == 5) {                      // cos(2π/5)  = (√5−1)/4
+        return mul(rational(1, 4),
+                   add(pow(integer(5), rational(1, 2)), S::NegativeOne()));
+    }
+    if (num == 1 && den == 10) {                     // cos(π/10)  = √(10+2√5)/4
+        return mul(rational(1, 4),
+                   pow(add(integer(10),
+                           mul(integer(2), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 10) {                     // cos(3π/10) = √(10−2√5)/4
+        return mul(rational(1, 4),
+                   pow(add(integer(10),
+                           mul(integer(-2), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
     }
     return std::nullopt;
 }
@@ -180,7 +218,7 @@ namespace {
     return cos_pi(half - r);
 }
 
-// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,6}.
+// tan(r·π) for a reference angle r ∈ [0, 1/2), denominator in {1,3,4,5,6,8,10,12}.
 // Computed from a dedicated table (rather than sin/cos) for a clean result.
 [[nodiscard]] std::optional<Expr> base_tan_pi(const mpq_class& r) {
     const mpz_class& num = r.get_num();
@@ -198,6 +236,36 @@ namespace {
     }
     if (num == 5 && den == 12) {                 // tan(5π/12) = 2 + √3
         return add(integer(2), pow(integer(3), rational(1, 2)));
+    }
+    if (num == 1 && den == 8) {                  // tan(π/8)  = √2 − 1
+        return add(pow(integer(2), rational(1, 2)), S::NegativeOne());
+    }
+    if (num == 3 && den == 8) {                  // tan(3π/8) = √2 + 1
+        return add(pow(integer(2), rational(1, 2)), S::One());
+    }
+    // Pentagon family: tan(π/5) = √(5−2√5), tan(2π/5) = √(5+2√5),
+    // tan(π/10) = √(25−10√5)/5, tan(3π/10) = √(25+10√5)/5.
+    if (num == 1 && den == 5) {                  // tan(π/5)   = √(5−2√5)
+        return pow(add(integer(5),
+                       mul(integer(-2), pow(integer(5), rational(1, 2)))),
+                   rational(1, 2));
+    }
+    if (num == 2 && den == 5) {                  // tan(2π/5)  = √(5+2√5)
+        return pow(add(integer(5),
+                       mul(integer(2), pow(integer(5), rational(1, 2)))),
+                   rational(1, 2));
+    }
+    if (num == 1 && den == 10) {                 // tan(π/10)  = √(25−10√5)/5
+        return mul(rational(1, 5),
+                   pow(add(integer(25),
+                           mul(integer(-10), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
+    }
+    if (num == 3 && den == 10) {                 // tan(3π/10) = √(25+10√5)/5
+        return mul(rational(1, 5),
+                   pow(add(integer(25),
+                           mul(integer(10), pow(integer(5), rational(1, 2)))),
+                       rational(1, 2)));
     }
     return std::nullopt;
 }
@@ -273,6 +341,10 @@ Expr Sin::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Sin::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -297,6 +369,10 @@ Expr Cos::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Cos::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -321,6 +397,10 @@ Expr Tan::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Tan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             // tan is real wherever cos(arg) ≠ 0; we don't have that info in
             // general so only return true when the arg is itself real (and
@@ -653,6 +733,10 @@ Expr Asin::rebuild(std::vector<Expr> new_args) const { return asin(new_args[0]);
 std::optional<bool> Asin::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             // Real iff arg is real and |arg| <= 1. We don't track |arg|<=1
             // precisely yet; conservatively flag real only when arg is itself
@@ -671,6 +755,10 @@ Expr Acos::rebuild(std::vector<Expr> new_args) const { return acos(new_args[0]);
 std::optional<bool> Acos::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(a) == true) return true;
             return std::nullopt;
@@ -690,6 +778,10 @@ Expr Atan::rebuild(std::vector<Expr> new_args) const { return atan(new_args[0]);
 std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
@@ -739,6 +831,10 @@ std::optional<bool> Atan2::ask(AssumptionKey k) const noexcept {
     const auto& y = args_[0];
     const auto& x = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_real(y) == true && is_real(x) == true) return true;
             return std::nullopt;

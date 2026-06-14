@@ -130,6 +130,36 @@ TEST_CASE("gamma: stays symbolic for symbolic arg", "[3i][gamma]") {
     REQUIRE(gamma(x)->str() == "gamma(x)");
 }
 
+// SPECVAL-1: gamma has a simple pole at every non-positive integer → zoo; and
+// the polygamma special values at x = 1 (ψ⁽⁰⁾(1) = −γ,
+// ψ⁽ⁿ⁾(1) = (−1)^(n+1) n! ζ(n+1)). Both match SymPy.
+TEST_CASE("gamma: non-positive integers are poles → zoo (SPECVAL-1)",
+          "[3i][gamma][regression]") {
+    REQUIRE(gamma(integer(0)) == S::ComplexInfinity());
+    REQUIRE(gamma(integer(-1)) == S::ComplexInfinity());
+    REQUIRE(gamma(integer(-3)) == S::ComplexInfinity());
+    // Positive integers / half-integers are unaffected.
+    REQUIRE(gamma(integer(5)) == integer(24));
+}
+
+TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
+          "[3i][polygamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    // ψ⁽⁰⁾(1) = −EulerGamma (also reachable via digamma(1)).
+    REQUIRE(oracle.equivalent(polygamma(integer(0), integer(1))->str(),
+                              "-EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(1))->str(), "-EulerGamma"));
+    // ψ⁽¹⁾(1) = π²/6, ψ⁽²⁾(1) = −2ζ(3), ψ⁽³⁾(1) = π⁴/15.
+    REQUIRE(oracle.equivalent(polygamma(integer(1), integer(1))->str(),
+                              "pi**2/6"));
+    REQUIRE(oracle.equivalent(polygamma(integer(2), integer(1))->str(),
+                              "-2*zeta(3)"));
+    REQUIRE(oracle.equivalent(polygamma(integer(3), integer(1))->str(),
+                              "pi**4/15"));
+    // A non-unit argument stays symbolic (the x = 1 rule must not over-fire).
+    REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
+}
+
 // ----- loggamma --------------------------------------------------------------
 
 TEST_CASE("loggamma: classic values", "[3i][loggamma]") {
@@ -200,6 +230,143 @@ TEST_CASE("fibonacci: integer values", "[3i][fibonacci]") {
     auto x = symbol("x");
     REQUIRE(fibonacci(x)->type_id() == TypeId::Function);
     REQUIRE(fibonacci(integer(-1))->type_id() == TypeId::Function);
+}
+
+// TOTIENT-1: Euler's totient φ(n) evaluates for positive integers (φ(p)=p−1
+// for prime p, φ(p^k·…) via the product formula), stays symbolic for symbols
+// and non-positive integers. Matches SymPy's totient.
+TEST_CASE("totient: Euler's phi (TOTIENT-1)", "[3i][totient][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(totient(integer(1)) == integer(1));
+    REQUIRE(totient(integer(2)) == integer(1));
+    REQUIRE(totient(integer(7)) == integer(6));    // prime: p − 1
+    REQUIRE(totient(integer(12)) == integer(4));   // 2²·3
+    REQUIRE(totient(integer(36)) == integer(12));  // 2²·3²
+    REQUIRE(totient(integer(100)) == integer(40));
+    REQUIRE(totient(integer(17)) == integer(16));
+    // Cross-check a larger composite against SymPy.
+    REQUIRE(oracle.equivalent(totient(integer(360360))->str(), "69120"));
+    // Symbolic and non-positive arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(totient(n)->type_id() == TypeId::Function);
+    REQUIRE(totient(integer(0))->type_id() == TypeId::Function);
+    REQUIRE(totient(integer(-5))->type_id() == TypeId::Function);
+}
+
+// PRIME-PRIMEPI-1: prime(n) is the n-th prime and primepi(n) counts primes ≤ n.
+// Both evaluate for integers (primepi clamps to 0 below 2) and stay symbolic for
+// symbols / non-positive prime() indices. Matches SymPy.
+TEST_CASE("prime/primepi: nth prime and prime counting (PRIME-PRIMEPI-1)",
+          "[3i][prime][primepi][oracle]") {
+    auto& oracle = Oracle::instance();
+    // prime(n): 1-indexed n-th prime.
+    REQUIRE(prime(integer(1)) == integer(2));
+    REQUIRE(prime(integer(5)) == integer(11));
+    REQUIRE(prime(integer(10)) == integer(29));
+    REQUIRE(prime(integer(100)) == integer(541));
+    REQUIRE(oracle.equivalent(prime(integer(1000))->str(), "7919"));
+    // primepi(n): count of primes ≤ n.
+    REQUIRE(primepi(integer(1)) == integer(0));
+    REQUIRE(primepi(integer(2)) == integer(1));
+    REQUIRE(primepi(integer(10)) == integer(4));
+    REQUIRE(primepi(integer(100)) == integer(25));
+    REQUIRE(primepi(integer(-3)) == integer(0));
+    REQUIRE(oracle.equivalent(primepi(integer(10000))->str(), "1229"));
+    // prime(primepi(p)) == p for a prime p; primepi(prime(k)) == k.
+    REQUIRE(prime(primepi(integer(13))) == integer(13));
+    REQUIRE(primepi(prime(integer(7))) == integer(7));
+    // Symbolic / out-of-domain arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(prime(n)->type_id() == TypeId::Function);
+    REQUIRE(primepi(n)->type_id() == TypeId::Function);
+    REQUIRE(prime(integer(0))->type_id() == TypeId::Function);
+}
+
+// ARITH-FN-1: the multiplicative arithmetic functions computed from the prime
+// factorization — mobius μ, divisor_count σ₀, divisor_sigma σ₁. All evaluate for
+// positive integers and stay symbolic for symbols / non-positive arguments.
+// Matches SymPy.
+TEST_CASE("mobius/divisor_count/divisor_sigma (ARITH-FN-1)",
+          "[3i][mobius][divisor][oracle]") {
+    auto& oracle = Oracle::instance();
+    // Möbius μ(n): 0 on a squared factor, else (−1)^#primes.
+    REQUIRE(mobius(integer(1)) == integer(1));
+    REQUIRE(mobius(integer(7)) == integer(-1));    // prime
+    REQUIRE(mobius(integer(30)) == integer(-1));   // 2·3·5, three primes
+    REQUIRE(mobius(integer(12)) == integer(0));    // 2²·3 — squared factor
+    REQUIRE(mobius(integer(210)) == integer(1));   // 2·3·5·7, four primes
+    // divisor_count σ₀(n) = ∏(eᵢ+1).
+    REQUIRE(divisor_count(integer(1)) == integer(1));
+    REQUIRE(divisor_count(integer(7)) == integer(2));
+    REQUIRE(divisor_count(integer(12)) == integer(6));
+    REQUIRE(divisor_count(integer(36)) == integer(9));
+    // divisor_sigma σ₁(n) = sum of divisors.
+    REQUIRE(divisor_sigma(integer(1)) == integer(1));
+    REQUIRE(divisor_sigma(integer(6)) == integer(12));   // perfect: σ = 2n
+    REQUIRE(divisor_sigma(integer(12)) == integer(28));
+    REQUIRE(divisor_sigma(integer(28)) == integer(56));  // perfect
+    // Cross-check a larger value against SymPy.
+    REQUIRE(oracle.equivalent(divisor_sigma(integer(720))->str(), "2418"));
+    // Symbolic / non-positive arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(mobius(n)->type_id() == TypeId::Function);
+    REQUIRE(divisor_count(integer(0))->type_id() == TypeId::Function);
+    REQUIRE(divisor_sigma(integer(-4))->type_id() == TypeId::Function);
+}
+
+// HARMONIC-FACT2-1: harmonic(n) = Σ 1/k (a rational) and factorial2(n) = n!!
+// (double factorial). Both evaluate for integers (factorial2 has the empty-
+// product conventions factorial2(0)=factorial2(−1)=1) and stay symbolic for
+// symbols / out-of-domain arguments. Matches SymPy.
+TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
+          "[3i][harmonic][factorial2][oracle]") {
+    auto& oracle = Oracle::instance();
+    // harmonic Hₙ.
+    REQUIRE(harmonic(integer(0)) == integer(0));
+    REQUIRE(harmonic(integer(1)) == integer(1));
+    REQUIRE(oracle.equivalent(harmonic(integer(5))->str(), "137/60"));
+    REQUIRE(oracle.equivalent(harmonic(integer(10))->str(), "7381/2520"));
+    // factorial2 n!!.
+    REQUIRE(factorial2(integer(0)) == integer(1));
+    REQUIRE(factorial2(integer(-1)) == integer(1));
+    REQUIRE(factorial2(integer(5)) == integer(15));   // 5·3·1
+    REQUIRE(factorial2(integer(6)) == integer(48));   // 6·4·2
+    REQUIRE(factorial2(integer(7)) == integer(105));  // 7·5·3·1
+    // Symbolic / out-of-domain arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(harmonic(n)->type_id() == TypeId::Function);
+    REQUIRE(harmonic(integer(-2))->type_id() == TypeId::Function);
+    REQUIRE(factorial2(n)->type_id() == TypeId::Function);
+    REQUIRE(factorial2(integer(-3))->type_id() == TypeId::Function);
+}
+
+// BERNOULLI-EULER-1: the Bernoulli numbers Bₙ (SymPy convention B₁ = +1/2) and
+// Euler numbers Eₙ, computed from their binomial recurrences. Both evaluate for
+// non-negative integers (odd Bₙ>1 and odd Eₙ are 0) and stay symbolic otherwise.
+// Matches SymPy.
+TEST_CASE("bernoulli/euler numbers (BERNOULLI-EULER-1)",
+          "[3i][bernoulli][euler][oracle]") {
+    auto& oracle = Oracle::instance();
+    // Bernoulli: B₀=1, B₁=1/2, B₂=1/6, odd>1 vanish, B₄=−1/30, …
+    REQUIRE(bernoulli(integer(0)) == integer(1));
+    REQUIRE(oracle.equivalent(bernoulli(integer(1))->str(), "1/2"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(2))->str(), "1/6"));
+    REQUIRE(bernoulli(integer(3)) == integer(0));
+    REQUIRE(oracle.equivalent(bernoulli(integer(4))->str(), "-1/30"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(6))->str(), "1/42"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(12))->str(), "-691/2730"));
+    // Euler: E₀=1, odd vanish, E₂=−1, E₄=5, E₆=−61, …
+    REQUIRE(euler(integer(0)) == integer(1));
+    REQUIRE(euler(integer(1)) == integer(0));
+    REQUIRE(euler(integer(2)) == integer(-1));
+    REQUIRE(euler(integer(4)) == integer(5));
+    REQUIRE(euler(integer(6)) == integer(-61));
+    REQUIRE(euler(integer(10)) == integer(-50521));
+    // Symbolic / negative arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(bernoulli(n)->type_id() == TypeId::Function);
+    REQUIRE(euler(n)->type_id() == TypeId::Function);
+    REQUIRE(bernoulli(integer(-1))->type_id() == TypeId::Function);
 }
 
 TEST_CASE("catalan: integer values", "[3i][catalan]") {

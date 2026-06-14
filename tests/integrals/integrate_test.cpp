@@ -2003,3 +2003,309 @@ TEST_CASE("vpaintegral: ∫_0^1 exp(x²) dx (intractable symbolically)",
     REQUIRE(resp.ok);
     REQUIRE(resp.raw.at("result").get<bool>());
 }
+
+// INT-DEF-1: definite integration with an infinite bound now evaluates the
+// antiderivative as a LIMIT, not by literal substitution of oo (which gave nan
+// from the ∞·0 boundary term). Recovers the Gamma integrals ∫₀^∞ x^n·e^(-x) = n!.
+TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto negx = mul(S::NegativeOne(), x);
+    // ∫₀^∞ x^n·e^(-x) dx = n!.
+    REQUIRE(integrate(x * exp(negx), x, S::Zero(), oo) == integer(1));
+    REQUIRE(integrate(pow(x, integer(2)) * exp(negx), x, S::Zero(), oo)
+            == integer(2));
+    REQUIRE(integrate(pow(x, integer(3)) * exp(negx), x, S::Zero(), oo)
+            == integer(6));
+    REQUIRE(integrate(pow(x, integer(4)) * exp(negx), x, S::Zero(), oo)
+            == integer(24));
+    // Scaled exponent: ∫₀^∞ x·e^(-2x) dx = 1/4.
+    REQUIRE(integrate(x * exp(mul(integer(-2), x)), x, S::Zero(), oo)
+            == rational(1, 4));
+    // Finite-bound integrals are unchanged.
+    REQUIRE(integrate(pow(x, integer(2)), x, S::Zero(), integer(1))
+            == rational(1, 3));
+}
+
+// INT-IMPROPER-1: improper rational functions (deg numerator ≥ deg denominator)
+// over a LINEAR denominator used to come back unevaluated. try_rational does the
+// polynomial division, but when apart left the proper remainder as a single
+// c/(x+a) term the code only closed a degree-2 denominator and dropped the rest
+// to the Integral marker. It now integrates the remainder through the general
+// integrator (affine-log rule), so ∫x/(x+1) = x − log(x+1), etc.
+TEST_CASE("integrate: improper rational over a linear denominator (INT-IMPROPER-1)",
+          "[7][integrate][rational][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {x / (x + integer(1)),
+                          pow(x, integer(2)) / (x + integer(1)),
+                          (pow(x, integer(2)) + integer(1)) / (x - integer(1)),
+                          (x + integer(1)) / x}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Quadratic-denominator improper cases still close (no regression).
+    auto g = pow(x, integer(3)) / (pow(x, integer(2)) - integer(1));
+    auto Fg = integrate(g, x);
+    REQUIRE(Fg->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(diff(Fg, x)->str(), g->str()));
+}
+
+// INT-RECIP-1: 1/cos(x) and 1/sin(x) written as Pow(cos/sin, -1) used to fall
+// through to the marker, even though the Sec/Csc functions and cos(x)**(-2)
+// already integrated. The reciprocal first power now routes to the same sec/csc
+// antiderivatives (including affine arguments).
+TEST_CASE("integrate: reciprocal trig as a Pow (INT-RECIP-1)",
+          "[7][integrate][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {pow(cos(x), integer(-1)),
+                          pow(sin(x), integer(-1)),
+                          pow(cos(integer(2) * x + integer(1)), integer(-1)),
+                          pow(sin(integer(3) * x), integer(-1))}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // 1/cos(x) and sec(x) now give the same antiderivative.
+    REQUIRE(integrate(pow(cos(x), integer(-1)), x)
+            == integrate(sec(x), x));
+}
+
+// INT-RECIP-2: hyperbolic analogue of INT-RECIP-1 — 1/cosh(x) and 1/sinh(x)
+// written as Pow(cosh/sinh, -1) route to the sech/csch antiderivatives.
+TEST_CASE("integrate: reciprocal hyperbolic as a Pow (INT-RECIP-2)",
+          "[7][integrate][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    for (const Expr& e : {pow(cosh(x), integer(-1)),
+                          pow(sinh(x), integer(-1)),
+                          pow(cosh(integer(2) * x), integer(-1)),
+                          pow(sinh(integer(3) * x + integer(1)), integer(-1))}) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // 1/cosh(x) and sech(x) now give the same antiderivative.
+    REQUIRE(integrate(pow(cosh(x), integer(-1)), x)
+            == integrate(sech(x), x));
+}
+
+// INT-MONOMIAL-SUB-1: monomial substitution u = x^d closes integrands of the
+// form x^(d-1)·f(x^d) — e.g. x/(x⁴+1) → ½atan(x²), x³/(x⁸+1) → ¼atan(x⁴),
+// x/√(1−x⁴) → ½asin(x²). The structural u-substitution (try_heurisch) misses
+// these because x⁴ does not contain x² as a subexpression. Verified by
+// differentiating the antiderivative back to the integrand.
+TEST_CASE("integrate: monomial substitution u = x^d (INT-MONOMIAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        x * pow(pow(x, integer(4)) + integer(1), integer(-1)),       // x/(x⁴+1)
+        pow(x, integer(3))
+            * pow(pow(x, integer(8)) + integer(1), integer(-1)),     // x³/(x⁸+1)
+        x * pow(integer(1) - pow(x, integer(4)), rational(-1, 2)),   // x/√(1−x⁴)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Explicit closed forms.
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(pow(x, integer(4)) + integer(1), integer(-1)), x)
+            ->str(),
+        "atan(x**2)/2"));
+    // A plain x/(x²+1) is unaffected (handled before, log form, not atan(x)).
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(pow(x, integer(2)) + integer(1), integer(-1)), x)
+            ->str(),
+        "log(x**2 + 1)/2"));
+}
+
+// INT-RATIONAL-NOPARTIAL-1: try_rational must not return a half-answer with a
+// leaked Integral marker. When apart() can't fully decompose the integrand it
+// now bails, so a cleaner strategy can take over (∫x²/(x⁶+1) closes to
+// ⅓atan(x³) via monomial substitution) or the whole integral is returned
+// honestly unevaluated (∫1/(x⁶+1)) — never `…atan(x) + Integral(…)`.
+TEST_CASE("integrate: no partial rational results (INT-RATIONAL-NOPARTIAL-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // x²/(x⁶+1) now closes cleanly.
+    auto F = integrate(
+        pow(x, integer(2)) * pow(pow(x, integer(6)) + integer(1), integer(-1)),
+        x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    REQUIRE(oracle.equivalent(F->str(), "atan(x**3)/3"));
+    // No leaked partials: any remaining Integral must be the whole result, not a
+    // summand alongside closed-form terms.
+    auto no_partial = [](const Expr& r) {
+        const std::string s = r->str();
+        const auto pos = s.find("Integral(");
+        return pos == std::string::npos || pos == 0;
+    };
+    for (const Expr& e : {pow(pow(x, integer(6)) + integer(1), integer(-1)),
+                          pow(pow(x, integer(5)) + integer(1), integer(-1))}) {
+        auto r = integrate(e, x);
+        INFO("integrand: " << e->str() << "  result: " << r->str());
+        REQUIRE(no_partial(r));
+    }
+    // Fully-solvable rationals are unaffected.
+    REQUIRE(oracle.equivalent(
+        diff(integrate(pow(pow(x, integer(4)) - integer(1), integer(-1)), x), x)
+            ->str(),
+        "1/(x**4 - 1)"));
+}
+
+// INT-RADICAL-SUB-1: integrands that are functions of x^(1/d) close via the
+// substitution u = x^(1/d) (x = u^d, dx = d·u^(d-1) du): ∫exp(√x), ∫1/(1+√x),
+// ∫1/(1+x^(1/3)). Previously unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: radical substitution u = x^(1/d) (INT-RADICAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        exp(pow(x, rational(1, 2))),                              // exp(√x)
+        sin(pow(x, rational(1, 2))),                              // sin(√x)
+        pow(integer(1) + pow(x, rational(1, 2)), integer(-1)),   // 1/(1+√x)
+        pow(integer(1) + pow(x, rational(1, 3)), integer(-1)),   // 1/(1+x^(1/3))
+        pow(pow(x, rational(1, 2)) + x, integer(-1)),            // 1/(√x + x)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Explicit closed form: ∫exp(√x) = 2√x·exp(√x) − 2exp(√x).
+    REQUIRE(oracle.equivalent(
+        integrate(exp(pow(x, rational(1, 2))), x)->str(),
+        "2*sqrt(x)*exp(sqrt(x)) - 2*exp(sqrt(x))"));
+    // A plain power is still handled by the power rule (not this path).
+    REQUIRE(oracle.equivalent(integrate(pow(x, rational(1, 2)), x)->str(),
+                              "2*x**(3/2)/3"));
+}
+
+// INT-LINRADICAL-SUB-1: integrands containing √(a·x+b) (non-trivial linear
+// inner) close via u = √(a·x+b): ∫1/(x√(x+1)), ∫√(x+1)/x. Previously
+// unevaluated. Verified by differentiating back to the integrand.
+TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sx1 = pow(x + integer(1), rational(1, 2));  // √(x+1)
+    const std::vector<Expr> integrands = {
+        pow(x * sx1, integer(-1)),                       // 1/(x·√(x+1))
+        sx1 * pow(x, integer(-1)),                       // √(x+1)/x
+        pow(sx1 + integer(1), integer(-1)),              // 1/(√(x+1)+1)
+        x * sx1,                                         // x·√(x+1)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // A bare √(x+1) (no other var dependence) is the power rule's job.
+    REQUIRE(oracle.equivalent(integrate(sx1, x)->str(),
+                              "2*(x + 1)**(3/2)/3"));
+}
+
+// INT-QUAD-IRRATIONAL-1: ∫1/(a·x²+b·x+c) where the discriminant is positive but
+// the roots are irrational (no rational factorization) — 1/(x²−3), 1/(2x²−3),
+// 1/(x²+x−1). The partial-fraction logs carry √Δ. Previously unevaluated (the
+// rational path only factors over ℚ; the arctan path only handled Δ<0).
+TEST_CASE("integrate: 1/quadratic with irrational roots (INT-QUAD-IRRATIONAL-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip_quad = [&](const Expr& q) { return pow(q, integer(-1)); };
+    const std::vector<Expr> integrands = {
+        recip_quad(pow(x, integer(2)) - integer(3)),                // 1/(x²−3)
+        recip_quad(integer(3) - pow(x, integer(2))),                // 1/(3−x²)
+        recip_quad(integer(2) * pow(x, integer(2)) - integer(3)),   // 1/(2x²−3)
+        recip_quad(pow(x, integer(2)) + x - integer(1)),            // 1/(x²+x−1)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Rational-root and negative-discriminant cases are unchanged.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) - integer(1), integer(-1)), x)->str(),
+        "log(x - 1)/2 - log(x + 1)/2"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + integer(1), integer(-1)), x)->str(),
+        "atan(x)"));
+}
+
+// INT-BIQUADRATIC-1: ∫1/(a₄x⁴+a₂x²+a₀) for a biquadratic that is irreducible
+// over ℚ but factors into two real quadratics over ℚ(√q) — the canonical
+// ∫1/(x⁴+1). Closed via that factorization and partial fractions; previously
+// unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: irreducible biquadratic 1/(x⁴+q) (INT-BIQUADRATIC-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip4 = [&](const Expr& num4, const Expr& c) {
+        return pow(num4 * pow(x, integer(4)) + c, integer(-1));
+    };
+    const std::vector<Expr> integrands = {
+        recip4(integer(1), integer(1)),   // 1/(x⁴+1)
+        recip4(integer(1), integer(4)),   // 1/(x⁴+4)
+        recip4(integer(2), integer(2)),   // 1/(2x⁴+2)
+        recip4(integer(1), integer(9)),   // 1/(x⁴+9)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Biquadratics that factor over ℚ are still handled by the rational path.
+    REQUIRE(oracle.equivalent(
+        diff(integrate(pow(pow(x, integer(4)) + pow(x, integer(2)) + integer(1),
+                           integer(-1)),
+                       x),
+             x)
+            ->str(),
+        "1/(x**4 + x**2 + 1)"));
+}
+
+// INT-BIQUAD-NUM-1: ∫(n₂x²+n₀)/(a₄x⁴+a₂x²+a₀) — an even polynomial numerator
+// over an irreducible biquadratic, e.g. ∫x²/(x⁴+1). Closed via the same
+// ℚ(√q) factorization as INT-BIQUADRATIC-1 with the numerator distributed
+// across the two real-quadratic partial fractions; previously unevaluated.
+// Verified by differentiating back.
+TEST_CASE("integrate: even numerator over biquadratic (INT-BIQUAD-NUM-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto over4 = [&](const Expr& numer, const Expr& a2, const Expr& a0) {
+        return numer
+               * pow(pow(x, integer(4)) + a2 * pow(x, integer(2)) + a0,
+                     integer(-1));
+    };
+    const std::vector<Expr> integrands = {
+        over4(pow(x, integer(2)), integer(0), integer(1)),                 // x²/(x⁴+1)
+        over4(pow(x, integer(2)) + integer(1), integer(0), integer(1)),    // (x²+1)/(x⁴+1)
+        over4(pow(x, integer(2)), integer(1), integer(1)),                 // x²/(x⁴+x²+1)
+        over4(integer(3) * pow(x, integer(2)) + integer(2), integer(0),
+              integer(4)),                                    // (3x²+2)/(x⁴+4)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}

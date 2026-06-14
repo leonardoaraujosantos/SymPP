@@ -98,6 +98,28 @@ namespace {
 }
 
 [[nodiscard]] Expr expand_pow(const Expr& base, const Expr& exp) {
+    // (a·b·…)^n → a^n · b^n · … (power-base distribution). Safe for any integer
+    // exponent, or — for a non-integer exponent — only when every factor of the
+    // base is provably positive (so (xy)^(1/2) is not split when x,y may be
+    // negative). Mirrors SymPy's expand(power_base=True, force=False).
+    if (base->type_id() == TypeId::Mul) {
+        bool safe = (exp->type_id() == TypeId::Integer);
+        if (!safe) {
+            bool all_pos = true;
+            for (const auto& f : base->args()) {
+                auto p = is_positive(f);
+                if (!p.has_value() || !*p) { all_pos = false; break; }
+            }
+            safe = all_pos;
+        }
+        if (!safe) return pow(base, exp);
+        std::vector<Expr> factors;
+        factors.reserve(base->args().size());
+        for (const auto& f : base->args()) factors.push_back(pow(f, exp));
+        // Re-expand: numeric factors fold (2^2 → 4) and any (Add)^n factor
+        // multinomial-expands.
+        return expand(mul(std::move(factors)));
+    }
     // Only expand integer non-negative powers of an Add base.
     if (base->type_id() != TypeId::Add) {
         return pow(base, exp);

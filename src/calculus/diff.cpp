@@ -5,6 +5,7 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/derivative.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -47,9 +48,13 @@ namespace {
     std::vector<Expr> terms;
     terms.reserve(fargs.size());
     for (std::size_t i = 0; i < fargs.size(); ++i) {
-        Expr partial = fn.diff_arg(i);
+        // Compute the inner derivative first: if this argument is independent of
+        // var the whole term vanishes, and we avoid materialising a default
+        // Derivative(f, const_arg) partial that would never be used.
         Expr inner = diff(fargs[i], var);
-        if (partial == S::Zero() || inner == S::Zero()) continue;
+        if (inner == S::Zero()) continue;
+        Expr partial = fn.diff_arg(i);
+        if (partial == S::Zero()) continue;
         terms.push_back(mul(partial, inner));
     }
     return add(std::move(terms));
@@ -104,6 +109,12 @@ Expr diff(const Expr& e, const Expr& var) {
     // Function chain rule.
     if (e->type_id() == TypeId::Function) {
         return diff_function(static_cast<const Function&>(*e), var);
+    }
+
+    // Higher-order derivative of an already-unevaluated Derivative: bump the
+    // order when the variable matches, otherwise nest.
+    if (e->type_id() == TypeId::Derivative) {
+        return derivative(e, var);
     }
 
     // Boolean / Relational / Piecewise — derivatives don't apply.

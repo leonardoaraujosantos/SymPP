@@ -17,6 +17,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/piecewise.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
@@ -46,6 +47,35 @@ namespace {
     };
     rec(rec, e);
     return n;
+}
+
+// Does `e` contain a √ (a Pow with exponent 1/2) anywhere?
+[[nodiscard]] bool contains_sqrt(const Expr& e) {
+    if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) return true;
+    for (const auto& a : e->args()) {
+        if (contains_sqrt(a)) return true;
+    }
+    return false;
+}
+
+// True iff `e` has an un-rationalized surd denominator — a Pow with a negative
+// exponent whose base carries a √ (e.g. the 1/(1+√2) in Pow(1+√2, −1)).
+// radsimp removes these; a rationalized result is preferred even when its node
+// count is larger, so simplify()'s anti-bloat guard exempts this case.
+[[nodiscard]] bool has_surd_denominator(const Expr& e) {
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& ex = e->args()[1];
+        const bool neg =
+            (ex->type_id() == TypeId::Integer
+             && static_cast<const Integer&>(*ex).is_negative())
+            || (ex->type_id() == TypeId::Rational
+                && static_cast<const Rational&>(*ex).value() < 0);
+        if (neg && contains_sqrt(e->args()[0])) return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_surd_denominator(a)) return true;
+    }
+    return false;
 }
 
 // True iff `e` is a rational function in its symbols — built only from
@@ -115,6 +145,7 @@ namespace {
 [[nodiscard]] Expr pow_of_pow_node(const Expr& e);
 [[nodiscard]] Expr pow_of_pow(const Expr& e);
 [[nodiscard]] Expr combine_exp(const Expr& e);
+[[nodiscard]] Expr exp_to_hyp_add(const Expr& e);
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 
 }  // namespace
@@ -131,6 +162,7 @@ Expr simplify(const Expr& e) {
     current = trigsimp(current);
     current = powsimp(current);
     current = combine_exp(current);
+    current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
     current = pow_of_pow(current);
     current = combsimp(current);
@@ -167,6 +199,21 @@ Expr simplify(const Expr& e) {
         } catch (const std::exception&) {
             // cancel() rejected the form; keep the pipeline result rather
             // than propagating out of simplify().
+        }
+    }
+
+    // 6. Global anti-bloat guard. simplify() must never return something
+    //    structurally larger than its (canonical) input — SymPy's simplify
+    //    makes the same guarantee via a complexity measure. The pattern
+    //    pipeline expands eagerly, which inflates already-compact forms
+    //    ((x+1)**3, (exp(x)-1)/(exp(x/2)+1), a/b + c/b); when the pipeline
+    //    result ends up bigger, fall back to the canonical input.
+    if (node_count(current) > node_count(canon)) {
+        // Exception: a rationalized surd denominator is the preferred canonical
+        // form even when larger. Only fall back to canon when current did not
+        // remove a surd denominator that canon still carries.
+        if (!(has_surd_denominator(canon) && !has_surd_denominator(current))) {
+            return canon;
         }
     }
     return current;
@@ -344,6 +391,22 @@ namespace {
 // Function, not Pow(E, ·)), so this matches SymPy's `simplify`/`powsimp`. e^0
 // folds to 1, so e.g. e^x · e^(−x) → 1.
 [[nodiscard]] Expr combine_exp_node(const Expr& e) {
+    // (exp(g))^k → exp(k·g) for an INTEGER exponent k. A symbolic or fractional
+    // exponent is left as a Pow (matching SymPy, which keeps exp(x)**n and
+    // sqrt(exp(x)) for branch-cut safety). The Mul case below merges products;
+    // this closes the standalone power.
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& base = e->args()[0];
+        const Expr& ex = e->args()[1];
+        if (ex->type_id() == TypeId::Integer
+            && base->type_id() == TypeId::Function) {
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.function_id() == FunctionId::Exp && bfn.args().size() == 1) {
+                return exp(expand(mul(ex, bfn.args()[0])));
+            }
+        }
+        return e;
+    }
     if (e->type_id() != TypeId::Mul) return e;
     auto exp_arg_of = [](const Expr& f) -> std::optional<Expr> {
         // exp(a) → a; (exp(a))^k → k·a.
@@ -450,6 +513,102 @@ Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 
+// a·exp(g) + a·exp(−g) → 2a·cosh(g),  a·exp(g) − a·exp(−g) → 2a·sinh(g).
+// The mirror of hyp_to_exp_add (cosh±sinh → exp): collect, per argument g, the
+// coefficients of exp(g) and exp(−g), and fold the equal / opposite-coefficient
+// pairs into cosh / sinh. Unequal-coefficient sums (exp(x)+2·exp(−x)) are left.
+[[nodiscard]] Expr exp_to_hyp_add_node(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    auto is_exp = [](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                return fn.args()[0];
+            }
+        }
+        return std::nullopt;
+    };
+    auto as_exp_term = [&](const Expr& term)
+        -> std::optional<std::pair<Expr, Expr>> {  // (arg, coef)
+        if (auto a = is_exp(term)) return std::pair{*a, Expr{S::One()}};
+        if (term->type_id() == TypeId::Mul) {
+            std::optional<Expr> arg;
+            std::vector<Expr> coef;
+            for (const auto& f : term->args()) {
+                if (auto a = is_exp(f)) {
+                    if (arg) return std::nullopt;  // exp·exp — leave for combine_exp
+                    arg = *a;
+                } else {
+                    coef.push_back(f);
+                }
+            }
+            if (arg) return std::pair{*arg, mul(std::move(coef))};
+        }
+        return std::nullopt;
+    };
+
+    struct PosNeg { Expr pos = S::Zero(); Expr neg = S::Zero(); };
+    std::vector<std::pair<Expr, PosNeg>> buckets;  // keyed by the +g representative
+    std::vector<Expr> rest;
+    for (const auto& term : e->args()) {
+        auto t = as_exp_term(term);
+        if (!t) { rest.push_back(term); continue; }
+        const Expr& arg = t->first;
+        const Expr& coef = t->second;
+        Expr narg = mul(S::NegativeOne(), arg);
+        bool placed = false;
+        for (auto& [g, pn] : buckets) {
+            if (g == arg) { pn.pos = add(pn.pos, coef); placed = true; break; }
+            if (g == narg) { pn.neg = add(pn.neg, coef); placed = true; break; }
+        }
+        if (!placed) buckets.push_back({arg, PosNeg{coef, S::Zero()}});
+    }
+
+    // Prefer the non-negated argument: cosh is even (cosh(−g)=cosh g), sinh odd
+    // (sinh(−g)=−sinh g), so normalising g to its positive representative matches
+    // SymPy's printed form (2·cosh(2x), not 2·cosh(−2x)).
+    auto neg_leading = [](const Expr& g) -> bool {
+        if (is_number(g)) return is_negative(g) == std::optional<bool>{true};
+        if (g->type_id() == TypeId::Mul && !g->args().empty()
+            && is_number(g->args()[0])) {
+            return is_negative(g->args()[0]) == std::optional<bool>{true};
+        }
+        return false;
+    };
+
+    std::vector<Expr> out = rest;
+    bool changed = false;
+    for (auto& [g, pn] : buckets) {
+        const bool has_pos = !(pn.pos == S::Zero());
+        const bool has_neg = !(pn.neg == S::Zero());
+        if (has_pos && pn.pos == pn.neg) {  // a·e^g + a·e^−g = 2a·cosh g
+            Expr gg = neg_leading(g) ? mul(S::NegativeOne(), g) : g;
+            out.push_back(mul(integer(2), mul(pn.pos, cosh(gg))));
+            changed = true;
+        } else if (has_pos && pn.pos == mul(S::NegativeOne(), pn.neg)) {
+            // a·e^g − a·e^−g = 2a·sinh g
+            Expr gg = g;
+            Expr co = pn.pos;
+            if (neg_leading(g)) {  // sinh(−g) = −sinh(g)
+                gg = mul(S::NegativeOne(), g);
+                co = mul(S::NegativeOne(), co);
+            }
+            out.push_back(mul(integer(2), mul(co, sinh(gg))));
+            changed = true;
+        } else {
+            if (has_pos) out.push_back(mul(pn.pos, exp(g)));
+            if (has_neg) out.push_back(mul(pn.neg, exp(mul(S::NegativeOne(), g))));
+        }
+    }
+    if (!changed) return e;
+    if (out.empty()) return S::Zero();
+    return out.size() == 1 ? out[0] : add(std::move(out));
+}
+
+Expr exp_to_hyp_add(const Expr& e) {
+    return apply_recursive(e, exp_to_hyp_add_node);
+}
+
 Expr exp_log_sum(const Expr& e) { return apply_recursive(e, exp_log_sum_node); }
 
 }  // namespace
@@ -519,6 +678,55 @@ as_trig_square_term(const Expr& term) {
     return total;
 }
 
+// If `f` is cos(2·g) — a Cos whose argument is a Mul carrying a literal
+// integer-2 factor — return g; otherwise nullopt. Used to fold a double-angle
+// cosine back into the sin²/cos² buckets via cos(2g) = cos²(g) − sin²(g), which
+// lets trigsimp recover the power-reduction identities (1 − cos 2x)/2 = sin²x.
+[[nodiscard]] std::optional<Expr> cos_double_arg(const Expr& f) {
+    if (f->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*f);
+    if (fn.function_id() != FunctionId::Cos) return std::nullopt;
+    const Expr& a = f->args()[0];
+    if (a->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<Expr> rest;
+    bool found_two = false;
+    for (const auto& g : a->args()) {
+        if (!found_two && g == integer(2)) { found_two = true; continue; }
+        rest.push_back(g);
+    }
+    if (!found_two || rest.empty()) return std::nullopt;
+    return mul(std::move(rest));
+}
+
+// Decompose a term as coef·cos(2·arg). Mirrors as_trig_square_term but for the
+// double-angle cosine. Returns nullopt when there is no such cosine, or more
+// than one (an unusual structure we leave alone).
+struct CosDoubleTerm {
+    Expr arg;
+    Expr coef;
+};
+[[nodiscard]] std::optional<CosDoubleTerm> as_cos_double_term(const Expr& term) {
+    if (auto g = cos_double_arg(term); g) {
+        return CosDoubleTerm{*g, S::One()};
+    }
+    if (term->type_id() == TypeId::Mul) {
+        std::optional<Expr> arg;
+        std::vector<Expr> coef_factors;
+        for (const auto& f : term->args()) {
+            if (auto g = cos_double_arg(f); g) {
+                if (arg) return std::nullopt;  // multiple — leave alone
+                arg = *g;
+            } else {
+                coef_factors.push_back(f);
+            }
+        }
+        if (arg) {
+            return CosDoubleTerm{*arg, mul(std::move(coef_factors))};
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Expr trigsimp_add(const Expr& e) {
     if (e->type_id() != TypeId::Add) return e;
 
@@ -533,23 +741,49 @@ as_trig_square_term(const Expr& term) {
     };
 
     for (const auto& term : e->args()) {
-        auto t = as_trig_square_term(term);
-        if (!t) { non_trig.push_back(term); continue; }
-        auto& cp = find_or_create(t->arg);
-        if (t->is_sin) cp.sin_coef = add(cp.sin_coef, t->coef);
-        else cp.cos_coef = add(cp.cos_coef, t->coef);
+        if (auto t = as_trig_square_term(term)) {
+            auto& cp = find_or_create(t->arg);
+            if (t->is_sin) cp.sin_coef = add(cp.sin_coef, t->coef);
+            else cp.cos_coef = add(cp.cos_coef, t->coef);
+            continue;
+        }
+        // q·cos(2x) = q·(cos²x − sin²x): fold into the same buckets so the
+        // candidate comparison below can pick the power-reduced sin²/cos² form.
+        if (auto d = as_cos_double_term(term)) {
+            auto& cp = find_or_create(d->arg);
+            cp.cos_coef = add(cp.cos_coef, d->coef);
+            cp.sin_coef = add(cp.sin_coef, S::NegativeOne() * d->coef);
+            continue;
+        }
+        non_trig.push_back(term);
     }
 
     if (by_arg.empty()) return e;
 
-    // Pythagorean candidate: a·sin²(x) + b·cos²(x) → b + (a − b)·sin²(x).
-    auto pythagorean_form = [&] {
+    // Sin Pythagorean candidate: a·sin²(x) + b·cos²(x) → b + (a − b)·sin²(x).
+    auto sin_pythagorean_form = [&] {
         std::vector<Expr> out = non_trig;
         for (auto& [arg, cp] : by_arg) {
             out.push_back(cp.cos_coef);
             Expr diff = cp.sin_coef - cp.cos_coef;
             if (!(diff == S::Zero())) {
                 out.push_back(diff * pow(sin(arg), integer(2)));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
+
+    // Cos Pythagorean candidate: a·sin²(x) + b·cos²(x) → a + (b − a)·cos²(x).
+    // Needed so e.g. (1 + cos 2x)/2 reduces to cos²(x) rather than 1 − sin²(x).
+    auto cos_pythagorean_form = [&] {
+        std::vector<Expr> out = non_trig;
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(cp.sin_coef);
+            Expr diff = cp.cos_coef - cp.sin_coef;
+            if (!(diff == S::Zero())) {
+                out.push_back(diff * pow(cos(arg), integer(2)));
             }
         }
         if (out.empty()) return Expr{S::Zero()};
@@ -577,9 +811,15 @@ as_trig_square_term(const Expr& term) {
         return add(std::move(out));
     }();
 
-    return count_leaves(double_angle_form) < count_leaves(pythagorean_form)
-            ? double_angle_form
-            : pythagorean_form;
+    // Pick whichever of the three equivalent forms has the fewest leaves.
+    Expr best = sin_pythagorean_form;
+    if (count_leaves(cos_pythagorean_form) < count_leaves(best)) {
+        best = cos_pythagorean_form;
+    }
+    if (count_leaves(double_angle_form) < count_leaves(best)) {
+        best = double_angle_form;
+    }
+    return best;
 }
 
 // 2·sin(x)·cos(x) = sin(2x).  More generally, k·sin(x)·cos(x) → (k/2)·sin(2x).
@@ -624,6 +864,99 @@ as_trig_square_term(const Expr& term) {
     rest.push_back(rational(1, 2));
     rest.push_back(sin(integer(2) * sin_arg));
     return mul(std::move(rest));
+}
+
+// Classify an Add term as a product of exactly two first-power sin/cos factors,
+// returning the coefficient and each factor's (is_sin, arg). Anything else — a
+// bare or squared trig, a third trig factor, or a leftover function in the
+// coefficient — returns nullopt so the term is left untouched.
+struct TwoTrigTerm {
+    Expr coef;
+    bool sin1;
+    Expr arg1;
+    bool sin2;
+    Expr arg2;
+};
+[[nodiscard]] std::optional<TwoTrigTerm> as_two_trig_term(const Expr& term) {
+    if (term->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<std::pair<bool, Expr>> trigs;  // (is_sin, arg)
+    std::vector<Expr> coef_factors;
+    for (const auto& f : term->args()) {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Sin) {
+                trigs.push_back({true, f->args()[0]});
+                continue;
+            }
+            if (fn.function_id() == FunctionId::Cos) {
+                trigs.push_back({false, f->args()[0]});
+                continue;
+            }
+            return std::nullopt;  // another function (tan, …) in the term
+        }
+        // A power of a trig (sin²) or other trig-bearing factor is not a clean
+        // coefficient — bail rather than risk a wrong fold.
+        if (f->type_id() == TypeId::Pow
+            && f->args()[0]->type_id() == TypeId::Function) {
+            return std::nullopt;
+        }
+        coef_factors.push_back(f);
+    }
+    if (trigs.size() != 2) return std::nullopt;
+    return TwoTrigTerm{coef_factors.empty() ? Expr{S::One()} : mul(coef_factors),
+                       trigs[0].first, trigs[0].second, trigs[1].first,
+                       trigs[1].second};
+}
+
+// Angle-addition identities on a two-term Add (each term a product of two
+// trig factors), matching SymPy's simplify:
+//   sin(a)cos(b) ± cos(a)sin(b) → sin(a ± b)
+//   cos(a)cos(b) ∓ sin(a)sin(b) → cos(a ± b)
+// A shared coefficient g carries through (g·… → g·sin/cos(…)).
+[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
+    if (e->type_id() != TypeId::Add || e->args().size() != 2) return e;
+    auto t1 = as_two_trig_term(e->args()[0]);
+    auto t2 = as_two_trig_term(e->args()[1]);
+    if (!t1 || !t2) return e;
+    auto neg = [](const Expr& c) { return mul(S::NegativeOne(), c); };
+
+    const bool sc1 = t1->sin1 != t1->sin2;  // one sin, one cos
+    const bool sc2 = t2->sin1 != t2->sin2;
+    // sin(a±b): both terms are sin·cos.
+    if (sc1 && sc2) {
+        Expr a = t1->sin1 ? t1->arg1 : t1->arg2;   // sin argument of term 1
+        Expr b = t1->sin1 ? t1->arg2 : t1->arg1;   // cos argument of term 1
+        Expr s2 = t2->sin1 ? t2->arg1 : t2->arg2;  // sin argument of term 2
+        Expr c2 = t2->sin1 ? t2->arg2 : t2->arg1;  // cos argument of term 2
+        if (!(s2 == b && c2 == a)) return e;       // must cross-pair
+        if (t1->coef == t2->coef) {
+            return mul(t1->coef, sin(add({a, b})));
+        }
+        if (t1->coef == neg(t2->coef)) {
+            return mul(t1->coef, sin(add({a, neg(b)})));
+        }
+        return e;
+    }
+    // cos(a±b): one term is cos·cos, the other sin·sin, over the same arg pair.
+    const bool cc1 = !t1->sin1 && !t1->sin2, ss1 = t1->sin1 && t1->sin2;
+    const bool cc2 = !t2->sin1 && !t2->sin2, ss2 = t2->sin1 && t2->sin2;
+    const TwoTrigTerm* cc = nullptr;
+    const TwoTrigTerm* ss = nullptr;
+    if (cc1 && ss2) { cc = &*t1; ss = &*t2; }
+    else if (ss1 && cc2) { cc = &*t2; ss = &*t1; }
+    else return e;
+    const bool same_args =
+        (cc->arg1 == ss->arg1 && cc->arg2 == ss->arg2)
+        || (cc->arg1 == ss->arg2 && cc->arg2 == ss->arg1);
+    if (!same_args) return e;
+    Expr a = cc->arg1, b = cc->arg2;
+    if (cc->coef == ss->coef) {
+        return mul(cc->coef, cos(add({a, neg(b)})));  // cos(a−b)
+    }
+    if (cc->coef == neg(ss->coef)) {
+        return mul(cc->coef, cos(add({a, b})));  // cos(a+b)
+    }
+    return e;
 }
 
 // Hyperbolic Pythagorean: a·sinh²(x) + b·cosh²(x) using cosh² − sinh² = 1.
@@ -1113,6 +1446,7 @@ as_trig_square_term(const Expr& term) {
 
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
+    cur = trigsimp_angle_addition(cur);
     cur = hypsimp_add(cur);
     cur = tanh_coth_pyth_add(cur);
     cur = trig_pyth_add(cur);
@@ -1140,16 +1474,43 @@ namespace {
     if (fid != FunctionId::Sin && fid != FunctionId::Cos
         && fid != FunctionId::Tan) return e;
     const Expr& arg = e->args()[0];
-    if (arg->type_id() != TypeId::Add) return e;
-    auto add_args = arg->args();
-    if (add_args.size() < 2) return e;
-    Expr a = add_args[0];
-    Expr b;
-    if (add_args.size() == 2) {
-        b = add_args[1];
+    // Split the argument into a + b, then apply the angle-addition formula.
+    // Two sources of a split:
+    //   • an Add argument (sin(x+y) → …): a = first term, b = the rest;
+    //   • a multiple angle n·g with integer n ≥ 2 (sin(2x), cos(3x), …):
+    //     n·g = g + (n−1)·g, and the recursive pass reduces (n−1)·g.
+    Expr a, b;
+    if (arg->type_id() == TypeId::Add) {
+        auto add_args = arg->args();
+        if (add_args.size() < 2) return e;
+        a = add_args[0];
+        if (add_args.size() == 2) {
+            b = add_args[1];
+        } else {
+            std::vector<Expr> rest(add_args.begin() + 1, add_args.end());
+            b = add(std::move(rest));
+        }
+    } else if (arg->type_id() == TypeId::Mul) {
+        long n = 1;
+        bool found = false;
+        std::vector<Expr> rest;
+        for (const auto& fac : arg->args()) {
+            if (!found && fac->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*fac);
+                if (z.is_positive() && z.fits_long() && z.to_long() >= 2) {
+                    n = z.to_long();
+                    found = true;
+                    continue;
+                }
+            }
+            rest.push_back(fac);
+        }
+        if (!found || rest.empty()) return e;
+        Expr g = rest.size() == 1 ? rest[0] : mul(std::move(rest));
+        a = g;
+        b = (n == 2) ? g : mul(integer(n - 1), g);
     } else {
-        std::vector<Expr> rest(add_args.begin() + 1, add_args.end());
-        b = add(std::move(rest));
+        return e;
     }
     if (fid == FunctionId::Sin) {
         return sin(a) * cos(b) + cos(a) * sin(b);
@@ -1166,8 +1527,10 @@ namespace {
 }  // namespace
 
 Expr expand_trig(const Expr& e) {
+    // Iterate to a fixpoint: each pass peels one level of angle addition, so a
+    // multiple angle sin(n·x) needs ~n passes to fully reduce to sin(x)/cos(x).
     Expr cur = apply_recursive(e, expand_trig_node);
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 32; ++i) {
         Expr next = apply_recursive(cur, expand_trig_node);
         if (next == cur) break;
         cur = next;
@@ -1184,6 +1547,47 @@ Expr fu(const Expr& e) {
     if (auto n = count_leaves(c2); n < best_n) { best = c2; best_n = n; }
     if (auto n = count_leaves(c3); n < best_n) { best = c3; best_n = n; }
     return best;
+}
+
+// ----- rewrite ---------------------------------------------------------------
+
+namespace {
+
+// sin/cos/tan and sinh/cosh/tanh → exponentials (Euler / hyperbolic identities).
+[[nodiscard]] Expr rewrite_exp_node(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return e;
+    const auto& fn = static_cast<const Function&>(*e);
+    if (fn.args().size() != 1) return e;
+    const Expr& g = fn.args()[0];
+    const Expr neg = S::NegativeOne();
+    const Expr& I = S::I();
+    const Expr half = rational(1, 2);
+    Expr Ig = mul(I, g);
+    Expr nIg = mul(mul(neg, I), g);
+    Expr ng = mul(neg, g);
+    switch (fn.function_id()) {
+        case FunctionId::Sin:  // −i·(e^{ig} − e^{−ig})/2
+            return mul({mul(neg, I), half, exp(Ig) - exp(nIg)});
+        case FunctionId::Cos:  // (e^{ig} + e^{−ig})/2
+            return mul(half, exp(Ig) + exp(nIg));
+        case FunctionId::Tan:  // −i·(e^{ig} − e^{−ig})/(e^{ig} + e^{−ig})
+            return mul(mul(neg, I), (exp(Ig) - exp(nIg)) / (exp(Ig) + exp(nIg)));
+        case FunctionId::Sinh:  // (e^g − e^{−g})/2
+            return mul(half, exp(g) - exp(ng));
+        case FunctionId::Cosh:  // (e^g + e^{−g})/2
+            return mul(half, exp(g) + exp(ng));
+        case FunctionId::Tanh:  // (e^g − e^{−g})/(e^g + e^{−g})
+            return (exp(g) - exp(ng)) / (exp(g) + exp(ng));
+        default:
+            return e;
+    }
+}
+
+}  // namespace
+
+Expr rewrite(const Expr& e, std::string_view target) {
+    if (target == "exp") return apply_recursive(e, rewrite_exp_node);
+    return e;  // unknown target — no-op, matching SymPy's "leave as is"
 }
 
 // ----- radsimp ---------------------------------------------------------------
@@ -1237,35 +1641,56 @@ struct SqrtDecomp {
 Expr radsimp(const Expr& e) {
     // Combine into a single fraction so we have a clear num/denom.
     Expr t = together(e);
-    if (t->type_id() != TypeId::Mul) return t;
 
-    // Locate Pow(_, -1) factor — the denominator.
     Expr den;
-    std::vector<Expr> num_factors;
-    for (const auto& f : t->args()) {
-        if (f->type_id() == TypeId::Pow
-            && f->args()[1] == S::NegativeOne()
-            && !den) {
-            den = f->args()[0];
-        } else {
-            num_factors.push_back(f);
+    Expr num;
+    if (t->type_id() == TypeId::Pow && t->args()[1] == S::NegativeOne()) {
+        // A bare reciprocal 1/den (e.g. 1/(1+√2)) — no numerator factors.
+        den = t->args()[0];
+        num = S::One();
+    } else if (t->type_id() == TypeId::Mul) {
+        // Locate the Pow(_, -1) factor — the denominator.
+        std::vector<Expr> num_factors;
+        for (const auto& f : t->args()) {
+            if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+                && !den) {
+                den = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
         }
+        if (!den) return t;
+        num = mul(num_factors);
+    } else {
+        return t;
     }
-    if (!den) return t;
-    Expr num = mul(num_factors);
 
     auto decomp = decompose_sqrts(den);
-    if (decomp.sqrt_terms.size() != 1) return t;
-    // Binomial: den = a + b * sqrt(c). Conjugate: a - b * sqrt(c).
-    const auto& [b_coef, sqrt_arg] = decomp.sqrt_terms[0];
-    const Expr& a = decomp.rational_part;
-    Expr b_sqrt = mul(b_coef, sqrt(sqrt_arg));
-    Expr conjugate = a - b_sqrt;
-    Expr new_num = num * conjugate;
-    // (a + b√c)(a - b√c) = a² - b²c
-    Expr new_den = a * a - b_coef * b_coef * sqrt_arg;
+    Expr conjugate;
+    Expr new_den;
+    if (decomp.sqrt_terms.size() == 1) {
+        // Binomial: den = a + b·√c. Conjugate a − b·√c; (a+b√c)(a−b√c) = a²−b²c.
+        const auto& [b_coef, sqrt_arg] = decomp.sqrt_terms[0];
+        const Expr& a = decomp.rational_part;
+        conjugate = a - mul(b_coef, sqrt(sqrt_arg));
+        new_den = a * a - b_coef * b_coef * sqrt_arg;
+    } else if (decomp.sqrt_terms.size() == 2
+               && decomp.rational_part == S::Zero()) {
+        // Two-surd: den = b₁·√c₁ + b₂·√c₂. Conjugate b₁·√c₁ − b₂·√c₂;
+        // the product is the rational b₁²c₁ − b₂²c₂.
+        const auto& [b1, c1] = decomp.sqrt_terms[0];
+        const auto& [b2, c2] = decomp.sqrt_terms[1];
+        conjugate = mul(b1, sqrt(c1)) - mul(b2, sqrt(c2));
+        new_den = b1 * b1 * c1 - b2 * b2 * c2;
+    } else {
+        return t;
+    }
     if (new_den == S::Zero()) return t;
-    return new_num / new_den;
+    Expr new_num = num * conjugate;
+    // Distribute so the result is the compact rationalized form (√2−1, not
+    // −(−√2+1)); this also keeps it small enough to survive simplify()'s
+    // anti-bloat guard, which otherwise reverts to the reciprocal.
+    return expand(new_num / new_den);
 }
 
 // ----- sqrtdenest ------------------------------------------------------------
@@ -1429,6 +1854,21 @@ namespace {
                         neg_used[j] = true;
                         break;
                     }
+                    if (k < 0 && k >= -50) {
+                        // Denominator is the larger factorial: the ratio is the
+                        // reciprocal of the rising product. m = b - a terms.
+                        //   factorial(a)/factorial(b) → 1/falling_factorial(b, m)
+                        //   gamma(a)/gamma(b)         → 1/falling_factorial(b-1, m)
+                        long m = -k;
+                        Expr bot = (matcher == as_factorial_arg)
+                                       ? neg_args[j]
+                                       : (neg_args[j] - integer(1));
+                        pairings.push_back(
+                            pow(falling_factorial(bot, m), integer(-1)));
+                        pos_used[i] = true;
+                        neg_used[j] = true;
+                        break;
+                    }
                 }
             }
         }
@@ -1456,12 +1896,199 @@ namespace {
     return mul(std::move(out));
 }
 
+// Euler reflection: gamma(z)*gamma(1-z) -> pi / sin(pi*z). Scans the Mul for
+// two numerator gamma factors whose arguments sum to 1 and folds each such
+// pair. The surviving argument is chosen as the one free of a leading additive
+// constant (prefer `z` over `1-z`) so the output matches SymPy's `pi/sin(pi*z)`.
+[[nodiscard]] Expr gamma_reflection(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    const auto& args = e->args();
+
+    std::vector<Expr> g_args;            // arg of each numerator gamma factor
+    std::vector<std::size_t> g_idx;      // its position in `args`
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (auto a = as_gamma_arg(args[i]); a) {
+            g_args.push_back(*a);
+            g_idx.push_back(i);
+        }
+    }
+
+    std::vector<bool> consumed(args.size(), false);
+    std::vector<bool> used(g_args.size(), false);
+    std::vector<Expr> replacements;
+    for (std::size_t i = 0; i < g_args.size(); ++i) {
+        if (used[i]) continue;
+        for (std::size_t j = i + 1; j < g_args.size(); ++j) {
+            if (used[j]) continue;
+            if (simplify(g_args[i] + g_args[j]) != S::One()) continue;
+            // Prefer the argument without an additive integer term so the
+            // result reads pi/sin(pi*z) rather than pi/sin(pi*(1-z)).
+            const Expr& z =
+                (g_args[j]->type_id() == TypeId::Add
+                 && g_args[i]->type_id() != TypeId::Add)
+                    ? g_args[i]
+                    : (g_args[i]->type_id() == TypeId::Add ? g_args[j]
+                                                           : g_args[i]);
+            replacements.push_back(
+                mul({S::Pi(), pow(sin(mul({S::Pi(), z})), integer(-1))}));
+            used[i] = used[j] = true;
+            consumed[g_idx[i]] = consumed[g_idx[j]] = true;
+            break;
+        }
+    }
+    if (replacements.empty()) return e;
+
+    std::vector<Expr> out;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (!consumed[i]) out.push_back(args[i]);
+    }
+    for (auto& r : replacements) out.push_back(std::move(r));
+    return mul(std::move(out));
+}
+
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> as_binomial(const Expr& e) {
+    if (!e || e->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*e);
+    if (f.function_id() != FunctionId::Binomial) return std::nullopt;
+    return std::make_pair(e->args()[0], e->args()[1]);
+}
+
+// combsimp on a binomial: collapse binomial(n, k) to its polynomial form when
+// either k or n-k is a small non-negative integer m, via the gamma identity
+//   binomial(n, k) = falling_factorial(n, m) / m!   (m = n-k, or m = k)
+// which is valid for symbolic n. Examples: binomial(n,n)→1,
+// binomial(n,n-1)→n, binomial(n+1,n)→n+1, binomial(n,2)→n*(n-1)/2.
+[[nodiscard]] Expr combsimp_binomial(const Expr& e) {
+    auto b = as_binomial(e);
+    if (!b) return e;
+    auto small_nonneg = [](const Expr& x) -> std::optional<long> {
+        if (x->type_id() != TypeId::Integer) return std::nullopt;
+        const auto& z = static_cast<const Integer&>(*x);
+        if (!z.fits_long()) return std::nullopt;
+        long v = z.to_long();
+        if (v < 0 || v > 50) return std::nullopt;
+        return v;
+    };
+    // m! as a single folded Integer (Mul folds numeric factors).
+    auto m_factorial = [](long m) -> Expr {
+        Expr r = S::One();
+        for (long i = 2; i <= m; ++i) r = r * integer(i);
+        return r;
+    };
+    const Expr& n = b->first;
+    const Expr& k = b->second;
+    // Prefer m = n-k (handles the symmetric tail: binomial(n,n), n-1, ...).
+    std::optional<long> m = small_nonneg(simplify(n - k));
+    if (!m) m = small_nonneg(k);   // otherwise m = k (small head: 0,1,2,...).
+    if (!m) return e;
+    return mul({falling_factorial(n, *m), pow(m_factorial(*m), integer(-1))});
+}
+
+// Gamma recurrence z*gamma(z) = gamma(z+1). Within a Mul, repeatedly absorb a
+// numerator factor equal to a gamma argument z (raising it to gamma(z+1)) or a
+// denominator factor equal to z-1 (lowering gamma(z) to gamma(z-1)). Iterates
+// to a fixpoint so chains collapse: x*(x+1)*gamma(x) -> gamma(x+2).
+[[nodiscard]] Expr gamma_recurrence(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    std::vector<Expr> factors(e->args().begin(), e->args().end());
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (std::size_t g = 0; g < factors.size() && !changed; ++g) {
+            auto za = as_gamma_arg(factors[g]);
+            if (!za) continue;
+            const Expr z = *za;
+            // Upward: a numerator factor equal to z.
+            for (std::size_t i = 0; i < factors.size(); ++i) {
+                if (i == g) continue;
+                if (simplify(factors[i] - z) == S::Zero()) {
+                    factors[g] = gamma(z + S::One());
+                    factors.erase(factors.begin() + static_cast<long>(i));
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) break;
+            // Downward: a denominator factor f^-1 with f == z-1.
+            for (std::size_t i = 0; i < factors.size(); ++i) {
+                if (i == g) continue;
+                if (factors[i]->type_id() == TypeId::Pow
+                    && factors[i]->args()[1] == S::NegativeOne()
+                    && simplify(factors[i]->args()[0] - (z - S::One()))
+                           == S::Zero()) {
+                    factors[g] = gamma(z - S::One());
+                    factors.erase(factors.begin() + static_cast<long>(i));
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+    return mul(std::move(factors));
+}
+
+// Does any subexpression apply the function `id`?
+[[nodiscard]] bool contains_function_id(const Expr& e, FunctionId id) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).function_id() == id) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_function_id(a, id)) return true;
+    }
+    return false;
+}
+
+// combsimp on a ratio/product of binomials: rewrite binomial(a,b) =
+// a!/(b!·(a−b)!) so the factorial-ratio cancellation closes shifts like
+// binomial(n,k)/binomial(n,k−1) → (n−k+1)/k. Only adopted when the rewrite
+// fully resolves (no factorial or binomial remains); otherwise binomial(n,k)
+// would expand into an uglier factorial form, so the input is kept. Mirrors
+// SymPy's combsimp, which collapses such ratios.
+[[nodiscard]] Expr combsimp_binomial_ratio(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    bool has_binom = false;
+    std::vector<Expr> expanded;
+    for (const auto& f : e->args()) {
+        Expr base = f;
+        Expr exp_e = S::One();
+        if (f->type_id() == TypeId::Pow) {
+            base = f->args()[0];
+            exp_e = f->args()[1];
+        }
+        if (auto b = as_binomial(base)) {
+            has_binom = true;
+            const Expr& a = b->first;
+            const Expr& k = b->second;
+            Expr neg_exp = mul(S::NegativeOne(), exp_e);
+            // binomial(a,k)^p = a!^p · k!^(−p) · (a−k)!^(−p).
+            expanded.push_back(pow(factorial(a), exp_e));
+            expanded.push_back(pow(factorial(k), neg_exp));
+            expanded.push_back(pow(factorial(simplify(a - k)), neg_exp));
+        } else {
+            expanded.push_back(f);
+        }
+    }
+    if (!has_binom) return e;
+    Expr canceled = gamma_recurrence(
+        simplify_func_ratio(mul(std::move(expanded)), as_factorial_arg));
+    if (contains_function_id(canceled, FunctionId::Factorial)
+        || contains_function_id(canceled, FunctionId::Binomial)) {
+        return e;  // didn't fully resolve — keep the cleaner binomial form
+    }
+    return canceled;
+}
+
 [[nodiscard]] Expr combsimp_node(const Expr& e) {
-    return simplify_func_ratio(e, as_factorial_arg);
+    if (Expr ratio = combsimp_binomial_ratio(e); !(ratio == e)) return ratio;
+    return gamma_recurrence(
+        combsimp_binomial(simplify_func_ratio(e, as_factorial_arg)));
 }
 
 [[nodiscard]] Expr gammasimp_node(const Expr& e) {
-    return simplify_func_ratio(e, as_gamma_arg);
+    return gamma_recurrence(
+        gamma_reflection(simplify_func_ratio(e, as_gamma_arg)));
 }
 
 }  // namespace

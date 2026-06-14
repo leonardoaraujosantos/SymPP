@@ -99,6 +99,34 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
     using detail::all_args_have;
     using detail::any_arg_has;
     switch (k) {
+        case AssumptionKey::Complex:
+            // A sum of finite complex terms is complex.
+            if (all_args_have(args_, AssumptionKey::Complex, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Imaginary: {
+            // A sum is imaginary iff every term is imaginary (i + i = 2i). A mix
+            // of a (nonzero) real term and an imaginary term is neither real nor
+            // imaginary (1 + i). Zero terms are skipped.
+            bool all_imag = true;
+            bool any_imag = false;
+            bool any_real_nonzero = false;
+            for (const auto& a : args_) {
+                if (a->ask(AssumptionKey::Zero) == true) continue;
+                if (a->ask(AssumptionKey::Imaginary) == true) {
+                    any_imag = true;
+                } else {
+                    all_imag = false;
+                    if (a->ask(AssumptionKey::Real) == true
+                        && a->ask(AssumptionKey::Nonzero) == true) {
+                        any_real_nonzero = true;
+                    }
+                }
+            }
+            if (any_imag && all_imag) return true;
+            if (any_imag && any_real_nonzero) return false;  // real + imaginary
+            return std::nullopt;
+        }
+
         // Closure under sum: if every term is real / integer / rational /
         // finite, the result is too.
         case AssumptionKey::Real:

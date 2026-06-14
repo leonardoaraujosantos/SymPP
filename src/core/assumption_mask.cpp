@@ -16,6 +16,13 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Finite: return finite;
         case AssumptionKey::Even: return even;
         case AssumptionKey::Odd: return odd;
+        case AssumptionKey::Imaginary: return imaginary;
+        case AssumptionKey::Complex: {
+            // real ∨ imaginary ⇒ complex (a finite complex number).
+            if (complex_) return complex_;
+            if (real == true || imaginary == true) return true;
+            return std::nullopt;
+        }
 
         case AssumptionKey::Nonzero: {
             // nonzero = positive ∨ negative ∨ ¬zero (when known).
@@ -54,6 +61,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Finite: finite = value; break;
         case AssumptionKey::Even: even = value; break;
         case AssumptionKey::Odd: odd = value; break;
+        case AssumptionKey::Complex: complex_ = value; break;
+        case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
             // nonzero=true means zero=false; nonzero=false means zero=true.
             zero = !value;
@@ -79,7 +88,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
-           && !finite && !even && !odd;
+           && !finite && !even && !odd && !complex_ && !imaginary;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -100,6 +109,8 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(finite));
     mix(encode(even));
     mix(encode(odd));
+    mix(encode(complex_));
+    mix(encode(imaginary));
     return h;
 }
 
@@ -173,6 +184,30 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         if (m.rational == false) {
             if (!m.integer) m.integer = false;
             if (!m.zero) m.zero = false;
+        }
+        // imaginary (a nonzero real multiple of i) => complex, ¬real, finite,
+        // nonzero, and (since ¬real) ¬rational/¬integer/¬sign/¬parity.
+        if (m.imaginary == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.real) m.real = false;
+            if (!m.finite) m.finite = true;
+            if (!m.zero) m.zero = false;
+            if (!m.rational) m.rational = false;
+            if (!m.integer) m.integer = false;
+            if (!m.positive) m.positive = false;
+            if (!m.negative) m.negative = false;
+            if (!m.even) m.even = false;
+            if (!m.odd) m.odd = false;
+        }
+        // real => complex, ¬imaginary (a real number is not imaginary; 0, the
+        // only value both could touch, is real and NOT imaginary).
+        if (m.real == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.imaginary) m.imaginary = false;
+        }
+        // zero => ¬imaginary (0 is real).
+        if (m.zero == true) {
+            if (!m.imaginary) m.imaginary = false;
         }
     }
     return m;

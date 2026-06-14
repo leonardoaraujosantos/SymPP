@@ -14,6 +14,7 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
@@ -175,6 +176,43 @@ TEST_CASE("expand: subs after expand matches SymPy", "[1i][expand][subs][oracle]
     // Substitution-after-expansion still works:
     auto sub_result = subs(e, x, integer(2));
     REQUIRE(sub_result == integer(27));
+}
+
+// EXPAND-POWBASE-1: expand distributes a power over a product base,
+// (a·b)^n → a^n·b^n, folding numeric factors — e.g. (2x)² → 4x². Previously the
+// power-of-product was left intact (only powers of an Add expanded).
+TEST_CASE("expand: power of a product distributes (EXPAND-POWBASE-1)",
+          "[1i][expand][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // (2x)² → 4x², (2x)³ → 8x³.
+    REQUIRE(oracle.equivalent(
+        expand(pow(integer(2) * x, integer(2)))->str(), "4*x**2"));
+    REQUIRE(oracle.equivalent(
+        expand(pow(integer(2) * x, integer(3)))->str(), "8*x**3"));
+    // (xy)² → x²y², (3xy)² → 9x²y².
+    REQUIRE(oracle.equivalent(expand(pow(x * y, integer(2)))->str(),
+                              "x**2*y**2"));
+    REQUIRE(oracle.equivalent(
+        expand(pow(integer(3) * x * y, integer(2)))->str(), "9*x**2*y**2"));
+    // (2xy²)³ → 8x³y⁶.
+    REQUIRE(oracle.equivalent(
+        expand(pow(integer(2) * x * pow(y, integer(2)), integer(3)))->str(),
+        "8*x**3*y**6"));
+    // Negative integer exponent distributes too: (2x)⁻² → 1/(4x²).
+    REQUIRE(oracle.equivalent(
+        expand(pow(integer(2) * x, integer(-2)))->str(), "1/(4*x**2)"));
+    // (−x)² → x².
+    REQUIRE(oracle.equivalent(
+        expand(pow(mul(S::NegativeOne(), x), integer(2)))->str(), "x**2"));
+    // Composed with an Add factor: ((x+1)y)² → x²y² + 2xy² + y².
+    REQUIRE(oracle.equivalent(
+        expand(pow((x + integer(1)) * y, integer(2)))->str(),
+        "x**2*y**2 + 2*x*y**2 + y**2"));
+    // A non-integer exponent over a possibly-negative factor is NOT split.
+    REQUIRE(expand(pow(integer(2) * x, rational(1, 2)))->str()
+            == pow(integer(2) * x, rational(1, 2))->str());
 }
 
 TEST_CASE("expand: log of a positive product/power splits (ASSUME-4)",

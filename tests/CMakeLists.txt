@@ -47,6 +47,7 @@ target_sources(sympp_tests
         physics/units_test.cpp
         printing/printing_test.cpp
         oracle/oracle_smoke_test.cpp
+        oracle/oracle_crosscheck_test.cpp
         polys/poly_test.cpp
         sets/sets_test.cpp
         simplify/simplify_test.cpp

@@ -1,7 +1,9 @@
 # Known issues & SymPy-parity bug log
 
 This file tracks correctness gaps found by cross-checking SymPP against
-the SymPy 1.14 oracle. Each entry records the failing input, the
+the SymPy oracle (validated against 1.13.x and 1.14; CI pins 1.14, and a
+version guard in the smoke tests fails loudly on any unvetted release). Each
+entry records the failing input, the
 SymPy-expected result, current status, and the regression test (once
 fixed). Each entry is filed as a GitHub issue; the local log is the source of
 truth and links the issue number.
@@ -13,6 +15,1866 @@ truth and links the issue number.
 > `curl --resolve api.github.com:443:140.82.121.6 ...`.
 
 ## Fixed
+
+### LOG-BASE-1 — two-argument `log(x, b)` was an opaque node with no derivative
+- **Problem:** `log(x, 2)` parsed to a generic user-function node, so it never
+  simplified and `diff(log(x, 2), x)` came back as an unevaluated
+  `Derivative(log(x, 2), x)` instead of `1/(x·log 2)`. SymPP had no two-argument
+  `log` factory; the parser fell through to `function_symbol("log")`.
+- **Fix:** added `log(arg, base)` in `src/functions/exponential.cpp` returning
+  `log(arg)/log(base)` (matching SymPy), and registered `log` in the parser's
+  two-argument table. Exact integer powers fold to the exponent
+  (`log(8, 2) = 3`, `log(1024, 2) = 10`) via a divisibility loop; base `E`
+  collapses to the natural log. Because the result is built from standard
+  one-argument logs, `diff`, `simplify`, `series`, etc. handle it for free.
+- **Verified:** `log(x, 2) → log(x)/log(2)`, `log(x, E) → log(x)`,
+  `log(8, 2) → 3`, `log(100, 10) → 2`, `log(1024, 2) → 10`,
+  `diff(log(x, 2)) → 1/(x·log 2)` — all match SymPy.
+- **Regression test:** `LOG-BASE-1` in `tests/functions/exponential_test.cpp`
+  (`[3c][log][oracle][regression]`).
+- **Scope:** exact integer powers fold; a non-power integer ratio
+  (`log(8, 4)`) stays the correct-but-unfolded `log(8)/log(4)` rather than
+  SymPy's fully-reduced `3/2`.
+
+### EXP-LOG-INVERSE-1 — `exp(log(x))` stayed unevaluated for a generic argument
+- **Problem:** `exp(log(x))` returned `exp(log(x))` instead of `x`, and
+  `exp(2·log(x)) → exp(2·log(x))` instead of `x²`, for a generic (unknown-sign)
+  symbol. The factory gated `exp∘log` folding on `is_positive(arg) == true`,
+  which is unknown for a bare symbol, so the simplification never fired —
+  diverging from SymPy, which folds unconditionally. Sums such as
+  `exp(log x + 1)` and `exp(log x + log y)` were likewise left intact.
+- **Fix:** in `src/functions/exponential.cpp`,
+  - `exp(log(w)) → w` is now unconditional: `exp(log(z)) = z` for every `z ≠ 0`
+    on the principal branch, and a concrete negative argument never reaches this
+    case (`log(−3)` is already `iπ + log(3)`, an Add);
+  - `exp(c·log(w)) → w^c` folds unconditionally when `c` is numeric (then `w^c`
+    *is* `exp(c·log w)` by definition); a symbolic `c` still requires `w > 0`;
+  - `exp(Σ tᵢ)` pulls out every numeric-coefficient log term:
+    `exp(log w₁ + c·log w₂ + r) = w₁ · w₂^c · exp(r)`.
+- **Verified:** `exp(log x) → x`, `exp(2 log x) → x²`, `exp(log x / 2) → √x`,
+  `exp(−log x) → 1/x`, `exp(log x + 1) → E·x`, `exp(log x + log y) → x·y`,
+  `exp(log x − log y) → x/y`, `exp(log x + y) → x·exp(y)` — all match SymPy;
+  `exp(y·log x)` (symbolic coefficient) and `exp(x + 1)` (no log term) are left
+  unchanged, also matching SymPy.
+- **Regression tests:** updated the `exp`/`log` inverse-pair cases and added
+  `EXP-LOGSUM-1` in `tests/functions/exponential_test.cpp`. The two earlier
+  tests that asserted the over-conservative "stays unevaluated" behavior were
+  updated to the principal-branch result.
+- **Note:** this intentionally replaces a previously deliberate branch-cut
+  conservatism; the folding is mathematically exact (principal branch), so it
+  introduces no incorrect results.
+
+### EXPAND-POWBASE-1 — `expand` left a power of a product unflattened
+- **Problem:** `expand((2x)²)` returned `(2x)²` rather than `4x²`; likewise
+  `(xy)² → (xy)²`, `(3xy)² → (3xy)²`. The core `expand` only multinomial-expanded
+  a power of an **Add** base — a power of a **Mul** base was never distributed,
+  diverging from SymPy (and the convolution workaround in `solve_trig_reduce`
+  existed precisely because of this).
+- **Fix:** extended `expand_pow` in `src/core/expand.cpp` to distribute
+  `(a·b·…)^n → a^n·b^n·…` when the exponent is any integer, or — for a
+  non-integer exponent — when every base factor is provably positive (matching
+  SymPy's `expand(power_base=True, force=False)`). The distributed product is
+  re-expanded so numeric factors fold (`2² → 4`) and any `(Add)^n` factor
+  multinomial-expands.
+- **Verified:** `(2x)² → 4x²`, `(2x)³ → 8x³`, `(xy)² → x²y²`, `(3xy)² → 9x²y²`,
+  `(2xy²)³ → 8x³y⁶`, `(2x)⁻² → 1/(4x²)`, `(−x)² → x²`,
+  `((x+1)y)² → x²y²+2xy²+y²` — all match SymPy; a non-integer power over a
+  possibly-negative factor (`(2x)^(1/2)`) is correctly left intact.
+- **Regression test:** `EXPAND-POWBASE-1` in `tests/core/expand_test.cpp`
+  (`[1i][expand][oracle][regression]`).
+- **Scope:** integer exponents unconditionally; non-integer only under provable
+  positivity. This is the conservative, sign-safe subset SymPy applies by
+  default.
+
+### SOLVE-TRIG-MULTIANGLE-1 — `solve` returned `[]` for mixed multiple-angle trig equations
+- **Problem:** equations combining different integer multiples of one angle —
+  `sin(x) − cos(2x)`, `cos(2x) + cos(x)`, `sin(2x) − sin(x)`,
+  `cos(2x) + 3·sin(x) − 2` — all returned `[]`. The existing trig solvers only
+  handle a single trig atom; a `cos(2x)` term alongside `sin(x)` is two distinct
+  atoms with different arguments.
+- **Fix:** added `solve_trig_reduce` in `src/solvers/solve.cpp`. It applies
+  `expand_trig` to rewrite every multiple angle in terms of `sin θ`, `cos θ` for
+  the common base angle θ, substitutes `s = sin θ`, `c = cos θ`, then reduces
+  `s² → 1 − c²` to the canonical form `P(c) + s·Q(c) = 0`:
+  - `Q ≡ 0` → `P(cos θ) = 0` (polynomial in cosine, both ± angles per root);
+  - `P ≡ 0` → `sin θ = 0` together with `Q(cos θ) = 0`;
+  - mixed → `s = −P/Q` with `s² = 1 − c²` gives `P² − (1−c²)Q² = 0`, a polynomial
+    in `cos θ`; each in-range real root fixes `sin θ`'s sign (via `evalf`), hence
+    a unique representative angle.
+  The resultant is built by convolving coefficient vectors rather than squaring
+  symbolically, since `expand` does not distribute a power over a product
+  (`(2c)²` stays unflattened). Complex cosine roots (e.g. `sin x + cos x − 5`,
+  which has no real solution) are rejected by a strict real-in-[−1,1] test.
+- **Verified:** `sin(x)−cos(2x)`, `cos(2x)±cos(x)`, `cos(2x)±sin(x)`,
+  `sin(2x)−sin(x)`, `sin(2x)−cos(x)`, `cos(2x)+3sin(x)−2`, `cos(3x)−cos(x)` and
+  more — every returned root substitutes back to satisfy the equation and the
+  real solution set is complete (checked against SymPy); `sin(x)+cos(x)−5`
+  stays empty.
+- **Regression test:** `SOLVE-TRIG-MULTIANGLE-1` in
+  `tests/solvers/solve_test.cpp` (`[10][solve][trig][oracle][regression]`).
+- **Scope:** a single base angle affine in the variable. Genuinely
+  transcendental mixed equations (`tan x = x`, `sin x + x`) remain separate gaps.
+
+### ASIN-ACOS-NEGSPECIAL-1 — `asin`/`acos` left negative √-special values unevaluated
+- **Problem:** `acos(−√3/2)`, `acos(−√2/2)`, `asin(−√3/2)` stayed unevaluated,
+  while `acos(−1/2)` folded correctly. The odd-identity reduction
+  `asin(−x) = −asin(x)` is driven by `strip_neg`, which only recognized a
+  leading integer `−1`; a Mul with a negative *rational* coefficient
+  (`−½·√3`) was not stripped, so the positive-argument special-value table never
+  ran.
+- **Fix:** generalized `strip_neg` in `src/functions/trigonometric.cpp` to pull
+  any negative numeric leading coefficient (`−½·√3 → ½·√3`, `−3·g → 3·g`), not
+  just `−1·g`.
+- **Verified:** `asin(−√3/2) = −π/3`, `asin(−√2/2) = −π/4`, `acos(−√3/2) = 5π/6`,
+  `acos(−√2/2) = 3π/4`. This also cleans up `solve_trig_reduce`'s output (clean
+  `5π/6` instead of `acos(−√3/2)`).
+- **Regression test:** extended `asin`/`acos` exact-special-argument cases in
+  `tests/functions/inverse_trig_test.cpp`.
+
+### SOLVE-TRIG-PHASE-1 — `solve` returned `[]` for trig arguments with an additive phase
+- **Problem:** `solve(sin(x+1)-1/2)`, `solve(cos(2x+π/3))`, `solve(tan(x+1)-1)`
+  and similar all returned `[]`. The trig solvers (`solve_trig`,
+  `solve_trig_poly`) only accepted a bare `B·x` argument — any additive phase
+  inside the inner function (`x+1`, `2x+π/3`) failed the `arg == B·var` test.
+- **Fix:** added an `affine_arg` helper in `src/solvers/solve.cpp` that
+  decomposes a trig argument as `B·var + P` (B, P var-free, B ≠ 0) via a
+  degree-1 polynomial read. `append_trig_roots` now takes the phase `P` and
+  inverts each principal angle θ as `var = (θ − P)/B`. Both `solve_trig` and
+  `solve_trig_poly` route their argument through `affine_arg`, so a bare `B·x`
+  (P = 0) is just the special case.
+- **Verified:** `sin(x+1)-1/2`, `cos(2x+π/3)`, `sin(2x+1)`, `tan(x+1)-1`,
+  `sin(x+1)²-1/4` each return representative roots that substitute back to
+  satisfy the equation (checked against SymPy); the bare-argument and
+  scaled-argument cases (`2sin(x)-1`, `cos(2x)-1/2`) are unchanged.
+- **Regression test:** `SOLVE-TRIG-PHASE-1` in
+  `tests/solvers/solve_test.cpp` (`[10][solve][trig][oracle][regression]`,
+  6 assertions).
+- **Scope:** single trig atom with an argument affine in the variable. A
+  nonlinear inner argument (`sin(x²)`) or genuinely transcendental mixed
+  equations (`tan(x) = x`, `sin(x) + x`) remain separate gaps.
+
+### INT-BIQUAD-NUM-1 — `∫x²/(x⁴+1)` (even numerator over a biquadratic) was unevaluated
+- **Problem:** `INT-BIQUADRATIC-1` only handled `1/(biquadratic)`. A polynomial
+  numerator over the same irreducible biquadratic — `∫x²/(x⁴+1)`,
+  `∫(x²+1)/(x⁴+1)`, `∫(3x²+2)/(x⁴+4)` — still came back unevaluated, since the
+  rational path factors only over ℚ.
+- **Fix:** generalized `try_biquadratic` in `src/integrals/integrate.cpp` to
+  accept `N·base^(-1)` where `N` is an even polynomial of degree ≤ 2
+  (`n₀+n₂·x²`; odd numerators are left to the cleaner substitution paths). The
+  numerator is distributed across the two real-quadratic partial fractions
+  (`s_q=n₀/b`, `d_p=(n₂−s_q)/a`), each `(α·x+β)/(x²±a·x+b)` piece integrating to
+  `log + arctan` as before. To keep clean closed forms, `try_rational` now
+  defers (returns `nullopt`) whenever a monomial substitution applies — so
+  `x²/(x⁶+1)` still yields `⅓·atan(x³)` rather than a partial-fraction expansion,
+  while non-candidate forms like `x²/(x⁴+1)` reach the biquadratic path.
+- **Verified:** `x²/(x⁴+1)`, `(x²+1)/(x⁴+1)`, `x²/(x⁴+x²+1)`, `1/(x⁴+1)`,
+  `(3x²+2)/(x⁴+4)` each differentiate back to the integrand; `x²/(x⁶+1)`,
+  `x/(x²+1)` and the prior biquadratic/rational cases are unchanged.
+- **Regression test:** `INT-BIQUAD-NUM-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  8 assertions).
+- **Scope:** even numerators (degree ≤ 2) over an irreducible biquadratic. Odd
+  numerators and higher-degree numerators remain on the substitution/rational
+  paths.
+
+### LIMIT-RAT-SYM-1 — limit of a rational function at ∞ broke with symbolic coefficients
+- **Problem:** `limit((x+a)/x, x, ∞)` returned `0` (should be `1`), and
+  `a·x/(x+1)` stayed unevaluated. Numeric-coefficient rationals (`(2x+1)/(x+1)→2`)
+  worked, but a symbolic (var-free) coefficient broke direct ∞ substitution (it
+  collapsed `∞·0` to `0`) and the L'Hôpital fallback. As a knock-on,
+  `(1+a/x)^x` (the `1^∞` form) returned `nan` instead of `eᵃ`, because its base
+  limit `1+a/x → 1` was being computed as `0`.
+- **Fix:** added `rational_limit_at_infinity` in `src/calculus/limit.cpp`, run at
+  the top of `limit_impl` for an infinite target (before the unreliable
+  substitution). It splits `N/D`, requires polynomial var-free coefficients, and
+  returns the limit by degree comparison and the leading-coefficient ratio
+  (`deg N < deg D → 0`, `= → lead_N/lead_D`, `> → ±∞`).
+- **Verified:** `(x+a)/x → 1`, `a·x/(x+1) → a`, `(a·x²+1)/(x²+x) → a`,
+  `(x²+a)/(x+1) → ∞`, and `(1+a/x)^x → eᵃ` all match `sympy.limit`; numeric cases
+  unchanged.
+- **Regression test:** `LIMIT-RAT-SYM-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][limit][infinity][oracle][regression]`,
+  7 assertions).
+- **Scope:** rational functions with var-free coefficients. A symbolic exponent
+  rate `(1+a/x)^(b·x)` still needs `lim b·x = sign(b)·∞`, which depends on `b`'s
+  unknown sign — left unevaluated.
+
+### INT-BIQUADRATIC-1 — `∫1/(x⁴+1)` (irreducible biquadratic) was unevaluated
+- **Problem:** `∫1/(x⁴+1)` — the canonical biquadratic that is irreducible over ℚ
+  — and its scaled relatives (`1/(x⁴+4)`, `1/(2x⁴+2)`) came back unevaluated. The
+  rational path only factors over ℚ; `x⁴+1` factors only over ℚ(√2). This was the
+  long-standing headline integration gap (previously deferred to a full
+  Lazard–Rioboo–Trager implementation).
+- **Fix:** added `try_biquadratic` in `src/integrals/integrate.cpp` (after
+  `try_arctan_quadratic`). For a denominator `a₄x⁴+a₂x²+a₀` it normalizes to
+  `x⁴+p·x²+q` and, when `q>0` and `|p|<2√q` (real irreducible quadratic factors),
+  factors `x⁴+p·x²+q = (x²+a·x+b)(x²−a·x+b)` with `b=√q`, `a=√(2√q−p)`. Partial
+  fractions give two `(P·x+Q)/(irreducible quadratic)` pieces, each integrated
+  directly to a `log + arctan` (handling the irrational `a`,`b` that the generic
+  `try_linear_over_quadratic` can't). Runs only when `try_rational` (which handles
+  the ℚ-factorable biquadratics like `x⁴+x²+1`) has already failed.
+- **Verified:** `1/(x⁴+1)`, `1/(x⁴+4)`, `1/(2x⁴+2)`, `1/(x⁴+9)`, `1/(3x⁴+12)` each
+  differentiate back to the integrand; the ℚ-factorable (`x⁴+x²+1`, `x⁴−1`) and
+  quadratic cases are unchanged.
+- **Regression test:** `INT-BIQUADRATIC-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  9 assertions).
+- **Scope:** biquadratics (`x⁴+p·x²+q`, no `x`/`x³` term) with real irreducible
+  factors. A general irreducible quartic with an `x³` or `x` term, or one needing
+  a higher algebraic extension, is still a separate (LRT-scale) gap.
+
+### INT-QUAD-IRRATIONAL-1 — `∫1/(quadratic)` failed for positive-discriminant irrational roots
+- **Problem:** `∫1/(x²−3)`, `∫1/(2x²−3)`, `∫1/(x²+x−1)` came back unevaluated. The
+  arctan handler only covered `Δ<0` (no real roots), and `try_rational` only
+  factors over ℚ — so a quadratic with a positive discriminant but irrational
+  roots (no rational factorization) fell through both.
+- **Fix:** in `src/integrals/integrate.cpp`, `try_arctan_quadratic` now handles
+  the `disc < 0` (i.e. `Δ = b²−4ac > 0`) branch too:
+  `∫1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)]/√Δ`. It only reaches this
+  branch for irrational roots, since rational-root quadratics are split into
+  clean logs by `try_rational`, which runs first.
+- **Verified:** `1/(x²−3)`, `1/(3−x²)`, `1/(2x²−3)`, `1/(x²−2)`, `1/(x²+x−1)`,
+  `1/(5x²−7)` each differentiate back to the integrand; the rational-root
+  (`1/(x²−1)`) and `Δ<0` (`1/(x²+1)`) cases are unchanged. This also retroactively
+  closes `∫1/(x·√(2x+3))` (INT-LINRADICAL-SUB-1's documented limitation), whose
+  reduced `∫2/(u²−3)` now resolves.
+- **Regression test:** `INT-QUAD-IRRATIONAL-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  10 assertions).
+- **Scope:** quadratics with rational coefficients; the irreducible-over-ℚ
+  *quartic* `1/(x⁴+1)` (algebraic-extension factorization) is still a separate,
+  larger gap.
+
+### INT-LINRADICAL-SUB-1 — `integrate` missed the √(a·x+b) substitution
+- **Problem:** integrands containing a radical of a non-trivial linear inner —
+  `∫1/(x·√(x+1))`, `∫√(x+1)/x` — came back unevaluated. `try_radical_substitution`
+  only handles `√x` (inner = var), not `√(a·x+b)`.
+- **Fix:** added `try_linear_radical_substitution` in
+  `src/integrals/integrate.cpp` (run after `try_radical_substitution`). It finds a
+  `√(a·x+b)` factor (linear base, `b ≠ 0`), substitutes `x = (u²−b)/a`,
+  `dx = (2u/a) du` (mapping `√(a·x+b) → u` and `x → (u²−b)/a` via `xreplace`),
+  integrates in `u`, and back-substitutes `u = √(a·x+b)`.
+- **Verified:** `∫1/(x·√(x+1))`, `∫√(x+1)/x`, `∫1/(√(x+1)+1)`, `∫x·√(x+1)` each
+  differentiate back to the integrand; a bare `√(x+1)` still goes through the
+  power rule.
+- **Regression test:** `INT-LINRADICAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  9 assertions).
+- **Scope:** the reduced `u`-integral must be solvable downstream — e.g.
+  `∫1/(x·√(2x+3))` reduces to `∫2/(u²−3)`, which needs a √3 factorization the
+  rational integrator doesn't do, so it stays unevaluated (graceful, not wrong).
+
+### INT-RADICAL-SUB-1 — `integrate` missed the radical substitution u = x^(1/d)
+- **Problem:** integrands that are functions of a radical `x^(1/d)` came back
+  unevaluated — `∫exp(√x)`, `∫sin(√x)`, `∫1/(1+√x)`, `∫1/(1+x^(1/3))` all returned
+  `Integral(…)`, where SymPy gives elementary closed forms.
+- **Fix:** added `try_radical_substitution` in `src/integrals/integrate.cpp`
+  (run after `try_heurisch`). It takes `d = lcm` of the denominators of every
+  `var` exponent; if `d > 1` it substitutes `x = uᵈ` (`dx = d·u^(d-1) du`,
+  rewriting each `x^e → u^(e·d)` via `xreplace`), integrates the now-rational/
+  elementary integrand in `u`, and back-substitutes `u = x^(1/d)`. This parallels
+  the `solve_radical_poly` substitution.
+- **Verified:** `∫exp(√x)`, `∫sin(√x)`, `∫1/(1+√x)`, `∫1/(√x+x)`, `∫1/(1+x^(1/3))`
+  each differentiate back to the integrand (oracle), with the explicit
+  `∫exp(√x) = 2√x·exp(√x) − 2exp(√x)`; the power rule still handles plain `√x`.
+- **Regression test:** `INT-RADICAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  12 assertions).
+- **Scope:** a single radical generator `x^(1/d)`; nested or mixed radicals
+  (`√(x+√x)`) need a different substitution.
+
+### SUM-POLYGEOM-1 — `summation` of P(k)·rᵏ only worked for degree 1
+- **Problem:** `Σ k²·2ᵏ`, `Σ (2k+1)·3ᵏ`, `Σ k²/2ᵏ` came back unevaluated; only the
+  hardcoded degree-1 `Σ k·rᵏ` formula existed.
+- **Fix:** added `sum_poly_geometric` in `src/calculus/summation.cpp`. For a
+  summand `P(k)·r^(c·k+d)` (P a polynomial of degree ≥1, ratio `r = base^c` a
+  concrete number ≠1) it finds the antidifference `S(k) = Q(k)·rᵏ`, where `Q` has
+  the same degree and satisfies `r·Q(k+1) − Q(k) = P(k)`. The coefficients solve
+  top-down: `q_j = [P_j − r·Σ_{i>j} C(i,j) q_i]/(r−1)`. The sum is then
+  `S(hi+1) − S(lo)`.
+- **Verified:** `k²·2ᵏ`, `k³·2ᵏ`, `k⁴·2ᵏ`, `(2k+1)·3ᵏ`, `(k²−k+1)·3ᵏ`, `k²/2ᵏ`
+  all checked equal to `sympy.summation`, plus a concrete numeric range; the
+  degree-1 path is unchanged.
+- **Regression test:** `SUM-POLYGEOM-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  8 assertions).
+- **Scope:** concrete numeric ratio `r ≠ 1` (a symbolic ratio would need a
+  `Piecewise` on `r = 1`, matching SymPy's restriction).
+
+### SUM-FAULHABER-1 — `summation` of kᵖ only worked for p ∈ {2, 3}
+- **Problem:** `Σ_{k=1}^n k⁴` (and any higher power) came back as an unevaluated
+  `Sum(…)`; only the hardcoded `k²` and `k³` formulas existed.
+- **Fix:** in `src/calculus/summation.cpp`, replaced the special cases with
+  general Faulhaber's formula `Σ_{k=1}^n kᵖ = 1/(p+1)·Σ_{j=0}^p C(p+1,j) B_j
+  n^(p+1−j)`, using the `bernoulli` numbers (added in BERNOULLI-EULER-1) and
+  binomial coefficients. Evaluated for any positive integer `p` (capped at 200
+  for cost) and over an arbitrary range via `F(hi) − F(lo−1)`.
+- **Verified:** `Σ kᵖ` for `p = 2…15` checked equal to `sympy.summation`,
+  including a partial range `Σ_{k=2}^n k⁴`; no leftover `Sum()` marker.
+- **Regression test:** `SUM-FAULHABER-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  13 assertions). The existing `k²`/`k³` oracle tests still pass on the new
+  (unfactored but equivalent) form.
+- **Scope:** integer powers of the bare summation variable; `Σ P(k)` for a
+  general polynomial `P` already works through the existing Add-linearity path.
+
+### SOLVE-EXPSUM-1 — `solve` returned `[]` for a Laurent polynomial in exp(x)
+- **Problem:** `exp(x)+exp(-x)-2` and `exp(2x)-3·exp(x)+2` came back empty (or
+  incomplete). They mix several `exp(m·x)` atoms, so `solve_exp_log_poly`
+  (single atom, unit rate) bailed; SymPy returns `[0]` and `[0, log(2)]`.
+- **Fix:** added `solve_exp_sum` in `src/solvers/solve.cpp`. It collects every
+  `exp(m·x)` (integer m), substitutes `u = exp(x)` so `exp(m·x) → uᵐ`, solves the
+  resulting equation in `u` recursively (the rational/poly paths clear the
+  negative powers from `exp(-x)`), and inverts each root via `x = log(u)`. Because
+  the multiplicity lives in the polynomial in `u`, scaled exponents now yield
+  every complex representative, matching SymPy: `exp(2x)=1 → {0, iπ}`,
+  `exp(3x)=1 → {0, ±2iπ/3}`. This also closes the previously-deferred composite
+  case `exp(2x)-3·exp(x)+2`.
+- **Verified:** `exp(x)±exp(-x)[-2]`, `exp(2x)-{3,5}exp(x)+{2,6}`, `exp(2x)-1`,
+  `exp(3x)-1`, `exp(x)+exp(-x)-5/2` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-EXPSUM-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 6 assertions).
+- **Scope:** exponents must be integer multiples of `x` (`exp(x/2)` would need a
+  finer base). A bare `x` outside the exponentials (`x·eˣ`) leaves it to the
+  LambertW path.
+
+### SOLVE-RADPOLY-1 — `solve` returned `[]` for a polynomial in a radical x^(1/d)
+- **Problem:** `x − √x − 2` came back empty, where SymPy gives `[4]` (a quadratic
+  in `√x`: `u²−u−2=0 → u=2`, dropping `u=−1`). The polynomial path can't build a
+  `Poly` through the fractional power, and SOLVE-RAD-1 only inverts the single
+  form `gᵖ=c`.
+- **Fix:** added `solve_radical_poly` in `src/solvers/solve.cpp`. It collects
+  every `x^e` (e rational) and the bare `var`, takes `d = lcm` of the exponent
+  denominators, substitutes `t = x^(1/d)` (rewriting each `x^e → t^(e·d)` via
+  `xreplace`), solves the polynomial in `t`, and back-substitutes `x = t^d`. Each
+  candidate is verified against the original equation, so extraneous roots
+  (`√x = −1 ⇒ x = 1`) are dropped automatically.
+- **Verified:** `x−√x−2 → [4]`, `x−3√x+2 → [1,4]`, `x+√x−6 → [4]` (extraneous 9
+  dropped), `x−√x → [0,1]`, `x^(1/3)−2 → [8]` all equal to `sympy.solve`; plain
+  polynomials untouched.
+- **Regression test:** `SOLVE-RADPOLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`, 6 assertions).
+- **Scope:** a single radical generator `x^(1/d)`. Mixed independent radicals
+  (`√x + √(x+1) − 3`) need rationalization first and remain a follow-up.
+
+### BERNOULLI-EULER-1 — `bernoulli` and `euler` numbers were missing
+- **Problem:** `bernoulli(4)` and `euler(4)` parsed only as undefined functions,
+  where SymPy gives `−1/30` and `5`.
+- **Fix:** added `Bernoulli` and `Euler` functions (FunctionId, classes, builders,
+  parser entries) in `src/functions/combinatorial.cpp`, each from its binomial
+  recurrence. `bernoulli(n)` builds `Bₖ` exactly as rationals via
+  `B_m = −1/(m+1)·Σ_{k<m} C(m+1,k) Bₖ`, returning SymPy's convention `B₁ = +1/2`;
+  `euler(n)` builds the secant numbers via `E_{2m} = −Σ_{k<m} C(2m,2k) E_{2k}`.
+  Odd `Bₙ>1` and odd `Eₙ` vanish; symbolic/negative arguments stay unevaluated.
+- **Verified:** `bernoulli(0…20)` and `euler(0…16)` checked against SymPy,
+  including `bernoulli(12)=−691/2730` and `euler(10)=−50521`.
+- **Regression test:** `BERNOULLI-EULER-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][bernoulli][euler][oracle]`,
+  16 assertions).
+- **Scope:** integer-index Bernoulli/Euler numbers only; the polynomial forms
+  `bernoulli(n, x)` / `euler(n, x)` remain. This completes the elementary
+  special-number family (harmonic, bernoulli, euler).
+
+### HARMONIC-FACT2-1 — `harmonic` and `factorial2` were missing
+- **Problem:** `harmonic(5)` and `factorial2(5)` parsed only as undefined
+  functions, where SymPy gives `137/60` and `15`.
+- **Fix:** added `Harmonic` and `Factorial2` functions (FunctionId, classes,
+  builders, parser entries) in `src/functions/combinatorial.cpp`. `harmonic(n)`
+  accumulates `Σ_{k=1}^n 1/k` exactly as an `mpq_class` and returns a Rational;
+  `factorial2(n)` multiplies `n(n−2)(n−4)…` down to 1 or 2, with the empty-product
+  conventions `factorial2(0)=factorial2(−1)=1`. Symbolic and out-of-domain
+  arguments stay unevaluated, matching SymPy.
+- **Verified:** `harmonic` on `{0,1,2,5,10,20,50,100}` and `factorial2` on
+  `{0,1,2,5,6,7,10,15,20,−1}` checked against SymPy.
+- **Regression test:** `HARMONIC-FACT2-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][harmonic][factorial2][oracle]`,
+  13 assertions).
+- **Scope:** single-argument `harmonic` (Hₙ) only; SymPy's generalized
+  `harmonic(n, m) = Σ 1/kᵐ`, plus the `bernoulli` and `euler` numbers (which need
+  a recurrence), remain.
+
+### SOLVE-EXPBASE-1 — `solve` returned `[]` for constant-base exponentials a^x = c
+- **Problem:** `2^x−8`, `3^x−9`, `5^x−3` all came back empty. `a^x` is a `Pow`
+  with a numeric base (not the `exp` function), so it never reached the
+  transcendental solve path. SymPy returns `[3]`, `[2]`, `[log(3)/log(5)]`.
+- **Fix:** added `solve_const_base_exp` in `src/solvers/solve.cpp` (tried right
+  after `solve_rational`, since these skip the function-of-var branch). For
+  `A·a^x + C = 0` it returns `x = log(−C/A)/log(a)`, collapsing to the exact
+  integer exponent when `−C/A` is a power of `a` (`2^x=8 → 3`). `a^x=0` correctly
+  yields no solution, and a negative RHS gives the complex log form matching
+  SymPy (`2^x=−7 → (log7+iπ)/log2`).
+- **Verified:** `2^x−{8,7,1}`, `3^x−9`, `5^x−3`, `10^x−100`, `6^x−36`, `2^x`,
+  `2^x+7` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-EXPBASE-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 11 assertions).
+- **Scope:** restricted to a non-perfect-power integer base and a bare exponent
+  (`b=1`). For a perfect-power base (`4^x`) or scaled exponent (`2^(2x)`), SymPy
+  enumerates extra complex representatives (the smaller complex period) that a
+  single-root inversion would miss, so those stay unsolved — the same
+  real-vs-complex completeness boundary as the `exp(B·x)` case (SOLVE-EXPLOG-POLY-1).
+
+### SERIES-SINGULAR-1 — `series` emitted zoo/nan garbage at a singular point
+- **Problem:** `series` built Taylor coefficients by substituting `x=x0` into each
+  derivative. At a point where the function is singular this gave non-finite
+  values that poisoned the whole sum: `series(log(x), x, 0)` →
+  `zoo + x·zoo + …`, and removable singularities like `sin(x)/x` → `nan`. SymPy
+  returns `log(x)`/`1/x`/`sqrt(x)` as-is and gives the proper Taylor series for
+  `sin(x)/x`.
+- **Fix in `src/calculus/series.cpp`:** when a coefficient `subs(dᵏf, x, x0)` is
+  non-finite, fall back to `limit(dᵏf, x, x0)`. A removable singularity has a
+  finite limit, so the correct Taylor coefficient is recovered
+  (`sin(x)/x → 1 − x²/6 + …`); a genuine singularity stays non-finite, so the
+  series can't be formed and the input is returned unchanged
+  (`series(log(x),x,0)=log(x)`), matching SymPy.
+- **Verified:** `log(x)`, `1/x`, `√x`, `1/x²` return as-is; `sin(x)/x`,
+  `(eˣ−1)/x` give the SymPy Taylor series; ordinary analytic functions unchanged.
+- **Regression test:** `SERIES-SINGULAR-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][series][oracle][regression]`,
+  7 assertions).
+- **Scope:** genuine poles return the function unexpanded rather than a Laurent
+  series (`cot(x)`, `eˣ/x` — SymPy gives `1/x − x/3 + …`), and a few removable
+  cases whose high-order derivative limits don't resolve (`tan(x)/x`) also return
+  unexpanded — graceful, never garbage. A true Laurent/Puiseux `series` is a
+  larger effort.
+
+### SOLVE-LAMBERT-1 — `solve` returned `[]` for Lambert-W equations
+- **Problem:** `x·eˣ−1`, `x·e^(2x)−1`, `x·eˣ+1` all came back empty, where SymPy
+  inverts them with the Lambert W function: `[W(1)]`, `[W(2)/2]`, `[W(−1)]`.
+- **Fix:** added `solve_lambert` in `src/solvers/solve.cpp`. It detects the
+  canonical form `a·x·exp(b·x)+c=0` (a, b var-free, b≠0, x to the first power,
+  exp argument linear) and returns `x = W(−c·b/a)/b` using the defining identity
+  `W(z)·e^(W(z))=z`. SymPP already had the `lambertw` function; this wires `solve`
+  to produce it.
+- **Verified:** `x·eˣ−{1,2}`, `x·eˣ+1`, `x·e^(2x)−1`, `2x·eˣ−1`, `x·e^(3x)−5`,
+  and the homogeneous `x·eˣ → 0` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-LAMBERT-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 7 assertions). SOLVE-VAR-1's
+  comment was updated — it no longer claims SymPP lacks a LambertW solver.
+- **Update (rearrangement forms now covered):** `solve_lambert` was extended to
+  the product-log `a·x·log(x)+c → exp(W(−c/a))` and the additive
+  `x+eˣ+c → −c−W(e^(−c))` / `x+log(x)+c → W(e^(−c))` forms (additive forms
+  require unit coefficients and argument `var`). Verified against SymPy for
+  `x·log(x)∓{1,2}`, `x+log(x)+{−1,0,1}`, `x+eˣ+{−1,0,1}`, incl. the
+  auto-evaluating `x+log(x)−1 → 1` and `x+eˣ−1 → 0`. Remaining: scaled arguments
+  / non-unit coefficients in the additive forms, and `log(b·x)` in the product
+  form.
+
+### LIMIT-SIGN-1 — `limit` of a discontinuous `sign`/`abs` returned the point value
+- **Problem:** `limit(sign(x), x, 0)` returned `0` — the point value `sign(0)=0`
+  — instead of recognising the discontinuity. `sign(x²)` gave `0` (should be 1),
+  and `|x|/x` gave `0` (via L'Hôpital → `sign(x)` → `0`). The two-sided limit of
+  these is the sign of the inner just around the target, not at it.
+- **Fix:** added `resolve_sign_limit` in `src/calculus/limit.cpp`, run at the top
+  of `limit_impl`. It collects every `sign(g)`/`abs(g)` subexpression whose
+  argument tends to 0, then evaluates the limit in the right- and
+  left-neighborhoods with each replaced by its sampled one-sided value
+  (`sign(g)→±1`, `abs(g)=g·sign(g)→g·(±1)`). Agreeing sides give the limit;
+  disagreeing sides return `nan` (the two-sided limit does not exist). The
+  side-sampling `side_sign_at` helper is shared with `signed_pole`.
+- **Verified:** matches SymPy's two-sided `limit(…, '+-')` for `sign(x)`,
+  `sign(-x)`, `sign(x³)` → DNE; `sign(x²)` → 1; `|x|/x`, `x/|x|`,
+  `sin(x)/|x|` → DNE; `sign(x)·x` → 0; `|x|`, `|x−3|` continuous. Note `0·zoo`
+  was already `nan` in core arithmetic — the bug was solely the point-value
+  substitution.
+- **Regression test:** `LIMIT-SIGN-1` in `tests/calculus/series_limit_test.cpp`
+  (`[6][limit][regression]`, 9 assertions).
+- **Scope:** when a side substitution leaves its own singularity (`|x|/x²`), the
+  still-two-sided sub-limit yields `zoo` rather than the directional `+oo`; and
+  `floor`/`ceiling`/`Heaviside` at their jumps still return the point value (a
+  separate discontinuity class). SymPP keeps its two-sided convention throughout
+  (SymPy defaults to the right-hand limit).
+
+### ARITH-FN-1 — `mobius`, `divisor_count`, `divisor_sigma` were missing
+- **Problem:** the multiplicative arithmetic functions stayed symbolic —
+  `mobius(30)`, `divisor_count(12)`, `divisor_sigma(12)` parsed only as undefined
+  functions, where SymPy gives `−1`, `6`, `28`.
+- **Fix:** added `Mobius`, `DivisorCount`, `DivisorSigma` functions sharing one
+  trial-division `factorize` helper in `src/functions/combinatorial.cpp`. From the
+  `(prime, exponent)` list: `μ(n)` is 0 on any squared factor else `(−1)^#primes`;
+  `σ₀(n)=∏(eᵢ+1)`; `σ₁(n)=∏(p^(eᵢ+1)−1)/(p−1)`. Symbolic and non-positive
+  arguments stay unevaluated, matching SymPy.
+- **Verified:** all three checked against SymPy for `{1,2,7,12,30,36,60,100,210,
+  720,9973}`, including perfect numbers (`σ₁(6)=12`, `σ₁(28)=56`) and a large
+  composite (`σ₁(720)=2418`).
+- **Regression test:** `ARITH-FN-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][mobius][divisor][oracle]`, 17 assertions).
+- **Scope:** single-argument `divisor_sigma` (σ₁) only; SymPy's two-argument
+  `divisor_sigma(n, k)` (σ_k) and `isprime`/`factorint`/`divisors` remain.
+
+### PRIME-PRIMEPI-1 — `prime(n)` and `primepi(n)` were missing
+- **Problem:** following TOTIENT-1, the prime-indexing/counting functions stayed
+  symbolic — `prime(5)`, `primepi(10)` parsed only as undefined functions, where
+  SymPy gives `11` and `4`.
+- **Fix:** added `Prime` and `PrimePi` functions (FunctionId, classes, builders,
+  parser entries) in `src/functions/combinatorial.cpp` /
+  `include/sympp/functions/combinatorial.hpp`. `prime(n)` walks `mpz_nextprime`
+  `n` times for the n-th prime; `primepi(n)` counts primes ≤ n the same way
+  (clamping to 0 below 2). Symbolic args and a non-positive `prime` index stay
+  unevaluated, matching SymPy.
+- **Verified:** `prime` on `{1,5,10,100,1000}` and `primepi` on
+  `{1,2,10,100,10000}` checked against SymPy, plus the round-trips
+  `prime(primepi(13))=13` and `primepi(prime(7))=7`.
+- **Regression test:** `PRIME-PRIMEPI-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][prime][primepi][oracle]`,
+  16 assertions).
+- **Scope:** the `mpz_nextprime` walk is linear in the index/count (safety-bounded
+  at `prime(10⁶)` / `primepi(10⁸)`); a very large `primepi` would want a
+  Meissel–Mertens sieve. `isprime`, `factorint`, `divisors` remain.
+
+### TOTIENT-1 — Euler's totient `totient(n)` was missing
+- **Problem:** `totient(n)` parsed only as an undefined function and never
+  evaluated, where SymPy's `totient` computes Euler's φ for positive integers
+  (`totient(12)=4`, `totient(7)=6`).
+- **Fix:** added a `Totient` function (FunctionId, class, builder, parser entry)
+  in `src/functions/combinatorial.cpp` / `include/sympp/functions/combinatorial.hpp`.
+  For a positive Integer it computes `φ(n) = n·∏_{p|n}(1−1/p)` by trial-dividing
+  out each distinct prime; symbolic and non-positive arguments stay unevaluated,
+  matching SymPy.
+- **Verified:** values for `{1,2,7,12,17,36,100,1000000}` and a large composite
+  (`totient(360360)=69120`) checked against SymPy.
+- **Regression test:** `TOTIENT-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][totient][oracle]`, 11 assertions).
+- **Scope:** trial-division factorization is fine for everyday inputs; a
+  cryptographically large `n` with two huge prime factors would be slow (SymPy
+  has the same characteristic). Related number-theory functions (`isprime`,
+  `primepi`, `factorint`) remain unimplemented.
+
+### SOLVE-INVFN-1 — `solve` returned `[]` for inverse trig/hyperbolic equations
+- **Problem:** `asin(x)−1`, `atan(x)−1`, `asinh(x)−2`, … all came back empty,
+  where SymPy returns `[sin(1)]`, `[tan(1)]`, `[sinh(2)]` — the forward-function
+  inverse. Range-violating equations (`asin(x)−2`, with `2 > π/2`) should give
+  `[]`.
+- **Fix:** added `solve_inverse_func_poly` in `src/solvers/solve.cpp`. It detects
+  a polynomial in one inverse atom `g⁻¹(B·x)` (`g⁻¹ ∈
+  {asin,acos,atan,asinh,acosh,atanh}`), substitutes/solves for the inner value
+  `c`, and inverts with the forward function: `g⁻¹(B·x)=c → x = g(c)/B`. Each `c`
+  is range-checked against the inverse function's codomain (asin `[−π/2,π/2]`,
+  acos `[0,π]`, atan `(−π/2,π/2)`, acosh `[0,∞)`; asinh/atanh unbounded) via a
+  numeric `evalf`, so out-of-range roots are dropped. Inverse functions are
+  single-valued, so any `B` is handled.
+- **Verified:** fourteen equations checked equal to `sympy.solve`, including an
+  auto-evaluating RHS (`asin(x)=π/6 → 1/2`), a scaled argument
+  (`atan(2x)=1 → tan(1)/2`), a quadratic (`asin(x)²=1 → ±sin(1)`), and three
+  range rejections.
+- **Regression test:** `SOLVE-INVFN-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 12 assertions).
+
+### SOLVE-RATIONAL-1 — `solve` returned `[]` for rational equations
+- **Problem:** any equation with a var-dependent denominator came back empty —
+  `x+1/x−2`, `1/x−1/2`, `1/(x−1)+1/(x+1)`, `(x²−1)/(x−1)` all yielded `[]`, where
+  SymPy returns `[1]`, `[2]`, `[0]`, `[−1]`. The polynomial path can't build a
+  `Poly` from a `1/x` term, and rational equations carry no Function/radical so
+  they skipped the transcendental branch too.
+- **Fix:** added `solve_rational` in `src/solvers/solve.cpp` (tried after the
+  polynomial path fails). It `together()`s the equation into `N/D`, solves
+  `N(var)=0` recursively, and discards any root that vanishes the denominator
+  (`subs(D, var, r) = 0`) — so a removable pole like `x=1` in `(x²−1)/(x−1)` is
+  dropped rather than returned.
+- **Verified:** solution sets checked set-equal to `sympy.solve` for ten
+  equations, including pole removal, an irrational two-root case
+  (`1/x+1/(x−1)−2`), and no-solution constant numerators (`1/(x+1)−1/(x−1)`).
+- **Regression test:** `SOLVE-RATIONAL-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`, 6 assertions).
+- **Scope:** denominators of integer powers (`1/(x−1)²`); a radical denominator
+  (`1/√x`) stays the radical path's job.
+
+### SOLVE-EXPLOG-POLY-1 — `solve` returned `[]` for a polynomial in exp(x) or log(x)
+- **Problem:** `solve` handled a single `exp(x)−c` / `log(x)−c` but came back empty
+  for any higher-degree polynomial in one transcendental atom — `exp(x)²−3exp(x)+2`,
+  `log(x)²−1`, `log(x)²−3log(x)+2` all yielded `[]`, where SymPy returns
+  `[0, log(2)]`, `[e, 1/e]`, `[e, e²]`. (This is the exp/log analogue of the trig
+  case closed in SOLVE-TRIG-POLY-1.)
+- **Fix:** added `solve_exp_log_poly` in `src/solvers/solve.cpp`. It detects a
+  polynomial in exactly one `exp`/`log` atom `g(B·x)`, substitutes `u = g(B·x)`,
+  solves the polynomial in `u` with the `Poly` root finder, and inverts each
+  root: `exp(B·x)=c → log(c)/B` (skipping `c=0`, which has no solution),
+  `log(B·x)=c → exp(c)/B`. Complex roots are included where SymPy includes them
+  (`exp(x)=−1 → iπ`).
+- **Verified:** solution sets checked set-equal to `sympy.solve` for nine
+  equations (quadratic/cubic in exp and log, repeated roots, a scaled log
+  argument, complex roots).
+- **Regression test:** `SOLVE-EXPLOG-POLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 5 assertions).
+- **Scope:** the `exp` inversion is taken only for `B=1` — `exp(B·x)=c` with
+  `B≠1` has `B` complex representatives (period `2πi/B`) whose enumeration is out
+  of scope; `log` is single-valued, so any `B` is handled. A composite like
+  `exp(2x)` alongside `exp(x)` is two distinct atoms and needs an
+  `exp(2x)=exp(x)²` rewrite — a follow-up.
+
+### RADSIMP-SIMPLIFY-2 — `simplify` didn't rationalize two-surd denominators
+- **Problem:** following RADSIMP-SIMPLIFY-1, denominators that are a sum of two
+  surds with no rational part (`√3−√2`, `√5+√2`) were still left as reciprocals,
+  where SymPy returns `√2+√3`, `(√5−√2)/3`, etc. Two causes: `radsimp` only
+  handled a single `a+b√c` binomial; and even when extended, a result with a
+  non-unit rational denominator (`(√5−√2)/3`) has a larger node count than the
+  reciprocal, so `simplify`'s anti-bloat guard reverted it.
+- **Fix in `src/simplify/simplify.cpp`:** (1) `radsimp` now also rationalizes
+  `b₁√c₁ ± b₂√c₂` via the conjugate `b₁√c₁ ∓ b₂√c₂` (product `b₁²c₁ − b₂²c₂`,
+  rational); (2) the anti-bloat guard in `simplify` is relaxed via a new
+  `has_surd_denominator` check — when the pipeline removes a surd denominator
+  that the input still carries, the (possibly larger) rationalized form is kept,
+  while ordinary expansion bloat is still rejected.
+- **Verified:** `1/(√3−√2)`, `1/(√5+√2)`, `1/(√7−√3)`, `2/(√3+√2)`,
+  `x/(√5−√3)` all checked equal to SymPy and free of a surd reciprocal; the
+  single-binomial cases (RADSIMP-SIMPLIFY-1) and unrelated forms are unchanged.
+- **Regression test:** `RADSIMP-SIMPLIFY-2` in
+  `tests/simplify/simplify_test.cpp` (`[5][simplify][radsimp][oracle][regression]`,
+  6 assertions).
+- **Scope:** a rational part plus two surds (`1/(1+√2+√3)`) needs a two-step
+  conjugate and remains a follow-up.
+
+### RADSIMP-SIMPLIFY-1 — `simplify` left a surd in a binomial denominator
+- **Problem:** `simplify(1/(1+√2))` returned the reciprocal unchanged instead of
+  `√2−1`. Two issues compounded: (1) `radsimp` only looked for the denominator
+  inside a `Mul`, so a *bare* reciprocal `Pow(1+√2, −1)` was returned untouched;
+  (2) even when it did rationalize, it produced a non-distributed `−(−√2+1)`
+  whose node count exceeded the reciprocal, so `simplify`'s anti-bloat guard
+  reverted to `1/(1+√2)`.
+- **Fix in `src/simplify/simplify.cpp`:** `radsimp` now handles a bare
+  `Pow(den, −1)` (num = 1) in addition to the `Mul` case, and `expand`s its
+  result so the rationalized form is the compact `√2−1` — small enough to pass
+  the guard.
+- **Verified:** `simplify` of `1/(1+√2)`, `1/(2+√3)`, `1/(√5−1)`, `1/(3−2√2)`,
+  and `x/(1+√2)` all checked equal to SymPy and free of a surd-binomial
+  reciprocal.
+- **Regression test:** `RADSIMP-SIMPLIFY-1` in
+  `tests/simplify/simplify_test.cpp` (`[5][simplify][radsimp][oracle][regression]`,
+  5 assertions).
+- **Scope:** single binomial surd `a + b√c`. A two-surd denominator
+  (`1/(√7−√3)`) still needs a multi-term conjugate and remains a follow-up.
+
+### COMB-RATIO-1 — `combsimp`/`gammasimp` only cancelled ratios when the numerator was larger
+- **Problem:** `simplify_func_ratio` cancelled `factorial(a)/factorial(b)` (and
+  the gamma analogue) only when `a − b` was a *non-negative* integer. When the
+  denominator held the larger argument it gave up: `factorial(k−1)/factorial(k)`
+  stayed instead of `1/k`, `gamma(z)/gamma(z+1)` instead of `1/z`. This also
+  blocked binomial-ratio simplification entirely — `binomial(n,k)/binomial(n,k−1)`
+  stayed where SymPy returns `(n−k+1)/k`.
+- **Fix (two parts) in `src/simplify/simplify.cpp`:**
+  1. Added the negative-difference branch to `simplify_func_ratio`: for
+     `a − b = −m` it emits `1/falling_factorial(b, m)` (factorial) or
+     `1/falling_factorial(b−1, m)` (gamma).
+  2. Added `combsimp_binomial_ratio`, which rewrites `binomial(a,b) =
+     a!/(b!·(a−b)!)` inside a `Mul` so the now-bidirectional factorial
+     cancellation closes binomial shifts — but only adopts the result when it
+     fully resolves (no factorial/binomial left), so a lone `binomial(2n,n)`
+     keeps its compact form rather than expanding into factorials.
+- **Verified:** `factorial(k−1)/factorial(k) → 1/k`, `gamma(z)/gamma(z+1) → 1/z`,
+  and `binomial(n,k)/binomial(n,k−1)`, `binomial(n+1,k)/binomial(n,k)`,
+  `binomial(n,k)/binomial(n−1,k)`, `binomial(n,k)/binomial(n,k−2)` all checked
+  equal to SymPy; non-reducible binomials/factorials are unchanged.
+- **Regression test:** `COMB-RATIO-1` in `tests/simplify/simplify_test.cpp`
+  (`[5][combsimp][oracle][regression]`, 7 assertions).
+
+### TRIG-PI5-1 — `sin/cos/tan` of the pentagon angles (π/5, π/10) stayed unevaluated
+- **Problem:** following TRIG-PI8-1, the remaining common special angles — the
+  pentagon family π/5 (36°) and π/10 (18°) — were still symbolic, where SymPy
+  gives `cos(π/5) = (1+√5)/4`, `cos(2π/5) = (√5−1)/4`, `tan(π/5) = √(5−2√5)`, and
+  the `√(10±2√5)` nested radicals for the π/10 cosines.
+- **Fix:** added den-5 (num 1,2) and den-10 (num 1,3) reference angles to
+  `base_cos_pi`, and the four matching `tan` values to `base_tan_pi`, in
+  `src/functions/trigonometric.cpp`. `sin` derives from the co-function
+  reflection (`sin(π/10)=cos(2π/5)`, `sin(3π/10)=cos(π/5)`, …) and every multiple
+  reduces through the existing period/reflection folds.
+- **Verified:** all `sin/cos/tan` of `{1,2,3,4,6}·π/5` and `{1,3,7,9}·π/10` plus
+  negatives checked equal to SymPy via the oracle.
+- **Regression test:** `TRIG-PI5-1` in `tests/functions/trigonometric_test.cpp`
+  (`[3b][trig][oracle][regression]`, 9 assertions).
+- **Scope:** the special-angle table now covers denominators
+  {1,2,3,4,5,6,8,10,12} — the standard constructible angles. Denominators like 7,
+  9, 11 (non-constructible / `cos` not expressible in real radicals) stay
+  symbolic, matching SymPy.
+
+### TRIG-PI8-1 — `sin/cos/tan(π/8)` stayed unevaluated
+- **Problem:** the special-angle table covered denominators {1,2,3,4,6,12} but
+  not 8, so the π/8 family (22.5°, the half-angles of π/4) came back symbolic —
+  `cos(π/8)`, `tan(π/8)`, … — where SymPy returns `√(2+√2)/2`, `√2−1`, etc. A
+  prior test deliberately kept π/8 unevaluated, but that was a presentational
+  preference (the π/12 entries already emit radicals), not a correctness
+  constraint, so it diverged from SymPy for no reason.
+- **Fix:** added the den-8 reference angles to `base_cos_pi` (`cos(π/8)=√(2+√2)/2`,
+  `cos(3π/8)=√(2−√2)/2`) and `base_tan_pi` (`tan(π/8)=√2−1`, `tan(3π/8)=√2+1`) in
+  `src/functions/trigonometric.cpp`. `sin` derives from the existing co-function
+  reflection (`sin_pi(r)=cos_pi(½−r)`), and all multiples (5π/8, 7π/8, …) reduce
+  through the period/reflection folds.
+- **Verified:** every `sin/cos/tan` of `{±1,3,5,7,9,11}·π/8` checked equal to
+  SymPy via the oracle.
+- **Regression test:** `TRIG-PI8-1` in `tests/functions/trigonometric_test.cpp`
+  (`[3b][trig][oracle][regression]`, 6 assertions) — replaces the old
+  "stays unevaluated" assertion.
+- **Scope:** the π/5 / π/10 pentagon family (`cos(π/5)=(1+√5)/4`, …) is still
+  symbolic and remains a follow-up.
+
+### INT-RATIONAL-NOPARTIAL-1 — `try_rational` leaked partial results with an `Integral` marker
+- **Problem:** when `apart()` couldn't fully split a denominator, `try_rational`
+  integrated the partial-fraction sum term by term and returned the half-answer —
+  e.g. `∫x²/(x⁶+1)` gave `−⅓atan(x) + Integral((⅓x²+⅓)/(x⁴−x²+1))`. The leaked
+  `Integral(…)` sat inside an `Add`, so the existing top-level `is_integral_marker`
+  guard missed it, and the bogus partial shadowed cleaner strategies.
+- **Fix:** added a recursive `contains_integral_marker` in
+  `src/integrals/integrate.cpp` and used it for both intermediate guards and a
+  final check in `try_rational`: if the assembled antiderivative still hides an
+  `Integral` anywhere, `try_rational` returns `nullopt`. The integral then either
+  falls through to a strategy that closes it — `∫x²/(x⁶+1) = ⅓atan(x³)` via the
+  monomial substitution (INT-MONOMIAL-SUB-1) — or is returned honestly
+  unevaluated (`∫1/(x⁶+1)`), never as a leaked partial.
+- **Verified:** `∫x²/(x⁶+1)` closes to `⅓atan(x³)` (oracle); `∫1/(x⁶+1)` and
+  `∫1/(x⁵+1)` carry no partial sum; fully-solvable rationals (`1/(x⁴−1)`,
+  `1/(x³+1)`, `x/(x⁶+1)`) are unchanged.
+- **Regression test:** `INT-RATIONAL-NOPARTIAL-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  5 assertions).
+- **Scope:** denominators that are irreducible over ℚ but elementary-integrable
+  (`1/(x⁶+1)`, `1/(x⁵+1)`) still return unevaluated — closing those needs
+  integration over an algebraic extension (Lazard–Rioboo–Trager), a larger
+  effort. The fix removes the misleading partials in the meantime.
+
+### INT-MONOMIAL-SUB-1 — `integrate` missed the monomial substitution u = x^d
+- **Problem:** integrands of the form `x^(d-1)·f(x^d)` whose `f(x^d)` is hidden
+  inside a rational or radical expression came back unevaluated — `∫x/(x⁴+1)`,
+  `∫x³/(x⁸+1)`, `∫x/√(1−x⁴)` all returned `Integral(…)`, while SymPy gives
+  `½atan(x²)`, `¼atan(x⁴)`, `½asin(x²)`. `try_heurisch` couldn't help: its
+  substitution is structural and `x⁴` does not contain `x²` as a subexpression,
+  so `u = x²` never linearised the denominator.
+- **Fix:** added `try_monomial_substitution` in `src/integrals/integrate.cpp`
+  (run before `try_heurisch`). For `d = 2…6` it forms `t = expr/(d·x^(d-1))`,
+  rewrites every `x^k` with `d | k` to `u^(k/d)` (via `xreplace`), and — if no
+  bare `x` survives — integrates the resulting `f(u)` and back-substitutes
+  `u = x^d`. A `x^k` with `d ∤ k`, or a leftover `var`, aborts that `d`.
+- **Verified:** each antiderivative differentiates back to its integrand
+  (oracle), with the explicit `∫x/(x⁴+1) = ½atan(x²)`; unrelated integrands
+  (`x/(x²+1)`, `1/(x²+1)`) are unchanged.
+- **Regression test:** `INT-MONOMIAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  8 assertions).
+- **Scope:** numerator must be the exact `x^(d-1)` the substitution needs.
+  Cases such as `∫x²/(x⁶+1)` (clean `⅓atan(x³)`) are still intercepted earlier by
+  `try_rational`, which returns a partial result with a leftover `Integral` —
+  a separate issue in the rational-integration path.
+
+### TRIG-ANGLE-ADD-1 — `simplify` didn't fold the angle-addition identities
+- **Problem:** `simplify` collapsed same-argument trig combinations (Pythagorean,
+  power-reduction, double-angle) but left the two-argument angle-addition forms
+  untouched: `sin(x)cos(y)+cos(x)sin(y)`, `cos(x)cos(y)−sin(x)sin(y)`, etc.
+  stayed as products where SymPy returns `sin(x+y)`, `cos(x+y)`, …
+- **Fix:** added `trigsimp_angle_addition` (with a `as_two_trig_term` classifier)
+  in `src/simplify/simplify.cpp`, run inside `trigsimp_node`. On a two-term `Add`
+  whose terms are products of two first-power sin/cos factors it recognises
+  `sin(a)cos(b) ± cos(a)sin(b) → sin(a±b)` and
+  `cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b)`, carrying a shared coefficient
+  through. The classifier bails on any non-clean shape (squared trig, a third
+  trig factor, a leftover function in the coefficient) so nothing is mis-folded.
+- **Verified:** each result checked equal to `sympy.simplify` for all four
+  identities, a coefficient-carrying case, and a composing case
+  (`sin(2x)cos(x)+cos(2x)sin(x) → sin(3x)`).
+- **Regression test:** `TRIG-ANGLE-ADD-1` in `tests/simplify/simplify_test.cpp`
+  (`[5][trigsimp][oracle][regression]`, 7 assertions).
+- **Scope:** matches a two-term `Add` with the exact product structure; it does
+  not yet expand `sin(3x)` into single-argument powers (the reverse direction) or
+  handle products of more than two angles.
+
+### POLY-FACTOR-ROOTS-1 — `solve`/`Poly::roots` returned nested radicals for factorable quartics
+- **Problem:** a quartic with no rational root but which factors over ℚ into two
+  quadratics (e.g. `x⁴+x²+1 = (x²+x+1)(x²−x+1)`) went straight to Ferrari's
+  resolvent, producing nested radicals like `sqrt((I·sqrt(3)−1)/2)` instead of
+  the clean `±1/2 ± √3·i/2`. `x⁶−1` inherited the same mess for its degree-4
+  cofactor, and a degree-≥5 polynomial with no rational root but a non-trivial
+  factorization (e.g. `(x²+x+1)(x³+2)`) returned no roots at all.
+- **Fix:** added `roots_by_factoring` in `src/polys/poly.cpp`, used by
+  `Poly::roots()` for degree 4 (before the Ferrari fallback) and degree ≥5
+  (before giving up). It calls the existing `kronecker_find_factor` to split the
+  polynomial over ℚ and recurses on each factor, so each piece is solved by the
+  cleanest applicable path (quadratic formula, Cardano, …). SymPy factors before
+  solving for the same reason.
+- **Verified:** root sets checked set-equal to `sympy.solve` for `x⁴+x²+1`,
+  `x⁶−1`, `x⁸−1`, `(x²+x+1)(x³+2)` and the existing rational/biquadratic cases;
+  the quartic roots carry no nested-radical wrapping.
+- **Regression test:** `POLY-FACTOR-ROOTS-1` in `tests/polys/poly_test.cpp`
+  (`[4][poly][roots][oracle][regression]`, 7 assertions).
+- **Scope:** helps only polynomials that are *reducible* over ℚ. Genuinely
+  irreducible quartics such as `x⁴+1` still go through Ferrari and keep a radical
+  form (`(-I)^(1/2)` etc.) — correct but not simplified to `±√2/2 ± √2·i/2`;
+  cleaning those is a separate radical-denesting gap.
+
+### SUM-TELESCOPE-1 — `summation` returned unevaluated for telescoping rational sums
+- **Problem:** `summation` handled polynomial (Faulhaber), geometric and
+  arithmetic-geometric summands, but every rational summand `c/D(k)` came back as
+  an unevaluated `Sum(…)`: `Σ 1/(k(k+1))`, `Σ 1/(k(k+2))`, `Σ 1/(4k²−1)` all had
+  closed forms in SymPy (`n/(n+1)`, …) and none in SymPP.
+- **Fix:** added `telescope_rational` in `src/calculus/summation.cpp`. For a
+  summand `c/D(k)` where `D` is a quadratic with two distinct rational roots
+  `r₁,r₂` whose difference `d = r₁−r₂` is a nonzero integer, partial fractions
+  give `c/(lead·d)·[u(k) − u(k+d)]` with `u(k)=1/(k−r₁)`, which telescopes to
+  `c/(lead·d)·[Σ_{j=0}^{d−1} u(lo+j) − Σ_{j=1}^{d} u(hi+j)]`. A pole inside the
+  summation range (an integer root ≥ `lo`) is detected and the sum is left
+  unevaluated rather than producing a bogus closed form (`Σ 1/(k(k−1))` stays).
+- **Verified:** closed forms checked equal to `sympy.summation` for 9 summands
+  (unit and non-unit leading coefficients, pole gaps `d∈{1,2,3}`, scaled
+  numerators, shifted factors like `(3k−1)(3k+2)`).
+- **Regression test:** `SUM-TELESCOPE-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  6 assertions).
+- **Scope:** limited to a denominator that is one quadratic with two distinct
+  integer-spaced rational roots and a var-free numerator. Higher-degree
+  denominators (≥3 linear factors) and non-integer-spaced roots — which need
+  full partial-fraction grouping or Gosper's algorithm — remain open.
+
+### SOLVE-TRIG-LINEAR-1 — `solve` returned `[]` for `a·sin(x)+b·cos(x)+c` (R-method)
+- **Problem:** `solve` had no path for a linear combination of sin and cos of the
+  same argument. `sin(x)+cos(x)`, `√3·sin(x)+cos(x)`, `sin(x)+cos(x)−1`,
+  `3·sin(x)+4·cos(x)`, `sin(2x)+cos(2x)` all came back `[]` (two distinct trig
+  atoms, so neither the single-term nor the polynomial-in-one-function path
+  applied).
+- **Fix:** added `solve_trig_linear` in `src/solvers/solve.cpp`. It recognises
+  `a·sin(B·x)+b·cos(B·x)+c` (var-free `a,b,c`, shared argument `B·x`). The
+  homogeneous case (`c=0`) reduces to `tan(B·x)=−b/a`, a single representative
+  `atan(−b/a)/B`. Otherwise it applies the R-method: `a·sin+b·cos = R·sin(B·x+φ)`
+  with `R=√(a²+b²)`, `φ=atan2(b,a)`, so `sin(B·x+φ)=−c/R` yields two
+  representatives `(θ−φ)/B`. The `trig_value_in_range` guard makes
+  `|c|>R` return no real solution (`sin(x)+cos(x)−5 → []`).
+- **Verified:** every solution set checked set-equal to `sympy.solve` for 8
+  equations (homogeneous, non-homogeneous, scaled argument, irrational
+  coefficient, out-of-range); transcendental forms that don't share a closed
+  shape were confirmed numerically equal.
+- **Regression test:** `SOLVE-TRIG-LINEAR-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][trig][oracle][regression]`, 8 assertions).
+- **Scope:** sin and cos must share the same argument. Multiple-angle mixes
+  (`sin(2x)−sin(x)`, `cos(2x)−cos(x)`) and products (`sin(x)·cos(x)−1/2`, needing
+  the double-angle identity) remain open.
+
+### SOLVE-TRIG-POLY-1 — `solve` returned `[]` for a polynomial in one trig function
+- **Problem:** `solve` handled a *single* trig term `A·f(B·x)+C=0` (SOLVE-TRIG-1)
+  but came back empty for any higher-degree polynomial in one trig function:
+  `sin(x)²−1`, `2·sin(x)²−1`, `sin(x)²−sin(x)`, `cos(x)²−1/4`, `tan(x)²−1`,
+  `2·cos(x)²−cos(x)−1` all yielded `[]`. The single-term path bailed because the
+  power form was only solved homogeneously (`f^n = 0`), so any constant term
+  killed it, and the polynomial path can't see through `sin`.
+- **Fix:** added `solve_trig_poly` in `src/solvers/solve.cpp`. It detects a
+  polynomial in exactly one trig atom `f(B·x)` (`f ∈ {sin,cos,tan}`, `B`
+  var-free), substitutes `u = f(B·x)`, solves the polynomial in `u` via the
+  existing `Poly` root finder, then inverts each in-range root to representative
+  angles over one principal period — matching SymPy's `solve` as a set. The
+  per-function inversion is now a shared `append_trig_roots` helper reused by
+  both `solve_trig` and `solve_trig_poly`. A numeric root with `|c|>1` for
+  sin/cos contributes no real solution (`sin(x)²=4 → []`), via a `trig_value_in_range`
+  guard; an in-range irrational `c` (e.g. `asin(1/3)`) is preserved unevaluated,
+  exactly as SymPy reports it.
+- **Verified:** every solution set checked set-equal to `sympy.solve` for 9
+  equations (sin/cos/tan, scaled argument, quadratic-with-endpoints, out-of-range).
+- **Regression test:** `SOLVE-TRIG-POLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][trig][oracle][regression]`, 8 assertions).
+- **Scope:** still one trig function per equation. Mixed-function equations
+  (`sin·cos`, `sin(2x)−sin(x)`) and the `a·sin+b·cos` R-method remain open; the
+  structural zero-product path (SOLVE-TRIG-1) continues to cover products of
+  distinct trig factors.
+
+### ORACLE-XCHECK-1/2/3 — oracle tests only compared against hand-written literals
+- **Problem (test-rig integrity, not a math gap):** all ~794 oracle assertions
+  were `equivalent(sympp_output, "literal_I_typed")` — SymPy adjudicated the
+  equivalence, but the *expected answer* was hand-authored. A wrong literal that
+  happened to match a wrong SymPP result would pass undetected. The
+  `oracle.diff` / `oracle.integrate` / `oracle.simplify` helpers (which let
+  SymPy compute the reference answer independently) existed but were used zero
+  times.
+- **Fix:** added `tests/oracle/oracle_crosscheck_test.cpp`
+  (`[0][oracle][crosscheck]`). For a spread of inputs, SymPP parses and computes
+  `diff`/`integrate`/`simplify` while SymPy computes the *same* operation on the
+  *same* input; the two independently-produced results must be `equivalent`.
+  Neither side is hand-authored, so the engines genuinely check each other
+  (12 derivative, 8 antiderivative, 6 simplification inputs).
+- **Verified:** all 26 cross-check assertions pass on local `1.13.3`.
+- **Regression test:** `tests/oracle/oracle_crosscheck_test.cpp`.
+- **Scope:** indefinite integrals here share the `+C = 0` convention so the
+  antiderivatives compare equal (not merely up to a constant). Inputs are
+  limited to operations both engines support; expanding the cross-checked
+  surface is incremental future work.
+
+### VERSION-GUARD-1 — the oracle accepted any SymPy version silently
+- **Problem (test-rig integrity, not a math gap):** the whole suite trusts the
+  SymPy oracle to adjudicate `equivalent(...)`, but nothing pinned *which* SymPy
+  it ran against. CI installed `sympy==1.14` while local development ran
+  `1.13.3`, and the smoke test only checked the version string was non-empty. A
+  silent upgrade to an unvetted release could change a canonical form or add an
+  auto-simplification and quietly alter the "equivalent" verdict with no test
+  noticing.
+- **Fix:** added a `[0][oracle]` smoke test (`VERSION-GUARD-1`,
+  `tests/oracle/oracle_smoke_test.cpp`) that parses the oracle's reported SymPy
+  version and `FAIL`s loudly unless its `major.minor` is on a validated
+  allowlist (`1.13` / `1.14`). Bumping SymPy now requires re-validating the
+  suite and extending the allowlist in the same commit. The `.github/workflows/
+  ci.yml` pin and the `docs/09-known-issues.md` header were annotated to match.
+- **Verified:** passes on local `1.13.3` and CI `1.14`; a standalone check
+  confirms the guard fires on `1.15`, `2.0`, and `1.12`.
+- **Regression test:** `tests/oracle/oracle_smoke_test.cpp` — `[0][oracle]`.
+- **Scope:** guards the major.minor only; it intentionally does not detect
+  behavioural drift *within* an allowed minor release.
+
+### SOLVE-TRIG-1 — `solve` returned `[]` for transcendental trig equations
+- **Input:** `solve(sin(x), x)`, `solve(cos(x), x)`, `solve(2*sin(x)-1, x)`,
+  `solve(sin(2*x), x)`, `solve(cos(3*x), x)`, `solve(tan(x)-1, x)`.
+- **Was:** empty `[]` — these have infinite (periodic) solution sets, so
+  `solveset` returns an `ImageSet` and the vector-returning `solve` surfaced
+  nothing finite.
+- **Expected (SymPy `solve`):** representative roots over one period:
+  `[0, pi]`, `[pi/2, 3*pi/2]`, `[pi/6, 5*pi/6]`, `[0, pi/2]`, `[pi/6, pi/2]`,
+  `[pi/4]`.
+- **Fix (`src/solvers/solve.cpp`):** added `solve_trig`, tried in `solve`
+  before the `solveset` fallback. It matches a single trig term
+  `A*f(B*x) + C = 0` (`f ∈ {sin,cos,tan}`, `A`,`C` var-free, `B*x` linear with
+  no additive phase), forms `c = -C/A`, and inverts the *inner* function to its
+  principal solutions — `sin`: {asin c, π−asin c}; `cos`: {acos c, 2π−acos c};
+  `tan`: {atan c} — then divides each by `B` and dedupes. This mirrors SymPy,
+  which inverts and divides by `B` rather than enumerating every `x ∈ [0,2π)`.
+- **Verified against SymPy:** all ten forms match `solve` as a set (root order
+  is presentation-dependent). Pre-existing paths unchanged: `sinh(x)→[0]`,
+  `log(x)-1→[E]`, polynomials, radicals.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][trig][oracle][regression]` (order-independent set comparison).
+- **Scope:** a single `sin`/`cos`/`tan` term, linear argument, var-free
+  coefficient — plus a homogeneous positive-integer power `f(B*x)^n = 0`, which
+  reduces to `f(B*x) = 0` (so `sin(x)²→[0,π]`, `cos(x)²→[π/2,3π/2]`,
+  `tan(x)²→[0]`, `2·sin(x)²→[0,π]`) — plus a **zero-product** of var-dependent
+  factors, solved factor-by-factor (recursively) and unioned:
+  `sin x·cos x→[0,π/2,π,3π/2]`, `sin x·(cos x−1)→[0,π,2π]`,
+  `(sin x−1)(cos x+1)→[π/2,π]`. Trig *combinations* (`sin x + cos x`),
+  *non-homogeneous* powers (`sin(x)²−1`), and phase-shifted arguments remain out
+  of scope (decline cleanly). A mixed polynomial·trig product such as `x·sin x`
+  still yields only the algebraic root `[0]` — the polynomial path resolves it
+  before the trig handler runs.
+
+### GAMMA-REC-1 — gamma recurrence `z*gamma(z) → gamma(z+1)` wasn't applied
+- **Input:** `combsimp(x*gamma(x))`, `combsimp(x*(x+1)*gamma(x))`,
+  `combsimp(gamma(x+1)/x)`.
+- **Was:** left unevaluated — `combsimp`/`gammasimp` only handled gamma ratios,
+  reflection, and binomial collapse, never absorbed polynomial factors.
+- **Expected (SymPy):** `gamma(x+1)`, `gamma(x+2)`, `gamma(x)`.
+- **Fix (`src/simplify/simplify.cpp`):** added `gamma_recurrence`, applied by
+  both `combsimp_node` and `gammasimp_node`. Within a `Mul` it iterates to a
+  fixpoint, absorbing a numerator factor equal to a gamma argument `z` (raising
+  it to `gamma(z+1)` per Γ(z+1)=z·Γ(z)) or a denominator factor equal to `z-1`
+  (lowering `gamma(z)` to `gamma(z-1)`). The fixpoint loop lets chains collapse:
+  `x*(x+1)*gamma(x)→gamma(x+2)`. Spectator factors (`y`, `2`) are preserved, and
+  `x*gamma(x+1)` is correctly left alone.
+- **Verified against SymPy:** all six forms match `combsimp`; the reflection and
+  ratio passes still hold.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][combsimp][gamma][oracle][regression]`.
+- **Scope:** integer-step recurrence via exact factor matching. Non-integer
+  argument shifts and rational-function denominators beyond a single `z-1` term
+  are out of scope.
+
+### BINOM-COMB-1 — `combsimp` didn't collapse `binomial(n,k)` to polynomial form
+- **Input:** `combsimp(binomial(n,n))`, `combsimp(binomial(n,n-1))`,
+  `combsimp(binomial(n+1,n))`, `combsimp(binomial(n,2))`, `combsimp(binomial(n,3))`.
+- **Was:** all left unevaluated — `combsimp` only cancelled factorial *ratios*,
+  and the `binomial` factory collapses only `k ∈ {0,1}` or literal-integer args.
+- **Expected (SymPy `combsimp`):** `1`, `n`, `n+1`, `n*(n-1)/2`, `n*(n-1)*(n-2)/6`.
+- **Fix (`src/simplify/simplify.cpp`):** added `combsimp_binomial`, which folds
+  `binomial(n,k)` whenever `k` or `n-k` is a small non-negative integer `m`, via
+  the gamma identity `binomial(n,k) = falling_factorial(n,m)/m!` (valid for
+  symbolic `n`). `m = n-k` is tried first (the symmetric tail: `n`, `n-1`, …),
+  then `m = k` (the small head: `0,1,2,…`). `combsimp_node` runs this after the
+  factorial-ratio pass. Fully symbolic `binomial(n,k)` is left untouched.
+- **Verified against SymPy:** all five forms match `combsimp`; the `binomial`
+  factory's integer fast-paths (`binomial(5,2)=10`, `binomial(n,0)=1`) are intact.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][combsimp][binomial][oracle][regression]`.
+- **Scope:** one of `k` / `n-k` a non-negative integer ≤ 50. Genuinely symbolic
+  binomials and the gamma/factorial recurrence collapse (`x*gamma(x)→gamma(x+1)`)
+  remain out of scope.
+
+### GAMMA-REFL-1 — `gammasimp` missed the Euler reflection formula
+- **Input:** `gammasimp(gamma(x)*gamma(1-x))`, `gammasimp(gamma(2*x)*gamma(1-2*x))`.
+- **Was:** left as `gamma(-x + 1)*gamma(x)` — `gammasimp` only cancelled gamma
+  *ratios* (`gamma(a)/gamma(b)` with integer `a-b`), never products.
+- **Expected (SymPy `gammasimp`):** `pi/sin(pi*x)`, `pi/sin(2*pi*x)`.
+- **Fix (`src/simplify/simplify.cpp`):** added `gamma_reflection`, which scans a
+  `Mul` for two numerator gamma factors whose arguments sum to 1 and folds each
+  pair via Γ(z)·Γ(1−z) = π/sin(πz). The surviving argument is chosen free of a
+  leading additive constant so the output reads `pi/sin(pi*z)` rather than the
+  equivalent `pi/sin(pi*(1-z))`. `gammasimp_node` now runs the reflection pass
+  after the existing ratio pass, so both compose (`gamma(n+1)/gamma(n)` → `n`
+  still holds, and a spectator factor `y` is preserved).
+- **Verified against SymPy:** all three forms match `gammasimp`.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][gammasimp][reflection][oracle][regression]`.
+- **Scope:** numerator gamma pairs with arguments summing to 1 (any shared
+  scalar multiple of the argument works). Reflection of gamma *ratios* or of
+  more general argument relations is out of scope.
+
+### CONJ-FN-1 / ARG-CX-1 — conjugate over analytic functions; arg of a complex value
+- **Input:** `conjugate(exp(I*x))` (x real), `conjugate(cosh(z))`;
+  `arg(I)`, `arg(1+I)`, `arg(-1+I)`, `arg(-I)`.
+- **Was:** `conjugate(exp(x·I))` left unevaluated; `arg(I)`, `arg(1+I)` left
+  unevaluated (and `"arg"` wasn't even recognised by the parser).
+- **Expected (SymPy):** `exp(-I*x)`, `cosh(conjugate(z))`; `pi/2`, `pi/4`,
+  `3*pi/4`, `-pi/2`.
+- **Fix (`src/functions/miscellaneous.cpp`, `src/parsing/parser.cpp`):**
+  - `conjugate(f(g)) = f(conjugate(g))` for an entire function with real Taylor
+    coefficients — `exp`, `sin`, `cos`, `tan`, `sinh`, `cosh`, `tanh` (`log`
+    excluded for its branch cut, matching SymPy). With CONJ-DIST-1 this gives
+    `conjugate(exp(I·x)) = exp(−I·x)` for real `x`.
+  - `arg(z) = atan2(im z, re z)` when the real/imaginary parts resolve (free of
+    unevaluated `Re`/`Im`) and the imaginary part is nonzero — `atan2` already
+    evaluates the quadrant values, so `arg(I) = π/2`, `arg(1+I) = π/4`, etc.
+  - the parser now maps `"arg"` to the `arg_` factory.
+- **Verified against SymPy:** the conjugate-over-function family and the four
+  `arg` values match; `conjugate(log(z))` correctly stays unevaluated.
+- **Regression tests:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][conjugate][oracle][regression]` (CONJ-FN-1) and
+  `[3h][arg][oracle][regression]` (ARG-CX-1).
+- **Scope:** the listed analytic functions and complex-value `arg`. `arg` of a
+  symbolic `a+b·I` reduces only when `atan2(b,a)` itself has a closed form.
+
+### ABS-MOD-1 — symbolic complex modulus `|a + b·I|` wasn't computed
+- **Input:** `Abs(x + I*y)`, `Abs(2 + I*y)` (x, y real).
+- **Was:** the unevaluated `Abs(x + y·I)`. The `abs` factory computed the modulus
+  only for a *numeric* `a + b·I` (`rational_complex`); a symbolic one fell
+  through.
+- **Expected (SymPy):** `sqrt(x**2 + y**2)`, `sqrt(y**2 + 4)`.
+- **Fix (`src/functions/miscellaneous.cpp`):** when `re(arg)` and `im(arg)`
+  resolve to expressions free of unevaluated `Re`/`Im` nodes (now possible after
+  REIM-DIST-1) and the imaginary part is nonzero, return `√(re² + im²)`. A
+  generic `Abs(z)` keeps its `Re(z)`/`Im(z)` split and so stays unevaluated,
+  matching SymPy.
+- **Verified against SymPy:** `Abs(x+I·y) → √(x²+y²)`, `Abs(2+I·y) → √(y²+4)`;
+  generic `Abs(z)` and real `Abs(x)` are unchanged.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[3d][abs][oracle][regression]` (ABS-MOD-1).
+- **Scope:** complex numbers whose parts are real-determinable. `|exp(I·x)| = 1`
+  (modulus of a transcendental imaginary) and `arg(...)` of a complex value are
+  follow-ups.
+
+### REIM-DIST-1 — `re`/`im` didn't distribute or handle `I`
+- **Input:** `re(I*x)`, `im(I*x)`, `re(x+I*y)`, `im(x+I*y)` (x, y real);
+  `re(I*z)` (z generic).
+- **Was:** the unevaluated `re(x*I)`, `im(x*I)`, `re(x + y*I)`, … . The `re`/`im`
+  factories handled only a real argument, a numeric `a+b·I`, and a leading
+  negative factor — they didn't distribute over a sum or recognise the imaginary
+  unit.
+- **Expected (SymPy):** `0`, `x`, `x`, `y`; `re(I*z) = -im(z)`.
+- **Fix (`src/functions/miscellaneous.cpp`):**
+  - `re`/`im` are linear over `Add` (`re(Σ aᵢ) = Σ re(aᵢ)`);
+  - a Mul is decomposed as `c · Iᵏ · w` (`decompose_mul_complex`: real factors →
+    `c`, I-count mod 4 → `k`, the rest → `w`), and the real coefficient is pulled
+    out with the `Iᵏ` rotation: `re(c·w)=c·re(w)`, `re(c·I·w)=−c·im(w)`,
+    `im(c·I·w)=c·re(w)`, … . The decomposition returns nothing unless a real
+    factor or an `I` was peeled off, so the recursion terminates.
+- **Verified against SymPy:** the real-symbol cases collapse exactly
+  (`re(I·x)=0`, `im(I·x)=x`, `re(x+I·y)=x`, `im(x+I·y)=y`, `re(2x)=2x`), and the
+  generic I-rotation `re(I·z)=−im(z)`, `im(I·z)=re(z)` matches.
+- **Regression test:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][complex][oracle][regression]` (REIM-DIST-1).
+- **Scope:** linearity + the imaginary-unit rotation. `re`/`im` of a generic
+  *product* of two unknown-reality factors stays unevaluated.
+
+### CONJ-DIST-1 / ABS-I-1 — `conjugate` didn't distribute; `Abs(I·x)` not reduced
+- **Input:** `conjugate(I*x)`, `conjugate(x*y)`, `conjugate(x+y)`,
+  `conjugate(x**2)`; `Abs(I*x)`, `Abs(2*I*x)`.
+- **Was:** `conjugate(x*I)`, `conjugate(I*x)` left unevaluated; `Abs(x*I)`
+  unreduced. The `conjugate` factory handled only real / numeric-complex /
+  involution; the `Abs` Mul-pull-out pulled out numeric and known-sign factors
+  but not the imaginary unit.
+- **Expected (SymPy):** `-I*conjugate(x)`, `conjugate(x)*conjugate(y)`,
+  `conjugate(x)+conjugate(y)`, `conjugate(x)**2`; `Abs(x)`, `2*Abs(x)`.
+- **Fix (`src/functions/miscellaneous.cpp`):**
+  - `conjugate` now distributes over `Mul`, `Add`, and integer `Pow` (it is a
+    ring homomorphism); recursion reduces each part (`conjugate(I) = −I`,
+    `conjugate(real) = real`), so `conjugate(I·x) = −I·conjugate(x)`.
+  - `abs` pulls the imaginary unit out of a product (`|I| = 1 ⇒ |I·x| = |x|`)
+    alongside the numeric / known-sign factors.
+- **Verified against SymPy:** all the distribution cases and `Abs(I·x)`,
+  `Abs(2·I·x)`, `Abs(I·x·y)` match; existing `Abs` reductions are unchanged.
+- **Regression tests:** `tests/functions/miscellaneous_test.cpp`
+  — `[3h][conjugate][oracle][regression]` (CONJ-DIST-1) and
+  `[3d][abs][oracle][regression]` (ABS-I-1).
+- **Scope:** conjugate distribution and the imaginary-unit `Abs` reduction.
+
+### ASSUME-IMAG-1 — no Imaginary / Complex assumption predicates
+- **Was:** the assumption vocabulary had no `Imaginary` or `Complex` key, so
+  `I.is_imaginary`, `is_real(I·x)`, `is_complex(x)` had no answer — SymPP modelled
+  complex values structurally (`a + b·I`) but couldn't *reason* about
+  imaginariness.
+- **Fix:** added `Complex` and `Imaginary` to `AssumptionKey`, mask fields +
+  builders (`set_complex`/`set_imaginary`), hash, and deductive closure
+  (`imaginary ⇒ complex ∧ ¬real ∧ finite ∧ nonzero ∧ ¬rational/integer/sign/
+  parity`; `real ⇒ complex ∧ ¬imaginary`; `zero ⇒ ¬imaginary` since 0 is real).
+  Wired:
+  - `ImaginaryUnit::ask` — `I` is imaginary, complex, finite, ¬real;
+  - generic `ask()` derivations — `real ∨ imaginary ⇒ complex`,
+    `real ⇒ ¬imaginary`, `imaginary ⇒ ¬real`;
+  - `Mul::ask` — an odd number of imaginary factors (rest real, all nonzero) is
+    imaginary (`I·real = imaginary`), an even number is real (`I·I = −1`);
+  - `Add::ask` — a sum of imaginaries is imaginary, a real + imaginary mix is
+    complex but neither;
+  - `Pow::ask` — `imaginary^(odd integer)` is imaginary, `^(even)` is real.
+  - the infinities answer `¬complex` (∞/zoo aren't finite complex numbers).
+- **Verified against SymPy:** `I`, `2·I`, `I·x` (x real ≠ 0), `xi` (declared
+  imaginary), `xi²`, `xi³`, `I·I`, `x·y` (reals), `x_r + I·y_r`, plain reals and
+  `0` — the `is_imaginary` / `is_real` / `is_complex` triples match
+  `sympy`'s on 9/10 (the 10th, `x_r + I·x_r` → `is_real`, is conservatively
+  `Unknown` in SymPP vs `False` in SymPy — proving ¬real needs imaginary-part
+  cancellation analysis).
+- **Regression test:** `tests/core/assumptions_test.cpp`
+  — `[2][assumptions][imaginary][regression]` (ASSUME-IMAG-1).
+- **Scope:** the imaginary/complex ontology + arithmetic propagation. Still
+  deferred: irrational/prime/algebraic/hermitian/commutative predicates and the
+  SAT-based `ask(query, assumptions)` reasoner. ~14 of SymPy's ~30+ predicates.
+
+### REWRITE-EXP-1 — no `rewrite(target)` API (exp ↔ trig)
+- **Was:** SymPP had no analogue of SymPy's `expr.rewrite(target)` — a common
+  cross-cutting operation (Euler / hyperbolic identities, used in solving and
+  simplification).
+- **Fix (`src/simplify/simplify.cpp`, `include/sympp/simplify/simplify.hpp`):**
+  new `rewrite(expr, "exp")` re-expresses `sin`/`cos`/`tan` and
+  `sinh`/`cosh`/`tanh` as exponentials (`sin(x) → −i·(e^{ix}−e^{−ix})/2`,
+  `cosh(x) → (e^x+e^{−x})/2`, …), applied recursively so combinations and
+  composite arguments (`sin(2x)`) are handled. An unknown target is a no-op.
+- **Verified against SymPy:** the six trig/hyperbolic forms plus `sin(x)+cos(x)`
+  and `sin(2x)` all equal `expr.rewrite(exp)` symbolically.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][rewrite][oracle][regression]` (REWRITE-EXP-1).
+- **Scope:** target `"exp"`. Other targets (`rewrite(exp, sin/cos)` Euler
+  direction, `rewrite(tan, …)`, gamma/factorial cross-rewrites) are follow-ups.
+
+### SOLVE-DEDUP-1 — `solve` returned duplicate roots for repeated factors
+- **Input:** `solve((x+2)**2)`, `solve(x**2*(x-1))`,
+  `solve((x-1)**2*(x+1))`, `solve((x-1)**3)`.
+- **Was:** `[-2, -2]`, `[0, 0, 1]`, `[-1, 1, 1]`, `[1, 1, 1]` — `solve_poly`
+  emits a root once per (square-free) factor, so a repeated factor produced
+  duplicates. (Surfaced after SOLVE/INEQ's `expand` made factored polynomials
+  reachable.)
+- **Expected (SymPy):** `[-2]`, `[0, 1]`, `[-1, 1]`, `[1]` — SymPy's `solve`
+  returns the distinct solution set.
+- **Fix (`src/solvers/solve.cpp`):** collapse structurally-equal roots in
+  `solve`, preserving order.
+- **Verified against SymPy:** the repeated-factor cases now return the distinct
+  set; genuinely distinct roots (`(x-1)(x-2)(x-3) → {1,2,3}`) are unchanged.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-DEDUP-1).
+- **Scope:** root-set deduplication. Multiplicity is not reported (SymPy's
+  `solve` default also drops it; `roots()` keeps it — not implemented).
+
+### INEQ-EXACT-1 — inequalities used float endpoints + a 1e30 ∞ proxy; `solve` ignored factored polynomials
+- **Input:** `solve_univariate_inequality(x²−4 < 0)`, `x²−4 > 0`, `x²+1 > 0`,
+  `(x−1)(x−2) < 0`; and `solve((x−1)*(x−2))`.
+- **Was:**
+  - endpoints came back as `Float`s (`−2.0000…`, `2.0000…`) instead of exact
+    integers, because every root was round-tripped through a `double`;
+  - the unbounded ends used a literal `1e30` as an `∞` proxy
+    (`x²+1>0 → (−1e30, 1e30)` instead of `Reals`), with a code comment noting
+    *"we don't have an Infinity singleton"* — stale since the infinity atoms
+    shipped;
+  - `solve((x−1)*(x−2))` returned `[]` (the `Poly` machinery couldn't build from
+    the un-expanded `Mul`), so `(x−1)(x−2) < 0` wrongly gave `EmptySet`.
+- **Expected (SymPy):** `(−2, 2)`, `(−∞,−2) ∪ (2,∞)`, `Reals`, `(1, 2)`,
+  `[1, 2]`.
+- **Fix (`src/solvers/solve.cpp`):**
+  - `solve` now `expand`s the input before the polynomial path, so a factored
+    polynomial is solved (`(x−1)(x−2) → [1, 2]`);
+  - `solve_univariate_inequality` keeps each root as its **exact** `Expr` (paired
+    with a `double` only for ordering / sign-sampling), emits the real
+    `S::Infinity()` / `S::NegativeInfinity()` at the unbounded ends, and returns
+    `reals()` when there are no roots and the sign matches.
+- **Verified against SymPy:** the family above matches exactly, including the
+  closed-endpoint `≤` case and the ray `Union`.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][inequality][regression]` (INEQ-EXACT-1).
+- **Scope:** real univariate inequalities with numeric roots. Irrational roots
+  still order via their numeric value but appear exactly in the endpoints.
+
+### SET-COMPL-1 — `ℝ \ interval` wasn't computed, and ray membership was Unknown
+- **Input:** `set_complement(Reals, Interval(1,3))`,
+  `set_complement(Reals, Interval.open(1,3))`,
+  `set_complement(Reals, Interval(1, oo))`; and membership queries on the result.
+- **Was:** an unevaluated `Complement(Reals, [1,3])` node. Even when a ray was
+  built by hand, `Interval::contains` bailed because a ±∞ endpoint is not a
+  number (`is_number(oo) == false`), so every membership test on `(−∞,1)`
+  returned Unknown.
+- **Expected (SymPy):** `(−∞,1) ∪ (3,∞)`, `(−∞,1] ∪ [3,∞)`, `(−∞,1)`; and
+  `0 ∈`, `2 ∉` for the first.
+- **Fix (`src/sets/sets.cpp`):**
+  - `set_complement(Reals, [a,b])` builds `(−∞,a) ∪ (b,∞)` with each boundary's
+    open/closed flag flipped (a point removed from ℝ is excluded from the
+    complement); a ±∞ endpoint drops that ray, and `ℝ \ ℝ → EmptySet`.
+  - `Interval::contains` now treats a ±∞ endpoint as an always-satisfied
+    unbounded side, so membership on a ray (and hence on the complement) is
+    decided.
+- **Verified against SymPy:** `ℝ\[1,3]`, `ℝ\(1,3)` (endpoints flip),
+  `ℝ\[1,∞)` and `ℝ\(−∞,3]` (single ray) all match; membership `0∈`, `1∉`, `2∉`,
+  `4∈` is now decided.
+- **Regression test:** `tests/sets/sets_test.cpp`
+  — `[10][sets][complement][interval][regression]` (SET-COMPL-1).
+- **Scope:** `ℝ \ interval`. Complement of a `FiniteSet` or within a bounded
+  universal set is a follow-up.
+
+### SET-INTERVAL-1 — interval `∪` / `∩` weren't computed
+- **Input:** `set_union(Interval(1,3), Interval(2,4))`,
+  `set_intersection(Interval(1,3), Interval(2,4))`,
+  `set_intersection(Interval(1,2), Interval(3,4))`.
+- **Was:** the operands wrapped in an unevaluated `Union` / `Intersection` node
+  (`[1,3] ∪ [2,4]`, `[1,3] ∩ [2,4]`). `set_union`/`set_intersection` only folded
+  the empty-set cases.
+- **Expected (SymPy):** `Interval(1, 4)`, `Interval(2, 3)`, `EmptySet`.
+- **Fix (`src/sets/sets.cpp`):** for two real intervals,
+  - **intersection** = `[max(los), min(his)]` with the open flags carried from
+    the winning endpoint (OR'd on a tie); `lo > hi → EmptySet`, `lo == hi →` a
+    single-point `FiniteSet` (or `EmptySet` if either endpoint there is open);
+  - **union** merges when the intervals overlap or touch
+    (`ib.lo ≤ ia.hi ∧ ia.lo ≤ ib.hi`) into `[min(los), max(his)]`, otherwise
+    stays a `Union`.
+  Endpoint ordering uses a sign comparison (`endpoint_cmp`), so symbolic bounds
+  that can't be ordered fall back to the unevaluated node.
+- **Verified against SymPy:** overlap/adjacent merge (`[1,3]∪[2,4]=[1,4]`,
+  `[1,2]∪[2,3]=[1,3]`), disjoint union stays a `Union`, intersection
+  (`[1,3]∩[2,4]=[2,3]`), containment (`[1,5]∩[2,3]=[2,3]`), disjoint → `EmptySet`,
+  closed-touch → `{3}`, open-touch → `EmptySet` — all match.
+- **Regression test:** `tests/sets/sets_test.cpp`
+  — `[10][sets][interval][regression]` (SET-INTERVAL-1).
+- **Scope:** pairs of real intervals with orderable endpoints. Multi-set unions,
+  interval-vs-FiniteSet, and `Complement(Reals, …) → ray ∪ ray` are follow-ups.
+
+### ILAPLACE-QUAD-2 — inverse Laplace of a LINEAR numerator over a quadratic
+- **Input:** `inverse_laplace_transform(s/(s**2+2*s+2))`,
+  `(s+1)/(s**2+2*s+2)`, `s/((s-2)**2+1)`, `(2*s+1)/(s**2+2*s+5)`.
+- **Was:** the unevaluated marker. ILAPLACE-QUAD-1 closed the *constant*-numerator
+  case, but a numerator linear in `s` (the damped-cosine family) still fell
+  through — `inverse_laplace_term` bails as soon as the numerator contains `s`.
+- **Expected (SymPy):** `exp(-t)·cos t − exp(-t)·sin t`, `exp(-t)·cos t`,
+  `exp(2t)·cos t + 2·exp(2t)·sin t`, `2·exp(-t)·cos 2t − exp(-t)·sin 2t/2`.
+- **Fix (`src/integrals/transforms.cpp`):** new `inverse_laplace_linear_quad` —
+  split `F = num·den^(-1)`, require `num` linear and `den` an irreducible
+  quadratic (`Poly` degrees 1 and 2, `β' ≠ 0`); complete the square and
+  decompose the numerator about `(s − a)`:
+  `(α·s+β)/α' = A·(s−a) + B` with `A = α/α'`, `B = (β + α·a)/α'`, giving
+  `A·exp(a·t)·cos(b·t) + (B/b)·exp(a·t)·sin(b·t)`.
+- **Verified against SymPy:** all four inputs match; the constant-numerator
+  (ILAPLACE-QUAD-1) and pure `s/(s²+a²)` paths are unaffected (the new handler
+  requires a genuine linear numerator and `β' ≠ 0`).
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][inverse_laplace][oracle][regression]` (ILAPLACE-QUAD-2).
+- **Scope:** numerators up to degree 1 over an irreducible quadratic. Higher-
+  degree rational functions still rely on `apart` to split first.
+
+### ILAPLACE-QUAD-1 — inverse Laplace couldn't invert a completed-square quadratic
+- **Input:** `inverse_laplace_transform(1/(s**2+2*s+2))`,
+  `2/(s**2+4*s+5)`, `1/(s**2+2*s+10)`.
+- **Was:** the unevaluated `InverseLaplaceTransform(...)` marker. The inverse
+  table handled `(s−a)^n` and `c/(s²+a²)` (no linear term), but a quadratic with
+  a **linear** term — `s²+ps+q` with discriminant `< 0` — matched neither.
+- **Expected (SymPy):** `exp(-t)·sin(t)`, `2·exp(-2t)·sin(t)`,
+  `exp(-t)·sin(3t)/3` (the inverse s-shift, symmetric to LAPLACE-SHIFT-1).
+- **Fix (`src/integrals/transforms.cpp`):** a Case 3 in `inverse_laplace_term` —
+  build a `Poly` in `s`; for a degree-2 denominator `α·s²+β·s+γ` with `β ≠ 0` and
+  `b² = γ/α − (β/2α)² > 0`, complete the square (`a = −β/(2α)`) and return
+  `(num/α)·exp(a·t)·sin(b·t)/b`.
+- **Verified against SymPy:** the completed-square family matches (modulo the
+  `Heaviside(t)` factor SymPP omits); the existing `(s−a)^n` and `s²+a²` paths
+  are unchanged (β = 0 still routes to the plain `sin` case).
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][inverse_laplace][oracle][regression]` (ILAPLACE-QUAD-1).
+- **Scope:** constant numerator over an irreducible quadratic. A linear
+  numerator (`(s−a)/((s−a)²+b²) → exp(a·t)·cos(b·t)`) over the shifted quadratic
+  is the symmetric follow-up; and the `1/(s²−a²) → sinh/cosh` inverse still
+  prints via the complex `−I·sin(i·t)` form rather than `sinh`.
+
+### LAPLACE-SHIFT-1 — Laplace transform missed `sinh`/`cosh` and the s-shift theorem
+- **Input:** `laplace_transform(sinh(t))`, `cosh(t)`, `exp(-t)·sin(t)`,
+  `t·exp(t)`, `t²·exp(t)`, `exp(2t)·cos(t)`.
+- **Was:** the unevaluated `LaplaceTransform(...)` marker. The table covered
+  `t^n`, `exp`, `sin`, `cos`, but not the hyperbolics, and the `Mul` case only
+  pulled out constant factors — so any `exp(a·t)·g(t)` product (damped
+  oscillations, `t^n·exp`) fell through.
+- **Expected (SymPy):** `1/(s²−1)`, `s/(s²−1)`, `1/((s+1)²+1)`, `1/(s−1)²`,
+  `2/(s−1)³`, `(s−2)/((s−2)²+1)`.
+- **Fix (`src/integrals/transforms.cpp`):**
+  - `sinh`/`cosh` table entries: `L{sinh(a·t)} = a/(s²−a²)`,
+    `L{cosh(a·t)} = s/(s²−a²)`.
+  - the **s-shift theorem** in the `Mul` case: every `exp(a·t)` factor is pulled
+    out, the `a`'s summed, and the rest's transform `G(s)` is shifted to
+    `G(s − a)` — closing the damped-oscillation and `t^n·exp` families.
+- **Verified against SymPy:** all six inputs match, including the scaled
+  `3·exp(−2t)·sin(3t) → 9/((s+2)²+9)`; the existing `t`, `sin`, `cos`, `exp`,
+  linearity entries are unchanged.
+- **Regression test:** `tests/integrals/transforms_test.cpp`
+  — `[8][laplace][oracle][regression]` (LAPLACE-SHIFT-1).
+- **Scope:** the table + s-shift. The general Meijer-G-driven transform of
+  arbitrary inputs stays deferred (it depends on the hypergeometric machinery).
+
+### SIMP-EXP-POW-1 — `simplify((exp(x))**2)` didn't fold to `exp(2x)`
+- **Input:** `simplify(exp(x)**2)`, `exp(x)**3`, `exp(x)**(-1)`, `exp(x+1)**2`.
+- **Was:** unchanged (`exp(x)**2`, …). `combine_exp` merged `exp` factors inside
+  a `Mul`, but a standalone `Pow(exp(g), k)` was never folded.
+- **Expected (SymPy):** `exp(2*x)`, `exp(3*x)`, `exp(-x)`, `exp(2*x + 2)`.
+- **Fix (`src/simplify/simplify.cpp`):** `combine_exp_node` now folds a
+  `Pow(exp(g), k)` with an **integer** `k` to `exp(expand(k·g))`. A fractional or
+  symbolic exponent is left as a `Pow` — matching SymPy, which keeps
+  `sqrt(exp(x))` and `exp(x)**n` for branch-cut safety.
+- **Verified against SymPy:** `exp(x)**{2,3,-1}` and `exp(x+1)**2` fold exactly;
+  `exp(x)**(1/2)` (≡ SymPy's `sqrt(exp(x))`) and `exp(x)**n` are left unfolded.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][oracle][regression]` (SIMP-EXP-POW-1).
+- **Scope:** integer power of a single `exp`. A power of a *product* of exps
+  (`(exp(x)·exp(y))**2`) needs a second combine pass and is left as-is (still
+  correct, just not maximally combined).
+
+### LIMIT-HANG-1 — `limit` hung on a radical `∞/∞` form
+- **Input:** `limit(sqrt(x**2+x) - x, x, oo)`,
+  `limit(x/(sqrt(x**2+x)+x), x, oo)`.
+- **Was:** an effectively-infinite hang (CPU spin, no result). `lhopital_nd`
+  differentiates num/den each step; for a radical integrand the nested radicals
+  grow every iteration (the ratio never stabilises), so the per-iteration
+  `simplify`/`together`/`diff` over an ever-larger expression dominated the
+  runtime — a CAS that locks up on a finite input.
+- **Fix (`src/calculus/limit.cpp`):** a node-count budget in the `lhopital_nd`
+  loop — when `node_count(num) + node_count(den)` exceeds 400, bail to the
+  unevaluated `nan`. Legitimate limits resolve in a handful of iterations far
+  under the budget, so none are affected.
+- **Verified against SymPy:** the radical inputs now **terminate** (returning
+  `nan`) instead of hanging, and the neighbouring limits still resolve
+  (`sin(x)/x → 1`, `x·e^(-x) → 0`, `(1+1/x)^x → E`, `(x²-1)/(x-1) → 2`).
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (LIMIT-HANG-1): the radical forms return
+  *a* value (no hang).
+- **Scope:** this is a **robustness** fix — it stops the hang but does not
+  compute the limit. `sqrt(x²+x) − x = 1/2` needs asymptotic-series / Gruntz
+  machinery (the `x = 1/t` substitution that turns the ∞−∞ into a 0/0 at the
+  origin), which stays deferred-deep.
+
+### SIMP-EXP-HYP-1 — `simplify` didn't fold `e^x + e^(−x)` into `2·cosh(x)`
+- **Input:** `simplify(exp(x) + exp(-x))`, `simplify(exp(x) - exp(-x))`,
+  `simplify(exp(2x) + exp(-2x))`, `simplify(3·exp(x) + 3·exp(-x))`.
+- **Was:** unchanged (`exp(-x) + exp(x)`, …). SymPP had the cosh/sinh → exp
+  direction (TRIG-HYP-2) but not the reverse, so an exponential sum never
+  collapsed to a hyperbolic function.
+- **Expected (SymPy):** `2·cosh(x)`, `2·sinh(x)`, `2·cosh(2x)`, `6·cosh(x)`.
+- **Fix (`src/simplify/simplify.cpp`):** a new `exp_to_hyp_add` pass (mirror of
+  `hyp_to_exp_add`) collects, per argument `g`, the coefficients of `e^g` and
+  `e^(−g)`; equal coefficients fold to `2a·cosh(g)`, opposite to `2a·sinh(g)`.
+  The argument is normalised to its positive representative (`cosh` even, `sinh`
+  odd) so the output matches SymPy's `2·cosh(2x)` rather than `2·cosh(−2x)`.
+  Wired into the `simplify` pipeline after `combine_exp`. No oscillation with
+  TRIG-HYP-2: a pure `2·cosh(x)` has no `sinh` partner to convert back.
+- **Verified against SymPy:** the cosh/sinh folds for arguments `x` and `2x`
+  with integer coefficients all match exactly; an unequal-coefficient sum
+  (`e^x + 2·e^(−x)`) is correctly left alone.
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][oracle][regression]` (SIMP-EXP-HYP-1).
+- **Scope:** real exponentials with equal/opposite coefficients per argument.
+
+### SOLVESET-TRIG-SCALE-1 — `solveset(cos(2x)=1)` returned EmptySet; redundant cos union
+- **Input:** `solveset(cos(2*x) - 1, x)`, `solveset(cos(x) - 1, x)`,
+  `solveset(cos(x) + 1, x)`.
+- **Was:** `cos(2x) − 1` → `EmptySet` (wrong — it has solutions `{nπ}`);
+  `cos(x) − 1` → `ImageSet ∪ ImageSet` of two **identical** `{2nπ}` sets. The
+  `invert_solveset` trig branches only emitted an ImageSet when the argument was
+  exactly `var`, so a scaled argument `a·var` fell through; and the cos branch
+  always emitted a two-branch `±acos(c)` union even when the branches coincide.
+- **Expected (SymPy):** `{nπ}`, `{2nπ}`, `{2nπ + π}`.
+- **Fix (`src/solvers/solve.cpp`):** the Sin/Cos/Tan branches now accept a linear
+  argument `g = a·var` (a `linear_coeff` helper) and divide the periodic image
+  through by `a`. The cos branch emits a **single** ImageSet when
+  `acos(c) ∈ {0, π}` (`c = ±1`, where the `±` branches coincide), and the
+  two-branch union otherwise.
+- **Verified against SymPy:** `cos(2x)=1 → {nπ}`, `cos(x)=1 → {2nπ}`,
+  `cos(x)=-1 → {2nπ+π}` match exactly; `sin(2x)`, `tan(2x)=1`, `cos(3x)=1/2`,
+  `cos(x)=1/2` equal SymPy's solution sets (SymPP often emits the cleaner single
+  ImageSet where SymPy emits an equivalent union); a generic RHS keeps the
+  two-branch union.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solveset][regression]` (SOLVESET-TRIG-SCALE-1).
+- **Scope:** linear (a·var) trig arguments. Genuinely nested arguments
+  (`cos(x²)`) still need parametric back-substitution.
+
+### SOLVESET-POW0-1 — `solveset(f(x)**n)` returned EmptySet for a transcendental base
+- **Input:** `solveset(sin(x)**2, x)`, `solveset(sin(x)**4, x)`,
+  `solveset(tan(x)**2, x)`.
+- **Was:** `EmptySet` — clearly wrong (`sin(x)² = 0` has the solutions of
+  `sin(x) = 0`). `invert_solveset` only peeled a `Pow` with a *non-integer*
+  exponent (SOLVE-RAD-1); an integer power fell through to the polynomial path,
+  which can't build a `Poly` in `x` from `sin(x)` and so returned no solutions.
+- **Expected (SymPy):** the solution set of the base — `{n·π}` for `sin(x)²`,
+  `tan(x)²`; `{(2n+1)π/2}` for `cos(x)²`.
+- **Fix (`src/solvers/solve.cpp`):** in `invert_solveset`'s `Pow` branch, when the
+  exponent is a positive integer and the RHS is `0`, recurse with
+  `solveset(base)` — `g^n = 0 ⟺ g = 0`.
+- **Verified against SymPy:** `sin(x)²`, `sin(x)⁴`, `cos(x)²`, `tan(x)²` all now
+  return the (periodic) solution set instead of EmptySet, and equal SymPy's set.
+  (SymPP emits the cleaner single ImageSet `{n·π}` where SymPy emits the
+  equivalent union `{2nπ} ∪ {2nπ+π}`.) A polynomial base (`(x-1)² → {1}`) is
+  unaffected.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solveset][regression]` (SOLVESET-POW0-1).
+- **Scope:** `g^n = 0`. A non-zero RHS with a scaled trig argument
+  (`cos(2x) = 1`) still needs the scaled-argument trig inversion and remains a
+  follow-up; `rewrite(target)` (exp↔trig, etc.) is not implemented at all.
+
+### EXPAND-TRIG-MULTI-1 — `expand_trig` didn't expand multiple angles `sin(n·x)`
+- **Input:** `expand_trig(sin(2*x))`, `expand_trig(cos(2*x))`,
+  `expand_trig(sin(3*x))`, `expand_trig(cos(3*x))`, `expand_trig(sin(4*x))`.
+- **Was:** the argument unchanged (`sin(2*x)`, …). `expand_trig_node` applied the
+  angle-addition formula only when the argument was an `Add` (`sin(x+y)`); a
+  multiple angle `n·x` is a `Mul`, so it fell through.
+- **Expected (SymPy):** `2·sin(x)·cos(x)`, `2·cos²x − 1`, `3·sin x − 4·sin³x`,
+  `4·cos³x − 3·cos x`, …
+- **Fix (`src/simplify/simplify.cpp`):** `expand_trig_node` now also splits a
+  `Mul` argument with an integer factor `n ≥ 2` as `n·g = g + (n−1)·g` and
+  applies the same angle-addition formula; the fixpoint loop (raised to 32
+  passes) reduces `(n−1)·g` recursively down to `sin(x)`/`cos(x)`. Works for
+  `sin`/`cos`/`tan`, and composes with the `Add` case (`cos(2x+y)`).
+- **Verified against SymPy:** `sin/cos/tan(n·x)` for n = 2…4 and the combined
+  `cos(2x+y)` all match `sympy.expand_trig` **up to trig-identity equivalence**
+  (SymPP keeps the `cos²−sin²`/nested-product form; SymPy applies a final
+  Chebyshev normalization to the minimal all-sin / all-cos form — the two are
+  equal, just shaped differently).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][expand_trig][oracle][regression]` (EXPAND-TRIG-MULTI-1).
+- **Scope:** the expansion is correct but not minimal; collapsing to SymPy's
+  Chebyshev-reduced form (all-sin for `sin`, all-cos for `cos`) is a further
+  normalization. Downstream `fu`/`simplify` re-`trigsimp` the result, so the
+  verbose intermediate doesn't leak into their output.
+
+### LIMIT-POLY-INF-1 — polynomial `∞−∞` limits returned `nan`
+- **Input:** `limit(x**2 - x, x, oo)`, `limit(x - x**2, x, oo)`,
+  `limit(2*x**2 - 5*x, x, oo)`, `limit(-x**3 + x, x, -oo)`.
+- **Was:** `nan`. Direct substitution gave `∞ − ∞`, and (after LIMIT-EXP-1's
+  Add-linearity, which bails when a term diverges) nothing recovered the
+  dominant term.
+- **Expected (SymPy):** `oo`, `-oo`, `oo`, `oo` — a polynomial at ±∞ is governed
+  by its leading term.
+- **Fix (`src/calculus/limit.cpp`):** when direct substitution at an infinite
+  target is `nan` and the expression is a polynomial in `var` (all `Poly`
+  coefficients free of `var`), take the limit of the leading term
+  `c·var^deg` — `subs` then folds it through the infinity arithmetic with the
+  correct even/odd-degree sign at `−∞`.
+- **Verified against SymPy:** the polynomial family at both `+∞` and `−∞`
+  (signs correct for even and odd leading degree). Non-polynomial `∞−∞`
+  (`e^x − x`, `x − log x`) correctly **stays `nan`** — it needs the dominant-term
+  / Gruntz asymptotics that remain deferred.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (LIMIT-POLY-INF-1).
+- **Scope:** polynomials. Mixed exponential/logarithmic `∞−∞` still needs Gruntz.
+
+### FACTOR-HOM-1 — `factor` left common multivariate (homogeneous bivariate) polynomials unfactored
+- **Input:** `factor(x**2 - y**2, x)`, `factor(x**2 + 2*x*y + y**2, x)`,
+  `factor(x**3 - y**3, x)`, `factor(x**2*y - y**3, x)`.
+- **Was:** the input unchanged. `factor` builds a `Poly` in `var`; a genuinely
+  multivariate polynomial has symbolic (polynomial-in-the-other-variable)
+  coefficients, which the ℚ-only `factor_list` (square-free + rational-root +
+  Kronecker) can't take, so it returned the expression unfactored.
+- **Expected (SymPy):** `(x - y)*(x + y)`, `(x + y)**2`,
+  `(x - y)*(x**2 + x*y + y**2)`, `y*(x - y)*(x + y)`.
+- **Fix (`src/polys/poly.cpp`):** a `factor_homogeneous_bivariate` pass for the
+  two-symbol case. When every monomial shares the same total degree, the
+  polynomial is **dehomogenized** (other variable → 1), factored over ℚ with the
+  existing machinery, and each factor **re-homogenized** to its own degree
+  (`Σ aₖ·xᵏ ↦ Σ aₖ·xᵏ·yⁿᵈᵉᵍ⁻ᵏ`), with a `y^(n−deg)` factor for any pure-`y`
+  part. The product is **verified to expand back to the input**, so a
+  non-homogeneous or irreducible polynomial is rejected rather than mis-factored.
+- **Verified against SymPy:** difference of squares/cubes, sum of cubes,
+  perfect-square trinomials, `9x²−4y² → (3x−2y)(3x+2y)`, `x⁴−y⁴`, the pure-`y`
+  pull-out; `x²+y²` correctly stays irreducible, and univariate factoring is
+  unchanged.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[4][poly][factor][oracle][regression]` (FACTOR-HOM-1).
+- **Scope:** homogeneous **bivariate** polynomials (the common textbook cases).
+  Non-homogeneous multivariate (`x²−y²+x`, three or more variables) still needs
+  the full Wang / multivariate-GCD port and is rejected by the self-check.
+
+### LIMIT-EXP-1 / INT-DEF-1 — `0·∞` limits with a decaying exponential, and improper definite integrals
+- **Input:** `limit(x*exp(-x), x, oo)` (and `x²·e^(-x)`, …); the definite
+  integrals `∫₀^∞ x^n·e^(-x) dx`.
+- **Was:** `nan`. Two compounding defects:
+  1. `limit` recast `x·e^(-x)` (an `∞·0` product) as the **0/0** form
+     `e^(-x)/(1/x)`, where each L'Hôpital step only *raises* the polynomial
+     degree, so it never converged → `nan`. It also had no linearity over `Add`
+     or `Mul`, so a sum/product of such terms (the shape of these
+     antiderivatives) stayed `nan`.
+  2. Definite integration was literal Newton–Leibniz (`subs(F, var, oo)`), so an
+     infinite bound substituted `oo` into `-(x+1)·e^(-x)` and got `∞·0 = nan`
+     instead of the boundary *limit*.
+- **Expected (SymPy):** `limit(x^n·e^(-x), oo) = 0`; `∫₀^∞ x^n·e^(-x) dx = n!`.
+- **Fix:**
+  - `src/calculus/limit.cpp`: `try_product_form` now tries **both** the 0/0 and
+    `∞/∞` arrangements (the latter, `x^n / e^x`, is the one L'Hôpital cracks),
+    with an **exp-aware reciprocal** (`1/exp(g) = exp(−g)`) so the exponential
+    stays in the denominator across iterations instead of flipping back into the
+    numerator. `limit_impl` gained **linearity over `Add` and `Mul`**: when every
+    term/factor has a determinate limit (and there is no `∞−∞` / `0·∞` conflict)
+    the result is their sum/product; a genuinely divergent term makes it fall
+    through rather than guess.
+  - `src/integrals/integrate.cpp`: the definite integral evaluates each boundary
+    with `limit(antider, var, bound)` for an infinite bound (or when `subs` lands
+    on `nan` / an infinity), and plain substitution otherwise.
+- **Verified against SymPy:** `x^n·e^(-x) → 0` for n up to 5, `x·e^(-2x) → 0`,
+  the Gamma integrals `∫₀^∞ x^n·e^(-x) = {1,2,6,24}`, `∫₀^∞ x·e^(-2x) = 1/4`;
+  finite-bound integrals and convergent sums (`e^(-x) − e^(-2x) → 0`,
+  `x + 1/x → oo`) unchanged.
+- **Regression tests:** `tests/calculus/series_limit_test.cpp`
+  (`[6][limit][infinity][regression]`, LIMIT-EXP-1) and
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][definite][regression]`,
+  INT-DEF-1).
+- **Scope:** `0·∞` where an exponential dominates a polynomial. True `∞−∞`
+  forms (`x² − x`, `e^x − x`) still return `nan` — they need dominant-term /
+  Gruntz asymptotics and are deliberately left rather than mis-evaluated.
+
+### TOGETHER-LCM-1 — `together` combined fractions over the product, not the LCM, of denominators
+- **Input:** `together(a/b + c/b)`, `together(x/(x+1) + 1/(x+1))`,
+  `together(1/(x-1) + 1/(x-1)**2)`.
+- **Was:** `(a*b + b*c)*b**(-2)`, `(x + x*(x+1) + 1)*(x+1)**(-2)` (which is
+  actually `1`), and `(...)*(x-1)**(-3)`. `as_numer_denom`'s `Add` branch used
+  the **product** of the part denominators as the common denominator and
+  cross-multiplied, so a shared factor was squared (`b·b`, `(x+1)²`) and the
+  result was left inflated and unreduced.
+- **Expected (SymPy):** `(a + c)/b`, `1`, `x/(x-1)**2`.
+- **Fix (`src/polys/poly.cpp`):** `as_numer_denom` now combines a sum of
+  fractions over the **LCM** of the denominators. Each denominator is decomposed
+  into `base^power` factors (`accumulate_denom_factors`, peeling `Pow(base,+int)`
+  and `Mul`, treating anything else — Symbol, `(x+1)`, non-integer power — as an
+  opaque base); the common denominator takes the max power per base, and each
+  numerator is scaled by its per-base power deficit. Distinct denominators still
+  cross-multiply (`1/x + 1/y → (x+y)/(x·y)`); a shared factor is no longer
+  duplicated, and an exact cancellation (`x/(x+1)+1/(x+1)`) collapses through the
+  canonical `Mul` to `1`.
+- **Verified against SymPy:** `a/b+c/b`, the 3-term `a/b+c/b+d/b`, the `(x+1)`
+  and `(x-1)²` shared-factor cases, `1/x+1/x**2`, and the distinct-denominator
+  baseline all match. The fix flows through to `simplify` (the SIMP-4 follow-up
+  `simplify(a/b+c/b) → (a+c)/b` now works) and leaves `cancel` / `apart`
+  unchanged.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[4][together][oracle][regression]` (TOGETHER-LCM-1).
+- **Scope:** structural factor sharing (identical bases, power relationships).
+  Denominators sharing a *non-obvious* polynomial factor (`x²−1` and `x+1`)
+  still combine over their product — that needs the multivariate-GCD work
+  (CANCEL-1) to detect; the result stays correct, just not minimal.
+
+### MAT-CHARPOLY-1 — `Matrix::charpoly` returned an unexpanded cofactor form
+- **Input:** `Matrix{{1,2},{3,4}}.charpoly(λ)` and other square matrices.
+- **Was:** `(λ - 1)*(λ - 4) - 6` — the raw cofactor-expansion shape produced by
+  `det(λI − A)`. Mathematically a characteristic polynomial, but not the form a
+  caller expects.
+- **Expected (SymPy):** the expanded, like-terms-collected polynomial
+  `λ² − 5λ − 2` (SymPy's `charpoly().as_expr()`).
+- **Fix (`src/matrices/matrix.cpp`):** `charpoly` now returns
+  `expand(det(λI − A))`. `eigenvals` is unaffected (it rebuilds a `Poly`, which
+  expands regardless).
+- **Verified against SymPy:** the expanded polynomial matches for 2×2, 3×3,
+  singular, and symbolic matrices (`λ² − 2λx + x² − 1` for `[[x,1],[1,x]]`).
+  (Term *ordering* still differs — SymPP's canonical `Add` order vs SymPy's
+  descending-degree — but the polynomials are identical; ordering is a separate
+  printer concern.)
+- **Regression test:** `tests/matrices/matrix_test.cpp`
+  — `[9][matrix][charpoly][oracle][regression]` (MAT-CHARPOLY-1): no surviving
+  `)*(` factor, and oracle-equivalence for 2×2 / 3×3 / symbolic.
+- **Scope:** the rest of the dense-matrix surface (det, inverse, rank, rref,
+  nullspace, eigenvals, eigenvects) was cross-checked against SymPy in this pass
+  and already matches.
+
+### INT-RECIP-2 — `∫1/cosh(x)` (reciprocal hyperbolic as a `Pow`) wasn't integrated
+- **Input:** `integrate(1/cosh(x))`, `integrate(1/sinh(x))`, and affine variants
+  (`1/cosh(2x)`, `1/sinh(3x+1)`).
+- **Was:** the unevaluated `Integral(cosh(x)**(-1), x)` — the hyperbolic analogue
+  of INT-RECIP-1. `integrate(sech(x))` / `integrate(csch(x))` worked, but the
+  `Pow(cosh(x), -1)` form fell through.
+- **Expected (SymPy):** `∫1/cosh(x) = atan(sinh(x))`,
+  `∫1/sinh(x) = log(tanh(x/2))`.
+- **Fix (`src/integrals/integrate.cpp`):** extended the INT-RECIP-1
+  reciprocal-first-power `Pow` branch with `Pow(cosh(u), -1) → sech(u)` and
+  `Pow(sinh(u), -1) → csch(u)`, reusing the Sech/Csch antiderivatives
+  (`atan(sinh)/a`, `log(tanh(u/2))/a`).
+- **Verified against SymPy:** all four inputs integrate (each confirmed by
+  differentiating back), and `∫1/cosh(x)` now equals `∫sech(x)` structurally.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][hyperbolic][oracle][regression]` (INT-RECIP-2).
+
+### INT-RECIP-1 — `∫1/cos(x)` (reciprocal trig as a `Pow`) wasn't integrated
+- **Input:** `integrate(1/cos(x))`, `integrate(1/sin(x))`, and affine variants
+  (`1/cos(2x+1)`, `1/sin(3x)`).
+- **Was:** the unevaluated `Integral(cos(x)**(-1), x)` — even though
+  `integrate(sec(x))` and `integrate(cos(x)**(-2))` both worked. `1/cos(x)`
+  parses as `Pow(cos(x), -1)`: the `exp == -1` log rule only fires for an
+  *affine* base (not `cos(x)`), and the reciprocal-trig branch only matched
+  `exp == -2`, so the first power fell through.
+- **Expected (SymPy):** the same antiderivative as `∫sec(x)` /
+  `∫csc(x)` (a half-angle log form, ≡ `log|sec x + tan x|`).
+- **Fix (`src/integrals/integrate.cpp`):** a reciprocal-first-power branch in the
+  `Pow` case — `Pow(cos(u), -1) → sec(u)` and `Pow(sin(u), -1) → csc(u)` for an
+  affine `u` route to the exact antiderivatives the Sec/Csc function table
+  already used.
+- **Verified against SymPy:** all four inputs integrate (each confirmed by
+  differentiating back to the integrand), and `∫1/cos(x)` now equals `∫sec(x)`
+  structurally.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][trig][oracle][regression]` (INT-RECIP-1).
+- **Scope:** `1/cos`, `1/sin` of an affine argument. The hyperbolic reciprocals
+  written as a `Pow` are done in INT-RECIP-2 above.
+
+### INT-IMPROPER-1 — improper rational functions over a linear denominator weren't integrated
+- **Input:** `integrate(x/(x+1))`, `integrate(x**2/(x+1))`,
+  `integrate((x**2+1)/(x-1))`, `integrate((x+1)/x)`.
+- **Was:** the unevaluated `Integral(...)` marker. `try_rational` does the
+  polynomial division (`x/(x+1) → 1 + (−1)/(x+1)`), but when `apart` left the
+  proper remainder as a single `c/(x+a)` term, the `apart_form == proper` branch
+  only handled a **degree-2** denominator (`if (den_p.degree() != 2) return
+  nullopt`) and dropped everything else — so a linear denominator fell through to
+  the marker even though its integral is an elementary log.
+- **Expected (SymPy):** `x - log(x + 1)`, `x**2/2 - x + log(x + 1)`,
+  `x**2/2 + x + 2*log(x - 1)`, `x + log(x)`.
+- **Fix (`src/integrals/integrate.cpp`):** in that branch (with `q ≠ 0`) the
+  proper remainder is now closed by the **general** integrator
+  `integrate(proper, var)` instead of the degree-2-only helpers. That reaches the
+  affine-log rule for a linear denominator and the arctan / linear-over-quadratic
+  helpers for a quadratic one; the remainder is a *proper* fraction so its own
+  `try_rational` bails immediately (`q' == 0`), giving no recursion.
+- **Verified against SymPy:** all four inputs now integrate (each confirmed by
+  differentiating the antiderivative back to the integrand), and the
+  previously-working quadratic-denominator improper cases (`x**3/(x**2-1)`,
+  `x**2/(x**2+1)`) are unchanged.
+- **Regression test:** `tests/integrals/integrate_test.cpp`
+  — `[7][integrate][rational][oracle][regression]` (INT-IMPROPER-1): the linear
+  family verified by differentiation, plus a quadratic-denominator
+  no-regression guard.
+- **Scope:** rational integrands. (`1/cos(x)` written as `Pow(cos(x), -1)` is
+  fixed in INT-RECIP-1 above.)
+
+### SPECVAL-1 — `gamma` poles and `polygamma(n, 1)` special values weren't evaluated
+- **Input:** `gamma(0)`, `gamma(-1)`, `gamma(-3)`; `polygamma(0, 1)` /
+  `digamma(1)`, `polygamma(1, 1)`, `polygamma(2, 1)`, `polygamma(3, 1)`.
+- **Was:** `gamma(0)` etc. stayed an unevaluated `gamma(0)` (the factory comment
+  even read *"= pole; keep symbolic"*), and every `polygamma(n, 1)` stayed
+  symbolic — including `digamma(1)`, which the DIGAMMA-1 entry had flagged as a
+  follow-up (`ψ(1) = −γ`).
+- **Expected (SymPy):** `gamma(non-positive integer) = zoo`;
+  `polygamma(0,1) = -EulerGamma`, `polygamma(1,1) = pi**2/6`,
+  `polygamma(2,1) = -2*zeta(3)`, `polygamma(3,1) = pi**4/15`.
+- **Fix (`src/functions/combinatorial.cpp`):**
+  - `gamma`: a non-positive integer argument now returns `S::ComplexInfinity()`
+    (a simple pole) instead of an unevaluated node.
+  - `polygamma`: at `x = 1` with non-negative integer order `n`,
+    `ψ⁽⁰⁾(1) = −γ` and `ψ⁽ⁿ⁾(1) = (−1)^(n+1)·n!·ζ(n+1)` (the `(−1)^(n+1)` folds
+    to ±1 through the existing parity rule in the `pow` factory; `ζ(even)` then
+    closes to a `π` power via the existing `zeta` evaluation).
+- **Verified against SymPy:** all listed inputs match; `gamma` of positive
+  integers / half-integers and `polygamma` of a non-unit argument
+  (`polygamma(1, 2)`, `polygamma(1, x)`) are unaffected (the rule does not
+  over-fire).
+- **Regression test:** `tests/functions/combinatorial_test.cpp`
+  — `[3i][gamma][regression]` and `[3i][polygamma][oracle][regression]`
+  (SPECVAL-1).
+- **Scope:** `gamma` poles and the `x = 1` polygamma family. The
+  `polygamma(n, x)` recurrence for other integer `x` (`ψ⁽¹⁾(2) = −1 + π²/6`) and
+  `harmonic`/`li`/Bessel special values (those functions have no `FunctionId`
+  implementation yet) are follow-ups.
+
+### SOLVE-RAD-1 — `solve` couldn't handle radical equations (`sqrt(x) = 2`)
+- **Input:** `solve(sqrt(x) - 2, x)`, `solve(x**(1/3) - 2, x)`,
+  `solve(x**(2/3) - 4, x)`, `solve(sqrt(x+1) - 2, x)`, `solve(sqrt(x) - y, x)`.
+- **Was:** `[]` for all of them. The polynomial path can't build a `Poly` over a
+  fractional power, and the `invert_solveset` chain only peeled `Function` heads
+  (log/exp/sin/…), bailing on a `Pow` head — and `solve` only routed to
+  `solveset` when the expression contained a `Function` of the variable, never a
+  radical.
+- **Expected (SymPy):** `[4]`, `[8]`, `[8]`, `[3]`, `[y**2]`.
+- **Fix (`src/solvers/solve.cpp`):**
+  - `invert_solveset` gained a `Pow` branch: `g^p = c` with `p` a **non-integer**
+    rational inverts to `g = c^(1/p)`, recursing on `g` when it isn't the bare
+    variable. Integer powers are deliberately left to the polynomial solver so
+    `x**2 = 4` still yields **both** `±2` (not just the principal root).
+  - Principal-branch convention (matches SymPy): a provably-negative real RHS
+    gives `∅` (`sqrt(x) = −2`, `x**(1/3) = −2`).
+  - `solve` now also routes to `solveset` when the equation carries a radical of
+    the variable (new `has_radical_of_var`), not only a `Function`.
+- **Verified against SymPy:** all five inputs match, the negative-RHS cases give
+  `[]`, the symbolic RHS gives `[y**2]`, and integer powers (`x²−4 → [−2, 2]`,
+  `x³−8`, `x²−1`) are unchanged.
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-RAD-1): each radical form, the
+  no-real-solution branch, and the integer-power no-regression guard.
+- **Scope:** single radical head reachable through the invert chain. Equations
+  mixing a radical with polynomial terms (`sqrt(x) + x − 6`) still need the
+  general radical-elimination machinery and are a follow-up.
+
+### POLE-SIGN-1 — `limit` at a finite pole returned unsigned `zoo` instead of `±oo`
+- **Input:** `limit(1/x**2, x, 0)`, `limit(1/x**4, x, 0)`,
+  `limit(-1/x**2, x, 0)`, `limit(1/(x-1)**2, x, 1)`.
+- **Was:** `zoo` for all of them. After ZERODIV-1, direct substitution at the
+  pole correctly produced `zoo` (the unsigned 1/0), but `limit` returned that as
+  the answer without analysing the approach direction.
+- **Expected (SymPy):** `oo`, `oo`, `-oo`, `oo` — an even-order pole diverges
+  with the same sign from both sides.
+- **Fix (`src/calculus/limit.cpp`):** new `signed_pole` — when direct
+  substitution at a finite numeric target yields `zoo`, sample the sign of the
+  expression at `target ± 1e-6` (exact substitution + `evalf`, reusing the
+  infinity atoms for already-infinite samples). Matching signs ⇒ `+oo` / `-oo`;
+  opposite signs ⇒ the limit is genuinely two-sided and stays `zoo`; an
+  inconclusive sample (non-real, no definite sign) also stays `zoo`.
+- **Verified against SymPy:** all four even-pole inputs match (`±oo`), plus
+  scaled/shifted variants (`2/(x-3)**2 → oo`, `-5/x**4 → -oo`). An **odd** pole
+  (`1/x`, `1/x**3`) keeps `zoo`: it is `+∞` from the right and `−∞` from the
+  left, so the two-sided limit is genuinely the unsigned `zoo`. SymPy reports
+  `oo` there only because its `limit` defaults to `dir='+'` (one-sided);
+  SymPP's `limit` is two-sided, so `zoo` is the correct answer — a principled,
+  documented divergence.
+- **Regression test:** `tests/calculus/series_limit_test.cpp`
+  — `[6][limit][infinity][regression]` (POLE-SIGN-1): even poles → `±oo`,
+  shifted pole, odd pole stays `zoo`.
+- **Scope:** finite numeric targets. Symbolic targets and essential
+  singularities are out of scope; the one-sided `limit(f, x, c, dir)` API itself
+  remains a separate feature gap.
+
+### SOLVE-VAR-1 — `solve` returned a "solution" still containing the solve variable
+- **Input:** `solve(x*exp(x) - 1, x)`, `solve(x*exp(x) - 2, x)`,
+  `solve(exp(x) + x, x)`, `solve(x*log(x) - 1, x)`.
+- **Was:** `[exp(x)**(-1)]`, `[2*exp(x)**(-1)]`, `[-exp(x)]`, `[log(x)**(-1)]` —
+  every one a *rearrangement* that still contains `x`, i.e. not a solution at
+  all. `solve_poly` builds a polynomial in `x` and treats a var-dependent
+  "coefficient" (the `exp(x)` in `x·exp(x) − 1`) as a constant, then solves the
+  apparent linear equation `x = 1/exp(x)`.
+- **Expected (SymPy):** `LambertW(1)`, `LambertW(2)`, `-LambertW(1)`,
+  `exp(LambertW(1))`. SymPP has no Lambert-W solver, so the correct answer is
+  *"none found"* (empty) — never a `x`-containing value.
+- **Fix (`src/solvers/solve.cpp`):** a correctness guard — a genuine solution
+  `x = c` must be free of `x`. `solve()` now drops any candidate with
+  `has(root, var)` (both from the `solve_poly` path and from the `solveset`
+  finite-set path), and `solveset_impl`'s polynomial fallback rejects the same
+  rearrangements before building its `FiniteSet`.
+- **Verified against SymPy:** the four inputs now return `[]` (no false
+  solution); every genuine solve is preserved — `x²−1 → [−1, 1]`,
+  `x²−5x+6 → [2, 3]`, `log(x)−1 → [E]`, `exp(x)−2 → [log 2]`, `x³−x → [−1,0,1]`,
+  `x²−y → [±√y]` (free of `x`).
+- **Regression test:** `tests/solvers/solve_test.cpp`
+  — `[10][solve][regression]` (SOLVE-VAR-1): the four Lambert-W inputs yield no
+  `x`-containing root, plus sanity guards that genuine polynomial/parametric
+  solves still return their roots.
+- **Scope:** this removes the *wrong* answers. Actually solving these (Lambert-W)
+  and radical equations like `sqrt(x) − 2 = 0 → 4` (still `[]`, since `sqrt` is a
+  `Pow` the invert chain doesn't peel) are separate missing-feature follow-ups.
+
+### ZERODIV-1 — `0^(negative)` (i.e. `1/0`) escaped as the malformed `0**(-1)`
+- **Input:** `1/0`, `pow(0, -1)`, `0**(-2)`, `0**(-1/2)`, `2/0`, and
+  `limit(1/x**2, x, 0)`.
+- **Was:** the literal unevaluated `0**(-1)` — a malformed object (neither a
+  number nor an infinity). The `pow` factory fell through to `number_pow(0, -1)`
+  which returns `nullopt` for division by zero (`src/core/number_arith.cpp`
+  already carried the comment *"0^negative — ComplexInfinity (Phase 1e+)"* but
+  never produced it), so the unevaluated `Pow` leaked out. It then poisoned
+  downstream consumers: `limit(1/x**2, x, 0)` returned `0**(-1)` instead of an
+  infinity.
+- **Expected (SymPy):** `zoo` (ComplexInfinity) for every `0**(negative)` — SymPy
+  gives `0**-1 == 0**-2 == 0**Rational(-1,2) == zoo`.
+- **Fix (`src/core/pow.cpp`):** an explicit early rule — `base == 0` and a
+  provably-negative exponent → `S::ComplexInfinity()`. Placed after
+  `pow_with_infinity` (so `0**(-oo)` is still handled there) and after the
+  `x**0 → 1` rule (so `0**0 = 1` wins). `0**(positive)` (→ 0) and symbolic /
+  unknown-sign exponents are untouched.
+- **Verified against SymPy:** `1/0`, `0**-1`, `0**-2`, `0**(-1/2)`, `2/0`,
+  `1/(x-x)` all give `zoo`; `0**2 → 0`, `0**0 → 1`, `x**-1`, `5**-1 → 1/5`
+  unchanged.
+- **Regression test:** `tests/core/infinity_test.cpp`
+  — `[1][infinity][regression]` (ZERODIV-1): the `0**negative` family, `1/0`,
+  the unaffected non-singular cases, and `limit(1/x**2, x, 0)` no longer leaking
+  `0**(-1)`.
+- **Scope:** this fixes the malformed-output bug. Refining the pole `zoo` to the
+  signed `±oo` (so `limit(1/x**2, x, 0) = oo`) is done in POLE-SIGN-1 above.
+
+### TRIG-PWR — `trigsimp` didn't apply the power-reduction / half-angle identities
+- **Input:** `(1 − cos 2x)/2`, `(1 + cos 2x)/2`, `1 − cos 2x`, `1 + cos 2x`,
+  `3·(1 − cos 2x)/2`.
+- **Was:** unchanged (`1/2 − cos(2x)/2`, …). `trigsimp_add` collapsed sums of
+  `a·sin²x + b·cos²x`, but a `cos(2x)` term (cosine to the first power) was not
+  recognised, so the reverse power-reduction direction never fired.
+- **Expected (SymPy):** `sin²x`, `cos²x`, `2·sin²x`, `2·cos²x`, `3·sin²x`.
+- **Fix (`src/simplify/simplify.cpp`):** a `q·cos(2·g)` term is now folded into
+  the per-argument sin²/cos² buckets via `cos(2g) = cos²g − sin²g`
+  (`as_cos_double_term` / `cos_double_arg`, restricted to a literal integer-2
+  factor in the argument). A third **cos-based Pythagorean** candidate
+  (`a + (b − a)·cos²x`) was added alongside the existing sin-based and
+  double-angle candidates; `trigsimp_add` returns whichever of the three has the
+  fewest leaves. Because the selection always takes the global minimum, there is
+  no oscillation: a bare `cos(2x)` stays `cos(2x)`, and the existing
+  `1 − 2·sin²x → cos 2x` collapse is preserved (the `cos 2x` form has fewer
+  leaves there).
+- **Verified against SymPy:** all five inputs plus the no-oscillation guards
+  match `sympy.trigsimp`. `(1 − cos 4x)/2` stays unreduced in **both** SymPP and
+  SymPy (the literal-`cos(2·g)` restriction mirrors SymPy's own behaviour).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][trigsimp][oracle][regression]` (TRIG-PWR): the (1 ∓ cos 2x)/2 family,
+  scaled/unhalved variants, and the `cos(2x)` / `1 − 2·sin²x` no-oscillation
+  guards.
+- **Scope:** the `cos(2·g)` ↔ sin²/cos² family. `sin⁴x − cos⁴x → −cos 2x` (a
+  4th-power difference) is a separate, narrower follow-up not covered here.
+
+### SIMP-4 — `simplify` could return a form *larger than its input*
+- **Input:** `simplify((x+1)**3)`, `simplify((x+1)**2)`,
+  `simplify((exp(x)-1)/(exp(x/2)+1))`.
+- **Was:** `3*x + 3*x**2 + x**3 + 1`, `2*x + x**2 + 1`, and a 14-node nested
+  fraction (`((exp(x/2)+1)*exp(x) - (exp(x/2)+1))*(exp(x/2)+1)**(-2)`) — each
+  *bigger* than the input. The pipeline expands eagerly (`expand()` at step 2)
+  and never compared the final result against the original, so already-compact
+  forms got inflated. (SIMP-1 had added a *local* strictly-simpler guard for the
+  univariate rational-cancel step only; the global pipeline had none.)
+- **Expected (SymPy):** `(x + 1)**3`, `(x + 1)**2`, `(exp(x) - 1)/(exp(x/2) + 1)`
+  — SymPy's `simplify` guarantees it never returns something more complicated
+  than the input (it scores candidates by a complexity measure).
+- **Fix (`src/simplify/simplify.cpp`):** a global anti-bloat guard at the end of
+  `simplify()` — when `node_count(current) > node_count(canon)` (the canonical
+  input), return `canon`. Genuine reductions are unaffected because they shrink
+  the node count: `(x+1)*(x-1) → x**2-1`, `sin²+cos² → 1`, `(x²-1)/(x-1) → x+1`
+  all still fire. Rationalization that legitimately grows the count
+  (`1/√2 → √2/2`, `√8 → 2√2`) is preserved (radsimp's form is not larger by
+  `node_count`).
+- **Regression test:** `tests/simplify/simplify_test.cpp`
+  — `[5][simplify][regression]` / `[5][simplify][oracle][regression]`
+  ((x+1)**2/(x+1)**3 stay factored; genuine reductions still fire; exp fraction
+  no longer bloats).
+- **Scope:** the guard prevents *growth*; it does not add new reductions. Cases
+  where SymPy reduces *below* the input but SymPP cannot yet — `exp(x/2)-1` from
+  the exp fraction (needs generator-aware `cancel` in `exp(x/2)`), or `(a+c)/b`
+  from `a/b + c/b` (a `together` defect that emits `b**-2` at equal node count)
+  — remain separate follow-ups; SymPP now returns the input form rather than a
+  bloated one in those cases.
+
+### DERIV-1 — derivatives of undefined / untabulated functions were silently `0`
+- **Input:** `diff(f(x))` for an undefined `f`, `diff(x*g(x))`, `diff(f(x)**2)`,
+  `diff(besselj(0,x))`, `diff(zeta(x))`, `diff(li(x))`, `diff(beta(x,y))`,
+  `diff(fresnels(x))`.
+- **Was:** `0` (and, in products/sums, the function term was *dropped*:
+  `diff(x*g(x)) = g(x)`). `Function::diff_arg`'s default returned `S::Zero()`,
+  so **every** function without an explicit derivative rule — including all
+  undefined functions `f(x)` — differentiated to a silently-wrong `0`. The
+  header already documented a "Derivative marker" contract that the
+  implementation never honoured. DIGAMMA-1 had patched `gamma`/`loggamma`
+  case-by-case but left the unsafe default and the architectural hole (no
+  `Derivative` node existed).
+- **Expected (SymPy):** `Derivative(f(x), x)`, `x*Derivative(g(x), x) + g(x)`,
+  `2*f(x)*Derivative(f(x), x)`, `Derivative(besselj(0, x), x)` (or the closed
+  form), `Derivative(zeta(x), x)`, etc. — never `0` for a var-dependent argument.
+- **Fix:**
+  - New unevaluated **`Derivative`** node (`include/sympp/core/derivative.hpp`,
+    `src/core/derivative.cpp`, `TypeId::Derivative` which already existed in the
+    enum). Holds `(expr, var, order)`; prints `Derivative(f(x), x)` and
+    `Derivative(f(x), (x, n))` for higher order, matching SymPy. The `derivative()`
+    factory folds same-variable nesting into a single bumped order.
+  - `Function::diff_arg` default now returns `derivative(shared_from_this(),
+    args_[i])` — the unevaluated partial w.r.t. the i-th argument slot — instead
+    of `0`. Subclasses with a closed form (sin, exp, gamma, Si, Ei, erf, …) still
+    override and are unaffected.
+  - `diff()` computes the inner derivative *before* the partial (so an argument
+    independent of `var` short-circuits to `0` with no spurious
+    `Derivative(f, const)`), and handles `TypeId::Derivative` for higher orders.
+  - With this, the chain/product/power/sum rules compose the node correctly:
+    `diff(f(x))`, `diff(x*g(x))`, `diff(f(x)**2)`, `diff(f(x)+x**2)` all match
+    SymPy **exactly**; the previously-wrong specials (besselj, li, beta,
+    fresnels, …) now return a correct unevaluated `Derivative` rather than `0`.
+- **Regression test:** `tests/calculus/diff_test.cpp`
+  — `[6a][diff][derivative][regression]` (undefined-function Derivative,
+  product/power/sum carry, independent-variable → 0, second-order order bump).
+- **Scope:** the node makes the result *correct* (never wrong). Adding the
+  remaining closed-form reductions SymPy applies (besselj recurrence,
+  `li'(x)=1/log(x)`, `fresnels'(x)=sin(πx²/2)`, beta via polygamma) is a
+  mechanical follow-up — `li`/`fresnels`/`fresnelc` first need a `FunctionId`
+  (they currently parse as undefined functions, for which `Derivative` already
+  matches SymPy). `zeta` already matches SymPy (both keep it unevaluated).
 
 ### DIGAMMA-1 — `gamma`/`loggamma` derivatives were silently `0`
 - **Input:** `diff(gamma(x))`, `diff(loggamma(x))`, `diff(gamma(x²))`.

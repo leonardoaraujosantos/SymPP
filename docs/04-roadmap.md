@@ -9,9 +9,12 @@ parity.
 ## 📍 You are here — next-session pickup
 
 **Current position**: **v0.5 release-candidate.** 14 of 15 phases
-shipped at minimal-viable scope; Phase 16 partial; 5 Category-A
-deep-deferred items already closed. Everyday CAS workflow coverage
-≈ 65 %, composite SymPy parity ≈ 50 %. Critical path forward: parallelizable.
+shipped at minimal-viable scope; Phase 16 partial. A sustained
+SymPy-parity push has since closed ~29 cross-validated gaps (see
+[docs/09-known-issues.md](09-known-issues.md)) across calculus, simplify,
+solvers, transforms, sets, and core. Everyday CAS workflow coverage is now
+≈ 85 % (textbook-shaped inputs ≈ 100 %), composite SymPy parity ≈ 55 %.
+Critical path forward: parallelizable.
 
 **Just landed** (most recent first; commit hashes on `main`):
 
@@ -61,8 +64,8 @@ deep-deferred items already closed. Everyday CAS workflow coverage
 - Critical-path diagram: §[Critical path](#critical-path)
 - Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
 
-**Test surface to maintain**: 962 cases / 1872 assertions (307
-oracle-validated against SymPy 1.14). Run:
+**Test surface to maintain**: 1287 cases / 3157 assertions (501
+oracle-validated against SymPy 1.13+). Run:
 
 ```bash
 ./build/tests/sympp_tests              # full suite
@@ -77,7 +80,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 ## Status snapshot
 
 ```
-962 tests / 1872 assertions  all passing
+1287 tests / 3157 assertions  all passing (501 oracle-validated vs SymPy)
 14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
@@ -148,15 +151,22 @@ together with the Gruntz limit work.
 ### Phase 2 — Assumptions · 🟡 minimal
 
 **Shipped**: `AssumptionMask` (Real, Rational, Integer, Positive,
-Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite),
-`is_real/is_positive/is_integer/...` queries on every `Expr`,
-propagation through `Add`/`Mul`/`Pow`, `refine()` on assumption-gated
-rewrites.
+Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite, **Even, Odd**),
+`is_real/is_positive/is_integer/...` queries on every `Expr`, full deductive
+closure (positive ⇒ real ∧ nonzero ∧ nonnegative; even ⇒ integer ∧ rational;
+odd ⇒ integer ∧ nonzero; even/odd mutually exclusive; integer ∧ ¬even ⇒ odd; …)
+and propagation through `Add`/`Mul`/`Pow` (sum/product sign and parity,
+even-power-of-real ≥ 0, x²+1 > 0, …), `refine()` on assumption-gated rewrites.
+The shipped ontology is functional, not minimal — it drives the assumption-gated
+simplifications (`√(x²)→|x|`, `|x|²→x²`, log/exp splits, `(−1)^(2n)=1`).
 
-**Deferred-deep**: Even/Odd/Prime/Composite, Hermitian/Antihermitian,
-Algebraic/Transcendental, the SAT-based `ask` system. Reason: SAT
-porting is its own multi-week subsystem and our practical use cases
-hit only the basic ontology.
+**Deferred**: the *breadth* — Complex/Imaginary, Irrational/Noninteger,
+Prime/Composite, Algebraic/Transcendental, Hermitian/Antihermitian,
+Commutative (everything is assumed commutative), extended-real/infinite
+predicates — and the **SAT-based `ask(query, assumptions)`** reasoner (SymPP's
+`ask` is per-node hardcoded propagation, not a general inference engine over
+combined predicates). ~12 of SymPy's ~30+ predicates. Reason: SAT porting is its
+own multi-week subsystem and our practical use cases hit only the basic ontology.
 
 ### Phase 3 — Elementary & special functions · ✅
 
@@ -405,14 +415,14 @@ parity deltas, not bug fixes.
 
 | Phase | Deep-deferred work | Effort | Priority |
 |---|---|---|---|
-| 1  | Infinity / NegativeInfinity / ComplexInfinity / NaN singletons | 1 wk | High (unblocks Gruntz) |
+| 1  | Infinity / NegativeInfinity / ComplexInfinity / NaN singletons | ✅ shipped — `oo` / `-oo` / `zoo` / `nan` atoms with full add/mul/pow infinity arithmetic; `0^(neg) → zoo`, `1/0 → zoo`; limits at ±∞ |
 | 2  | SAT-based assumption reasoning | 3 wk | Low |
 | 4  | Multivariate Poly + Wang factorization                | 3 wk | Medium |
 | 4  | Berlekamp-Zassenhaus + Hensel lifting               | 2 wk | Medium |
 | 4  | Full polynomial domain tower (ℤ_p, ℚ_alg, ℂ)        | 2 wk | Low |
 | 5  | Fu trig rule table (subset)                          | ✅ shipped — Pythagorean / double-angle / cos²−sin² / 2sin·cos collapses + `expand_trig` + `fu` orchestrator (TR8 product-to-sum, half-angle still deferred) |
 | 5  | hyperexpand + hypergeometric function infrastructure | partial ✅ — `Hyper` and `MeijerG` proper Function classes, variadic factories with auto-eval (`₀F₀ → exp`, `₁F₀ → (1−z)^(−a)`, parameter cancellation), `hyperexpand` rewrites `₁F₁(1; 2; z)` and `₂F₁(1, 1; 2; z)`, integrated into `simplify` chain. Full Slater-theorem expansion + Meijer-G evaluation still deferred-deep. |
-| 6  | Full Gruntz limit algorithm                          | 2 wk | High |
+| 6  | Full Gruntz limit algorithm                          | 2 wk | High — partial: signed `±∞` at even poles, polynomial `∞−∞`, and 0·∞ exponential-vs-polynomial dominance ship; mixed exp/log `∞−∞` (`√(x²+x)−x`, `eˣ−x`) still need asymptotic-series / `x=1/t` machinery |
 | 7  | Full Risch transcendental integration                | 4 wk | Medium |
 | 7  | Meijer G-function integration method                 | 3 wk | High (with hyperexpand) |
 | 9  | Symbolic SVD                                         | 2 wk | Medium |
@@ -565,20 +575,25 @@ Total to full SymPy parity:  ~86 focused developer-weeks on top of
 ### How far are we from SymPy?
 
 A single number is misleading — depending on the metric, you get a
-very different answer. So three metrics:
+very different answer. So three metrics (refreshed after the
+SymPy-parity push; the per-fix log is [docs/09-known-issues.md](09-known-issues.md)):
 
 | Metric | SymPP / SymPy | Notes |
 |---|---|---|
-| **Everyday CAS workflow coverage** (calc, algebra, ODE, transforms, codegen on textbook-shaped inputs) | **≈ 65 %** | The "common 80 %" cases work end-to-end. Edge cases — high-index DAEs, irreducible quintics, Risch-only integrals, Meijer-G transforms — still hit deferred algorithms. |
-| **Algorithmic depth within shipped subsystems** (the "deep-deferred" items in Category A) | **≈ 50 %** | We have the *breadth* of every Phase 0–13 subsystem, but several core algorithms (Risch, Gruntz, full hyperexpand, F4/F5, full Lie, BZ+Hensel) are pending. Within a shipped subsystem you typically get the textbook path; the graduate-textbook path is what's missing. |
-| **Module-count parity** (top-level SymPy modules with a working SymPP counterpart) | **≈ 35 %** | SymPP currently covers ~14 of ~40 top-level SymPy modules at minimal-viable scope. Categories C and D fill in the missing 26. |
+| **Everyday CAS workflow coverage** (calc, algebra, ODE, transforms, codegen on textbook-shaped inputs) | **≈ 85 %** | An 86-case textbook battery across 12 categories (diff, integrate, definite integrals, limit, series, summation, simplify, expand, factor, solve, special values, trigsimp) now matches SymPy 86/86. Intermediate cases hardened this push too: multivariate factor, damped-oscillation Laplace ↔ inverse-Laplace, computed interval set algebra, exact-endpoint inequalities. The remaining misses are Risch-only integrals, transcendental `solve`, and mixed `∞−∞` limits. |
+| **Algorithmic depth within shipped subsystems** (the "deep-deferred" items in Category A) | **≈ 55 %** | We have the *breadth* of every Phase 0–13 subsystem and several Gruntz-adjacent wins (signed `±∞` poles, polynomial and 0·∞ exponential limits at infinity). The deep engines — full **Gruntz**, full **Risch**, **Wang** multivariate factorization, F4/F5, full Lie, BZ+Hensel — are still pending. |
+| **Module-count parity** (top-level SymPy modules with a working SymPP counterpart) | **≈ 35 %** | Unchanged — the parity push deepened existing subsystems rather than adding new top-level modules. SymPP covers ~14 of ~40 SymPy modules; Categories C and D fill in the missing 26. `rewrite(target)` (exp↔trig, etc.) is a notable missing cross-cutting API. |
 
 Composite estimate: **SymPP is about half of SymPy on a typical
-user-facing weighted average.** Phrased the other way: you can do
-about half of what you'd reach for SymPy for, end-to-end, today —
-with SymPy itself wired in as the validation oracle on every
-shipped feature, so what *does* work has a much stronger
-correctness guarantee than a pure clean-room port would.
+user-facing weighted average — but the half that works is now
+substantially more *correct*.** On textbook-shaped inputs the two are
+effectively interchangeable. The biggest shift from this push wasn't
+coverage breadth; it was eliminating a class of **silently-wrong answers**
+(`diff(f(x)) = 0`, `1/0 = 0**(-1)`, `solve` returning the solve variable,
+`simplify` growing its input, `limit` hanging on radical ratios) — failures
+worse than a missing feature. Every shipped feature has SymPy wired in as
+the validation oracle, so what *does* work has a much stronger correctness
+guarantee than a pure clean-room port would.
 
 For comparison's sake:
 - **Speed**: SymPP's static C++ tree + hash-cons cache is in the

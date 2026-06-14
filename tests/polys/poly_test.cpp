@@ -131,6 +131,54 @@ TEST_CASE("Poly: quadratic with irrational roots", "[4][poly][roots][oracle]") {
     REQUIRE(oracle.equivalent(roots[1]->str(), "-sqrt(2)"));
 }
 
+// POLY-FACTOR-ROOTS-1: a quartic with no rational root that nevertheless
+// factors over ℚ into two quadratics (x⁴+x²+1 = (x²+x+1)(x²−x+1)) must be
+// solved through that factorization — yielding clean ±1/2 ± √3·i/2 roots —
+// rather than via Ferrari's resolvent, which returns nested radicals like
+// sqrt((I*sqrt(3) - 1)/2). The factoring path also makes higher-degree
+// products solvable.
+TEST_CASE("Poly: factors reducible quartic into clean roots (POLY-FACTOR-ROOTS-1)",
+          "[4][poly][roots][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // x⁴ + x² + 1 = (x²+x+1)(x²−x+1): the four primitive 6th/3rd roots.
+    Poly q(pow(x, integer(4)) + pow(x, integer(2)) + integer(1), x);
+    auto qr = q.roots();
+    REQUIRE(set_equal(qr, {"-1/2 + sqrt(3)*I/2", "-1/2 - sqrt(3)*I/2",
+                           "1/2 + sqrt(3)*I/2", "1/2 - sqrt(3)*I/2"}));
+    // None of the roots should be a nested radical (no "**(1/2)" wrapping a
+    // complex subexpression — i.e. no Ferrari fallback).
+    for (const auto& r : qr) {
+        REQUIRE(r->str().find(")**(1/2)") == std::string::npos);
+    }
+    // x⁶ − 1: ±1 plus the four roots above.
+    Poly s(pow(x, integer(6)) - integer(1), x);
+    REQUIRE(set_equal(s.roots(),
+                      {"1", "-1", "-1/2 + sqrt(3)*I/2", "-1/2 - sqrt(3)*I/2",
+                       "1/2 + sqrt(3)*I/2", "1/2 - sqrt(3)*I/2"}));
+    // Degree-5 reducible with no rational root: (x²+x+1)(x³+2) → 5 roots.
+    Poly d5(expand((pow(x, integer(2)) + x + integer(1))
+                   * (pow(x, integer(3)) + integer(2))),
+            x);
+    REQUIRE(d5.roots().size() == 5);
+}
+
 // ----- Polynomial division ---------------------------------------------------
 
 namespace {
@@ -599,6 +647,34 @@ TEST_CASE("Poly: factor irreducible quadratic stays put",
     REQUIRE(oracle.equivalent(f->str(), "x**2 + 1"));
 }
 
+// FACTOR-HOM-1: homogeneous bivariate polynomials factor via dehomogenize →
+// factor-over-ℚ → re-homogenize, verified by re-expansion. Covers the common
+// difference-of-squares / cubes / perfect-square-trinomial multivariate cases.
+TEST_CASE("Poly: factor homogeneous bivariate (FACTOR-HOM-1)",
+          "[4][poly][factor][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) - pow(y, integer(2)), x)->str(),
+        "(x - y)*(x + y)"));
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) + integer(2) * x * y + pow(y, integer(2)), x)
+            ->str(),
+        "(x + y)**2"));
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(3)) - pow(y, integer(3)), x)->str(),
+        "(x - y)*(x**2 + x*y + y**2)"));
+    // A pure-other factor is pulled out: x²y − y³ = y(x−y)(x+y).
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) * y - pow(y, integer(3)), x)->str(),
+        "y*(x - y)*(x + y)"));
+    // Irreducible over ℚ stays put (self-verification rejects a bad split).
+    REQUIRE(oracle.equivalent(
+        factor(pow(x, integer(2)) + pow(y, integer(2)), x)->str(),
+        "x**2 + y**2"));
+}
+
 TEST_CASE("Poly: factor x^4 + 4 (Sophie Germain)",
           "[4][poly][factor][oracle]") {
     auto& oracle = Oracle::instance();
@@ -669,6 +745,39 @@ TEST_CASE("together: 1/(x-1) - 1/(x+1)", "[4][together][oracle]") {
     auto e = pow(x - integer(1), integer(-1)) - pow(x + integer(1), integer(-1));
     auto t = together(e);
     REQUIRE(oracle.equivalent(t->str(), "2/((x - 1)*(x + 1))"));
+}
+
+// TOGETHER-LCM-1: combine a sum of fractions over the LCM of the denominators,
+// not their product — so a shared denominator factor isn't duplicated
+// (a/b + c/b → (a+c)/b, not (a·b + b·c)/b²). Fixes as_numer_denom, which feeds
+// together / cancel / apart / simplify.
+TEST_CASE("together: shared denominator uses the LCM (TOGETHER-LCM-1)",
+          "[4][together][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto c = symbol("c");
+    // a/b + c/b → (a + c)/b.
+    REQUIRE(oracle.equivalent(
+        together(a / b + c / b)->str(), "(a + c)/b"));
+    // 3 terms over the same denominator.
+    auto d = symbol("d");
+    REQUIRE(oracle.equivalent(
+        together(a / b + c / b + d / b)->str(), "(a + c + d)/b"));
+    // Shared (x+1) collapses to 1 instead of an (x+1)² bloat.
+    REQUIRE(together(x / (x + integer(1)) + integer(1) / (x + integer(1)))
+            == integer(1));
+    // Power relationship: LCM is (x-1)², not (x-1)³.
+    REQUIRE(oracle.equivalent(
+        together(pow(x - integer(1), integer(-1))
+                 + pow(x - integer(1), integer(-2)))->str(),
+        "x/(x - 1)**2"));
+    // Distinct denominators still cross-multiply correctly.
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        together(pow(x, integer(-1)) + pow(y, integer(-1)))->str(),
+        "(x + y)/(x*y)"));
 }
 
 TEST_CASE("cancel: (x^2 - 1)/(x - 1) = x + 1", "[4][cancel][oracle]") {

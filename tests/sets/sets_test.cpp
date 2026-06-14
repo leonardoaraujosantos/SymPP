@@ -126,6 +126,48 @@ TEST_CASE("set: intersection with empty is empty",
     REQUIRE(i->kind() == SetKind::Empty);
 }
 
+// SET-INTERVAL-1: union/intersection of two real intervals now computes the
+// result (merge / overlap / disjoint), matching SymPy, instead of wrapping the
+// operands in an unevaluated Union/Intersection node.
+TEST_CASE("set: interval union and intersection are computed (SET-INTERVAL-1)",
+          "[10][sets][interval][regression]") {
+    auto I = [](long a, long b) { return interval(integer(a), integer(b)); };
+    // Overlapping union → single interval.
+    {
+        auto u = set_union(I(1, 3), I(2, 4));
+        REQUIRE(u->kind() == SetKind::Interval);
+        const auto& iv = static_cast<const Interval&>(*u);
+        REQUIRE(iv.lo() == integer(1));
+        REQUIRE(iv.hi() == integer(4));
+    }
+    // Adjacent union → merged.
+    REQUIRE(set_union(I(1, 2), I(2, 3))->kind() == SetKind::Interval);
+    // Disjoint union → left as a Union.
+    REQUIRE(set_union(I(1, 2), I(3, 4))->kind() == SetKind::Union);
+    // Overlapping intersection → the overlap.
+    {
+        auto m = set_intersection(I(1, 3), I(2, 4));
+        REQUIRE(m->kind() == SetKind::Interval);
+        const auto& iv = static_cast<const Interval&>(*m);
+        REQUIRE(iv.lo() == integer(2));
+        REQUIRE(iv.hi() == integer(3));
+    }
+    // Containment intersection → the inner interval.
+    REQUIRE(set_intersection(I(1, 5), I(2, 3))->kind() == SetKind::Interval);
+    // Disjoint intersection → EmptySet.
+    REQUIRE(set_intersection(I(1, 2), I(3, 4))->kind() == SetKind::Empty);
+    // Touching closed intervals → single point.
+    {
+        auto p = set_intersection(I(1, 3), I(3, 5));
+        REQUIRE(p->kind() == SetKind::FiniteSet);
+        REQUIRE(static_cast<const FiniteSet&>(*p).size() == 1);
+    }
+    // Touching with an open endpoint → empty.
+    REQUIRE(set_intersection(interval(integer(1), integer(3), false, true),
+                             I(3, 5))
+                ->kind() == SetKind::Empty);
+}
+
 // ----- Complement ------------------------------------------------------------
 
 TEST_CASE("set: complement removes elements",
@@ -136,6 +178,31 @@ TEST_CASE("set: complement removes elements",
     REQUIRE(c->contains(integer(1)) == std::optional<bool>{true});
     REQUIRE(c->contains(integer(2)) == std::optional<bool>{false});
     REQUIRE(c->contains(integer(3)) == std::optional<bool>{true});
+}
+
+// SET-COMPL-1: ℝ \ [a,b] = (−∞,a) ∪ (b,∞) with the boundary openness flipped;
+// a ±∞ endpoint drops that ray. Computed instead of left as a Complement node.
+TEST_CASE("set: complement of an interval within Reals (SET-COMPL-1)",
+          "[10][sets][complement][interval][regression]") {
+    // ℝ \ [1,3] → (−∞,1) ∪ (3,∞).
+    auto c1 = set_complement(reals(), interval(integer(1), integer(3)));
+    REQUIRE(c1->kind() == SetKind::Union);
+    REQUIRE(c1->contains(integer(0)) == std::optional<bool>{true});
+    REQUIRE(c1->contains(integer(2)) == std::optional<bool>{false});
+    REQUIRE(c1->contains(integer(1)) == std::optional<bool>{false});  // 1 removed
+    REQUIRE(c1->contains(integer(4)) == std::optional<bool>{true});
+    // ℝ \ (1,3) keeps the endpoints: 1 and 3 are now in the complement.
+    auto c2 = set_complement(reals(),
+                             interval(integer(1), integer(3), true, true));
+    REQUIRE(c2->contains(integer(1)) == std::optional<bool>{true});
+    REQUIRE(c2->contains(integer(3)) == std::optional<bool>{true});
+    REQUIRE(c2->contains(integer(2)) == std::optional<bool>{false});
+    // ℝ \ [1,∞) → a single ray (−∞,1).
+    auto c3 = set_complement(reals(),
+                             interval(integer(1), S::Infinity()));
+    REQUIRE(c3->kind() == SetKind::Interval);
+    REQUIRE(c3->contains(integer(0)) == std::optional<bool>{true});
+    REQUIRE(c3->contains(integer(5)) == std::optional<bool>{false});
 }
 
 TEST_CASE("set: complement with empty returns universal",

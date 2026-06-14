@@ -89,8 +89,46 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
     using detail::all_args_have;
     using detail::any_arg_has;
     switch (k) {
+        case AssumptionKey::Complex:
+            // A product of finite complex factors is complex.
+            if (all_args_have(args_, AssumptionKey::Complex, true)) return true;
+            return std::nullopt;
+        case AssumptionKey::Imaginary: {
+            // Classify each factor as real or imaginary; the product is
+            // imaginary iff an ODD number of factors are imaginary and the rest
+            // are real, with every factor nonzero (I·real = imaginary,
+            // I·I = real). A zero factor makes the product 0 (real, ¬imaginary).
+            std::size_t imag = 0;
+            bool all_classified = true;
+            bool all_nonzero = true;
+            for (const auto& f : args_) {
+                if (f->ask(AssumptionKey::Zero) == true) return false;
+                if (f->ask(AssumptionKey::Nonzero) != true) all_nonzero = false;
+                if (f->ask(AssumptionKey::Imaginary) == true) {
+                    ++imag;
+                } else if (f->ask(AssumptionKey::Real) != true) {
+                    all_classified = false;
+                    break;
+                }
+            }
+            if (!all_classified) return std::nullopt;
+            if (imag % 2 == 0) return false;  // even # of i factors → real
+            return all_nonzero ? std::optional<bool>{true} : std::nullopt;
+        }
+
         case AssumptionKey::Real:
             if (all_args_have(args_, AssumptionKey::Real, true)) return true;
+            // A product of an even number of imaginary factors (rest real) is
+            // real: I·I = −1.
+            {
+                std::size_t imag = 0;
+                bool ok = true;
+                for (const auto& f : args_) {
+                    if (f->ask(AssumptionKey::Imaginary) == true) ++imag;
+                    else if (f->ask(AssumptionKey::Real) != true) { ok = false; break; }
+                }
+                if (ok && imag % 2 == 0) return true;
+            }
             return std::nullopt;
         case AssumptionKey::Integer:
             if (all_args_have(args_, AssumptionKey::Integer, true)) return true;

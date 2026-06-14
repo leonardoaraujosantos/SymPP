@@ -59,6 +59,14 @@ TEST_CASE("asin: exact special arguments", "[3e][asin][regression]") {
     auto& oracle = Oracle::instance();
     REQUIRE(oracle.equivalent(asin(pow(integer(2), rational(1, 2)) / integer(2))->str(),
                               "pi/4"));
+    // Negative √-special values: strip_neg must pull a negative *rational*
+    // coefficient (−½·√3, not just −1·g) so the odd identity still fires.
+    REQUIRE(oracle.equivalent(
+        asin(mul(rational(-1, 2), pow(integer(3), rational(1, 2))))->str(),
+        "-pi/3"));
+    REQUIRE(oracle.equivalent(
+        asin(mul(rational(-1, 2), pow(integer(2), rational(1, 2))))->str(),
+        "-pi/4"));
 }
 
 TEST_CASE("acos: exact special arguments (via π/2 − asin)",
@@ -69,6 +77,13 @@ TEST_CASE("acos: exact special arguments (via π/2 − asin)",
                               "2*pi/3"));
     REQUIRE(oracle.equivalent(
         acos(pow(integer(3), rational(1, 2)) / integer(2))->str(), "pi/6"));
+    // Negative √-special values (acos(−√3/2) = 5π/6, acos(−√2/2) = 3π/4).
+    REQUIRE(oracle.equivalent(
+        acos(mul(rational(-1, 2), pow(integer(3), rational(1, 2))))->str(),
+        "5*pi/6"));
+    REQUIRE(oracle.equivalent(
+        acos(mul(rational(-1, 2), pow(integer(2), rational(1, 2))))->str(),
+        "3*pi/4"));
 }
 
 TEST_CASE("atan: exact special arguments", "[3e][atan][regression]") {

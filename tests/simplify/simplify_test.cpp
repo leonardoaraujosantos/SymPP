@@ -90,6 +90,32 @@ TEST_CASE("simplify: sin^2 + cos^2 still collapses to 1 (no cancel hang)",
     REQUIRE(simplify(e) == integer(1));
 }
 
+// SIMP-4: anti-bloat guard. simplify() eagerly expands, which used to inflate
+// already-compact forms ((x+1)**n, exp fractions) — returning something larger
+// than the input. simplify() now falls back to the canonical input when the
+// pipeline result is structurally bigger, matching SymPy's "never return
+// something more complicated" contract.
+TEST_CASE("simplify: does not expand-bloat (x+1)**3 / (x+1)**2 (SIMP-4)",
+          "[5][simplify][regression]") {
+    auto x = symbol("x");
+    // SymPy keeps these factored — they are simpler than the expanded sum.
+    REQUIRE(simplify(pow(x + integer(1), integer(3))) == pow(x + integer(1), integer(3)));
+    REQUIRE(simplify(pow(x + integer(1), integer(2))) == pow(x + integer(1), integer(2)));
+}
+
+TEST_CASE("simplify: genuine reductions still fire under the guard (SIMP-4)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // (x+1)*(x-1) genuinely shrinks to x**2 - 1 — the guard must not block it.
+    REQUIRE(oracle.equivalent(
+        simplify((x + integer(1)) * (x - integer(1)))->str(), "x**2 - 1"));
+    // An exp fraction must not come back larger than it went in.
+    auto e = (exp(x) - integer(1)) * pow(exp(x / integer(2)) + integer(1), integer(-1));
+    auto s = simplify(e);
+    REQUIRE(oracle.equivalent(s->str(), "(exp(x) - 1)/(exp(x/2) + 1)"));
+}
+
 TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
           "[5][simplify][assumptions][regression]") {
     auto xp = symbol("x", AssumptionMask{}.set_positive(true));
@@ -126,6 +152,47 @@ TEST_CASE("simplify: combines exponential products (SIMP-2)",
     REQUIRE(oracle.equivalent(
         simplify(pow(exp(x), integer(2)) * exp(y))->str(), "exp(2*x + y)"));
     REQUIRE(simplify(exp(integer(2)) * exp(integer(3))) == exp(integer(5)));
+}
+
+// SIMP-EXP-POW-1: (exp(g))^k → exp(k·g) for an INTEGER k (argument expanded). A
+// fractional / symbolic exponent is left as a Pow, matching SymPy (which keeps
+// sqrt(exp(x)) and exp(x)**n for branch-cut safety).
+TEST_CASE("simplify: integer power of exp folds into the argument (SIMP-EXP-POW-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto n = symbol("n");
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(2)))->str(), "exp(2*x)"));
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(3)))->str(), "exp(3*x)"));
+    REQUIRE(oracle.equivalent(simplify(pow(exp(x), integer(-1)))->str(), "exp(-x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(pow(exp(x + integer(1)), integer(2)))->str(), "exp(2*x + 2)"));
+    // Fractional and symbolic exponents are NOT folded.
+    REQUIRE(simplify(pow(exp(x), rational(1, 2)))
+            == pow(exp(x), rational(1, 2)));
+    REQUIRE(simplify(pow(exp(x), n)) == pow(exp(x), n));
+}
+
+// SIMP-EXP-HYP-1: a·e^g + a·e^−g → 2a·cosh(g),  a·e^g − a·e^−g → 2a·sinh(g)
+// (the mirror of TRIG-HYP-2). The argument is normalised to its positive form
+// so the output matches SymPy (2·cosh(2x), not 2·cosh(−2x)).
+TEST_CASE("simplify: exponential sum folds to cosh/sinh (SIMP-EXP-HYP-1)",
+          "[5][simplify][oracle][regression]") {
+    auto x = symbol("x");
+    auto nx = mul(S::NegativeOne(), x);
+    REQUIRE(simplify(exp(x) + exp(nx)) == integer(2) * cosh(x));
+    REQUIRE(simplify(exp(x) - exp(nx)) == integer(2) * sinh(x));
+    REQUIRE(simplify(integer(3) * exp(x) + integer(3) * exp(nx))
+            == integer(6) * cosh(x));
+    auto n2x = mul(integer(-2), x);
+    REQUIRE(simplify(exp(integer(2) * x) + exp(n2x))
+            == integer(2) * cosh(integer(2) * x));
+    REQUIRE(simplify(exp(integer(2) * x) - exp(n2x))
+            == integer(2) * sinh(integer(2) * x));
+    // Unequal coefficients do not fold (no pure cosh/sinh form).
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(
+        simplify(exp(x) + integer(2) * exp(nx))->str(), "exp(x) + 2*exp(-x)"));
 }
 
 TEST_CASE("simplify: pulls log of a positive base out of exp (SIMP-3)",
@@ -270,6 +337,67 @@ TEST_CASE("trigsimp: sin(x)^2 + cos(x)^2 → 1", "[5][trigsimp][oracle]") {
     auto e = pow(sin(x), integer(2)) + pow(cos(x), integer(2));
     auto s = trigsimp(e);
     REQUIRE(oracle.equivalent(s->str(), "1"));
+}
+
+// TRIG-PWR: power-reduction / half-angle. A q·cos(2x) term folds into the
+// sin²/cos² buckets (cos 2x = cos²x − sin²x), so trigsimp recovers
+// (1 ∓ cos 2x)/2 = sin²x / cos²x — matching SymPy — without re-expanding a bare
+// cos(2x) (the double-angle collapses 1 − 2·sin²x → cos 2x still win on leaves).
+TEST_CASE("trigsimp: power-reduction (1 ∓ cos 2x)/2 (TRIG-PWR)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto half = rational(1, 2);
+    auto cos2x = cos(integer(2) * x);
+    // (1 − cos 2x)/2 = sin²x,  (1 + cos 2x)/2 = cos²x.
+    REQUIRE(oracle.equivalent(trigsimp(half * (integer(1) - cos2x))->str(),
+                              "sin(x)**2"));
+    REQUIRE(oracle.equivalent(trigsimp(half * (integer(1) + cos2x))->str(),
+                              "cos(x)**2"));
+    // Unhalved and scaled variants.
+    REQUIRE(oracle.equivalent(trigsimp(integer(1) - cos2x)->str(),
+                              "2*sin(x)**2"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * half * (integer(1) - cos2x))->str(),
+        "3*sin(x)**2"));
+    // No oscillation: a bare cos(2x) stays cos(2x), and the existing
+    // double-angle collapse 1 − 2·sin²x → cos 2x is preserved.
+    REQUIRE(trigsimp(cos2x) == cos2x);
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) - integer(2) * pow(sin(x), integer(2)))->str(),
+        "cos(2*x)"));
+}
+
+// TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
+// → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
+// unfolded before. A shared coefficient carries through, and the rewrite
+// composes (sin(2x)cos(x)+cos(2x)sin(x) → sin(3x)).
+TEST_CASE("trigsimp: angle-addition identities (TRIG-ANGLE-ADD-1)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        simplify(sin(x) * cos(y) + cos(x) * sin(y))->str(), "sin(x + y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(x) * cos(y) - cos(x) * sin(y))->str(), "sin(x - y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cos(x) * cos(y) - sin(x) * sin(y))->str(), "cos(x + y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cos(x) * cos(y) + sin(x) * sin(y))->str(), "cos(x - y)"));
+    // Shared coefficient carries through.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sin(x) * cos(y) + integer(3) * cos(x) * sin(y))
+            ->str(),
+        "3*sin(x + y)"));
+    // Composes: sin(2x)cos(x) + cos(2x)sin(x) → sin(3x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * cos(x) + cos(integer(2) * x) * sin(x))
+            ->str(),
+        "sin(3*x)"));
+    // A lone product is not an Add and must be left alone (no spurious fold).
+    REQUIRE(oracle.equivalent(simplify(sin(x) * cos(y))->str(),
+                              "sin(x)*cos(y)"));
 }
 
 TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
@@ -556,6 +684,29 @@ TEST_CASE("expand_trig: sin(a + b + c) recursively expands",
     REQUIRE(oracle.equivalent(s->str(), "sin(a + b + c)"));
 }
 
+// EXPAND-TRIG-MULTI-1: multiple-angle expansion. sin(n·x)/cos(n·x)/tan(n·x) for
+// an integer n ≥ 2 now expands (n·x = x + (n−1)·x, recursively), matching SymPy
+// up to trig-identity equivalence.
+TEST_CASE("expand_trig: multiple angle sin/cos(n*x) (EXPAND-TRIG-MULTI-1)",
+          "[5][expand_trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(2) * x))->str(),
+                              "2*sin(x)*cos(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(2) * x))->str(),
+                              "2*cos(x)**2 - 1"));
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(3) * x))->str(),
+                              "3*sin(x) - 4*sin(x)**3"));
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(3) * x))->str(),
+                              "4*cos(x)**3 - 3*cos(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(sin(integer(4) * x))->str(),
+                              "4*sin(x)*cos(x) - 8*sin(x)**3*cos(x)"));
+    // Combined with angle addition.
+    REQUIRE(oracle.equivalent(expand_trig(cos(integer(2) * x + y))->str(),
+                              "(2*cos(x)**2 - 1)*cos(y) - 2*sin(x)*sin(y)*cos(x)"));
+}
+
 // ----- fu orchestrator ------------------------------------------------------
 
 TEST_CASE("fu: picks the smaller form between identity and trigsimp",
@@ -573,6 +724,34 @@ TEST_CASE("fu: leaves non-trig expression alone",
     auto x = symbol("x");
     auto e = pow(x, integer(2)) + integer(1);
     REQUIRE(oracle.equivalent(fu(e)->str(), "x**2 + 1"));
+}
+
+// REWRITE-EXP-1: rewrite(expr, "exp") re-expresses trig and hyperbolic
+// functions as exponentials (Euler / hyperbolic identities), matching SymPy's
+// expr.rewrite(exp) up to symbolic equivalence.
+TEST_CASE("rewrite: trig/hyperbolic as exponentials (REWRITE-EXP-1)",
+          "[5][rewrite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(rewrite(sin(x), "exp")->str(),
+                              "-I*(exp(I*x) - exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(cos(x), "exp")->str(),
+                              "(exp(I*x) + exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(sinh(x), "exp")->str(),
+                              "(exp(x) - exp(-x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(cosh(x), "exp")->str(),
+                              "(exp(x) + exp(-x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(tanh(x), "exp")->str(),
+                              "(exp(x) - exp(-x))/(exp(x) + exp(-x))"));
+    // Recurses through Add and into composite arguments.
+    REQUIRE(oracle.equivalent(
+        rewrite(sin(x) + cos(x), "exp")->str(),
+        "-I*(exp(I*x) - exp(-I*x))/2 + (exp(I*x) + exp(-I*x))/2"));
+    REQUIRE(oracle.equivalent(rewrite(sin(integer(2) * x), "exp")->str(),
+                              "-I*(exp(2*I*x) - exp(-2*I*x))/2"));
+    // Unknown target / non-trig leaves the expression unchanged.
+    REQUIRE(rewrite(pow(x, integer(2)), "exp") == pow(x, integer(2)));
+    REQUIRE(rewrite(sin(x), "tan") == sin(x));
 }
 
 // ----- radsimp ---------------------------------------------------------------
@@ -612,6 +791,65 @@ TEST_CASE("radsimp: leaves rational denominator alone",
     auto e = (x + integer(1)) / (x - integer(1));
     auto out = radsimp(e);
     REQUIRE(oracle.equivalent(out->str(), "(x + 1)/(x - 1)"));
+}
+
+// RADSIMP-SIMPLIFY-1: simplify() now rationalizes a binomial-surd denominator.
+// radsimp produced the right value before, but as a non-distributed Mul whose
+// node count exceeded the reciprocal, so simplify()'s anti-bloat guard reverted
+// it. radsimp now expands its result, keeping it compact enough to survive.
+TEST_CASE("simplify: rationalizes binomial-surd denominators (RADSIMP-SIMPLIFY-1)",
+          "[5][simplify][radsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(simplify(pow(integer(1) + sqrt(integer(2)),
+                                           integer(-1)))
+                                  ->str(),
+                              "sqrt(2) - 1"));
+    REQUIRE(oracle.equivalent(simplify(pow(integer(2) + sqrt(integer(3)),
+                                           integer(-1)))
+                                  ->str(),
+                              "2 - sqrt(3)"));
+    REQUIRE(oracle.equivalent(simplify(pow(sqrt(integer(5)) - integer(1),
+                                           integer(-1)))
+                                  ->str(),
+                              "(sqrt(5) + 1)/4"));
+    // A numerator carries through.
+    REQUIRE(oracle.equivalent(
+        simplify(x * pow(integer(1) + sqrt(integer(2)), integer(-1)))->str(),
+        "x*(sqrt(2) - 1)"));
+    // The result no longer contains a reciprocal of the surd binomial.
+    REQUIRE(simplify(pow(integer(1) + sqrt(integer(2)), integer(-1)))
+                ->str()
+                .find(")**(-1)") == std::string::npos);
+}
+
+// RADSIMP-SIMPLIFY-2: two-surd denominators b₁√c₁ ± b₂√c₂ (no rational part)
+// rationalize via the conjugate b₁√c₁ ∓ b₂√c₂, whose product is the rational
+// b₁²c₁ − b₂²c₂. The anti-bloat guard is relaxed when a surd denominator is
+// removed, so the (larger) rationalized form is kept.
+TEST_CASE("simplify: rationalizes two-surd denominators (RADSIMP-SIMPLIFY-2)",
+          "[5][simplify][radsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [](int n) { return sqrt(integer(n)); };
+    // Difference of surds, denominator 1.
+    REQUIRE(oracle.equivalent(simplify(pow(sq(3) - sq(2), integer(-1)))->str(),
+                              "sqrt(2) + sqrt(3)"));
+    // Sum of surds, fractional rational denominator (guard must be relaxed).
+    REQUIRE(oracle.equivalent(simplify(pow(sq(5) + sq(2), integer(-1)))->str(),
+                              "(sqrt(5) - sqrt(2))/3"));
+    REQUIRE(oracle.equivalent(simplify(pow(sq(7) - sq(3), integer(-1)))->str(),
+                              "(sqrt(3) + sqrt(7))/4"));
+    // Scaled surds and a numerator carry through.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * pow(sq(3) + sq(2), integer(-1)))->str(),
+        "2*sqrt(3) - 2*sqrt(2)"));
+    REQUIRE(oracle.equivalent(
+        simplify(x * pow(sq(5) - sq(3), integer(-1)))->str(),
+        "x*(sqrt(5) + sqrt(3))/2"));
+    // No surd reciprocal remains.
+    REQUIRE(simplify(pow(sq(5) + sq(2), integer(-1)))->str().find(")**(-1)")
+            == std::string::npos);
 }
 
 // ----- sqrtdenest ------------------------------------------------------------
@@ -692,6 +930,102 @@ TEST_CASE("combsimp: leaves unrelated factorials alone",
                               "factorial(n)/factorial(m)"));
 }
 
+// COMB-RATIO-1: factorial/gamma ratios where the DENOMINATOR is the larger
+// argument (factorial(k−1)/factorial(k) → 1/k), and binomial ratios that reduce
+// through them (binomial(n,k)/binomial(n,k−1) → (n−k+1)/k). The ratio simplifier
+// previously only cancelled when the numerator argument was larger.
+TEST_CASE("combsimp: reciprocal factorial/binomial ratios (COMB-RATIO-1)",
+          "[5][combsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto k = symbol("k");
+    auto z = symbol("z");
+    // Denominator-larger factorial ratio.
+    REQUIRE(oracle.equivalent(
+        combsimp(factorial(k - integer(1)) * pow(factorial(k), integer(-1)))
+            ->str(),
+        "1/k"));
+    REQUIRE(oracle.equivalent(
+        combsimp(factorial(n) * pow(factorial(n + integer(2)), integer(-1)))
+            ->str(),
+        "1/((n+1)*(n+2))"));
+    // Gamma direction: gamma(z)/gamma(z+1) → 1/z.
+    REQUIRE(oracle.equivalent(
+        gammasimp(gamma(z) * pow(gamma(z + integer(1)), integer(-1)))->str(),
+        "1/z"));
+    // Binomial ratios that need the reciprocal cancellation.
+    auto binom = [](const Expr& a, const Expr& b) { return binomial(a, b); };
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n, k) * pow(binom(n, k - integer(1)), integer(-1)))
+            ->str(),
+        "(n - k + 1)/k"));
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n + integer(1), k) * pow(binom(n, k), integer(-1)))
+            ->str(),
+        "(n + 1)/(n - k + 1)"));
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n, k) * pow(binom(n - integer(1), k), integer(-1)))
+            ->str(),
+        "n/(n - k)"));
+    // A binomial that does not simplify stays in binomial form (not expanded
+    // into an uglier factorial ratio).
+    REQUIRE(oracle.equivalent(combsimp(binom(integer(2) * n, n))->str(),
+                              "binomial(2*n, n)"));
+}
+
+// GAMMA-REC-1 — gamma recurrence z*gamma(z) = gamma(z+1) inside a product.
+TEST_CASE("combsimp: gamma recurrence absorbs polynomial factors",
+          "[5][combsimp][gamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    // x*gamma(x) → gamma(x+1)
+    REQUIRE(oracle.equivalent(
+        combsimp(x * gamma(x))->str(), "gamma(x+1)"));
+    // (x+1)*gamma(x+1) → gamma(x+2)
+    REQUIRE(oracle.equivalent(
+        combsimp((x + integer(1)) * gamma(x + integer(1)))->str(),
+        "gamma(x+2)"));
+    // chains: x*(x+1)*gamma(x) → gamma(x+2)
+    REQUIRE(oracle.equivalent(
+        combsimp(x * (x + integer(1)) * gamma(x))->str(), "gamma(x+2)"));
+    // spectator factor preserved: y*x*gamma(x) → y*gamma(x+1)
+    REQUIRE(oracle.equivalent(
+        combsimp(y * x * gamma(x))->str(), "y*gamma(x+1)"));
+    // downward: gamma(x+1)/x → gamma(x)
+    REQUIRE(oracle.equivalent(
+        combsimp(gamma(x + integer(1)) * pow(x, integer(-1)))->str(),
+        "gamma(x)"));
+    // no false match: x*gamma(x+1) is left alone
+    REQUIRE(oracle.equivalent(
+        combsimp(x * gamma(x + integer(1)))->str(), "x*gamma(x+1)"));
+}
+
+// BINOM-COMB-1 — collapse binomial(n,k) when k or n-k is a small non-neg int.
+TEST_CASE("combsimp: collapses binomial to polynomial form",
+          "[5][combsimp][binomial][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    // n-k = 0 → 1
+    REQUIRE(oracle.equivalent(combsimp(binomial(n, n))->str(), "1"));
+    // n-k = 1 → n
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, n - integer(1)))->str(), "n"));
+    // n-k = 1 with offset numerator → n+1
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n + integer(1), n))->str(), "n + 1"));
+    // small head k=2 → n*(n-1)/2
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, integer(2)))->str(), "n*(n-1)/2"));
+    // small head k=3 → n*(n-1)*(n-2)/6
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, integer(3)))->str(), "n*(n-1)*(n-2)/6"));
+    // fully symbolic → unchanged
+    auto k = symbol("k");
+    REQUIRE(oracle.equivalent(
+        combsimp(binomial(n, k))->str(), "binomial(n,k)"));
+}
+
 TEST_CASE("gammasimp: gamma(n+1)/gamma(n) → n",
           "[5][gammasimp][oracle]") {
     auto& oracle = Oracle::instance();
@@ -708,6 +1042,27 @@ TEST_CASE("gammasimp: gamma(n+3)/gamma(n) → n*(n+1)*(n+2)",
     auto e = gamma(n + integer(3)) * pow(gamma(n), integer(-1));
     auto out = gammasimp(e);
     REQUIRE(oracle.equivalent(out->str(), "n*(n+1)*(n+2)"));
+}
+
+// GAMMA-REFL-1 — Euler reflection: gamma(z)*gamma(1-z) → pi/sin(pi*z).
+TEST_CASE("gammasimp: gamma(x)*gamma(1-x) → pi/sin(pi*x)",
+          "[5][gammasimp][reflection][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // gamma(x)*gamma(1-x)
+    auto e = gamma(x) * gamma(integer(1) - x);
+    REQUIRE(oracle.equivalent(gammasimp(e)->str(), "pi/sin(pi*x)"));
+    // scaled argument: gamma(2x)*gamma(1-2x) → pi/sin(2*pi*x)
+    auto e2 = gamma(integer(2) * x) * gamma(integer(1) - integer(2) * x);
+    REQUIRE(oracle.equivalent(gammasimp(e2)->str(), "pi/sin(2*pi*x)"));
+    // extra spectator factor is preserved
+    auto y = symbol("y");
+    auto e3 = gamma(x) * gamma(integer(1) - x) * y;
+    REQUIRE(oracle.equivalent(gammasimp(e3)->str(), "y*pi/sin(pi*x)"));
+    // ratio simplification still works alongside reflection
+    auto n = symbol("n");
+    auto e4 = gamma(n + integer(1)) * pow(gamma(n), integer(-1));
+    REQUIRE(oracle.equivalent(gammasimp(e4)->str(), "n"));
 }
 
 #include <sympp/core/float.hpp>

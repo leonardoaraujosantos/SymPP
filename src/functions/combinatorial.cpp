@@ -1,4 +1,5 @@
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/special.hpp>  // zeta
 
 #include <optional>
 #include <utility>
@@ -71,6 +72,10 @@ Expr Factorial::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Factorial::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
         case AssumptionKey::Integer:
         case AssumptionKey::Rational:
@@ -121,6 +126,10 @@ Expr Fibonacci::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Fibonacci::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -150,6 +159,413 @@ Expr fibonacci(const Expr& arg) {
 }
 
 // ============================================================================
+// Totient (Euler's φ)
+// ============================================================================
+
+Totient::Totient(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Totient);
+}
+Expr Totient::rebuild(std::vector<Expr> new_args) const {
+    return totient(new_args[0]);
+}
+std::optional<bool> Totient::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_positive(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr totient(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // φ is defined for n ≥ 1; non-positive n stays symbolic.
+        if (!z.is_positive()) return make<Totient>(arg);
+        mpz_class n = z.value();
+        // φ(n) = n · ∏_{p|n} (1 − 1/p), computed by trial-dividing out each
+        // distinct prime: when p divides the remaining m, do result -= result/p.
+        mpz_class result = n;
+        mpz_class m = n;
+        for (mpz_class p = 2; p * p <= m; ++p) {
+            if (mpz_divisible_p(m.get_mpz_t(), p.get_mpz_t())) {
+                while (mpz_divisible_p(m.get_mpz_t(), p.get_mpz_t())) m /= p;
+                result -= result / p;
+            }
+        }
+        if (m > 1) result -= result / m;  // a remaining prime factor > √n
+        return make<Integer>(std::move(result));
+    }
+    return make<Totient>(arg);
+}
+
+// ============================================================================
+// Prime / PrimePi
+// ============================================================================
+
+namespace {
+// Shared integer-arg / assumption boilerplate for the prime functions.
+[[nodiscard]] std::optional<bool> prime_fn_ask(const Expr& a,
+                                               AssumptionKey k) noexcept {
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_positive(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+}  // namespace
+
+Prime::Prime(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Prime);
+}
+Expr Prime::rebuild(std::vector<Expr> new_args) const {
+    return prime(new_args[0]);
+}
+std::optional<bool> Prime::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr prime(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // prime(n) is the n-th prime, defined for n ≥ 1.
+        if (!z.is_positive() || !z.fits_long()) return make<Prime>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Prime>(arg);  // safety bound
+        mpz_class p = 1;
+        for (long i = 0; i < n; ++i) {
+            mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
+        }
+        return make<Integer>(std::move(p));
+    }
+    return make<Prime>(arg);
+}
+
+PrimePi::PrimePi(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::PrimePi);
+}
+Expr PrimePi::rebuild(std::vector<Expr> new_args) const {
+    return primepi(new_args[0]);
+}
+std::optional<bool> PrimePi::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr primepi(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // π(n) counts primes ≤ n; π(n) = 0 for n < 2.
+        if (z.is_negative() || !z.fits_long()) {
+            if (z.is_negative()) return integer(0);
+            return make<PrimePi>(arg);
+        }
+        long n = z.to_long();
+        if (n < 2) return integer(0);
+        if (n > 100'000'000) return make<PrimePi>(arg);  // safety bound
+        long count = 0;
+        mpz_class p = 1;
+        const mpz_class limit = z.value();
+        for (;;) {
+            mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
+            if (p > limit) break;
+            ++count;
+        }
+        return integer(count);
+    }
+    return make<PrimePi>(arg);
+}
+
+// ============================================================================
+// Multiplicative arithmetic functions (mobius / divisor_count / divisor_sigma)
+// ============================================================================
+
+namespace {
+// Trial-division factorization of n > 0 into (prime, exponent) pairs.
+[[nodiscard]] std::vector<std::pair<mpz_class, long>> factorize(mpz_class n) {
+    std::vector<std::pair<mpz_class, long>> factors;
+    for (mpz_class p = 2; p * p <= n; ++p) {
+        if (mpz_divisible_p(n.get_mpz_t(), p.get_mpz_t())) {
+            long e = 0;
+            while (mpz_divisible_p(n.get_mpz_t(), p.get_mpz_t())) {
+                n /= p;
+                ++e;
+            }
+            factors.emplace_back(p, e);
+        }
+    }
+    if (n > 1) factors.emplace_back(n, 1L);  // remaining prime factor > √n
+    return factors;
+}
+}  // namespace
+
+Mobius::Mobius(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Mobius);
+}
+Expr Mobius::rebuild(std::vector<Expr> new_args) const {
+    return mobius(new_args[0]);
+}
+std::optional<bool> Mobius::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr mobius(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<Mobius>(arg);
+        if (z.value() == 1) return integer(1);  // μ(1) = 1
+        auto factors = factorize(z.value());
+        for (const auto& [p, e] : factors) {
+            (void)p;
+            if (e > 1) return integer(0);  // a squared factor ⇒ μ = 0
+        }
+        return integer(factors.size() % 2 == 0 ? 1 : -1);
+    }
+    return make<Mobius>(arg);
+}
+
+DivisorCount::DivisorCount(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::DivisorCount);
+}
+Expr DivisorCount::rebuild(std::vector<Expr> new_args) const {
+    return divisor_count(new_args[0]);
+}
+std::optional<bool> DivisorCount::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr divisor_count(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<DivisorCount>(arg);
+        // σ₀(n) = ∏ (eᵢ + 1).
+        mpz_class result = 1;
+        for (const auto& [p, e] : factorize(z.value())) {
+            (void)p;
+            result *= (e + 1);
+        }
+        return make<Integer>(std::move(result));
+    }
+    return make<DivisorCount>(arg);
+}
+
+DivisorSigma::DivisorSigma(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::DivisorSigma);
+}
+Expr DivisorSigma::rebuild(std::vector<Expr> new_args) const {
+    return divisor_sigma(new_args[0]);
+}
+std::optional<bool> DivisorSigma::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr divisor_sigma(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_positive()) return make<DivisorSigma>(arg);
+        // σ₁(n) = ∏ (p^(eᵢ+1) − 1)/(p − 1).
+        mpz_class result = 1;
+        for (const auto& [p, e] : factorize(z.value())) {
+            mpz_class num;
+            mpz_pow_ui(num.get_mpz_t(), p.get_mpz_t(),
+                       static_cast<unsigned long>(e + 1));
+            num -= 1;
+            result *= num / (p - 1);
+        }
+        return make<Integer>(std::move(result));
+    }
+    return make<DivisorSigma>(arg);
+}
+
+// ============================================================================
+// Harmonic / Factorial2
+// ============================================================================
+
+Harmonic::Harmonic(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Harmonic);
+}
+Expr Harmonic::rebuild(std::vector<Expr> new_args) const {
+    return harmonic(new_args[0]);
+}
+std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr harmonic(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Harmonic>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Harmonic>(arg);  // safety bound
+        // Hₙ = Σ_{k=1}^n 1/k, accumulated exactly as a rational.
+        mpq_class sum(0);
+        for (long k = 1; k <= n; ++k) sum += mpq_class(1, k);
+        sum.canonicalize();
+        return rational(sum.get_num(), sum.get_den());
+    }
+    return make<Harmonic>(arg);
+}
+
+Factorial2::Factorial2(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Factorial2);
+}
+Expr Factorial2::rebuild(std::vector<Expr> new_args) const {
+    return factorial2(new_args[0]);
+}
+std::optional<bool> Factorial2::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr factorial2(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.fits_long()) return make<Factorial2>(arg);
+        long n = z.to_long();
+        if (n == 0 || n == -1) return integer(1);  // empty product conventions
+        if (n < -1) return make<Factorial2>(arg);   // negatives stay symbolic
+        if (n > 1'000'000) return make<Factorial2>(arg);  // safety bound
+        // n!! = n(n−2)(n−4)… down to 2 (n even) or 1 (n odd).
+        mpz_class result(1);
+        for (long k = n; k >= 1; k -= 2) result *= k;
+        return make<Integer>(std::move(result));
+    }
+    return make<Factorial2>(arg);
+}
+
+// ============================================================================
+// Bernoulli / Euler numbers
+// ============================================================================
+
+namespace {
+[[nodiscard]] mpz_class binom(unsigned long n, unsigned long k) {
+    mpz_class c;
+    mpz_bin_uiui(c.get_mpz_t(), n, k);
+    return c;
+}
+}  // namespace
+
+Bernoulli::Bernoulli(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Bernoulli);
+}
+Expr Bernoulli::rebuild(std::vector<Expr> new_args) const {
+    return bernoulli(new_args[0]);
+}
+std::optional<bool> Bernoulli::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr bernoulli(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Bernoulli>(arg);
+        long n = z.to_long();
+        if (n > 5000) return make<Bernoulli>(arg);  // safety bound (O(n²))
+        if (n & 1L) return (n == 1) ? rational(1, 2) : integer(0);  // odd: B₁=½
+        // Recurrence (B₁ = −1/2 internally): B_m = −1/(m+1) Σ_{k<m} C(m+1,k) B_k.
+        std::vector<mpq_class> b(static_cast<std::size_t>(n) + 1);
+        b[0] = 1;
+        for (long m = 1; m <= n; ++m) {
+            mpq_class s(0);
+            for (long k = 0; k < m; ++k) {
+                s += mpq_class(binom(static_cast<unsigned long>(m + 1),
+                                     static_cast<unsigned long>(k)))
+                     * b[static_cast<std::size_t>(k)];
+            }
+            b[static_cast<std::size_t>(m)] = -s / mpq_class(m + 1);
+        }
+        mpq_class r = b[static_cast<std::size_t>(n)];
+        r.canonicalize();
+        return rational(r.get_num(), r.get_den());
+    }
+    return make<Bernoulli>(arg);
+}
+
+Euler::Euler(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Euler);
+}
+Expr Euler::rebuild(std::vector<Expr> new_args) const {
+    return euler(new_args[0]);
+}
+std::optional<bool> Euler::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr euler(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Euler>(arg);
+        long n = z.to_long();
+        if (n & 1L) return integer(0);          // odd Euler numbers vanish
+        if (n > 5000) return make<Euler>(arg);  // safety bound (O(n²))
+        // E_{2m} = −Σ_{k=0}^{m-1} C(2m, 2k) E_{2k}, indexing by half (e[j]=E_{2j}).
+        const long half = n / 2;
+        std::vector<mpz_class> e(static_cast<std::size_t>(half) + 1);
+        e[0] = 1;
+        for (long m = 1; m <= half; ++m) {
+            mpz_class s(0);
+            for (long k = 0; k < m; ++k) {
+                s += binom(static_cast<unsigned long>(2 * m),
+                           static_cast<unsigned long>(2 * k))
+                     * e[static_cast<std::size_t>(k)];
+            }
+            e[static_cast<std::size_t>(m)] = -s;
+        }
+        return make<Integer>(e[static_cast<std::size_t>(half)]);
+    }
+    return make<Euler>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 
@@ -162,6 +578,10 @@ Expr Catalan::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Catalan::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -205,6 +625,10 @@ std::optional<bool> Gcd::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     const auto& b = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -239,6 +663,10 @@ std::optional<bool> Lcm::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     const auto& b = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Real:
         case AssumptionKey::Rational:
@@ -339,6 +767,10 @@ Expr Subfactorial::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> Subfactorial::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
         case AssumptionKey::Nonnegative:
             if (is_integer(a) == true && is_nonnegative(a) == true) return true;
@@ -384,6 +816,10 @@ std::optional<bool> Binomial::ask(AssumptionKey k) const noexcept {
     const auto& n = args_[0];
     const auto& kk = args_[1];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Integer:
             if (is_integer(n) == true && is_integer(kk) == true) return true;
             return std::nullopt;
@@ -435,6 +871,10 @@ Expr GammaFn::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> GammaFn::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Positive:
             // Gamma(x) > 0 for x > 0.
             if (is_positive(a) == true) return true;
@@ -466,7 +906,8 @@ Expr gamma(const Expr& arg) {
                 return make<Integer>(std::move(r));
             }
         }
-        // gamma(0) and gamma(negative integer) = pole; keep symbolic.
+        // gamma has a simple pole at every non-positive integer → zoo.
+        if (!z.is_positive()) return S::ComplexInfinity();
     }
     // Half-integer: gamma(p/2) = C·sqrt(pi) with C exact rational.
     // Bound the recurrence so a huge numerator can never spin.
@@ -549,6 +990,10 @@ Expr LogGamma::rebuild(std::vector<Expr> new_args) const {
 std::optional<bool> LogGamma::ask(AssumptionKey k) const noexcept {
     const auto& a = args_[0];
     switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
         case AssumptionKey::Real:
             if (is_positive(a) == true) return true;
             return std::nullopt;
@@ -599,6 +1044,19 @@ Expr PolyGammaFn::diff_arg(std::size_t i) const {
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
+    // Special values at x = 1 for a non-negative integer order:
+    //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
+    if (x == S::One() && n->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*n);
+        if (n == S::Zero()) {
+            return mul(S::NegativeOne(), S::EulerGamma());
+        }
+        if (z.is_positive()) {
+            Expr np1 = add(n, S::One());
+            // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
+            return mul(pow(S::NegativeOne(), np1), mul(factorial(n), zeta(np1)));
+        }
+    }
     return make<PolyGammaFn>(n, x);
 }
 
