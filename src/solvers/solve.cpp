@@ -30,6 +30,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/special.hpp>  // lambertw
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
@@ -427,6 +428,60 @@ solve_inverse_func_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve the canonical Lambert-W form a·var·exp(b·var) + c = 0 → var =
+// W(−c·b/a)/b, using the defining identity W(z)·e^(W(z)) = z. Detects a single
+// term a·var·exp(b·var) (a, b var-free, b ≠ 0, var to the first power) plus a
+// var-free constant. Matches SymPy's LambertW result.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_lambert(const Expr& expr, const Expr& var) {
+    Expr cst = S::Zero();
+    Expr dep;
+    if (expr->type_id() == TypeId::Add) {
+        std::vector<Expr> dv, fv;
+        for (const auto& t : expr->args())
+            (has(t, var) ? dv : fv).push_back(t);
+        if (dv.size() != 1) return std::nullopt;
+        dep = dv[0];
+        if (!fv.empty()) cst = (fv.size() == 1) ? fv[0] : add(fv);
+    } else {
+        dep = expr;
+    }
+    if (dep->type_id() != TypeId::Mul) return std::nullopt;
+    // dep = a · var · exp(b·var): a var-free coeff, one bare var, one exp(b·var).
+    Expr a = S::One();
+    Expr b;
+    bool have_var = false, have_exp = false;
+    for (const auto& f : dep->args()) {
+        if (!has(f, var)) {
+            a = mul({a, f});
+            continue;
+        }
+        if (f == var) {
+            if (have_var) return std::nullopt;
+            have_var = true;
+            continue;
+        }
+        if (f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id()
+                   == FunctionId::Exp) {
+            if (have_exp) return std::nullopt;
+            const Expr& arg = f->args()[0];
+            Expr bb = simplify(arg * pow(var, integer(-1)));
+            if (has(bb, var) || simplify(bb * var - arg) != S::Zero()) {
+                return std::nullopt;  // exp argument is not linear b·var
+            }
+            b = bb;
+            have_exp = true;
+            continue;
+        }
+        return std::nullopt;  // another var-dependent factor
+    }
+    if (!have_var || !have_exp || b == S::Zero()) return std::nullopt;
+    // a·var·e^(b·var) = −c → (b·var)·e^(b·var) = −c·b/a → var = W(−c·b/a)/b.
+    Expr z = simplify(mul({S::NegativeOne(), cst, b, pow(a, integer(-1))}));
+    return std::vector<Expr>{simplify(lambertw(z) * pow(b, integer(-1)))};
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -592,6 +647,7 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
             return *el;
         if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
             return *inv;
+        if (auto lw = solve_lambert(expr, var); lw && !lw->empty()) return *lw;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;

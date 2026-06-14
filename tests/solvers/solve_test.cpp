@@ -221,6 +221,46 @@ TEST_CASE("solve: polynomial in exp/log (SOLVE-EXPLOG-POLY-1)",
     REQUIRE(set_equal(solve(log(integer(2) * x) - integer(1), x), {"E/2"}));
 }
 
+// SOLVE-LAMBERT-1: the canonical Lambert-W form a·x·exp(b·x)+c=0 inverts to
+// x = W(−c·b/a)/b via W(z)·exp(W(z))=z. Previously returned []. Matches SymPy.
+TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // x·eˣ = c → W(c).
+    REQUIRE(set_equal(solve(x * exp(x) - integer(1), x), {"LambertW(1)"}));
+    REQUIRE(set_equal(solve(x * exp(x) - integer(2), x), {"LambertW(2)"}));
+    // x·eˣ = −1 → W(−1).
+    REQUIRE(set_equal(solve(x * exp(x) + integer(1), x), {"LambertW(-1)"}));
+    // Scaled exponent: x·e^(2x) = 1 → W(2)/2.
+    REQUIRE(set_equal(solve(x * exp(integer(2) * x) - integer(1), x),
+                      {"LambertW(2)/2"}));
+    // Leading coefficient: 2·x·eˣ = 1 → W(1/2).
+    REQUIRE(set_equal(solve(integer(2) * x * exp(x) - integer(1), x),
+                      {"LambertW(1/2)"}));
+    // Both: x·e^(3x) = 5 → W(15)/3.
+    REQUIRE(set_equal(solve(x * exp(integer(3) * x) - integer(5), x),
+                      {"LambertW(15)/3"}));
+    // Homogeneous: x·eˣ = 0 → W(0) = 0.
+    REQUIRE(set_equal(solve(x * exp(x), x), {"0"}));
+}
+
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
 // g = c^(1/p). The polynomial path can't see through a fractional power, so
 // these used to come back empty. Matches SymPy, including the principal-branch
@@ -257,13 +297,14 @@ TEST_CASE("solve: radical equations via fractional-power invert (SOLVE-RAD-1)",
 // SOLVE-VAR-1: solve must never return a "solution" that still contains the
 // variable being solved for. solve_poly treats a var-dependent coefficient
 // (exp(x) in x·exp(x) − 1) as constant and used to hand back the rearrangement
-// x = exp(x)**(-1); that is not a solution. SymPP has no LambertW solver, so the
-// correct answer here is "none found" (empty), never a var-containing value.
+// x = exp(x)**(-1); that is not a solution. The canonical x·exp(x) form now
+// returns a (var-free) LambertW root (SOLVE-LAMBERT-1); the other forms here
+// stay unsolved — either way, never a var-containing value.
 TEST_CASE("solve: never returns a var-dependent rearrangement (SOLVE-VAR-1)",
           "[10][solve][regression]") {
     auto x = symbol("x");
     auto y = symbol("y");
-    // x·exp(x) − 1 = 0 : Lambert-W territory; no finite elementary root.
+    // Mixed: x·exp(x)−c solves via LambertW; exp(x)+x and x·log(x)−1 don't yet.
     for (const auto& e : {x * exp(x) - integer(1), x * exp(x) - integer(2),
                           exp(x) + x, x * log(x) - integer(1)}) {
         auto roots = solve(e, x);

@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-LAMBERT-1 — `solve` returned `[]` for Lambert-W equations
+- **Problem:** `x·eˣ−1`, `x·e^(2x)−1`, `x·eˣ+1` all came back empty, where SymPy
+  inverts them with the Lambert W function: `[W(1)]`, `[W(2)/2]`, `[W(−1)]`.
+- **Fix:** added `solve_lambert` in `src/solvers/solve.cpp`. It detects the
+  canonical form `a·x·exp(b·x)+c=0` (a, b var-free, b≠0, x to the first power,
+  exp argument linear) and returns `x = W(−c·b/a)/b` using the defining identity
+  `W(z)·e^(W(z))=z`. SymPP already had the `lambertw` function; this wires `solve`
+  to produce it.
+- **Verified:** `x·eˣ−{1,2}`, `x·eˣ+1`, `x·e^(2x)−1`, `2x·eˣ−1`, `x·e^(3x)−5`,
+  and the homogeneous `x·eˣ → 0` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-LAMBERT-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 7 assertions). SOLVE-VAR-1's
+  comment was updated — it no longer claims SymPP lacks a LambertW solver.
+- **Scope:** the single canonical `a·x·exp(b·x)+c` pattern only. The
+  rearrangement forms SymPy also closes via W — `x+eˣ=0` (`−W(1)`), `x·log(x)−c`
+  (`exp(W(c))`), `x+log(x)=0` (`W(1)`) — need an extra normalization step and
+  remain follow-ups.
+
 ### LIMIT-SIGN-1 — `limit` of a discontinuous `sign`/`abs` returned the point value
 - **Problem:** `limit(sign(x), x, 0)` returned `0` — the point value `sign(0)=0`
   — instead of recognising the discontinuity. `sign(x²)` gave `0` (should be 1),
