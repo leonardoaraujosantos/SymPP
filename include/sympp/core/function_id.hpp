@@ -83,6 +83,8 @@ enum class FunctionId : std::uint16_t {
     Mobius,
     DivisorCount,
     DivisorSigma,
+    Harmonic,
+    Factorial2,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

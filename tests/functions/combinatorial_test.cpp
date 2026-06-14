@@ -314,6 +314,32 @@ TEST_CASE("mobius/divisor_count/divisor_sigma (ARITH-FN-1)",
     REQUIRE(divisor_sigma(integer(-4))->type_id() == TypeId::Function);
 }
 
+// HARMONIC-FACT2-1: harmonic(n) = Σ 1/k (a rational) and factorial2(n) = n!!
+// (double factorial). Both evaluate for integers (factorial2 has the empty-
+// product conventions factorial2(0)=factorial2(−1)=1) and stay symbolic for
+// symbols / out-of-domain arguments. Matches SymPy.
+TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
+          "[3i][harmonic][factorial2][oracle]") {
+    auto& oracle = Oracle::instance();
+    // harmonic Hₙ.
+    REQUIRE(harmonic(integer(0)) == integer(0));
+    REQUIRE(harmonic(integer(1)) == integer(1));
+    REQUIRE(oracle.equivalent(harmonic(integer(5))->str(), "137/60"));
+    REQUIRE(oracle.equivalent(harmonic(integer(10))->str(), "7381/2520"));
+    // factorial2 n!!.
+    REQUIRE(factorial2(integer(0)) == integer(1));
+    REQUIRE(factorial2(integer(-1)) == integer(1));
+    REQUIRE(factorial2(integer(5)) == integer(15));   // 5·3·1
+    REQUIRE(factorial2(integer(6)) == integer(48));   // 6·4·2
+    REQUIRE(factorial2(integer(7)) == integer(105));  // 7·5·3·1
+    // Symbolic / out-of-domain arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(harmonic(n)->type_id() == TypeId::Function);
+    REQUIRE(harmonic(integer(-2))->type_id() == TypeId::Function);
+    REQUIRE(factorial2(n)->type_id() == TypeId::Function);
+    REQUIRE(factorial2(integer(-3))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("catalan: integer values", "[3i][catalan]") {
     REQUIRE(catalan(integer(0)) == integer(1));
     REQUIRE(catalan(integer(1)) == integer(1));

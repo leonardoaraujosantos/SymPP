@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### HARMONIC-FACT2-1 — `harmonic` and `factorial2` were missing
+- **Problem:** `harmonic(5)` and `factorial2(5)` parsed only as undefined
+  functions, where SymPy gives `137/60` and `15`.
+- **Fix:** added `Harmonic` and `Factorial2` functions (FunctionId, classes,
+  builders, parser entries) in `src/functions/combinatorial.cpp`. `harmonic(n)`
+  accumulates `Σ_{k=1}^n 1/k` exactly as an `mpq_class` and returns a Rational;
+  `factorial2(n)` multiplies `n(n−2)(n−4)…` down to 1 or 2, with the empty-product
+  conventions `factorial2(0)=factorial2(−1)=1`. Symbolic and out-of-domain
+  arguments stay unevaluated, matching SymPy.
+- **Verified:** `harmonic` on `{0,1,2,5,10,20,50,100}` and `factorial2` on
+  `{0,1,2,5,6,7,10,15,20,−1}` checked against SymPy.
+- **Regression test:** `HARMONIC-FACT2-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][harmonic][factorial2][oracle]`,
+  13 assertions).
+- **Scope:** single-argument `harmonic` (Hₙ) only; SymPy's generalized
+  `harmonic(n, m) = Σ 1/kᵐ`, plus the `bernoulli` and `euler` numbers (which need
+  a recurrence), remain.
+
 ### SOLVE-EXPBASE-1 — `solve` returned `[]` for constant-base exponentials a^x = c
 - **Problem:** `2^x−8`, `3^x−9`, `5^x−3` all came back empty. `a^x` is a `Pow`
   with a numeric base (not the `exp` function), so it never reached the

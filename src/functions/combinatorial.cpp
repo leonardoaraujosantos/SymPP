@@ -391,6 +391,81 @@ Expr divisor_sigma(const Expr& arg) {
 }
 
 // ============================================================================
+// Harmonic / Factorial2
+// ============================================================================
+
+Harmonic::Harmonic(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Harmonic);
+}
+Expr Harmonic::rebuild(std::vector<Expr> new_args) const {
+    return harmonic(new_args[0]);
+}
+std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr harmonic(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Harmonic>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Harmonic>(arg);  // safety bound
+        // Hₙ = Σ_{k=1}^n 1/k, accumulated exactly as a rational.
+        mpq_class sum(0);
+        for (long k = 1; k <= n; ++k) sum += mpq_class(1, k);
+        sum.canonicalize();
+        return rational(sum.get_num(), sum.get_den());
+    }
+    return make<Harmonic>(arg);
+}
+
+Factorial2::Factorial2(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Factorial2);
+}
+Expr Factorial2::rebuild(std::vector<Expr> new_args) const {
+    return factorial2(new_args[0]);
+}
+std::optional<bool> Factorial2::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr factorial2(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.fits_long()) return make<Factorial2>(arg);
+        long n = z.to_long();
+        if (n == 0 || n == -1) return integer(1);  // empty product conventions
+        if (n < -1) return make<Factorial2>(arg);   // negatives stay symbolic
+        if (n > 1'000'000) return make<Factorial2>(arg);  // safety bound
+        // n!! = n(n−2)(n−4)… down to 2 (n even) or 1 (n odd).
+        mpz_class result(1);
+        for (long k = n; k >= 1; k -= 2) result *= k;
+        return make<Integer>(std::move(result));
+    }
+    return make<Factorial2>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 

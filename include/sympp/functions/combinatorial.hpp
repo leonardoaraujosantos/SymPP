@@ -199,6 +199,37 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// harmonic(n): the n-th harmonic number Hₙ = Σ_{k=1}^n 1/k. Evaluates for a
+// non-negative integer; stays symbolic otherwise. Mirrors SymPy's harmonic.
+class SYMPP_EXPORT Harmonic final : public Function {
+public:
+    explicit Harmonic(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Harmonic;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "harmonic";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// factorial2(n): the double factorial n!! = n(n−2)(n−4)…. Evaluates for an
+// integer ≥ −1 (factorial2(0)=factorial2(−1)=1); stays symbolic otherwise.
+// Mirrors SymPy's factorial2.
+class SYMPP_EXPORT Factorial2 final : public Function {
+public:
+    explicit Factorial2(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Factorial2;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "factorial2";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -275,6 +306,8 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr mobius(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);

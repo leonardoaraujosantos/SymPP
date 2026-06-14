@@ -157,6 +157,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"prime", &prime}, {"primepi", &primepi},
         {"mobius", &mobius}, {"divisor_count", &divisor_count},
         {"divisor_sigma", &divisor_sigma},
+        {"harmonic", &harmonic}, {"factorial2", &factorial2},
         {"gamma", &gamma}, {"loggamma", &loggamma}, {"digamma", &digamma},
         {"erf", &erf}, {"erfc", &erfc}, {"erfi", &erfi}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},
