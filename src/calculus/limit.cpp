@@ -20,6 +20,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -355,6 +356,161 @@ struct NumDen { Expr num; Expr den; };
     return std::nullopt;
 }
 
+// Rewrite factorial(u) → gamma(u+1) throughout, so the gamma-ratio
+// simplification can collapse mixed forms like gamma(x)/factorial(x) = 1/x.
+[[nodiscard]] Expr normalize_factorial(const Expr& e) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            if (fn.function_id() == FunctionId::Factorial
+                && fn.args().size() == 1) {
+                m.emplace(x, gamma(add(fn.args()[0], S::One())));
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    if (m.empty()) return e;
+    return xreplace(e, m);
+}
+
+// Number of gamma/factorial applications anywhere in e.
+[[nodiscard]] int count_gamma_factorial(const Expr& e) {
+    int n = 0;
+    if (e->type_id() == TypeId::Function) {
+        const auto id = static_cast<const Function&>(*e).function_id();
+        if (id == FunctionId::Gamma || id == FunctionId::Factorial) ++n;
+    }
+    for (const auto& a : e->args()) n += count_gamma_factorial(a);
+    return n;
+}
+
+// Asymptotic growth at +∞ obeys the strict hierarchy
+//   factorial/gamma  ≫  exponential  ≫  polynomial  ≫  logarithm.
+// classify_growth maps one multiplicative factor f^s (s = ±1 the side it sits
+// on: +1 numerator, −1 denominator) to {rank, direction}, where direction is the
+// sign of f's contribution to log|expr| (a factor → 0 contributes −). Returns
+// nullopt for a factor that does not fit the hierarchy, so the caller bails.
+struct Growth {
+    int rank;  // 4 gamma/factorial, 3 exp, 2 polynomial, 1 log, 0 bounded
+    int dir;   // +1 pushes magnitude up, −1 down (toward 0), 0 bounded
+};
+[[nodiscard]] std::optional<Growth> classify_growth(const Expr& factor,
+                                                    const Expr& var,
+                                                    int depth) {
+    // Peel a numeric exponent: base^e contributes sign(e) to the side.
+    Expr base = factor;
+    int side = 1;
+    if (factor->type_id() == TypeId::Pow) {
+        const Expr& b = factor->args()[0];
+        const Expr& e = factor->args()[1];
+        if (e->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*e);
+            if (!z.fits_long()) return std::nullopt;
+            const long ev = z.to_long();
+            if (ev == 0) return Growth{0, 0};
+            side = (ev > 0) ? 1 : -1;
+            base = b;
+        } else if (!has(b, var) && is_positive(b) == true && has(e, var)) {
+            // B^E with positive constant base B and a var-dependent exponent: an
+            // exponential a^x. Direction = sign(E)·sign(log B).
+            Expr le = limit_impl(e, var, S::Infinity(), depth + 1);
+            const int sE = (le == S::Infinity()) ? 1
+                           : (le == S::NegativeInfinity()) ? -1
+                                                           : 0;
+            if (sE == 0) return Growth{0, 0};  // E bounded ⇒ B^E bounded
+            int sB;
+            if (is_positive(simplify(add(b, S::NegativeOne()))) == true) {
+                sB = 1;  // B > 1
+            } else if (is_positive(simplify(add(S::One(),
+                                                mul(S::NegativeOne(), b))))
+                       == true) {
+                sB = -1;  // 0 < B < 1
+            } else {
+                return std::nullopt;  // B vs 1 undecidable
+            }
+            return Growth{3, sB * sE};
+        } else {
+            return std::nullopt;  // x^x and friends — not in the hierarchy
+        }
+    }
+    if (!has(base, var)) return Growth{0, 0};  // bounded constant factor
+    auto inner_to_pos_inf = [&](const Expr& u) {
+        return is_infinity(limit_impl(u, var, S::Infinity(), depth + 1))
+               && limit_impl(u, var, S::Infinity(), depth + 1) == S::Infinity();
+    };
+    if (base->type_id() == TypeId::Function) {
+        const auto id = static_cast<const Function&>(*base).function_id();
+        const Expr& u = base->args()[0];
+        if (id == FunctionId::Gamma || id == FunctionId::Factorial) {
+            if (!inner_to_pos_inf(u)) return std::nullopt;  // gamma(−∞): wild
+            return Growth{4, side};
+        }
+        if (id == FunctionId::Exp) {
+            Expr lu = limit_impl(u, var, S::Infinity(), depth + 1);
+            if (lu == S::Infinity()) return Growth{3, side};
+            if (lu == S::NegativeInfinity()) return Growth{3, -side};
+            return std::nullopt;
+        }
+        if (id == FunctionId::Log) {
+            if (!inner_to_pos_inf(u)) return std::nullopt;
+            return Growth{1, side};
+        }
+        return std::nullopt;
+    }
+    // var itself, or any polynomial in var that diverges: rank 2.
+    if (base == var) return Growth{2, side};
+    try {
+        Poly p(expand(base), var);
+        if (p.degree() >= 1) {
+            for (const auto& cc : p.coeffs())
+                if (has(cc, var)) return std::nullopt;
+            return Growth{2, side};
+        }
+    } catch (const std::exception&) {
+    }
+    return std::nullopt;
+}
+
+// Limit at +∞ decided purely by the dominant growth class: if a single factor
+// has a strictly higher rank than every other (no same-rank competitor with the
+// opposite direction), it sets the limit to +∞ or 0. Mixed top ranks (e.g.
+// gamma(2x)/gamma(x)) are left to other methods. Only attempted when a
+// gamma/factorial is present, so ordinary limits are unaffected.
+[[nodiscard]] std::optional<Expr> gamma_growth_limit(const Expr& expr,
+                                                     const Expr& var,
+                                                     int depth) {
+    Expr t = together(expr);
+    std::vector<Expr> factors;
+    if (t->type_id() == TypeId::Mul) {
+        for (const auto& f : t->args()) factors.push_back(f);
+    } else {
+        factors.push_back(t);
+    }
+    int top_rank = 0;
+    int top_dir_sum = 0;
+    bool top_conflict = false;
+    for (const auto& f : factors) {
+        auto g = classify_growth(f, var, depth);
+        if (!g) return std::nullopt;  // unrecognized factor — cannot conclude
+        if (g->rank == 0) continue;
+        if (g->rank > top_rank) {
+            top_rank = g->rank;
+            top_dir_sum = g->dir;
+            top_conflict = false;
+        } else if (g->rank == top_rank) {
+            if (g->dir != 0 && top_dir_sum != 0
+                && ((g->dir > 0) != (top_dir_sum > 0))) {
+                top_conflict = true;
+            }
+            top_dir_sum += g->dir;
+        }
+    }
+    if (top_rank == 0 || top_conflict || top_dir_sum == 0) return std::nullopt;
+    return top_dir_sum > 0 ? S::Infinity() : S::Zero();
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve
@@ -367,6 +523,27 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // L'Hôpital path.
     if (is_infinity(target)) {
         if (auto r = rational_limit_at_infinity(expr, var, target)) return *r;
+    }
+
+    // Gamma/factorial at +∞. Direct substitution gives gamma(∞)/gamma(∞), which
+    // simplify wrongly cancels to 1; handle these before the substitution below.
+    if (depth < 12 && target == S::Infinity()
+        && count_gamma_factorial(expr) > 0) {
+        // Normalize factorial → gamma so gamma(x)/factorial(x) can collapse.
+        Expr g = normalize_factorial(expr);
+        // (B) Collapse gamma ratios first — simplify reduces gamma(x+1)/gamma(x)
+        // to x, after which the rational-at-∞ machinery applies. Only recurse
+        // when simplification actually removed gamma content.
+        Expr simp = simplify(g);
+        if (count_gamma_factorial(simp) < count_gamma_factorial(g)) {
+            return limit_impl(simp, var, target, depth + 1);
+        }
+        // (C) Otherwise decide by the dominant growth class (gamma ≫ exp ≫
+        // poly ≫ log): e.g. exp(x)/gamma(x) → 0, gamma(x)/exp(x) → ∞.
+        if (auto r = gamma_growth_limit(g, var, depth)) return *r;
+        // Fall back to the gamma form (if normalization changed anything) so the
+        // remaining methods never differentiate factorial into a Derivative node.
+        if (!(g == expr)) return limit_impl(g, var, target, depth + 1);
     }
 
     Expr direct = simplify(subs(expr, var, target));

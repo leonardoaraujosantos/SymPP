@@ -331,6 +331,34 @@ TEST_CASE("limit: 0*oo and oo/oo forms at oo",
     REQUIRE(oracle.equivalent(limit(log(x) / x, x, S::Infinity())->str(), "0"));
 }
 
+// LIMIT-GAMMA-1: limits of gamma/factorial at +∞. Direct substitution gives
+// gamma(∞)/gamma(∞), which simplify wrongly cancels to 1 — these used to return
+// 1 (a wrong answer) or unevaluated/garbage. The engine now (a) folds
+// gamma(∞)=factorial(∞)=∞, (b) collapses gamma ratios before substituting
+// (gamma(x+1)/gamma(x) → x → ∞), and (c) ranks growth classes
+// (gamma ≫ exp ≫ poly): exp(x)/gamma(x) → 0.
+TEST_CASE("limit: gamma/factorial at infinity (LIMIT-GAMMA-1)",
+          "[6][limit][infinity][gamma][oracle][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    // Bare gamma/factorial diverge.
+    REQUIRE(limit(gamma(x), x, oo) == oo);
+    REQUIRE(limit(factorial(x), x, oo) == oo);
+    REQUIRE(limit(gamma(x + integer(1)), x, oo) == oo);
+    // Ratios collapse to polynomials (the previously-wrong "= 1" cases).
+    REQUIRE(limit(gamma(x + integer(1)) / gamma(x), x, oo) == oo);
+    REQUIRE(limit(gamma(x + integer(2)) / gamma(x), x, oo) == oo);
+    REQUIRE(limit(gamma(x) / gamma(x + integer(1)), x, oo) == S::Zero());
+    // Cross-class growth: gamma ≫ exp ≫ polynomial.
+    REQUIRE(limit(exp(x) / gamma(x), x, oo) == S::Zero());
+    REQUIRE(limit(gamma(x) / exp(x), x, oo) == oo);
+    REQUIRE(limit(pow(x, integer(5)) / gamma(x), x, oo) == S::Zero());
+    // factorial normalizes to gamma, so mixed forms resolve too.
+    REQUIRE(limit(gamma(x) / factorial(x), x, oo) == S::Zero());
+    REQUIRE(limit(factorial(x) / exp(x), x, oo) == oo);
+    REQUIRE(limit(pow(integer(2), x) / factorial(x), x, oo) == S::Zero());
+}
+
 TEST_CASE("limit: at -oo", "[6][limit][infinity][oracle][regression]") {
     auto x = symbol("x");
     REQUIRE(limit(exp(x), x, S::NegativeInfinity()) == S::Zero());

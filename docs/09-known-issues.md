@@ -16,6 +16,36 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMA-1 — limits of gamma/factorial at ∞ returned wrong answers
+- **Problem:** `limit(gamma(x+1)/gamma(x), ∞)` returned **`1`** (should be `∞` —
+  the ratio *is* `x`), `exp(x)/gamma(x) → ∞` (should be `0`) and
+  `gamma(x)/exp(x) → 0` (should be `∞`) were **inverted**, and bare `gamma(x)` /
+  `factorial(x)` stayed unevaluated. Root cause: `limit` substitutes `x → ∞`
+  *before* simplifying, producing `gamma(∞)/gamma(∞)`, which `simplify` then
+  cancels to `1`; the engine had no model of gamma's super-exponential growth.
+- **Fix:** three coordinated changes —
+  - **(A)** `gamma(+∞) = +∞` and `factorial(+∞) = +∞` at the factories
+    (`src/functions/combinatorial.cpp`);
+  - **(B)** in `src/calculus/limit.cpp`, when the target is `+∞` and a
+    gamma/factorial is present, normalize `factorial(u) → gamma(u+1)` and
+    `simplify` first — this collapses `gamma(x+1)/gamma(x) → x`, after which the
+    existing rational-at-∞ machinery gives `∞`;
+  - **(C)** a conservative growth-rank rule (`gamma ≫ exp ≫ polynomial ≫ log`):
+    when one factor strictly dominates, the limit is `∞` or `0`
+    (`exp(x)/gamma(x) → 0`, `gamma(x)/exp(x) → ∞`, `2^x/x! → 0`). A genuine tie
+    at the top rank (`gamma(2x)/gamma(x)`) is left unevaluated rather than
+    guessed. A fallback rewrites any leftover factorial to gamma so the
+    L'Hôpital path never differentiates `factorial` into a `Derivative` node.
+- **Verified:** 15 cases match SymPy — bare gamma/factorial, integer-shift
+  ratios, and the cross-class quotients. The only unresolved case,
+  `gamma(2x)/gamma(x)`, now returns `nan` (honest) instead of a wrong value;
+  it needs a Stirling comparison to fold to `∞`.
+- **Regression test:** `LIMIT-GAMMA-1` in
+  `tests/calculus/series_limit_test.cpp`
+  (`[6][limit][infinity][gamma][oracle][regression]`).
+- **Note:** this was a correctness bug (confidently wrong answers), not just a
+  missing feature.
+
 ### LOG-BASE-1 — two-argument `log(x, b)` was an opaque node with no derivative
 - **Problem:** `log(x, 2)` parsed to a generic user-function node, so it never
   simplified and `diff(log(x, 2), x)` came back as an unevaluated
