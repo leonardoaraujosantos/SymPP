@@ -133,6 +133,48 @@ TEST_CASE("solve: exp(x) - 2 = 0 -> x = log(2)", "[10][solve][transcendental][re
     REQUIRE(oracle.equivalent(roots[0]->str(), "log(2)"));
 }
 
+// SOLVE-EXPLOG-POLY-1: solve() of a polynomial in a single exp or log atom.
+// Substitute u = g(x), solve the polynomial, invert each root: exp(x)=c → log(c)
+// (skipping c=0), log(x)=c → exp(c). Matches SymPy as a set, including the
+// complex root from exp(x)=−1.
+TEST_CASE("solve: polynomial in exp/log (SOLVE-EXPLOG-POLY-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // exp(x)² − 3exp(x) + 2 → exp(x) = 1, 2 → x = 0, log(2).
+    REQUIRE(set_equal(
+        solve(pow(exp(x), integer(2)) - integer(3) * exp(x) + integer(2), x),
+        {"0", "log(2)"}));
+    // exp(x)² − 1 → exp(x) = ±1 → x = 0, iπ (complex root included).
+    REQUIRE(set_equal(solve(pow(exp(x), integer(2)) - integer(1), x),
+                      {"0", "I*pi"}));
+    // log(x)² − 1 → log(x) = ±1 → x = e, 1/e.
+    REQUIRE(set_equal(solve(pow(log(x), integer(2)) - integer(1), x),
+                      {"E", "exp(-1)"}));
+    // log(x)² − 3log(x) + 2 → x = e, e².
+    REQUIRE(set_equal(
+        solve(pow(log(x), integer(2)) - integer(3) * log(x) + integer(2), x),
+        {"E", "exp(2)"}));
+    // Scaled log argument: log(2x) = 1 → x = e/2.
+    REQUIRE(set_equal(solve(log(integer(2) * x) - integer(1), x), {"E/2"}));
+}
+
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
 // g = c^(1/p). The polynomial path can't see through a fractional power, so
 // these used to come back empty. Matches SymPy, including the principal-branch

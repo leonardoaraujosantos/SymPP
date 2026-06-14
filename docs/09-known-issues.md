@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EXPLOG-POLY-1 — `solve` returned `[]` for a polynomial in exp(x) or log(x)
+- **Problem:** `solve` handled a single `exp(x)−c` / `log(x)−c` but came back empty
+  for any higher-degree polynomial in one transcendental atom — `exp(x)²−3exp(x)+2`,
+  `log(x)²−1`, `log(x)²−3log(x)+2` all yielded `[]`, where SymPy returns
+  `[0, log(2)]`, `[e, 1/e]`, `[e, e²]`. (This is the exp/log analogue of the trig
+  case closed in SOLVE-TRIG-POLY-1.)
+- **Fix:** added `solve_exp_log_poly` in `src/solvers/solve.cpp`. It detects a
+  polynomial in exactly one `exp`/`log` atom `g(B·x)`, substitutes `u = g(B·x)`,
+  solves the polynomial in `u` with the `Poly` root finder, and inverts each
+  root: `exp(B·x)=c → log(c)/B` (skipping `c=0`, which has no solution),
+  `log(B·x)=c → exp(c)/B`. Complex roots are included where SymPy includes them
+  (`exp(x)=−1 → iπ`).
+- **Verified:** solution sets checked set-equal to `sympy.solve` for nine
+  equations (quadratic/cubic in exp and log, repeated roots, a scaled log
+  argument, complex roots).
+- **Regression test:** `SOLVE-EXPLOG-POLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 5 assertions).
+- **Scope:** the `exp` inversion is taken only for `B=1` — `exp(B·x)=c` with
+  `B≠1` has `B` complex representatives (period `2πi/B`) whose enumeration is out
+  of scope; `log` is single-valued, so any `B` is handled. A composite like
+  `exp(2x)` alongside `exp(x)` is two distinct atoms and needs an
+  `exp(2x)=exp(x)²` rewrite — a follow-up.
+
 ### RADSIMP-SIMPLIFY-2 — `simplify` didn't rationalize two-surd denominators
 - **Problem:** following RADSIMP-SIMPLIFY-1, denominators that are a sum of two
   surds with no rational part (`√3−√2`, `√5+√2`) were still left as reciprocals,

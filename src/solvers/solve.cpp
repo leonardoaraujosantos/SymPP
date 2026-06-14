@@ -254,6 +254,71 @@ solve_trig_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a polynomial in a single exp or log atom — e.g. exp(x)^2-3*exp(x)+2,
+// log(x)^2-1. Substitute u = g(B*var), solve the polynomial in u, then invert
+// each root: exp(B*var)=c → var=log(c)/B (c=0 has no solution), log(B*var)=c →
+// var=exp(c)/B. Matches SymPy's solve. Requires exactly one exp/log atom with
+// arg = B*var (B var-free, no additive constant); a composite like exp(2x)
+// alongside exp(x) is two distinct atoms and is left alone.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_exp_log_poly(const Expr& expr, const Expr& var) {
+    std::vector<Expr> atoms;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (e->type_id() == TypeId::Function && has(e, var)) {
+            const FunctionId fid =
+                static_cast<const Function&>(*e).function_id();
+            if (fid == FunctionId::Exp || fid == FunctionId::Log) {
+                if (std::none_of(atoms.begin(), atoms.end(),
+                                 [&](const Expr& a) { return a == e; })) {
+                    atoms.push_back(e);
+                }
+                return;
+            }
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (atoms.size() != 1) return std::nullopt;
+    const Expr g = atoms.front();
+    const FunctionId id = static_cast<const Function&>(*g).function_id();
+    const Expr& arg = g->args()[0];
+    Expr B = simplify(arg * pow(var, integer(-1)));
+    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    // exp(B·var)=c has B complex representatives when B≠1 (the period 2πi/B);
+    // enumerating those is out of scope, so only the principal B=1 case is taken.
+    // log is single-valued, so any B is fine there.
+    if (id == FunctionId::Exp && !(B == S::One())) return std::nullopt;
+    Expr u = symbol("u_explog_subst");
+    Expr eu = subs(expr, g, u);
+    if (has(eu, var)) return std::nullopt;
+    std::vector<Expr> cvals;
+    try {
+        Poly p(expand(eu), u);
+        cvals = p.roots();
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (cvals.empty()) return std::nullopt;
+    std::vector<Expr> roots;
+    auto push = [&](Expr r) {
+        if (has(r, var) || has(r, u)) return;
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& w) { return w == r; })) {
+            roots.push_back(std::move(r));
+        }
+    };
+    for (auto& c : cvals) {
+        if (has(c, var) || has(c, u)) continue;
+        if (id == FunctionId::Exp) {
+            if (c == S::Zero()) continue;  // exp(B*var) = 0 has no solution
+            push(simplify(log(c) * pow(B, integer(-1))));
+        } else {  // Log: log(B*var) = c → B*var = exp(c)
+            push(simplify(exp(c) * pow(B, integer(-1))));
+        }
+    }
+    return roots;
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -366,6 +431,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         // them. Surface SymPy-style representative roots over one period first.
         if (auto tp = solve_trig_poly(expr, var); tp && !tp->empty())
             return *tp;
+        if (auto el = solve_exp_log_poly(expr, var); el && !el->empty())
+            return *el;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
