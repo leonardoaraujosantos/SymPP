@@ -16,6 +16,31 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SIGN-1 — `limit` of a discontinuous `sign`/`abs` returned the point value
+- **Problem:** `limit(sign(x), x, 0)` returned `0` — the point value `sign(0)=0`
+  — instead of recognising the discontinuity. `sign(x²)` gave `0` (should be 1),
+  and `|x|/x` gave `0` (via L'Hôpital → `sign(x)` → `0`). The two-sided limit of
+  these is the sign of the inner just around the target, not at it.
+- **Fix:** added `resolve_sign_limit` in `src/calculus/limit.cpp`, run at the top
+  of `limit_impl`. It collects every `sign(g)`/`abs(g)` subexpression whose
+  argument tends to 0, then evaluates the limit in the right- and
+  left-neighborhoods with each replaced by its sampled one-sided value
+  (`sign(g)→±1`, `abs(g)=g·sign(g)→g·(±1)`). Agreeing sides give the limit;
+  disagreeing sides return `nan` (the two-sided limit does not exist). The
+  side-sampling `side_sign_at` helper is shared with `signed_pole`.
+- **Verified:** matches SymPy's two-sided `limit(…, '+-')` for `sign(x)`,
+  `sign(-x)`, `sign(x³)` → DNE; `sign(x²)` → 1; `|x|/x`, `x/|x|`,
+  `sin(x)/|x|` → DNE; `sign(x)·x` → 0; `|x|`, `|x−3|` continuous. Note `0·zoo`
+  was already `nan` in core arithmetic — the bug was solely the point-value
+  substitution.
+- **Regression test:** `LIMIT-SIGN-1` in `tests/calculus/series_limit_test.cpp`
+  (`[6][limit][regression]`, 9 assertions).
+- **Scope:** when a side substitution leaves its own singularity (`|x|/x²`), the
+  still-two-sided sub-limit yields `zoo` rather than the directional `+oo`; and
+  `floor`/`ceiling`/`Heaviside` at their jumps still return the point value (a
+  separate discontinuity class). SymPP keeps its two-sided convention throughout
+  (SymPy defaults to the right-hand limit).
+
 ### ARITH-FN-1 — `mobius`, `divisor_count`, `divisor_sigma` were missing
 - **Problem:** the multiplicative arithmetic functions stayed symbolic —
   `mobius(30)`, `divisor_count(12)`, `divisor_sigma(12)` parsed only as undefined

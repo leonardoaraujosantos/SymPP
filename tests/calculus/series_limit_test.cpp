@@ -9,6 +9,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/functions/miscellaneous.hpp>  // sign, abs
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
@@ -210,6 +211,32 @@ TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
             == S::Infinity());
     // Odd pole stays the unsigned zoo (two-sided): 1/x as x → 0.
     REQUIRE(limit(pow(x, integer(-1)), x, S::Zero()) == S::ComplexInfinity());
+}
+
+// LIMIT-SIGN-1: an expression with sign(g) or abs(g) where g → 0 is
+// discontinuous at the target. Direct substitution wrongly used sign(0)=0 (so
+// limit(sign(x),x,0) returned 0); it now samples g's sign on each side. Matching
+// sides give the value (sign(x²) → 1); a sign change means the two-sided limit
+// does not exist (nan), e.g. sign(x) and |x|/x. Matches SymPy's two-sided limit.
+TEST_CASE("limit: discontinuous sign/abs at the target (LIMIT-SIGN-1)",
+          "[6][limit][regression]") {
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
+    // sign(g) with a genuine sign change ⇒ two-sided DNE (nan).
+    REQUIRE(is_nan(limit(sign(x), x, zero)));
+    REQUIRE(is_nan(limit(sign(mul(S::NegativeOne(), x)), x, zero)));  // sign(-x)
+    REQUIRE(is_nan(limit(sign(pow(x, integer(3))), x, zero)));  // sign(x³)
+    // No sign change ⇒ the constant sign: sign(x²) → 1.
+    REQUIRE(limit(sign(pow(x, integer(2))), x, zero) == integer(1));
+    // |x|/x = sign(x): DNE. (Previously returned 0 via L'Hôpital → sign(x) → 0.)
+    REQUIRE(is_nan(limit(sympp::abs(x) * pow(x, integer(-1)), x, zero)));
+    REQUIRE(is_nan(limit(x * pow(sympp::abs(x), integer(-1)), x, zero)));  // x/|x|
+    // sign·(→0) is determinate: sign(x)·x → 0; and plain |x| is continuous → 0.
+    REQUIRE(limit(sign(x) * x, x, zero) == zero);
+    REQUIRE(limit(sympp::abs(x), x, zero) == zero);
+    // sign away from the discontinuity is unaffected: sign(x−2) → −1 at 0.
+    REQUIRE(limit(sign(x - integer(2)), x, zero) == integer(-1));
 }
 
 TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",

@@ -8,6 +8,8 @@
 #include <sympp/core/add.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/function.hpp>
+#include <sympp/core/function_id.hpp>
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/queries.hpp>
@@ -213,6 +215,20 @@ struct NumDen { Expr num; Expr den; };
     return lhopital_nd(prod(std::move(nf)), prod(recips(zero_f)), var, target);
 }
 
+// Sign of `expr` evaluated at `point`: +1 / −1, or 0 when indeterminate (a
+// non-real value, an unsigned/indeterminate infinity, or no definite sign).
+[[nodiscard]] int side_sign_at(const Expr& expr, const Expr& var,
+                               const Expr& point) {
+    Expr v = simplify(subs(expr, var, point));
+    if (v->type_id() == TypeId::Infinity) return 1;
+    if (v->type_id() == TypeId::NegativeInfinity) return -1;
+    if (is_infinity(v) || v->type_id() == TypeId::NaN) return 0;
+    Expr f = evalf(v, 30);
+    if (is_positive(f) == std::optional<bool>{true}) return 1;
+    if (is_negative(f) == std::optional<bool>{true}) return -1;
+    return 0;
+}
+
 // Direct substitution at a finite pole yields zoo (the unsigned 1/0). Recover
 // the signed infinity by sampling the sign of the expression just either side of
 // the target: equal signs ⇒ ±oo (1/x² → +oo, −1/x² → −oo), opposite signs ⇒ the
@@ -221,25 +237,75 @@ struct NumDen { Expr num; Expr den; };
 [[nodiscard]] std::optional<Expr> signed_pole(const Expr& expr, const Expr& var,
                                               const Expr& target) {
     if (!is_number(target)) return std::nullopt;
-    auto side_sign = [&](const Expr& point) -> int {
-        Expr v = simplify(subs(expr, var, point));
-        if (v->type_id() == TypeId::Infinity) return 1;
-        if (v->type_id() == TypeId::NegativeInfinity) return -1;
-        if (is_infinity(v) || v->type_id() == TypeId::NaN) return 0;
-        Expr f = evalf(v, 30);
-        if (is_positive(f) == std::optional<bool>{true}) return 1;
-        if (is_negative(f) == std::optional<bool>{true}) return -1;
-        return 0;
-    };
     Expr h = pow(integer(10), integer(-6));  // 1e-6
-    int s_right = side_sign(add(target, h));
-    int s_left = side_sign(add(target, mul(S::NegativeOne(), h)));
+    int s_right = side_sign_at(expr, var, add(target, h));
+    int s_left = side_sign_at(expr, var, add(target, mul(S::NegativeOne(), h)));
     if (s_right == 0 || s_left == 0 || s_right != s_left) return std::nullopt;
     return s_right > 0 ? S::Infinity() : S::NegativeInfinity();
 }
 
+// An expression containing sign(g) or abs(g) with g → 0 at the target is
+// discontinuous there: direct substitution uses sign(0)=0 (and the abs is hidden
+// inside a quotient like |x|/x), which is wrong. Resolve it from the actual
+// one-sided behavior: in the right- and left-neighborhoods replace each sign(g)
+// by its sampled sign s∈{±1} and each abs(g) by g·s (since |g| = g·sign g), then
+// limit each now-continuous version. Agreeing sides give the limit; disagreeing
+// sides mean the two-sided limit does not exist (nan). Returns nullopt when there
+// is no such vanishing node or a sample is inconclusive, leaving the normal path
+// untouched. This fixes sign(x) → nan, sign(x²) → 1, and |x|/x → nan.
+[[nodiscard]] std::optional<Expr> resolve_sign_limit(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& target,
+                                                     int depth) {
+    if (!is_number(target)) return std::nullopt;
+    std::vector<Expr> nodes;  // sign(g) / abs(g) with g → 0
+    auto collect = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const FunctionId id = static_cast<const Function&>(*e).function_id();
+            if ((id == FunctionId::Sign || id == FunctionId::Abs)
+                && limit_impl(e->args()[0], var, target, depth + 1)
+                       == S::Zero()) {
+                if (std::none_of(nodes.begin(), nodes.end(),
+                                 [&](const Expr& s) { return s == e; })) {
+                    nodes.push_back(e);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    collect(collect, expr);
+    if (nodes.empty()) return std::nullopt;
+    const Expr h = pow(integer(10), integer(-6));
+    auto neighborhood_limit = [&](const Expr& point) -> std::optional<Expr> {
+        ExprMap<Expr> m;
+        for (const auto& node : nodes) {
+            const Expr& g = node->args()[0];
+            int sg = side_sign_at(g, var, point);
+            if (sg == 0) return std::nullopt;  // inconclusive sample
+            const FunctionId id =
+                static_cast<const Function&>(*node).function_id();
+            // sign(g) → s;  abs(g) = g·sign(g) → g·s.
+            m.emplace(node, id == FunctionId::Sign
+                                ? Expr{integer(sg)}
+                                : mul(g, integer(sg)));
+        }
+        return limit_impl(xreplace(expr, m), var, target, depth + 1);
+    };
+    auto right = neighborhood_limit(add(target, h));
+    auto left = neighborhood_limit(add(target, mul(S::NegativeOne(), h)));
+    if (!right || !left) return std::nullopt;
+    if (*right == *left) return *right;
+    return S::NaN();
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
+    // An expression with sign(g), g → 0, is discontinuous at the target; resolve
+    // it from the one-sided signs rather than the point value sign(0)=0.
+    if (depth < 12) {
+        if (auto s = resolve_sign_limit(expr, var, target, depth)) return *s;
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
