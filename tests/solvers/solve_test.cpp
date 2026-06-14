@@ -270,6 +270,51 @@ TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
     REQUIRE(set_equal(solve(x + exp(x) - integer(1), x), {"0"}));
 }
 
+// SOLVE-EXPBASE-1: constant-base exponential a^x = c (a^x is a Pow with a
+// numeric base, so it skips the exp/log transcendental path) → x = log(c)/log(a),
+// with an exact integer exponent when c is a power of a (2^x=8 → 3). Restricted
+// to a non-perfect-power integer base and bare exponent so the answer matches
+// SymPy without enumerating complex representatives.
+TEST_CASE("solve: constant-base exponential a^x = c (SOLVE-EXPBASE-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto powx = [&](int a) { return pow(integer(a), x); };
+    // Exact integer exponents.
+    REQUIRE(set_equal(solve(powx(2) - integer(8), x), {"3"}));
+    REQUIRE(set_equal(solve(powx(3) - integer(9), x), {"2"}));
+    REQUIRE(set_equal(solve(powx(10) - integer(100), x), {"2"}));
+    REQUIRE(set_equal(solve(powx(2) - integer(1), x), {"0"}));   // 2^0 = 1
+    REQUIRE(set_equal(solve(powx(6) - integer(36), x), {"2"}));
+    // Non-power RHS → log ratio.
+    REQUIRE(set_equal(solve(powx(5) - integer(3), x), {"log(3)/log(5)"}));
+    REQUIRE(set_equal(solve(powx(2) - integer(7), x), {"log(7)/log(2)"}));
+    // Negative RHS → the complex log form, matching SymPy.
+    REQUIRE(set_equal(solve(powx(2) + integer(7), x),
+                      {"(log(7) + I*pi)/log(2)"}));
+    // a^x = 0 has no solution.
+    REQUIRE(solve(powx(2), x).empty());
+    // Perfect-power base / scaled exponent stay unsolved (complex reps omitted).
+    REQUIRE(solve(pow(integer(4), x) - integer(2), x).empty());
+    REQUIRE(solve(pow(integer(2), integer(2) * x) - integer(8), x).empty());
+}
+
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
 // g = c^(1/p). The polynomial path can't see through a fractional power, so
 // these used to come back empty. Matches SymPy, including the principal-branch

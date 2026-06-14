@@ -545,6 +545,88 @@ solve_lambert(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+// If value == base^k for a positive integer k (base ≥ 2, value ≥ 1, both
+// integers), return k — so 2^x = 8 solves to the clean 3, not log(8)/log(2).
+[[nodiscard]] std::optional<long> integer_power_of(const mpz_class& base,
+                                                   mpz_class value) {
+    if (base < 2 || value < 1) return std::nullopt;
+    long k = 0;
+    while (value > 1) {
+        if (!mpz_divisible_p(value.get_mpz_t(), base.get_mpz_t())) {
+            return std::nullopt;
+        }
+        value /= base;
+        ++k;
+    }
+    return k;
+}
+
+// Solve A·a^(b·var) + C = 0 for a constant base a (a positive number ≠ 1):
+// a^(b·var) = −C/A → var = log(−C/A)/(b·log a). When −C/A is an exact integer
+// power of an integer base, the clean rational exponent is returned instead of
+// the log ratio (2^x = 8 → 3). `a^x` is a Pow with a numeric base, not the exp
+// function, so the transcendental branch never sees it.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_const_base_exp(const Expr& expr, const Expr& var) {
+    Expr C = S::Zero();
+    Expr dep;
+    if (expr->type_id() == TypeId::Add) {
+        std::vector<Expr> dv, fv;
+        for (const auto& t : expr->args())
+            (has(t, var) ? dv : fv).push_back(t);
+        if (dv.size() != 1) return std::nullopt;
+        dep = dv[0];
+        if (!fv.empty()) C = (fv.size() == 1) ? fv[0] : add(fv);
+    } else {
+        dep = expr;
+    }
+    // dep = A · a^(b·var): a var-free coeff A and one Pow(a, b·var) with a
+    // var-free and the exponent depending on var.
+    Expr A = S::One();
+    Expr base, argexp;
+    bool have_pow = false;
+    std::vector<Expr> factors;
+    if (dep->type_id() == TypeId::Mul) {
+        for (const auto& f : dep->args()) factors.push_back(f);
+    } else {
+        factors.push_back(dep);
+    }
+    for (const auto& f : factors) {
+        if (!has(f, var)) {
+            A = mul({A, f});
+            continue;
+        }
+        if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+            && has(f->args()[1], var)) {
+            if (have_pow) return std::nullopt;
+            base = f->args()[0];
+            argexp = f->args()[1];
+            have_pow = true;
+            continue;
+        }
+        return std::nullopt;  // another var-dependent factor
+    }
+    if (!have_pow) return std::nullopt;
+    // Restrict to an integer base ≥ 2 that is NOT a perfect power, with the bare
+    // exponent var. For a perfect-power base (4 = 2²) or a scaled exponent (b≠1),
+    // SymPy enumerates extra complex representatives (the smaller complex period),
+    // which this single-root inversion would not reproduce; those stay unsolved.
+    if (base->type_id() != TypeId::Integer || argexp != var) return std::nullopt;
+    const mpz_class& a = static_cast<const Integer&>(*base).value();
+    if (a < 2 || mpz_perfect_power_p(a.get_mpz_t()) != 0) return std::nullopt;
+    Expr rhs = simplify(mul({S::NegativeOne(), C, pow(A, integer(-1))}));
+    // a^var = 0 has no solution (a^y > 0 for a real base).
+    if (rhs == S::Zero()) return std::nullopt;
+    // Exact integer power: a^var = a^k → var = k.
+    if (rhs->type_id() == TypeId::Integer) {
+        if (auto k = integer_power_of(a, static_cast<const Integer&>(*rhs).value())) {
+            return std::vector<Expr>{integer(*k)};
+        }
+    }
+    // General: var = log(rhs)/log(a).
+    return std::vector<Expr>{simplify(log(rhs) * pow(log(base), integer(-1)))};
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -695,6 +777,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // numerator, dropping pole roots. The polynomial path above can't build a
     // Poly from a negative-power term, so these reach here empty.
     if (auto rr = solve_rational(expr, var); rr && !rr->empty()) return *rr;
+    // Constant-base exponential a^(b·x)=c (a^x is a Pow, not the exp function, so
+    // it skips the transcendental branch below).
+    if (auto ce = solve_const_base_exp(expr, var); ce && !ce->empty())
+        return *ce;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
     // _invert chain; route through it and surface any finite solution set as

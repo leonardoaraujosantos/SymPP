@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EXPBASE-1 — `solve` returned `[]` for constant-base exponentials a^x = c
+- **Problem:** `2^x−8`, `3^x−9`, `5^x−3` all came back empty. `a^x` is a `Pow`
+  with a numeric base (not the `exp` function), so it never reached the
+  transcendental solve path. SymPy returns `[3]`, `[2]`, `[log(3)/log(5)]`.
+- **Fix:** added `solve_const_base_exp` in `src/solvers/solve.cpp` (tried right
+  after `solve_rational`, since these skip the function-of-var branch). For
+  `A·a^x + C = 0` it returns `x = log(−C/A)/log(a)`, collapsing to the exact
+  integer exponent when `−C/A` is a power of `a` (`2^x=8 → 3`). `a^x=0` correctly
+  yields no solution, and a negative RHS gives the complex log form matching
+  SymPy (`2^x=−7 → (log7+iπ)/log2`).
+- **Verified:** `2^x−{8,7,1}`, `3^x−9`, `5^x−3`, `10^x−100`, `6^x−36`, `2^x`,
+  `2^x+7` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-EXPBASE-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 11 assertions).
+- **Scope:** restricted to a non-perfect-power integer base and a bare exponent
+  (`b=1`). For a perfect-power base (`4^x`) or scaled exponent (`2^(2x)`), SymPy
+  enumerates extra complex representatives (the smaller complex period) that a
+  single-root inversion would miss, so those stay unsolved — the same
+  real-vs-complex completeness boundary as the `exp(B·x)` case (SOLVE-EXPLOG-POLY-1).
+
 ### SERIES-SINGULAR-1 — `series` emitted zoo/nan garbage at a singular point
 - **Problem:** `series` built Taylor coefficients by substituting `x=x0` into each
   derivative. At a point where the function is singular this gave non-finite
