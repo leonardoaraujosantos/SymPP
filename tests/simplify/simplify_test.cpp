@@ -793,6 +793,36 @@ TEST_CASE("radsimp: leaves rational denominator alone",
     REQUIRE(oracle.equivalent(out->str(), "(x + 1)/(x - 1)"));
 }
 
+// RADSIMP-SIMPLIFY-1: simplify() now rationalizes a binomial-surd denominator.
+// radsimp produced the right value before, but as a non-distributed Mul whose
+// node count exceeded the reciprocal, so simplify()'s anti-bloat guard reverted
+// it. radsimp now expands its result, keeping it compact enough to survive.
+TEST_CASE("simplify: rationalizes binomial-surd denominators (RADSIMP-SIMPLIFY-1)",
+          "[5][simplify][radsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(simplify(pow(integer(1) + sqrt(integer(2)),
+                                           integer(-1)))
+                                  ->str(),
+                              "sqrt(2) - 1"));
+    REQUIRE(oracle.equivalent(simplify(pow(integer(2) + sqrt(integer(3)),
+                                           integer(-1)))
+                                  ->str(),
+                              "2 - sqrt(3)"));
+    REQUIRE(oracle.equivalent(simplify(pow(sqrt(integer(5)) - integer(1),
+                                           integer(-1)))
+                                  ->str(),
+                              "(sqrt(5) + 1)/4"));
+    // A numerator carries through.
+    REQUIRE(oracle.equivalent(
+        simplify(x * pow(integer(1) + sqrt(integer(2)), integer(-1)))->str(),
+        "x*(sqrt(2) - 1)"));
+    // The result no longer contains a reciprocal of the surd binomial.
+    REQUIRE(simplify(pow(integer(1) + sqrt(integer(2)), integer(-1)))
+                ->str()
+                .find(")**(-1)") == std::string::npos);
+}
+
 // ----- sqrtdenest ------------------------------------------------------------
 
 TEST_CASE("sqrtdenest: sqrt(3 + 2*sqrt(2)) → 1 + sqrt(2)",

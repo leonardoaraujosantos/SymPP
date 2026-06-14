@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### RADSIMP-SIMPLIFY-1 — `simplify` left a surd in a binomial denominator
+- **Problem:** `simplify(1/(1+√2))` returned the reciprocal unchanged instead of
+  `√2−1`. Two issues compounded: (1) `radsimp` only looked for the denominator
+  inside a `Mul`, so a *bare* reciprocal `Pow(1+√2, −1)` was returned untouched;
+  (2) even when it did rationalize, it produced a non-distributed `−(−√2+1)`
+  whose node count exceeded the reciprocal, so `simplify`'s anti-bloat guard
+  reverted to `1/(1+√2)`.
+- **Fix in `src/simplify/simplify.cpp`:** `radsimp` now handles a bare
+  `Pow(den, −1)` (num = 1) in addition to the `Mul` case, and `expand`s its
+  result so the rationalized form is the compact `√2−1` — small enough to pass
+  the guard.
+- **Verified:** `simplify` of `1/(1+√2)`, `1/(2+√3)`, `1/(√5−1)`, `1/(3−2√2)`,
+  and `x/(1+√2)` all checked equal to SymPy and free of a surd-binomial
+  reciprocal.
+- **Regression test:** `RADSIMP-SIMPLIFY-1` in
+  `tests/simplify/simplify_test.cpp` (`[5][simplify][radsimp][oracle][regression]`,
+  5 assertions).
+- **Scope:** single binomial surd `a + b√c`. A two-surd denominator
+  (`1/(√7−√3)`) still needs a multi-term conjugate and remains a follow-up.
+
 ### COMB-RATIO-1 — `combsimp`/`gammasimp` only cancelled ratios when the numerator was larger
 - **Problem:** `simplify_func_ratio` cancelled `factorial(a)/factorial(b)` (and
   the gamma analogue) only when `a − b` was a *non-negative* integer. When the

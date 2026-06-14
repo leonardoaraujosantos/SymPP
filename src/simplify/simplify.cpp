@@ -1607,22 +1607,29 @@ struct SqrtDecomp {
 Expr radsimp(const Expr& e) {
     // Combine into a single fraction so we have a clear num/denom.
     Expr t = together(e);
-    if (t->type_id() != TypeId::Mul) return t;
 
-    // Locate Pow(_, -1) factor — the denominator.
     Expr den;
-    std::vector<Expr> num_factors;
-    for (const auto& f : t->args()) {
-        if (f->type_id() == TypeId::Pow
-            && f->args()[1] == S::NegativeOne()
-            && !den) {
-            den = f->args()[0];
-        } else {
-            num_factors.push_back(f);
+    Expr num;
+    if (t->type_id() == TypeId::Pow && t->args()[1] == S::NegativeOne()) {
+        // A bare reciprocal 1/den (e.g. 1/(1+√2)) — no numerator factors.
+        den = t->args()[0];
+        num = S::One();
+    } else if (t->type_id() == TypeId::Mul) {
+        // Locate the Pow(_, -1) factor — the denominator.
+        std::vector<Expr> num_factors;
+        for (const auto& f : t->args()) {
+            if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+                && !den) {
+                den = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
         }
+        if (!den) return t;
+        num = mul(num_factors);
+    } else {
+        return t;
     }
-    if (!den) return t;
-    Expr num = mul(num_factors);
 
     auto decomp = decompose_sqrts(den);
     if (decomp.sqrt_terms.size() != 1) return t;
@@ -1635,7 +1642,10 @@ Expr radsimp(const Expr& e) {
     // (a + b√c)(a - b√c) = a² - b²c
     Expr new_den = a * a - b_coef * b_coef * sqrt_arg;
     if (new_den == S::Zero()) return t;
-    return new_num / new_den;
+    // Distribute so the result is the compact rationalized form (√2−1, not
+    // −(−√2+1)); this also keeps it small enough to survive simplify()'s
+    // anti-bloat guard, which otherwise reverts to the reciprocal.
+    return expand(new_num / new_den);
 }
 
 // ----- sqrtdenest ------------------------------------------------------------
