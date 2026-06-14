@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-RADPOLY-1 — `solve` returned `[]` for a polynomial in a radical x^(1/d)
+- **Problem:** `x − √x − 2` came back empty, where SymPy gives `[4]` (a quadratic
+  in `√x`: `u²−u−2=0 → u=2`, dropping `u=−1`). The polynomial path can't build a
+  `Poly` through the fractional power, and SOLVE-RAD-1 only inverts the single
+  form `gᵖ=c`.
+- **Fix:** added `solve_radical_poly` in `src/solvers/solve.cpp`. It collects
+  every `x^e` (e rational) and the bare `var`, takes `d = lcm` of the exponent
+  denominators, substitutes `t = x^(1/d)` (rewriting each `x^e → t^(e·d)` via
+  `xreplace`), solves the polynomial in `t`, and back-substitutes `x = t^d`. Each
+  candidate is verified against the original equation, so extraneous roots
+  (`√x = −1 ⇒ x = 1`) are dropped automatically.
+- **Verified:** `x−√x−2 → [4]`, `x−3√x+2 → [1,4]`, `x+√x−6 → [4]` (extraneous 9
+  dropped), `x−√x → [0,1]`, `x^(1/3)−2 → [8]` all equal to `sympy.solve`; plain
+  polynomials untouched.
+- **Regression test:** `SOLVE-RADPOLY-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`, 6 assertions).
+- **Scope:** a single radical generator `x^(1/d)`. Mixed independent radicals
+  (`√x + √(x+1) − 3`) need rationalization first and remain a follow-up.
+
 ### BERNOULLI-EULER-1 — `bernoulli` and `euler` numbers were missing
 - **Problem:** `bernoulli(4)` and `euler(4)` parsed only as undefined functions,
   where SymPy gives `−1/30` and `5`.

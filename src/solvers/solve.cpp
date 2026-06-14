@@ -627,6 +627,92 @@ solve_const_base_exp(const Expr& expr, const Expr& var) {
     return std::vector<Expr>{simplify(log(rhs) * pow(log(base), integer(-1)))};
 }
 
+// Solve a polynomial in a radical x^(1/d) — e.g. x − √x − 2 (a quadratic in √x).
+// Collects every x^e (e rational) and the bare var, takes d = lcm of the
+// exponent denominators, substitutes t = x^(1/d) (x^e → t^(e·d)), solves the
+// resulting polynomial in t, and back-substitutes x = t^d. Each candidate is
+// verified against the original equation so extraneous roots (√x = −1) are
+// dropped. Matches SymPy.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_radical_poly(const Expr& expr, const Expr& var) {
+    // Gather the distinct var-power subexpressions and the exponent denominators.
+    std::vector<Expr> nodes;       // bare var or Pow(var, rational)
+    std::vector<mpq_class> exps;   // matching exponent
+    bool ok = true;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (!ok || !has(e, var)) return;
+        if (e == var) {
+            if (std::none_of(nodes.begin(), nodes.end(),
+                             [&](const Expr& n) { return n == e; })) {
+                nodes.push_back(e);
+                exps.emplace_back(1);
+            }
+            return;
+        }
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+            const Expr& ex = e->args()[1];
+            mpq_class q;
+            if (ex->type_id() == TypeId::Integer) {
+                q = mpq_class(static_cast<const Integer&>(*ex).value());
+            } else if (ex->type_id() == TypeId::Rational) {
+                q = static_cast<const Rational&>(*ex).value();
+            } else {
+                ok = false;  // var^(symbolic) — not a radical polynomial
+                return;
+            }
+            if (std::none_of(nodes.begin(), nodes.end(),
+                             [&](const Expr& n) { return n == e; })) {
+                nodes.push_back(e);
+                exps.push_back(q);
+            }
+            return;
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (!ok || nodes.empty()) return std::nullopt;
+    // d = lcm of the exponent denominators; nothing to do when all are integers.
+    mpz_class d = 1;
+    for (const auto& q : exps) {
+        mpz_class den = q.get_den();
+        mpz_class g;
+        mpz_gcd(g.get_mpz_t(), d.get_mpz_t(), den.get_mpz_t());
+        d = d / g * den;
+    }
+    if (d <= 1 || !d.fits_slong_p()) return std::nullopt;
+    const long dl = d.get_si();
+    // Substitute each var-power node with t^(e·d).
+    Expr t = symbol("t_radical_subst");
+    ExprMap<Expr> repl;
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+        mpq_class ed = exps[i] * mpq_class(d);  // e·d is an integer
+        repl.emplace(nodes[i], pow(t, integer(ed.get_num().get_si())));
+    }
+    Expr et = xreplace(expr, repl);
+    if (has(et, var)) return std::nullopt;  // var survived (e.g. inside a sin)
+    std::vector<Expr> troots;
+    try {
+        Poly p(expand(et), t);
+        troots = p.roots();
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (troots.empty()) return std::nullopt;
+    // Back-substitute x = t^d and keep only candidates that satisfy the original.
+    std::vector<Expr> roots;
+    for (const auto& tr : troots) {
+        if (has(tr, t) || has(tr, var)) continue;
+        Expr cand = simplify(pow(tr, integer(dl)));
+        if (has(cand, var) || has(cand, t)) continue;
+        if (simplify(subs(expr, var, cand)) != S::Zero()) continue;  // extraneous
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& u) { return u == cand; })) {
+            roots.push_back(std::move(cand));
+        }
+    }
+    return roots;
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -797,6 +883,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
             return *inv;
         if (auto lw = solve_lambert(expr, var); lw && !lw->empty()) return *lw;
+        if (auto rp = solve_radical_poly(expr, var); rp && !rp->empty())
+            return *rp;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
