@@ -394,6 +394,51 @@ solve_trig_linear(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a rational equation N(var)/D(var) = 0 by clearing the denominator:
+// combine into a single fraction, solve the numerator, then discard any root
+// that vanishes the denominator (an extraneous pole). Returns nullopt unless the
+// equation actually has a var-dependent denominator. Matches SymPy's solve.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_rational(const Expr& expr, const Expr& var) {
+    Expr t = together(expr);
+    // Read base^(-n) (n a positive integer) as a denominator factor base^n.
+    auto den_base = [](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z.is_negative() && z.fits_long()) {
+                return pow(f->args()[0], integer(-z.to_long()));
+            }
+        }
+        return std::nullopt;
+    };
+    Expr num = S::One();
+    Expr den;
+    if (auto d = den_base(t)) {
+        den = *d;  // bare reciprocal 1/D
+    } else if (t->type_id() == TypeId::Mul) {
+        std::vector<Expr> nf, df;
+        for (const auto& f : t->args()) {
+            if (auto df_part = den_base(f)) {
+                df.push_back(*df_part);
+            } else {
+                nf.push_back(f);
+            }
+        }
+        if (df.empty()) return std::nullopt;  // no denominator
+        den = mul(std::move(df));
+        num = nf.empty() ? Expr{S::One()} : mul(std::move(nf));
+    } else {
+        return std::nullopt;
+    }
+    if (!has(den, var)) return std::nullopt;  // constant denominator — not ours
+    std::vector<Expr> roots = solve(num, var);
+    std::erase_if(roots, [&](const Expr& r) {
+        return has(r, var) || simplify(subs(den, var, r)) == S::Zero();
+    });
+    return roots;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
@@ -420,6 +465,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         roots = std::move(distinct);
     }
     if (!roots.empty()) return roots;
+    // Rational equation (1/x + … = 0): clear the denominator and solve the
+    // numerator, dropping pole roots. The polynomial path above can't build a
+    // Poly from a negative-power term, so these reach here empty.
+    if (auto rr = solve_rational(expr, var); rr && !rr->empty()) return *rr;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
     // _invert chain; route through it and surface any finite solution set as

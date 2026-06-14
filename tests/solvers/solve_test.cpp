@@ -133,6 +133,52 @@ TEST_CASE("solve: exp(x) - 2 = 0 -> x = log(2)", "[10][solve][transcendental][re
     REQUIRE(oracle.equivalent(roots[0]->str(), "log(2)"));
 }
 
+// SOLVE-RATIONAL-1: solve() of a rational equation clears the denominator,
+// solves the numerator, and discards roots that vanish the denominator (poles).
+// These reached solve() empty before, since the polynomial path can't build a
+// Poly from a 1/x term. Matches SymPy.
+TEST_CASE("solve: rational equations clear denominators (SOLVE-RATIONAL-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // x + 1/x - 2 = 0 → (x-1)²/x → x = 1.
+    REQUIRE(set_equal(solve(x + inv(x) - integer(2), x), {"1"}));
+    // 1/x - 1/2 = 0 → x = 2.
+    REQUIRE(set_equal(solve(inv(x) - rational(1, 2), x), {"2"}));
+    // 1/(x-1) + 1/(x+1) = 0 → x = 0.
+    REQUIRE(set_equal(
+        solve(inv(x - integer(1)) + inv(x + integer(1)), x), {"0"}));
+    // (x²-1)/(x-1): x = 1 is a removable pole — only x = -1 survives.
+    REQUIRE(set_equal(
+        solve((pow(x, integer(2)) - integer(1)) * inv(x - integer(1)), x),
+        {"-1"}));
+    // 1/(x+1) - 1/(x-1) = 0 has no solution (constant numerator).
+    REQUIRE(solve(inv(x + integer(1)) - inv(x - integer(1)), x).empty());
+    // 2/(x-1) - 3/(x+2) = 0 → x = 7.
+    REQUIRE(set_equal(
+        solve(integer(2) * inv(x - integer(1))
+                  - integer(3) * inv(x + integer(2)),
+              x),
+        {"7"}));
+}
+
 // SOLVE-EXPLOG-POLY-1: solve() of a polynomial in a single exp or log atom.
 // Substitute u = g(x), solve the polynomial, invert each root: exp(x)=c → log(c)
 // (skipping c=0), log(x)=c → exp(c). Matches SymPy as a set, including the

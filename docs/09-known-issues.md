@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-RATIONAL-1 — `solve` returned `[]` for rational equations
+- **Problem:** any equation with a var-dependent denominator came back empty —
+  `x+1/x−2`, `1/x−1/2`, `1/(x−1)+1/(x+1)`, `(x²−1)/(x−1)` all yielded `[]`, where
+  SymPy returns `[1]`, `[2]`, `[0]`, `[−1]`. The polynomial path can't build a
+  `Poly` from a `1/x` term, and rational equations carry no Function/radical so
+  they skipped the transcendental branch too.
+- **Fix:** added `solve_rational` in `src/solvers/solve.cpp` (tried after the
+  polynomial path fails). It `together()`s the equation into `N/D`, solves
+  `N(var)=0` recursively, and discards any root that vanishes the denominator
+  (`subs(D, var, r) = 0`) — so a removable pole like `x=1` in `(x²−1)/(x−1)` is
+  dropped rather than returned.
+- **Verified:** solution sets checked set-equal to `sympy.solve` for ten
+  equations, including pole removal, an irrational two-root case
+  (`1/x+1/(x−1)−2`), and no-solution constant numerators (`1/(x+1)−1/(x−1)`).
+- **Regression test:** `SOLVE-RATIONAL-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`, 6 assertions).
+- **Scope:** denominators of integer powers (`1/(x−1)²`); a radical denominator
+  (`1/√x`) stays the radical path's job.
+
 ### SOLVE-EXPLOG-POLY-1 — `solve` returned `[]` for a polynomial in exp(x) or log(x)
 - **Problem:** `solve` handled a single `exp(x)−c` / `log(x)−c` but came back empty
   for any higher-degree polynomial in one transcendental atom — `exp(x)²−3exp(x)+2`,
