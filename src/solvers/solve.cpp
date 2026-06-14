@@ -430,9 +430,8 @@ solve_trig_reduce(const Expr& expr, const Expr& var) {
         return roots;
     }
     // Mixed: P² − (1 − c²)·Q² = 0 in cos θ; each root fixes sin θ's sign. Build
-    // the resultant by convolving coefficient vectors — expand() does not
-    // distribute a power over a product, e.g. (2c)² stays unflattened, so the
-    // symbolic pow(Qc,2) cannot be re-parsed reliably as a polynomial.
+    // the resultant by convolving coefficient vectors — robust and independent of
+    // how the symbolic squares would canonicalize.
     try {
         auto conv = [](const std::vector<Expr>& a,
                        const std::vector<Expr>& b) {

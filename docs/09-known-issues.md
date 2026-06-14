@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### EXPAND-POWBASE-1 — `expand` left a power of a product unflattened
+- **Problem:** `expand((2x)²)` returned `(2x)²` rather than `4x²`; likewise
+  `(xy)² → (xy)²`, `(3xy)² → (3xy)²`. The core `expand` only multinomial-expanded
+  a power of an **Add** base — a power of a **Mul** base was never distributed,
+  diverging from SymPy (and the convolution workaround in `solve_trig_reduce`
+  existed precisely because of this).
+- **Fix:** extended `expand_pow` in `src/core/expand.cpp` to distribute
+  `(a·b·…)^n → a^n·b^n·…` when the exponent is any integer, or — for a
+  non-integer exponent — when every base factor is provably positive (matching
+  SymPy's `expand(power_base=True, force=False)`). The distributed product is
+  re-expanded so numeric factors fold (`2² → 4`) and any `(Add)^n` factor
+  multinomial-expands.
+- **Verified:** `(2x)² → 4x²`, `(2x)³ → 8x³`, `(xy)² → x²y²`, `(3xy)² → 9x²y²`,
+  `(2xy²)³ → 8x³y⁶`, `(2x)⁻² → 1/(4x²)`, `(−x)² → x²`,
+  `((x+1)y)² → x²y²+2xy²+y²` — all match SymPy; a non-integer power over a
+  possibly-negative factor (`(2x)^(1/2)`) is correctly left intact.
+- **Regression test:** `EXPAND-POWBASE-1` in `tests/core/expand_test.cpp`
+  (`[1i][expand][oracle][regression]`).
+- **Scope:** integer exponents unconditionally; non-integer only under provable
+  positivity. This is the conservative, sign-safe subset SymPy applies by
+  default.
+
 ### SOLVE-TRIG-MULTIANGLE-1 — `solve` returned `[]` for mixed multiple-angle trig equations
 - **Problem:** equations combining different integer multiples of one angle —
   `sin(x) − cos(2x)`, `cos(2x) + cos(x)`, `sin(2x) − sin(x)`,
