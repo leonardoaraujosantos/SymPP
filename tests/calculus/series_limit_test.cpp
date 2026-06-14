@@ -661,12 +661,13 @@ TEST_CASE("summation: infinite geometric series",
 }
 
 // Regression (SUM-3): an unrecognised sum must return an unevaluated Sum
-// marker, never the bare summand. Σ 1/k! (= E, which SymPP doesn't close)
-// stands in for the general case; the p-series Σ 1/k^s now close via ZETA.
+// marker, never the bare summand. Σ k/k! (= E, via k/k! = 1/(k-1)!, which SymPP
+// doesn't close yet) stands in for the general case; the plain Σ 1/k! now
+// closes to E via the exponential series, and Σ 1/k^s via ZETA.
 TEST_CASE("summation: unrecognised sum stays an unevaluated Sum",
           "[6][summation][regression]") {
     auto k = symbol("k");
-    auto e = pow(factorial(k), integer(-1));
+    auto e = mul(k, pow(factorial(k), integer(-1)));
     auto s = summation(e, k, integer(1), S::Infinity());
     REQUIRE(s->type_id() == TypeId::Function);   // undefined-function marker
     REQUIRE(s->str().rfind("Sum(", 0) == 0);     // starts with "Sum("
@@ -695,6 +696,43 @@ TEST_CASE("summation: even p-series close to zeta values",
         summation(pow(k, integer(-3)), k, integer(1), oo)->str(), "zeta(3)"));
     REQUIRE(oracle.equivalent(
         summation(pow(k, integer(-5)), k, integer(1), oo)->str(), "zeta(5)"));
+}
+
+// SUM-EXP-1: the exponential series Σ_{k=0}^∞ r^k/k! = e^r (and its shifted /
+// scaled forms). Converges for every r, so no convergence test is needed.
+TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto inv_fact = pow(factorial(k), integer(-1));
+    // Σ 1/k! = e.
+    REQUIRE(oracle.equivalent(summation(inv_fact, k, integer(0), oo)->str(),
+                              "E"));
+    // Σ_{k=1}^∞ 1/k! = e − 1 (head term k=0 removed).
+    REQUIRE(oracle.equivalent(summation(inv_fact, k, integer(1), oo)->str(),
+                              "E - 1"));
+    // Σ x^k/k! = e^x.
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, k), inv_fact), k, integer(0), oo)->str(),
+        "exp(x)"));
+    // Σ 2^k/k! = e², Σ (−1)^k/k! = e⁻¹, Σ 1/(2^k·k!) = e^(1/2).
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(integer(2), k), inv_fact), k, integer(0), oo)->str(),
+        "exp(2)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(integer(-1), k), inv_fact), k, integer(0), oo)->str(),
+        "exp(-1)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(integer(2), mul(integer(-1), k)), inv_fact), k,
+                  integer(0), oo)
+            ->str(),
+        "exp(1/2)"));
+    // Constant prefactor is preserved: Σ 3/k! = 3e.
+    REQUIRE(oracle.equivalent(
+        summation(mul(integer(3), inv_fact), k, integer(0), oo)->str(),
+        "3*E"));
 }
 
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).

@@ -7,6 +7,8 @@
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/expand.hpp>
+#include <sympp/core/function.hpp>
+#include <sympp/core/function_id.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number_arith.hpp>
@@ -19,6 +21,7 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/exponential.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -172,6 +175,77 @@ namespace {
     return simplify(prefactor * (s_hi - s_lo));
 }
 
+// Σ_{k=lo}^∞ c·r^k / k! = c·e^r, minus the omitted head Σ_{k=0}^{lo-1} when
+// lo > 0. The exponential series converges for every r, so no convergence test
+// is needed. Recognizes c · (∏ baseᵢ^(aᵢ·var + bᵢ)) · factorial(var)^(-1): each
+// base contributes baseᵢ^{aᵢ} to the rate r and baseᵢ^{bᵢ} to the constant c.
+[[nodiscard]] std::optional<Expr> sum_exponential_series(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (hi->type_id() != TypeId::Infinity) return std::nullopt;
+    if (lo->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& loz = static_cast<const Integer&>(*lo);
+    if (loz.is_negative() || !loz.fits_long()) return std::nullopt;
+
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    bool has_factorial = false;
+    Expr cst = S::One();   // var-free constant prefactor c
+    Expr rate = S::One();  // r
+    for (const auto& f : factors) {
+        // 1/var! = factorial(var)^(-1).
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Factorial
+                && fn.args().size() == 1 && fn.args()[0] == var) {
+                if (has_factorial) return std::nullopt;  // (k!)^(-2): not this
+                has_factorial = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            cst = mul(cst, f);
+            continue;
+        }
+        // base^(a·var + b) with base var-free: base^a → rate, base^b → const.
+        if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)) {
+            const Expr& base = f->args()[0];
+            try {
+                Poly p(expand(f->args()[1]), var);
+                if (p.degree() > 1) return std::nullopt;
+                const auto& cf = p.coeffs();
+                Expr a = cf.size() > 1 ? cf[1] : Expr{S::Zero()};
+                Expr b = !cf.empty() ? cf[0] : Expr{S::Zero()};
+                if (has(a, var) || has(b, var)) return std::nullopt;
+                rate = mul(rate, pow(base, a));
+                cst = mul(cst, pow(base, b));
+                continue;
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        }
+        return std::nullopt;  // unrecognized var-dependent factor
+    }
+    if (!has_factorial) return std::nullopt;
+    rate = simplify(rate);
+    cst = simplify(cst);
+    Expr e_r = exp(rate);
+    const long L = loz.to_long();
+    if (L == 0) return simplify(mul(cst, e_r));
+    // Subtract the omitted head terms Σ_{k=0}^{L-1} r^k/k!.
+    std::vector<Expr> head;
+    for (long kk = 0; kk < L; ++kk) {
+        head.push_back(mul(pow(rate, integer(kk)),
+                           pow(factorial(integer(kk)), integer(-1))));
+    }
+    return simplify(
+        mul(cst, add(e_r, mul(S::NegativeOne(), add(std::move(head))))));
+}
+
 }  // namespace
 
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
@@ -255,6 +329,10 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             if (m <= -2) return zeta(integer(-m));
         }
     }
+
+    // Exponential series Σ_{k=lo}^∞ r^k/k! = e^r (e.g. Σ 1/k! = e,
+    // Σ x^k/k! = e^x, Σ 2^k/k! = e²). Convergent for every r.
+    if (auto r = sum_exponential_series(expr, var, lo, hi)) return *r;
 
     // Geometric: base^(c*var + d) with base, c, d all independent of var.
     // Rewrites as base^d * (base^c)^var = A * ratio^var, a geometric series

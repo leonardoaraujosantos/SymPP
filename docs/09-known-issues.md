@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-EXP-1 — exponential series Σ rᵏ/k! stayed unevaluated
+- **Problem:** `Σ_{k=0}^∞ 1/k!`, `Σ x^k/k!`, `Σ 2^k/k!`, `Σ (−1)^k/k!` all came
+  back as an unevaluated `Sum(...)`. SymPP already closed the convergent
+  p-series (`Σ1/k²=π²/6`) and geometric sums, but not the factorial/exponential
+  family. (Note: these were reachable only through the 4-argument `summation`
+  with an `∞` bound — the CLI probe hides the bounds, which made it look like
+  even `Σ1/k²` failed when it did not.)
+- **Fix:** added `sum_exponential_series` in `src/calculus/summation.cpp`.
+  It recognizes `c · (∏ baseᵢ^(aᵢ·k + bᵢ)) · k!^(−1)` at an `∞` upper bound:
+  each base contributes `baseᵢ^{aᵢ}` to the rate `r` and `baseᵢ^{bᵢ}` to the
+  constant `c`, giving `Σ_{k=0}^∞ c·rᵏ/k! = c·eʳ`. For a lower bound `lo > 0`
+  the omitted head `Σ_{k=0}^{lo−1} rᵏ/k!` is subtracted. The series is entire,
+  so no convergence test is required.
+- **Verified:** `Σ1/k! = e`, `Σ_{k≥1}1/k! = e−1`, `Σx^k/k! = e^x`,
+  `Σ2^k/k! = e²`, `Σ(−1)^k/k! = e⁻¹`, `Σ1/(2^k·k!) = e^(1/2)`, `Σ3/k! = 3e`,
+  `Σ_{k≥2}x^k/k! = e^x − x − 1` — all match SymPy.
+- **Regression test:** `SUM-EXP-1` in `tests/calculus/series_limit_test.cpp`
+  (`[6][summation][oracle][regression]`); the `SUM-3` unrecognised-sum test now
+  uses `Σ k/k!` as its stand-in since `Σ1/k!` closes.
+- **Scope:** pure `rᵏ/k!`. A polynomial-times-`1/k!` numerator (`Σ k/k! = e`)
+  needs an index-shift reduction and is still left unevaluated.
+
 ### LIMIT-GAMMA-1 — limits of gamma/factorial at ∞ returned wrong answers
 - **Problem:** `limit(gamma(x+1)/gamma(x), ∞)` returned **`1`** (should be `∞` —
   the ratio *is* `x`), `exp(x)/gamma(x) → ∞` (should be `0`) and
