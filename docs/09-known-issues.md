@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LCM-POLY-1 — `lcm` of polynomials stayed unevaluated
+- **Problem:** `lcm(x²−1, x−1)` returned an unevaluated `lcm(...)` node instead
+  of `x²−1`. Like `gcd`, the `lcm` function only handled two integers.
+- **Fix:** in `src/functions/combinatorial.cpp`, `lcm(a, b)` now computes the
+  univariate polynomial LCM as `a·b / gcd(a, b)` (reusing the polynomial gcd
+  from `GCD-POLY-1`) via exact `Poly` division. The division restores the right
+  content automatically.
+- **Verified:** `lcm(x²−1, x−1) = x²−1`, `lcm(x−1, x+1) = x²−1`,
+  `lcm(2x−2, 3x−3) = 6x−6`, `lcm(x, x²) = x²`,
+  `lcm(x²−1, x²+2x+1) = x³+x²−x−1` — all match SymPy.
+- **Regression test:** `LCM-POLY-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][lcm][oracle][regression]`).
+- **Note:** `lcm(x, n)` now eagerly evaluates to `n·x` (matching SymPy), so the
+  two integer-lcm tests that relied on the old lazy node were updated. As with
+  gcd, multivariate LCM stays an unevaluated node (the `Poly` class is
+  univariate).
+
 ### GCD-POLY-1 — `gcd` of polynomials stayed unevaluated
 - **Problem:** `gcd(x²−1, x−1)` returned an unevaluated `gcd(...)` node instead
   of `x−1`. The `gcd` function only handled two integers, even though the `Poly`

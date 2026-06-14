@@ -439,13 +439,36 @@ TEST_CASE("gcd: univariate polynomial GCD (GCD-POLY-1)",
     chk(gcd(sq(x) - integer(1), integer(2)), "1");
 }
 
+// LCM-POLY-1: univariate polynomial LCM via lcm(a,b) = a·b / gcd(a,b),
+// reusing the polynomial gcd. lcm(x²−1, x−1) = x²−1, lcm(2x−2, 3x−3) = 6x−6.
+TEST_CASE("lcm: univariate polynomial LCM (LCM-POLY-1)",
+          "[3i][lcm][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    auto chk = [&](const Expr& g, const std::string& want) {
+        REQUIRE(oracle.equivalent(g->str(), want));
+    };
+    chk(lcm(sq(x) - integer(1), x - integer(1)), "x**2 - 1");
+    chk(lcm(x - integer(1), x + integer(1)), "x**2 - 1");
+    chk(lcm(sq(x) - integer(1), sq(x) + integer(2) * x + integer(1)),
+        "x**3 + x**2 - x - 1");
+    chk(lcm(integer(2) * x - integer(2), integer(3) * x - integer(3)),
+        "6*x - 6");
+    chk(lcm(x, sq(x)), "x**2");
+    // lcm · gcd = a · b (up to content): consistency on a coprime pair.
+    chk(lcm(sq(x) + integer(1), x - integer(1)),
+        "x**3 - x**2 + x - 1");
+}
+
 TEST_CASE("lcm: integer values", "[3i][lcm]") {
     REQUIRE(lcm(integer(4), integer(6)) == integer(12));
     REQUIRE(lcm(integer(21), integer(6)) == integer(42));
     REQUIRE(lcm(integer(0), integer(5)) == integer(0));
     REQUIRE(lcm(integer(7), integer(5)) == integer(35));
     auto x = symbol("x");
-    REQUIRE(lcm(x, integer(4))->type_id() == TypeId::Function);
+    // lcm(x, n) = n·x over ℚ[x] (x and a constant are coprime), matching SymPy.
+    REQUIRE(lcm(x, integer(4)) == integer(4) * x);
 }
 
 TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
@@ -457,9 +480,10 @@ TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
     REQUIRE(lcm(x, y)->str() == "lcm(x, y)");
     // gcd(x, n) = 1 over ℚ[x] (x and a constant are coprime), matching SymPy.
     REQUIRE(gcd(x, integer(18)) == integer(1));
-    // subs reaches inside and re-evaluates: gcd(x, y)|_{y=x} = gcd(x, x) = x.
+    // subs reaches inside and re-evaluates: gcd(x, y)|_{y=x} = gcd(x, x) = x,
+    // and lcm(x, y)|_{y=x} = lcm(x, x) = x.
     REQUIRE(subs(gcd(x, y), y, x) == x);
-    REQUIRE(subs(lcm(x, integer(6)), x, integer(4)) == integer(12));
+    REQUIRE(subs(lcm(x, y), y, x) == x);
 }
 
 // ----- rising/falling factorial & subfactorial (RFF-SUBF) --------------------

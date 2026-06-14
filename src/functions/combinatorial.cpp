@@ -773,6 +773,30 @@ Expr lcm(const Expr& a, const Expr& b) {
                 static_cast<const Integer&>(*b).value().get_mpz_t());
         return make<Integer>(std::move(r));
     }
+    // Univariate polynomial LCM via lcm(a, b) = a·b / gcd(a, b), reusing the
+    // SymPy-convention polynomial gcd. The exact division restores the right
+    // content, so lcm(x²−1, x−1) = x²−1 and lcm(2x−2, 3x−3) = 6x−6.
+    {
+        ExprSet vars;
+        for (const auto& s : free_symbols(a)) vars.insert(s);
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+        if (vars.size() == 1) {
+            const Expr& var = *vars.begin();
+            try {
+                Poly pa(expand(a), var);
+                Poly pb(expand(b), var);
+                Poly pg(expand(gcd(a, b)), var);
+                Poly prod = pa * pb;
+                auto [q, r] = prod.divmod(pg);
+                if (!(r.as_expr() == S::Zero())) {
+                    return make<Lcm>(a, b);  // not an exact division (shouldn't happen)
+                }
+                return q.as_expr();
+            } catch (const std::exception&) {
+                // not polynomial in `var` — fall through to the symbolic node
+            }
+        }
+    }
     return make<Lcm>(a, b);
 }
 
