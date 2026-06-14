@@ -502,6 +502,41 @@ TEST_CASE("summation: Σ k·2^k from 1 to 3 → 34 (numeric)",
     REQUIRE(s == integer(34));
 }
 
+// SUM-POLYGEOM-1: Σ P(k)·r^k for a polynomial P of degree ≥ 2 and a concrete
+// ratio r ≠ 1 — the general arithmetic-geometric sum (k²·2^k, (2k+1)·3^k,
+// k²/2^k). Found via the antidifference Q(k)·r^k with r·Q(k+1)−Q(k)=P(k).
+// Previously only degree 1 (k·r^k) was closed. Matches SymPy.
+TEST_CASE("summation: polynomial × geometric (SUM-POLYGEOM-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto sum1n = [&](const Expr& e) {
+        return summation(e, k, integer(1), n);
+    };
+    auto pw = [&](int b) { return pow(integer(b), k); };
+    // Σ k²·2^k.
+    auto s2 = sum1n(pow(k, integer(2)) * pw(2));
+    REQUIRE(s2->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(s2->str(),
+                              "2*(2**n*n**2 - 2*2**n*n + 3*2**n - 3)"));
+    // Σ k³·2^k.
+    auto s3 = sum1n(pow(k, integer(3)) * pw(2));
+    REQUIRE(s3->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(
+        s3->str(), "2*(2**n*n**3 - 3*2**n*n**2 + 9*2**n*n - 13*2**n + 13)"));
+    // Σ (2k+1)·3^k → n·3^(n+1).
+    REQUIRE(oracle.equivalent(
+        sum1n((integer(2) * k + integer(1)) * pw(3))->str(), "n*3**(n+1)"));
+    // Negative ratio direction: Σ k²/2^k.
+    auto sneg = sum1n(pow(k, integer(2)) * pow(integer(2), mul(S::NegativeOne(), k)));
+    REQUIRE(sneg->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(sneg->str(), "6 - (n**2 + 4*n + 6)/2**n"));
+    // A concrete numeric range: Σ_{k=1}^3 k²·2^k = 2 + 16 + 72 = 90.
+    REQUIRE(summation(pow(k, integer(2)) * pw(2), k, integer(1), integer(3))
+            == integer(90));
+}
+
 // Regression: geometric detection used to require the exponent to be
 // *exactly* the summation variable, so Σ 2^(-k) (which canonicalizes to
 // base 2, exponent -k) and Σ 2^(2k) fell through and returned the summand

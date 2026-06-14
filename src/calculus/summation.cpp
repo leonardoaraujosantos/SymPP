@@ -108,6 +108,70 @@ namespace {
         mul({c, scale, add({first, mul({S::NegativeOne(), second})})}));
 }
 
+// Σ_{k=lo}^{hi} P(k)·r^k for a polynomial P (degree ≥ 1) and a concrete numeric
+// ratio r ≠ 1. Finds the antidifference S(k) = Q(k)·r^k, where Q is a polynomial
+// of the same degree satisfying r·Q(k+1) − Q(k) = P(k); the coefficients solve
+// top-down since q_j = [P_j − r·Σ_{i>j} C(i,j) q_i]/(r−1). Then the sum is
+// S(hi+1) − S(lo). Returns nullopt unless the summand has this shape.
+[[nodiscard]] std::optional<Expr> sum_poly_geometric(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Split off one geometric factor base^(c·var+d); the rest is the polynomial.
+    Expr geo;
+    std::vector<Expr> poly_factors;
+    for (const auto& f : expr->args()) {
+        if (!geo && f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+            && is_number(f->args()[0]) && has(f->args()[1], var)) {
+            geo = f;
+        } else {
+            poly_factors.push_back(f);
+        }
+    }
+    if (!geo || poly_factors.empty()) return std::nullopt;
+    Expr c = diff(geo->args()[1], var);
+    if (has(c, var)) return std::nullopt;  // exponent not linear in var
+    Expr d = simplify(geo->args()[1] - c * var);
+    if (has(d, var)) return std::nullopt;
+    Expr ratio = pow(geo->args()[0], c);
+    if (!is_number(ratio) || ratio == S::One()) return std::nullopt;
+    Expr prefactor = pow(geo->args()[0], d);
+    // Coefficients of P (P_i = coeff of var^i); must be a clean polynomial.
+    std::vector<Expr> pc;
+    try {
+        Poly pp(expand(mul(poly_factors)), var);
+        for (const auto& cc : pp.coeffs()) {
+            if (has(cc, var)) return std::nullopt;
+            pc.push_back(cc);
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    const long p = static_cast<long>(pc.size()) - 1;
+    if (p < 1) return std::nullopt;  // degree 0 is plain geometric
+    const Expr inv_rm1 = pow(simplify(ratio - integer(1)), integer(-1));
+    std::vector<Expr> q(static_cast<std::size_t>(p) + 1);
+    for (long j = p; j >= 0; --j) {
+        Expr s = pc[static_cast<std::size_t>(j)];
+        for (long i = j + 1; i <= p; ++i) {
+            s = s - ratio * binomial(integer(i), integer(j))
+                        * q[static_cast<std::size_t>(i)];
+        }
+        q[static_cast<std::size_t>(j)] = simplify(s * inv_rm1);
+    }
+    auto eval_q = [&](const Expr& m) -> Expr {
+        std::vector<Expr> terms;
+        terms.reserve(static_cast<std::size_t>(p) + 1);
+        for (long i = 0; i <= p; ++i) {
+            terms.push_back(q[static_cast<std::size_t>(i)]
+                            * pow(m, integer(i)));
+        }
+        return add(std::move(terms));
+    };
+    Expr s_hi = eval_q(hi + integer(1)) * pow(ratio, hi + integer(1));
+    Expr s_lo = eval_q(lo) * pow(ratio, lo);
+    return simplify(prefactor * (s_hi - s_lo));
+}
+
 }  // namespace
 
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
@@ -258,6 +322,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             }
         }
     }
+
+    // Polynomial × geometric: Σ P(k)·r^k for a polynomial P and concrete ratio
+    // r ≠ 1 (covers k²·2^k, (2k+1)·3^k, k³/2^k — the general arithmetic-geometric
+    // case the degree-1 block above doesn't reach).
+    if (auto pg = sum_poly_geometric(expr, var, lo, hi); pg) return *pg;
 
     // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
     if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;

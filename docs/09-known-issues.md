@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-POLYGEOM-1 — `summation` of P(k)·rᵏ only worked for degree 1
+- **Problem:** `Σ k²·2ᵏ`, `Σ (2k+1)·3ᵏ`, `Σ k²/2ᵏ` came back unevaluated; only the
+  hardcoded degree-1 `Σ k·rᵏ` formula existed.
+- **Fix:** added `sum_poly_geometric` in `src/calculus/summation.cpp`. For a
+  summand `P(k)·r^(c·k+d)` (P a polynomial of degree ≥1, ratio `r = base^c` a
+  concrete number ≠1) it finds the antidifference `S(k) = Q(k)·rᵏ`, where `Q` has
+  the same degree and satisfies `r·Q(k+1) − Q(k) = P(k)`. The coefficients solve
+  top-down: `q_j = [P_j − r·Σ_{i>j} C(i,j) q_i]/(r−1)`. The sum is then
+  `S(hi+1) − S(lo)`.
+- **Verified:** `k²·2ᵏ`, `k³·2ᵏ`, `k⁴·2ᵏ`, `(2k+1)·3ᵏ`, `(k²−k+1)·3ᵏ`, `k²/2ᵏ`
+  all checked equal to `sympy.summation`, plus a concrete numeric range; the
+  degree-1 path is unchanged.
+- **Regression test:** `SUM-POLYGEOM-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  8 assertions).
+- **Scope:** concrete numeric ratio `r ≠ 1` (a symbolic ratio would need a
+  `Piecewise` on `r = 1`, matching SymPy's restriction).
+
 ### SUM-FAULHABER-1 — `summation` of kᵖ only worked for p ∈ {2, 3}
 - **Problem:** `Σ_{k=1}^n k⁴` (and any higher power) came back as an unevaluated
   `Sum(…)`; only the hardcoded `k²` and `k³` formulas existed.
