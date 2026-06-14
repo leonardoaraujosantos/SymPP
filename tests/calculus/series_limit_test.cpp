@@ -285,6 +285,39 @@ TEST_CASE("limit: rational functions at oo (leading-term ratio via L'Hopital)",
     REQUIRE(r3 == S::Zero());
 }
 
+// LIMIT-RAT-SYM-1: rational functions at ∞ with symbolic (var-free) coefficients.
+// Direct ∞ substitution is unreliable and L'Hôpital mishandled these — (x+a)/x
+// returned 0. A degree/leading-coefficient comparison resolves them, which in
+// turn makes (1+a/x)^x → eᵃ (the 1^∞ form whose inner ∞·0 limit is a). Matches
+// SymPy.
+TEST_CASE("limit: rational at ∞ with symbolic coefficients (LIMIT-RAT-SYM-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto oo = S::Infinity();
+    // equal degree → leading-coefficient ratio (symbolic).
+    REQUIRE(oracle.equivalent(limit((x + a) / x, x, oo)->str(), "1"));
+    REQUIRE(oracle.equivalent(limit(a * x / (x + integer(1)), x, oo)->str(),
+                              "a"));
+    REQUIRE(oracle.equivalent(
+        limit((a * pow(x, integer(2)) + integer(1))
+                  / (pow(x, integer(2)) + x),
+              x, oo)
+            ->str(),
+        "a"));
+    // lower degree numerator → 0; higher → ∞ (sign from symbolic a is left to a²).
+    REQUIRE(limit((x + a) / pow(x, integer(2)), x, oo) == S::Zero());
+    REQUIRE(limit((pow(x, integer(2)) + a) / (x + integer(1)), x, oo) == oo);
+    // 1^∞ with a symbolic parameter: (1 + a/x)^x → eᵃ.
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) + a / x, x), x, oo)->str(), "exp(a)"));
+    // Numeric cases unchanged.
+    REQUIRE(oracle.equivalent(limit(pow(integer(1) + integer(2) / x, x), x, oo)
+                                  ->str(),
+                              "exp(2)"));
+}
+
 TEST_CASE("limit: 0*oo and oo/oo forms at oo",
           "[6][limit][infinity][oracle][regression]") {
     auto& oracle = Oracle::instance();

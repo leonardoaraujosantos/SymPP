@@ -298,12 +298,75 @@ struct NumDen { Expr num; Expr den; };
     return S::NaN();
 }
 
+// Limit of a rational function N(x)/D(x) at ±∞ by degree comparison and the
+// leading-coefficient ratio. Direct substitution is unreliable at ∞ (∞·0, ∞/∞),
+// and L'Hôpital mishandles symbolic (var-free) coefficients, so resolve these
+// before either: (x+a)/x → 1, a·x/(x+1) → a, (x²+a)/(x+1) → ∞. Returns nullopt
+// unless `expr` is N/D with a var-dependent denominator and polynomial, var-free
+// coefficients on both.
+[[nodiscard]] std::optional<Expr> rational_limit_at_infinity(
+    const Expr& expr, const Expr& var, const Expr& target) {
+    Expr tg = together(expr);
+    Expr num = S::One();
+    Expr den;
+    auto den_of = [](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z.is_negative() && z.fits_long()) {
+                return pow(f->args()[0], integer(-z.to_long()));
+            }
+        }
+        return std::nullopt;
+    };
+    if (auto d0 = den_of(tg)) {
+        den = *d0;
+    } else if (tg->type_id() == TypeId::Mul) {
+        std::vector<Expr> nf, df;
+        for (const auto& f : tg->args()) {
+            if (auto d = den_of(f)) df.push_back(*d);
+            else nf.push_back(f);
+        }
+        if (!df.empty()) {
+            den = mul(std::move(df));
+            num = nf.empty() ? Expr{S::One()} : mul(std::move(nf));
+        }
+    }
+    if (!den || !has(den, var)) return std::nullopt;
+    try {
+        Poly np(expand(num), var);
+        Poly dp(expand(den), var);
+        for (const auto& cc : np.coeffs()) {
+            if (has(cc, var)) return std::nullopt;
+        }
+        for (const auto& cc : dp.coeffs()) {
+            if (has(cc, var)) return std::nullopt;
+        }
+        const long dn = static_cast<long>(np.degree());
+        const long dd = static_cast<long>(dp.degree());
+        if (dn < dd) return S::Zero();
+        Expr ratio = simplify(np.leading_coeff() / dp.leading_coeff());
+        if (dn == dd) return ratio;
+        Expr lim =
+            simplify(subs(ratio * pow(var, integer(dn - dd)), var, target));
+        if (!is_nan(lim)) return lim;
+    } catch (const std::exception&) {
+    }
+    return std::nullopt;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve
     // it from the one-sided signs rather than the point value sign(0)=0.
     if (depth < 12) {
         if (auto s = resolve_sign_limit(expr, var, target, depth)) return *s;
+    }
+    // A rational function at ±∞: degree/leading-coefficient comparison, done
+    // before the unreliable ∞ substitution and the symbolic-coefficient-blind
+    // L'Hôpital path.
+    if (is_infinity(target)) {
+        if (auto r = rational_limit_at_infinity(expr, var, target)) return *r;
     }
 
     Expr direct = simplify(subs(expr, var, target));

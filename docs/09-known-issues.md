@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-RAT-SYM-1 — limit of a rational function at ∞ broke with symbolic coefficients
+- **Problem:** `limit((x+a)/x, x, ∞)` returned `0` (should be `1`), and
+  `a·x/(x+1)` stayed unevaluated. Numeric-coefficient rationals (`(2x+1)/(x+1)→2`)
+  worked, but a symbolic (var-free) coefficient broke direct ∞ substitution (it
+  collapsed `∞·0` to `0`) and the L'Hôpital fallback. As a knock-on,
+  `(1+a/x)^x` (the `1^∞` form) returned `nan` instead of `eᵃ`, because its base
+  limit `1+a/x → 1` was being computed as `0`.
+- **Fix:** added `rational_limit_at_infinity` in `src/calculus/limit.cpp`, run at
+  the top of `limit_impl` for an infinite target (before the unreliable
+  substitution). It splits `N/D`, requires polynomial var-free coefficients, and
+  returns the limit by degree comparison and the leading-coefficient ratio
+  (`deg N < deg D → 0`, `= → lead_N/lead_D`, `> → ±∞`).
+- **Verified:** `(x+a)/x → 1`, `a·x/(x+1) → a`, `(a·x²+1)/(x²+x) → a`,
+  `(x²+a)/(x+1) → ∞`, and `(1+a/x)^x → eᵃ` all match `sympy.limit`; numeric cases
+  unchanged.
+- **Regression test:** `LIMIT-RAT-SYM-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][limit][infinity][oracle][regression]`,
+  7 assertions).
+- **Scope:** rational functions with var-free coefficients. A symbolic exponent
+  rate `(1+a/x)^(b·x)` still needs `lim b·x = sign(b)·∞`, which depends on `b`'s
+  unknown sign — left unevaluated.
+
 ### INT-BIQUADRATIC-1 — `∫1/(x⁴+1)` (irreducible biquadratic) was unevaluated
 - **Problem:** `∫1/(x⁴+1)` — the canonical biquadratic that is irreducible over ℚ
   — and its scaled relatives (`1/(x⁴+4)`, `1/(2x⁴+2)`) came back unevaluated. The
