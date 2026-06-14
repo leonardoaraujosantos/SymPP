@@ -310,6 +310,28 @@ Expr log(const Expr& arg) {
     return make<Log>(arg);
 }
 
+Expr log(const Expr& arg, const Expr& base) {
+    // Exact integer case: log_b(b^k) = k when arg and base are integers ≥ 2 and
+    // arg is an exact power of base (e.g. log(8, 2) = 3, log(100, 10) = 2).
+    if (arg->type_id() == TypeId::Integer && base->type_id() == TypeId::Integer) {
+        const auto& a = static_cast<const Integer&>(*arg);
+        const auto& b = static_cast<const Integer&>(*base);
+        if (a.value() >= 2 && b.value() >= 2) {
+            mpz_class t = a.value();
+            mpz_class bv = b.value();
+            long k = 0;
+            while (mpz_divisible_p(t.get_mpz_t(), bv.get_mpz_t())) {
+                mpz_divexact(t.get_mpz_t(), t.get_mpz_t(), bv.get_mpz_t());
+                ++k;
+            }
+            if (t == 1 && k >= 1) return integer(k);
+        }
+    }
+    // General: log_b(x) = log(x) / log(b). Reduces to the standard one-argument
+    // logs, so diff/simplify handle it; log(x, E) collapses to log(x).
+    return mul(log(arg), pow(log(base), S::NegativeOne()));
+}
+
 // ----- Derivatives ----------------------------------------------------------
 
 Expr Exp::diff_arg(std::size_t /*i*/) const {

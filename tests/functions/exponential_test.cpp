@@ -17,6 +17,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/functions/exponential.hpp>
 
 #include "oracle/oracle.hpp"
@@ -108,6 +109,31 @@ TEST_CASE("log: stays unevaluated on a generic symbol", "[3c][log]") {
     auto e = log(x);
     REQUIRE(e->type_id() == TypeId::Function);
     REQUIRE(e->str() == "log(x)");
+}
+
+// LOG-BASE-1: the two-argument log_b(x) = log(x)/log(b) (matching SymPy).
+// Reduces to standard one-argument logs, so diff/simplify handle it; exact
+// integer powers fold (log(8, 2) = 3). Previously log(x, 2) became an opaque
+// user-function node with an unevaluated derivative.
+TEST_CASE("log: two-argument log base b (LOG-BASE-1)",
+          "[3c][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // General base: log_b(x) = log(x)/log(b).
+    REQUIRE(oracle.equivalent(log(x, integer(2))->str(), "log(x)/log(2)"));
+    REQUIRE(oracle.equivalent(log(x, integer(10))->str(), "log(x)/log(10)"));
+    // Base E collapses to the natural log.
+    REQUIRE(log(x, S::E()) == log(x));
+    // Exact integer powers fold to the exponent.
+    REQUIRE(log(integer(8), integer(2)) == integer(3));
+    REQUIRE(log(integer(100), integer(10)) == integer(2));
+    REQUIRE(log(integer(1024), integer(2)) == integer(10));
+    // A non-power integer does not fold.
+    REQUIRE(oracle.equivalent(log(integer(7), integer(2))->str(),
+                              "log(7)/log(2)"));
+    // The derivative now evaluates: d/dx log_b(x) = 1/(x·log b).
+    REQUIRE(oracle.equivalent(diff(log(x, integer(2)), x)->str(),
+                              "1/(x*log(2))"));
 }
 
 // ----- Inverse pair simplification ------------------------------------------

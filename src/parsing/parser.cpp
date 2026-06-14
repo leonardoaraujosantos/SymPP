@@ -180,6 +180,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"beta", &beta},
         {"gcd", &gcd},
         {"lcm", &lcm},
+        {"log", static_cast<TwoArgFn>(&log)},
         {"Mod", &mod},
         {"mod", &mod},
         {"RisingFactorial", &rising_factorial},

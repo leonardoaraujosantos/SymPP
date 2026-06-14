@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### LOG-BASE-1 — two-argument `log(x, b)` was an opaque node with no derivative
+- **Problem:** `log(x, 2)` parsed to a generic user-function node, so it never
+  simplified and `diff(log(x, 2), x)` came back as an unevaluated
+  `Derivative(log(x, 2), x)` instead of `1/(x·log 2)`. SymPP had no two-argument
+  `log` factory; the parser fell through to `function_symbol("log")`.
+- **Fix:** added `log(arg, base)` in `src/functions/exponential.cpp` returning
+  `log(arg)/log(base)` (matching SymPy), and registered `log` in the parser's
+  two-argument table. Exact integer powers fold to the exponent
+  (`log(8, 2) = 3`, `log(1024, 2) = 10`) via a divisibility loop; base `E`
+  collapses to the natural log. Because the result is built from standard
+  one-argument logs, `diff`, `simplify`, `series`, etc. handle it for free.
+- **Verified:** `log(x, 2) → log(x)/log(2)`, `log(x, E) → log(x)`,
+  `log(8, 2) → 3`, `log(100, 10) → 2`, `log(1024, 2) → 10`,
+  `diff(log(x, 2)) → 1/(x·log 2)` — all match SymPy.
+- **Regression test:** `LOG-BASE-1` in `tests/functions/exponential_test.cpp`
+  (`[3c][log][oracle][regression]`).
+- **Scope:** exact integer powers fold; a non-power integer ratio
+  (`log(8, 4)`) stays the correct-but-unfolded `log(8)/log(4)` rather than
+  SymPy's fully-reduced `3/2`.
+
 ### EXP-LOG-INVERSE-1 — `exp(log(x))` stayed unevaluated for a generic argument
 - **Problem:** `exp(log(x))` returned `exp(log(x))` instead of `x`, and
   `exp(2·log(x)) → exp(2·log(x))` instead of `x²`, for a generic (unknown-sign)

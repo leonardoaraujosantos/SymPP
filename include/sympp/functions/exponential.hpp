@@ -51,5 +51,7 @@ public:
 
 [[nodiscard]] SYMPP_EXPORT Expr exp(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr log(const Expr& arg);
+// log base b: log_b(x) = log(x)/log(b). Mirrors SymPy's two-argument log.
+[[nodiscard]] SYMPP_EXPORT Expr log(const Expr& arg, const Expr& base);
 
 }  // namespace sympp
