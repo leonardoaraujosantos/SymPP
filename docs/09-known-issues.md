@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-LINRADICAL-SUB-1 — `integrate` missed the √(a·x+b) substitution
+- **Problem:** integrands containing a radical of a non-trivial linear inner —
+  `∫1/(x·√(x+1))`, `∫√(x+1)/x` — came back unevaluated. `try_radical_substitution`
+  only handles `√x` (inner = var), not `√(a·x+b)`.
+- **Fix:** added `try_linear_radical_substitution` in
+  `src/integrals/integrate.cpp` (run after `try_radical_substitution`). It finds a
+  `√(a·x+b)` factor (linear base, `b ≠ 0`), substitutes `x = (u²−b)/a`,
+  `dx = (2u/a) du` (mapping `√(a·x+b) → u` and `x → (u²−b)/a` via `xreplace`),
+  integrates in `u`, and back-substitutes `u = √(a·x+b)`.
+- **Verified:** `∫1/(x·√(x+1))`, `∫√(x+1)/x`, `∫1/(√(x+1)+1)`, `∫x·√(x+1)` each
+  differentiate back to the integrand; a bare `√(x+1)` still goes through the
+  power rule.
+- **Regression test:** `INT-LINRADICAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  9 assertions).
+- **Scope:** the reduced `u`-integral must be solvable downstream — e.g.
+  `∫1/(x·√(2x+3))` reduces to `∫2/(u²−3)`, which needs a √3 factorization the
+  rational integrator doesn't do, so it stays unevaluated (graceful, not wrong).
+
 ### INT-RADICAL-SUB-1 — `integrate` missed the radical substitution u = x^(1/d)
 - **Problem:** integrands that are functions of a radical `x^(1/d)` came back
   unevaluated — `∫exp(√x)`, `∫sin(√x)`, `∫1/(1+√x)`, `∫1/(1+x^(1/3))` all returned

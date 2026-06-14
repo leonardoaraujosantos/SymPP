@@ -303,6 +303,12 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_radical_substitution(const Expr& expr,
                                                            const Expr& var);
 
+// Linear-radical substitution u = √(a·x+b): for an integrand containing √(a·x+b)
+// with a non-trivial linear inner (b≠0), substitute x = (u²−b)/a, dx = (2u/a) du,
+// integrate in u, and back-substitute. Closes ∫1/(x·√(x+1)), ∫√(x+1)/x, …
+[[nodiscard]] std::optional<Expr> try_linear_radical_substitution(
+    const Expr& expr, const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -528,6 +534,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_radical_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_linear_radical_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -834,6 +843,50 @@ std::optional<Expr> try_radical_substitution(const Expr& expr,
     Expr anti = integrate(integrand_u, u);
     if (is_integral_marker(anti)) return std::nullopt;
     return simplify(subs(anti, u, pow(var, rational(1, dl))));
+}
+
+std::optional<Expr> try_linear_radical_substitution(const Expr& expr,
+                                                    const Expr& var) {
+    // Find a √(a·var+b) factor: a Pow(base, 1/2) whose base is linear in var with
+    // a non-zero constant term (a bare √var is try_radical_substitution's job).
+    Expr radical, a, b;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (radical || !depends_on(e, var)) return;
+        if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) {
+            const Expr& base = e->args()[0];
+            try {
+                Poly p(expand(base), var);
+                if (p.degree() == 1) {
+                    const auto& coeffs = p.coeffs();  // [b, a]
+                    if (!depends_on(coeffs[0], var)
+                        && !depends_on(coeffs[1], var)
+                        && !(coeffs[0] == S::Zero())) {  // b ≠ 0
+                        b = coeffs[0];
+                        a = coeffs[1];
+                        radical = e;
+                        return;
+                    }
+                }
+            } catch (...) {
+            }
+        }
+        for (const auto& arg : e->args()) self(self, arg);
+    };
+    scan(scan, expr);
+    if (!radical) return std::nullopt;
+    // u = √(a·var+b) ⇒ var = (u²−b)/a, dx = (2u/a) du.
+    auto u = symbol("__lrad_u");
+    Expr x_of_u = (pow(u, integer(2)) - b) / a;
+    ExprMap<Expr> repl;
+    repl.emplace(radical, u);
+    repl.emplace(var, x_of_u);
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;
+    Expr integrand_u =
+        simplify(mul({g, integer(2), u, pow(a, integer(-1))}));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(a * var + b, rational(1, 2))));
 }
 
 // True if `e` is a polynomial in `var` (only non-negative integer powers of

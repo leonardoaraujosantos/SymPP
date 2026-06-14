@@ -2192,3 +2192,28 @@ TEST_CASE("integrate: radical substitution u = x^(1/d) (INT-RADICAL-SUB-1)",
     REQUIRE(oracle.equivalent(integrate(pow(x, rational(1, 2)), x)->str(),
                               "2*x**(3/2)/3"));
 }
+
+// INT-LINRADICAL-SUB-1: integrands containing √(a·x+b) (non-trivial linear
+// inner) close via u = √(a·x+b): ∫1/(x√(x+1)), ∫√(x+1)/x. Previously
+// unevaluated. Verified by differentiating back to the integrand.
+TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sx1 = pow(x + integer(1), rational(1, 2));  // √(x+1)
+    const std::vector<Expr> integrands = {
+        pow(x * sx1, integer(-1)),                       // 1/(x·√(x+1))
+        sx1 * pow(x, integer(-1)),                       // √(x+1)/x
+        pow(sx1 + integer(1), integer(-1)),              // 1/(√(x+1)+1)
+        x * sx1,                                         // x·√(x+1)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // A bare √(x+1) (no other var dependence) is the power rule's job.
+    REQUIRE(oracle.equivalent(integrate(sx1, x)->str(),
+                              "2*(x + 1)**(3/2)/3"));
+}
