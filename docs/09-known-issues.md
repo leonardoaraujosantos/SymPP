@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-INVFN-1 — `solve` returned `[]` for inverse trig/hyperbolic equations
+- **Problem:** `asin(x)−1`, `atan(x)−1`, `asinh(x)−2`, … all came back empty,
+  where SymPy returns `[sin(1)]`, `[tan(1)]`, `[sinh(2)]` — the forward-function
+  inverse. Range-violating equations (`asin(x)−2`, with `2 > π/2`) should give
+  `[]`.
+- **Fix:** added `solve_inverse_func_poly` in `src/solvers/solve.cpp`. It detects
+  a polynomial in one inverse atom `g⁻¹(B·x)` (`g⁻¹ ∈
+  {asin,acos,atan,asinh,acosh,atanh}`), substitutes/solves for the inner value
+  `c`, and inverts with the forward function: `g⁻¹(B·x)=c → x = g(c)/B`. Each `c`
+  is range-checked against the inverse function's codomain (asin `[−π/2,π/2]`,
+  acos `[0,π]`, atan `(−π/2,π/2)`, acosh `[0,∞)`; asinh/atanh unbounded) via a
+  numeric `evalf`, so out-of-range roots are dropped. Inverse functions are
+  single-valued, so any `B` is handled.
+- **Verified:** fourteen equations checked equal to `sympy.solve`, including an
+  auto-evaluating RHS (`asin(x)=π/6 → 1/2`), a scaled argument
+  (`atan(2x)=1 → tan(1)/2`), a quadratic (`asin(x)²=1 → ±sin(1)`), and three
+  range rejections.
+- **Regression test:** `SOLVE-INVFN-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 12 assertions).
+
 ### SOLVE-RATIONAL-1 — `solve` returned `[]` for rational equations
 - **Problem:** any equation with a var-dependent denominator came back empty —
   `x+1/x−2`, `1/x−1/2`, `1/(x−1)+1/(x+1)`, `(x²−1)/(x−1)` all yielded `[]`, where

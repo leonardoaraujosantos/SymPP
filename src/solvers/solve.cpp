@@ -319,6 +319,114 @@ solve_exp_log_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Numeric value of a constant Expr, or nullopt if it isn't a real number.
+[[nodiscard]] std::optional<double> numeric_value(const Expr& c) {
+    Expr v = evalf(c, 30);
+    if (v->type_id() != TypeId::Float) return std::nullopt;
+    try {
+        return std::stod(v->str());
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+// Solve a polynomial in a single inverse trig/hyperbolic atom — e.g.
+// asin(x)-1, atan(2x)-1, asinh(x)-2. Substitute u = g(B*var), solve the
+// polynomial, then invert: g⁻¹(B*var)=c → B*var = g(c) → var = g(c)/B, where g
+// is the forward function. A root c outside the inverse function's range yields
+// no solution (asin(x)=2 → []), matching SymPy. Inverse functions are
+// single-valued, so any B is fine.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_inverse_func_poly(const Expr& expr, const Expr& var) {
+    static constexpr double kPi = 3.14159265358979323846;
+    static constexpr double kHalfPi = kPi / 2.0;
+    static constexpr double kEps = 1e-9;
+    std::vector<Expr> atoms;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (e->type_id() == TypeId::Function && has(e, var)) {
+            const FunctionId fid =
+                static_cast<const Function&>(*e).function_id();
+            if (fid == FunctionId::Asin || fid == FunctionId::Acos
+                || fid == FunctionId::Atan || fid == FunctionId::Asinh
+                || fid == FunctionId::Acosh || fid == FunctionId::Atanh) {
+                if (std::none_of(atoms.begin(), atoms.end(),
+                                 [&](const Expr& a) { return a == e; })) {
+                    atoms.push_back(e);
+                }
+                return;
+            }
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (atoms.size() != 1) return std::nullopt;
+    const Expr g = atoms.front();
+    const FunctionId id = static_cast<const Function&>(*g).function_id();
+    const Expr& arg = g->args()[0];
+    Expr B = simplify(arg * pow(var, integer(-1)));
+    if (has(B, var) || simplify(B * var - arg) != S::Zero()) return std::nullopt;
+    Expr u = symbol("u_invfn_subst");
+    Expr eu = subs(expr, g, u);
+    if (has(eu, var)) return std::nullopt;
+    std::vector<Expr> cvals;
+    try {
+        Poly p(expand(eu), u);
+        cvals = p.roots();
+    } catch (...) {
+        return std::nullopt;
+    }
+    if (cvals.empty()) return std::nullopt;
+    std::vector<Expr> roots;
+    auto push = [&](Expr r) {
+        if (has(r, var) || has(r, u)) return;
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& w) { return w == r; })) {
+            roots.push_back(std::move(r));
+        }
+    };
+    // c is in range when known-numeric and within bounds; an unbounded range
+    // accepts anything (including a symbolic c).
+    auto in_range = [&](const Expr& c, double lo, double hi, bool bounded) {
+        if (!bounded) return true;
+        auto v = numeric_value(c);
+        if (!v) return false;  // symbolic c with a bounded range — conservative
+        return *v >= lo - kEps && *v <= hi + kEps;
+    };
+    for (auto& c : cvals) {
+        if (has(c, var) || has(c, u)) continue;
+        const Expr inv_b = pow(B, integer(-1));
+        switch (id) {
+            case FunctionId::Asin:
+                if (in_range(c, -kHalfPi, kHalfPi, true))
+                    push(simplify(sin(c) * inv_b));
+                break;
+            case FunctionId::Acos:
+                if (in_range(c, 0.0, kPi, true))
+                    push(simplify(cos(c) * inv_b));
+                break;
+            case FunctionId::Atan:
+                if (in_range(c, -kHalfPi, kHalfPi, true))
+                    push(simplify(tan(c) * inv_b));
+                break;
+            case FunctionId::Asinh:
+                push(simplify(sinh(c) * inv_b));
+                break;
+            case FunctionId::Acosh: {
+                // acosh range is [0, ∞): need c ≥ 0.
+                auto v = numeric_value(c);
+                if (v && *v >= -kEps) push(simplify(cosh(c) * inv_b));
+                break;
+            }
+            case FunctionId::Atanh:
+                push(simplify(tanh(c) * inv_b));
+                break;
+            default:
+                return std::nullopt;
+        }
+    }
+    return roots;
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -482,6 +590,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
             return *tp;
         if (auto el = solve_exp_log_poly(expr, var); el && !el->empty())
             return *el;
+        if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
+            return *inv;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;

@@ -450,6 +450,49 @@ TEST_CASE("solve: polynomial in a single trig function (SOLVE-TRIG-POLY-1)",
     REQUIRE(solve(pow(sin(x), integer(2)) - integer(4), x).empty());
 }
 
+// SOLVE-INVFN-1: solve() of an inverse trig/hyperbolic equation inverts via the
+// forward function — g⁻¹(B·x)=c → x = g(c)/B — and rejects a root outside the
+// inverse function's range (asin(x)=2 → []). Matches SymPy exactly.
+TEST_CASE("solve: inverse trig/hyperbolic equations (SOLVE-INVFN-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    REQUIRE(set_equal(solve(asin(x) - integer(1), x), {"sin(1)"}));
+    REQUIRE(set_equal(solve(acos(x) - integer(1), x), {"cos(1)"}));
+    REQUIRE(set_equal(solve(atan(x) - integer(1), x), {"tan(1)"}));
+    REQUIRE(set_equal(solve(asinh(x) - integer(2), x), {"sinh(2)"}));
+    REQUIRE(set_equal(solve(acosh(x) - integer(1), x), {"cosh(1)"}));
+    REQUIRE(set_equal(solve(atanh(x) - rational(1, 2), x), {"tanh(1/2)"}));
+    // Auto-evaluating RHS: asin(x) = π/6 → x = sin(π/6) = 1/2.
+    REQUIRE(set_equal(solve(asin(x) - S::Pi() / integer(6), x), {"1/2"}));
+    // Scaled argument: atan(2x) = 1 → x = tan(1)/2.
+    REQUIRE(set_equal(solve(atan(integer(2) * x) - integer(1), x),
+                      {"tan(1)/2"}));
+    // Quadratic in asin: asin(x)² = 1 → x = ±sin(1).
+    REQUIRE(set_equal(solve(pow(asin(x), integer(2)) - integer(1), x),
+                      {"sin(1)", "-sin(1)"}));
+    // Out of range → no solution.
+    REQUIRE(solve(asin(x) - integer(2), x).empty());       // 2 > π/2
+    REQUIRE(solve(acos(x) - integer(4), x).empty());       // 4 > π
+    REQUIRE(solve(acosh(x) + integer(1), x).empty());      // c = -1 < 0
+}
+
 // SOLVE-TRIG-LINEAR-1: solve() of a linear combination a·sin(B·x)+b·cos(B·x)+c
 // (the R-method). Homogeneous (c=0) reduces to tan(B·x)=-b/a (one root);
 // otherwise a·sin+b·cos = R·sin(B·x+φ) with R=√(a²+b²), φ=atan2(b,a), giving
