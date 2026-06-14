@@ -320,6 +320,61 @@ solve_exp_log_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a (Laurent) polynomial in exp(var) whose terms are exp(m·var) for
+// integer m — e.g. exp(x)+exp(-x)-2, exp(2x)-3·exp(x)+2. Substitute u = exp(var)
+// (so exp(m·var) → uᵐ), solve the resulting equation in u (the rational/poly
+// path clears any negative powers), and invert each root via x = log(u).
+// Handles the multi-atom and scaled-exponent cases that solve_exp_log_poly
+// (single atom, B=1) leaves alone; complex roots are kept where SymPy keeps them
+// (exp(2x)=1 → {0, iπ}).
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_exp_sum(const Expr& expr, const Expr& var) {
+    std::vector<Expr> nodes;  // exp(m·var) atoms
+    bool ok = true;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (!ok || !has(e, var)) return;
+        if (e->type_id() == TypeId::Function
+            && static_cast<const Function&>(*e).function_id()
+                   == FunctionId::Exp) {
+            const Expr& arg = e->args()[0];
+            Expr m = simplify(arg * pow(var, integer(-1)));
+            if (m->type_id() != TypeId::Integer || m == S::Zero()) {
+                ok = false;  // exp of a non-integer-multiple argument
+                return;
+            }
+            if (std::none_of(nodes.begin(), nodes.end(),
+                             [&](const Expr& n) { return n == e; })) {
+                nodes.push_back(e);
+            }
+            return;
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    // solve_exp_log_poly already covers a single exp(var) atom with unit rate;
+    // this handles the rest (multiple atoms, or a scaled exp(m·var)).
+    if (!ok || nodes.empty()) return std::nullopt;
+    Expr u = symbol("u_expsum_subst");
+    ExprMap<Expr> repl;
+    for (const auto& node : nodes) {
+        Expr m = simplify(node->args()[0] * pow(var, integer(-1)));
+        repl.emplace(node, pow(u, m));
+    }
+    Expr eu = xreplace(expr, repl);
+    if (has(eu, var)) return std::nullopt;  // a bare var survived (e.g. x·eˣ)
+    std::vector<Expr> uroots = solve(eu, u);
+    std::vector<Expr> roots;
+    for (const auto& ur : uroots) {
+        if (has(ur, u) || has(ur, var) || ur == S::Zero()) continue;
+        Expr r = simplify(log(ur));
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& w) { return w == r; })) {
+            roots.push_back(std::move(r));
+        }
+    }
+    return roots;
+}
+
 // Numeric value of a constant Expr, or nullopt if it isn't a real number.
 [[nodiscard]] std::optional<double> numeric_value(const Expr& c) {
     Expr v = evalf(c, 30);
@@ -880,6 +935,7 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
             return *tp;
         if (auto el = solve_exp_log_poly(expr, var); el && !el->empty())
             return *el;
+        if (auto es = solve_exp_sum(expr, var); es && !es->empty()) return *es;
         if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
             return *inv;
         if (auto lw = solve_lambert(expr, var); lw && !lw->empty()) return *lw;

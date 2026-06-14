@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EXPSUM-1 — `solve` returned `[]` for a Laurent polynomial in exp(x)
+- **Problem:** `exp(x)+exp(-x)-2` and `exp(2x)-3·exp(x)+2` came back empty (or
+  incomplete). They mix several `exp(m·x)` atoms, so `solve_exp_log_poly`
+  (single atom, unit rate) bailed; SymPy returns `[0]` and `[0, log(2)]`.
+- **Fix:** added `solve_exp_sum` in `src/solvers/solve.cpp`. It collects every
+  `exp(m·x)` (integer m), substitutes `u = exp(x)` so `exp(m·x) → uᵐ`, solves the
+  resulting equation in `u` recursively (the rational/poly paths clear the
+  negative powers from `exp(-x)`), and inverts each root via `x = log(u)`. Because
+  the multiplicity lives in the polynomial in `u`, scaled exponents now yield
+  every complex representative, matching SymPy: `exp(2x)=1 → {0, iπ}`,
+  `exp(3x)=1 → {0, ±2iπ/3}`. This also closes the previously-deferred composite
+  case `exp(2x)-3·exp(x)+2`.
+- **Verified:** `exp(x)±exp(-x)[-2]`, `exp(2x)-{3,5}exp(x)+{2,6}`, `exp(2x)-1`,
+  `exp(3x)-1`, `exp(x)+exp(-x)-5/2` all checked equal to `sympy.solve`.
+- **Regression test:** `SOLVE-EXPSUM-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][transcendental][oracle][regression]`, 6 assertions).
+- **Scope:** exponents must be integer multiples of `x` (`exp(x/2)` would need a
+  finer base). A bare `x` outside the exponentials (`x·eˣ`) leaves it to the
+  LambertW path.
+
 ### SOLVE-RADPOLY-1 — `solve` returned `[]` for a polynomial in a radical x^(1/d)
 - **Problem:** `x − √x − 2` came back empty, where SymPy gives `[4]` (a quadratic
   in `√x`: `u²−u−2=0 → u=2`, dropping `u=−1`). The polynomial path can't build a

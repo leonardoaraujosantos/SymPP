@@ -221,6 +221,51 @@ TEST_CASE("solve: polynomial in exp/log (SOLVE-EXPLOG-POLY-1)",
     REQUIRE(set_equal(solve(log(integer(2) * x) - integer(1), x), {"E/2"}));
 }
 
+// SOLVE-EXPSUM-1: a (Laurent) polynomial in exp(x) whose terms are exp(m·x) for
+// integer m — exp(x)+exp(-x)-2, exp(2x)-3·exp(x)+2. Substitute u = exp(x)
+// (exp(m·x) → uᵐ), solve in u (clearing negative powers), invert via x = log(u).
+// Scaled exponents contribute every complex representative, matching SymPy
+// (exp(2x)=1 → {0, iπ}; exp(3x)=1 → the three cube-root logs).
+TEST_CASE("solve: Laurent polynomial in exp(x) (SOLVE-EXPSUM-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto ex = [&](const Expr& a) { return exp(a); };
+    // 2cosh(x) = 2 → x = 0.
+    REQUIRE(set_equal(solve(ex(x) + ex(-x) - integer(2), x), {"0"}));
+    // 2sinh(x) = 0 → x = 0, iπ.
+    REQUIRE(set_equal(solve(ex(x) - ex(-x), x), {"0", "I*pi"}));
+    // Composite exponent: exp(2x) − 3exp(x) + 2 → u=1,2 → x = 0, log(2).
+    REQUIRE(set_equal(
+        solve(ex(integer(2) * x) - integer(3) * ex(x) + integer(2), x),
+        {"0", "log(2)"}));
+    // exp(2x) − 5exp(x) + 6 → x = log(2), log(3).
+    REQUIRE(set_equal(
+        solve(ex(integer(2) * x) - integer(5) * ex(x) + integer(6), x),
+        {"log(2)", "log(3)"}));
+    // Scaled exponent gives every root: exp(2x)=1 → {0, iπ}.
+    REQUIRE(set_equal(solve(ex(integer(2) * x) - integer(1), x), {"0", "I*pi"}));
+    // exp(3x)=1 → the three cube roots of unity.
+    REQUIRE(set_equal(solve(ex(integer(3) * x) - integer(1), x),
+                      {"0", "2*I*pi/3", "-2*I*pi/3"}));
+}
+
 // SOLVE-LAMBERT-1: the canonical Lambert-W form a·x·exp(b·x)+c=0 inverts to
 // x = W(−c·b/a)/b via W(z)·exp(W(z))=z. Previously returned []. Matches SymPy.
 TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
