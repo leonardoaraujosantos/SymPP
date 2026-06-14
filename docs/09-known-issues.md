@@ -16,6 +16,51 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-TRIG-MULTIANGLE-1 — `solve` returned `[]` for mixed multiple-angle trig equations
+- **Problem:** equations combining different integer multiples of one angle —
+  `sin(x) − cos(2x)`, `cos(2x) + cos(x)`, `sin(2x) − sin(x)`,
+  `cos(2x) + 3·sin(x) − 2` — all returned `[]`. The existing trig solvers only
+  handle a single trig atom; a `cos(2x)` term alongside `sin(x)` is two distinct
+  atoms with different arguments.
+- **Fix:** added `solve_trig_reduce` in `src/solvers/solve.cpp`. It applies
+  `expand_trig` to rewrite every multiple angle in terms of `sin θ`, `cos θ` for
+  the common base angle θ, substitutes `s = sin θ`, `c = cos θ`, then reduces
+  `s² → 1 − c²` to the canonical form `P(c) + s·Q(c) = 0`:
+  - `Q ≡ 0` → `P(cos θ) = 0` (polynomial in cosine, both ± angles per root);
+  - `P ≡ 0` → `sin θ = 0` together with `Q(cos θ) = 0`;
+  - mixed → `s = −P/Q` with `s² = 1 − c²` gives `P² − (1−c²)Q² = 0`, a polynomial
+    in `cos θ`; each in-range real root fixes `sin θ`'s sign (via `evalf`), hence
+    a unique representative angle.
+  The resultant is built by convolving coefficient vectors rather than squaring
+  symbolically, since `expand` does not distribute a power over a product
+  (`(2c)²` stays unflattened). Complex cosine roots (e.g. `sin x + cos x − 5`,
+  which has no real solution) are rejected by a strict real-in-[−1,1] test.
+- **Verified:** `sin(x)−cos(2x)`, `cos(2x)±cos(x)`, `cos(2x)±sin(x)`,
+  `sin(2x)−sin(x)`, `sin(2x)−cos(x)`, `cos(2x)+3sin(x)−2`, `cos(3x)−cos(x)` and
+  more — every returned root substitutes back to satisfy the equation and the
+  real solution set is complete (checked against SymPy); `sin(x)+cos(x)−5`
+  stays empty.
+- **Regression test:** `SOLVE-TRIG-MULTIANGLE-1` in
+  `tests/solvers/solve_test.cpp` (`[10][solve][trig][oracle][regression]`).
+- **Scope:** a single base angle affine in the variable. Genuinely
+  transcendental mixed equations (`tan x = x`, `sin x + x`) remain separate gaps.
+
+### ASIN-ACOS-NEGSPECIAL-1 — `asin`/`acos` left negative √-special values unevaluated
+- **Problem:** `acos(−√3/2)`, `acos(−√2/2)`, `asin(−√3/2)` stayed unevaluated,
+  while `acos(−1/2)` folded correctly. The odd-identity reduction
+  `asin(−x) = −asin(x)` is driven by `strip_neg`, which only recognized a
+  leading integer `−1`; a Mul with a negative *rational* coefficient
+  (`−½·√3`) was not stripped, so the positive-argument special-value table never
+  ran.
+- **Fix:** generalized `strip_neg` in `src/functions/trigonometric.cpp` to pull
+  any negative numeric leading coefficient (`−½·√3 → ½·√3`, `−3·g → 3·g`), not
+  just `−1·g`.
+- **Verified:** `asin(−√3/2) = −π/3`, `asin(−√2/2) = −π/4`, `acos(−√3/2) = 5π/6`,
+  `acos(−√2/2) = 3π/4`. This also cleans up `solve_trig_reduce`'s output (clean
+  `5π/6` instead of `acos(−√3/2)`).
+- **Regression test:** extended `asin`/`acos` exact-special-argument cases in
+  `tests/functions/inverse_trig_test.cpp`.
+
 ### SOLVE-TRIG-PHASE-1 — `solve` returned `[]` for trig arguments with an additive phase
 - **Problem:** `solve(sin(x+1)-1/2)`, `solve(cos(2x+π/3))`, `solve(tan(x+1)-1)`
   and similar all returned `[]`. The trig solvers (`solve_trig`,

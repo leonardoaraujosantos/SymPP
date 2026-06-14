@@ -40,14 +40,16 @@ namespace {
         }
         return std::nullopt;
     }
-    // Mul with leading -1.
+    // Mul with a negative numeric leading coefficient: −1·g, but also −½·√3,
+    // −3·g, … . Negate the coefficient and keep the rest, yielding the positive
+    // form so the special-value tables (asin(√3/2), …) still fire.
     if (e->type_id() == TypeId::Mul) {
         const auto& args = e->args();
-        if (!args.empty() && args[0]->type_id() == TypeId::Integer) {
-            const auto& n = static_cast<const Integer&>(*args[0]);
-            if (n.value() == -1) {
-                if (args.size() == 2) return args[1];
-                std::vector<Expr> rest(args.begin() + 1, args.end());
+        if (!args.empty() && is_number(args[0])) {
+            const auto& n = static_cast<const Number&>(*args[0]);
+            if (n.is_negative()) {
+                std::vector<Expr> rest(args.begin(), args.end());
+                rest[0] = mul(S::NegativeOne(), args[0]);  // −(−½) = ½
                 return mul(std::move(rest));
             }
         }

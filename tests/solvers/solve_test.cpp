@@ -675,6 +675,46 @@ TEST_CASE("solve: polynomial in a single trig function (SOLVE-TRIG-POLY-1)",
     REQUIRE(solve(pow(sin(x), integer(2)) - integer(4), x).empty());
 }
 
+// SOLVE-TRIG-MULTIANGLE-1: solve() of an equation mixing different integer
+// multiples of one angle — sin(x) − cos(2x), cos(2x) + cos(x), sin(2x) − sin(x).
+// expand_trig rewrites every multiple angle in terms of sin/cos of the base
+// angle, after which the equation is a polynomial in sin θ and cos θ; reducing
+// sin² → 1 − cos² yields P(c) + s·Q(c) = 0, solved through the cosine. Each
+// returned root must satisfy the original equation (verified via SymPy); the
+// representative-angle form is presentation-dependent so the count and validity
+// are checked rather than an exact set. Previously these returned [].
+TEST_CASE("solve: mixed multiple-angle trig (SOLVE-TRIG-MULTIANGLE-1)",
+          "[10][solve][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto satisfies = [&](const Expr& eq, std::size_t n) {
+        auto roots = solve(eq, x);
+        if (roots.size() != n) return false;
+        for (const auto& r : roots) {
+            if (has(r, x)) return false;
+            if (!oracle.equivalent(subs(eq, x, r)->str(), "0")) return false;
+        }
+        return true;
+    };
+    const Expr two = integer(2);
+    // cos(2x) reduces to a polynomial in sin x (cos(2x) = 1 − 2 sin²x).
+    REQUIRE(satisfies(sin(x) - cos(two * x), 3));
+    REQUIRE(satisfies(cos(two * x) - sin(x), 3));
+    REQUIRE(satisfies(cos(two * x) + integer(3) * sin(x) - two, 3));
+    REQUIRE(satisfies(cos(two * x) - integer(1) + sin(x), 4));
+    // cos(2x) reduces to a polynomial in cos x (cos(2x) = 2 cos²x − 1).
+    REQUIRE(satisfies(cos(two * x) + cos(x), 3));
+    REQUIRE(satisfies(cos(two * x) - cos(x), 4));
+    // sin(2x) = 2 sin x cos x — the mixed s·Q(c) factor cases.
+    REQUIRE(satisfies(sin(two * x) - sin(x), 4));
+    REQUIRE(satisfies(sin(two * x) - cos(x), 4));
+    // A triple angle, via the Chebyshev expansion of cos(3x)/sin(3x).
+    REQUIRE(satisfies(cos(integer(3) * x) - cos(x), 5));
+    // No real solution: |sin x + cos x| ≤ √2 < 5, so the resultant has only
+    // complex cosine roots and the result is empty (not a spurious angle).
+    REQUIRE(solve(sin(x) + cos(x) - integer(5), x).empty());
+}
+
 // SOLVE-INVFN-1: solve() of an inverse trig/hyperbolic equation inverts via the
 // forward function — g⁻¹(B·x)=c → x = g(c)/B — and rejects a root outside the
 // inverse function's range (asin(x)=2 → []). Matches SymPy exactly.

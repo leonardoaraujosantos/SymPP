@@ -87,6 +87,21 @@ namespace {
     }
 }
 
+// Strict form of trig_value_in_range for the multi-angle resultant path: the
+// cosine root must be a concrete REAL number in [−1, 1]. A complex root (from a
+// negative-discriminant resultant, e.g. sin x + cos x − 5) evaluates to a
+// non-Float and is rejected, where trig_value_in_range would accept it as
+// "symbolic".
+[[nodiscard]] bool is_unit_real(const Expr& r) {
+    Expr v = evalf(r, 40);
+    if (v->type_id() != TypeId::Float) return false;
+    try {
+        return std::fabs(std::stod(v->str())) <= 1.0 + 1e-9;
+    } catch (...) {
+        return false;
+    }
+}
+
 // Append the representative roots of f(B*var) = c over one principal period
 // (var = theta/B), deduplicating into `roots`. Mirrors SymPy's `solve`, which
 // inverts the inner function and divides by B rather than enumerating every x
@@ -280,6 +295,182 @@ solve_trig_poly(const Expr& expr, const Expr& var) {
     for (auto& c : cvals) {
         if (has(c, var) || has(c, u)) continue;
         append_trig_roots(id, c, B, var, roots, P);
+    }
+    return roots;
+}
+
+// Sign of a numeric expression via floating-point evaluation: -1, 0, or +1.
+// Returns 0 when the value is not a concrete real number (symbolic).
+[[nodiscard]] int numeric_sign(const Expr& e) {
+    Expr v = evalf(e, 40);
+    if (v->type_id() != TypeId::Float) return 0;
+    const auto& f = static_cast<const Number&>(*v);
+    if (f.is_positive()) return 1;
+    if (f.is_negative()) return -1;
+    return 0;
+}
+
+// Add the representative angle θ ∈ (−π, π] with cos θ = c0, sin θ = s0 to the
+// root list, mapped back through the affine argument var = (θ − P)/B. The angle
+// is taken as ±acos(c0), the sign chosen from sin's sign — this keeps the clean
+// acos special-angle forms (π/6, …) rather than a half-angle atan expression.
+void append_angle_from_cos_sin(const Expr& c0, const Expr& s0, const Expr& B,
+                               const Expr& P, const Expr& var,
+                               std::vector<Expr>& roots) {
+    Expr base = simplify(acos(c0));
+    Expr theta = (numeric_sign(s0) < 0) ? simplify(mul({S::NegativeOne(), base}))
+                                        : base;
+    Expr r = simplify((theta - P) * pow(B, integer(-1)));
+    if (has(r, var)) return;
+    if (std::none_of(roots.begin(), roots.end(),
+                     [&](const Expr& u) { return u == r; })) {
+        roots.push_back(std::move(r));
+    }
+}
+
+// Solve a trig equation whose terms carry different integer multiples of a
+// common angle — e.g. sin(x) − cos(2x), cos(2x) + cos(x), sin(2x) − sin(x).
+// expand_trig rewrites every multiple angle in terms of sin(θ), cos(θ) for the
+// base angle θ, after which the equation is a polynomial in s = sin θ and
+// c = cos θ. Reducing s² → 1 − c² brings it to P(c) + s·Q(c) = 0:
+//   * Q ≡ 0  → P(c) = 0, a polynomial in cos θ (both ± angles per root);
+//   * P ≡ 0  → s·Q(c) = 0, i.e. sin θ = 0 together with Q(c) = 0;
+//   * else   → s = −P/Q with s² = 1 − c² gives P² − (1−c²)Q² = 0, a polynomial
+//              in cos θ; each root fixes sin θ's sign, hence a unique angle.
+// Returns representative roots over one period (matching SymPy's solve), or
+// nullopt when the equation is not a single-base-angle trig polynomial.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_trig_reduce(const Expr& expr, const Expr& var) {
+    Expr e = expand(expand_trig(expr));
+    // Collect the var-dependent trig atoms; they must all share one argument θ
+    // and be sin/cos (after expansion tan would leave a denominator).
+    std::vector<Expr> atoms;
+    Expr theta;
+    bool ok = true;
+    std::function<void(const Expr&)> collect = [&](const Expr& g) {
+        if (!ok) return;
+        if (g->type_id() == TypeId::Function && has(g, var)) {
+            const FunctionId fid =
+                static_cast<const Function&>(*g).function_id();
+            if (fid == FunctionId::Sin || fid == FunctionId::Cos) {
+                if (!theta) theta = g->args()[0];
+                else if (g->args()[0] != theta) { ok = false; return; }
+                if (std::none_of(atoms.begin(), atoms.end(),
+                                 [&](const Expr& a) { return a == g; })) {
+                    atoms.push_back(g);
+                }
+                return;
+            }
+            ok = false;  // tan/other transcendental of var → not handled here
+            return;
+        }
+        for (const auto& a : g->args()) collect(a);
+    };
+    collect(e);
+    if (!ok || !theta || atoms.size() < 2) return std::nullopt;
+    auto bp = affine_arg(theta, var);
+    if (!bp) return std::nullopt;
+    const Expr& B = bp->first;
+    const Expr& Pphase = bp->second;
+
+    // Substitute s, c for sin θ, cos θ. The result must be a pure polynomial.
+    Expr s = symbol("s_trig_reduce");
+    Expr c = symbol("c_trig_reduce");
+    Expr es = subs(subs(e, sin(theta), s), cos(theta), c);
+    if (has(es, var)) return std::nullopt;
+
+    // Split into P(c) + s·Q(c) by reducing s² → 1 − c².
+    Expr Pc = S::Zero();
+    Expr Qc = S::Zero();
+    Expr one_minus_c2 = integer(1) - pow(c, integer(2));
+    try {
+        Poly ps(expand(es), s);
+        const auto& co = ps.coeffs();
+        for (std::size_t k = 0; k < co.size(); ++k) {
+            if (has(co[k], s) || has(co[k], var)) return std::nullopt;
+            Expr half = pow(one_minus_c2, integer(static_cast<long>(k / 2)));
+            if (k % 2 == 0) {
+                Pc = Pc + co[k] * half;
+            } else {
+                Qc = Qc + co[k] * half;
+            }
+        }
+    } catch (...) {
+        return std::nullopt;
+    }
+    Pc = expand(Pc);
+    Qc = expand(Qc);
+    const bool p_zero = (simplify(Pc) == S::Zero());
+    const bool q_zero = (simplify(Qc) == S::Zero());
+    if (p_zero && q_zero) return std::nullopt;  // identically satisfied
+
+    std::vector<Expr> roots;
+    auto cos_roots = [&](const Expr& poly_in_c) -> bool {
+        try {
+            Poly pc(expand(poly_in_c), c);
+            for (auto& r : pc.roots()) {
+                if (has(r, c) || has(r, var)) continue;
+                append_trig_roots(FunctionId::Cos, r, B, var, roots, Pphase);
+            }
+        } catch (...) {
+            return false;
+        }
+        return true;
+    };
+
+    if (q_zero) {
+        // P(cos θ) = 0 — both ± angles per in-range cosine root.
+        if (!cos_roots(Pc)) return std::nullopt;
+        return roots;
+    }
+    if (p_zero) {
+        // sin θ = 0 ∪ Q(cos θ) = 0.
+        append_trig_roots(FunctionId::Sin, S::Zero(), B, var, roots, Pphase);
+        if (!cos_roots(Qc)) return std::nullopt;
+        return roots;
+    }
+    // Mixed: P² − (1 − c²)·Q² = 0 in cos θ; each root fixes sin θ's sign. Build
+    // the resultant by convolving coefficient vectors — expand() does not
+    // distribute a power over a product, e.g. (2c)² stays unflattened, so the
+    // symbolic pow(Qc,2) cannot be re-parsed reliably as a polynomial.
+    try {
+        auto conv = [](const std::vector<Expr>& a,
+                       const std::vector<Expr>& b) {
+            std::vector<Expr> r(a.empty() || b.empty() ? 0 : a.size() + b.size() - 1,
+                                S::Zero());
+            for (std::size_t i = 0; i < a.size(); ++i)
+                for (std::size_t j = 0; j < b.size(); ++j)
+                    r[i + j] = simplify(r[i + j] + a[i] * b[j]);
+            return r;
+        };
+        std::vector<Expr> pa = Poly(Pc, c).coeffs();
+        std::vector<Expr> qa = Poly(Qc, c).coeffs();
+        std::vector<Expr> p2 = conv(pa, pa);
+        std::vector<Expr> q2omc2 =
+            conv(conv(qa, qa), {S::One(), S::Zero(), S::NegativeOne()});
+        std::vector<Expr> rc(std::max(p2.size(), q2omc2.size()), S::Zero());
+        for (std::size_t i = 0; i < p2.size(); ++i) rc[i] = p2[i];
+        for (std::size_t i = 0; i < q2omc2.size(); ++i)
+            rc[i] = simplify(rc[i] - q2omc2[i]);
+        Poly pr(std::move(rc), c);
+        for (auto& r : pr.roots()) {
+            if (has(r, c) || has(r, var)) continue;
+            if (!is_unit_real(r)) continue;  // reject complex / out-of-range
+            Expr qval = simplify(subs(Qc, c, r));
+            if (qval == S::Zero()) {
+                // s·Q vanishes for any s at this cosine; it is a root only when
+                // P(r) = 0 too, and then both ± angles satisfy the equation.
+                if (simplify(subs(Pc, c, r)) == S::Zero()) {
+                    append_trig_roots(FunctionId::Cos, r, B, var, roots, Pphase);
+                }
+                continue;
+            }
+            Expr s0 = simplify(mul({S::NegativeOne(), subs(Pc, c, r),
+                                    pow(qval, integer(-1))}));
+            append_angle_from_cos_sin(r, s0, B, Pphase, var, roots);
+        }
+    } catch (...) {
+        return std::nullopt;
     }
     return roots;
 }
@@ -973,6 +1164,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
+        if (auto tm = solve_trig_reduce(expr, var); tm && !tm->empty())
+            return *tm;
         SetPtr s = solveset(expr, var);
         if (s && s->kind() == SetKind::FiniteSet) {
             auto elems = static_cast<const FiniteSet&>(*s).elements();
