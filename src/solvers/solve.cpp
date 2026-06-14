@@ -428,12 +428,62 @@ solve_inverse_func_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
-// Solve the canonical Lambert-W form a·var·exp(b·var) + c = 0 → var =
-// W(−c·b/a)/b, using the defining identity W(z)·e^(W(z)) = z. Detects a single
-// term a·var·exp(b·var) (a, b var-free, b ≠ 0, var to the first power) plus a
-// var-free constant. Matches SymPy's LambertW result.
+// If `e` is exp(var) or log(var), report which; used for the additive Lambert
+// forms var + exp(var) + c and var + log(var) + c.
+[[nodiscard]] std::optional<FunctionId> as_exp_or_log_of_var(const Expr& e,
+                                                            const Expr& var) {
+    if (e->type_id() != TypeId::Function) return std::nullopt;
+    const auto& f = static_cast<const Function&>(*e);
+    const FunctionId id = f.function_id();
+    if ((id == FunctionId::Exp || id == FunctionId::Log)
+        && f.args().size() == 1 && f.args()[0] == var) {
+        return id;
+    }
+    return std::nullopt;
+}
+
+// Solve the elementary Lambert-W forms via the identity W(z)·e^(W(z)) = z:
+//   product-exp:  a·var·exp(b·var) + c = 0   → W(−c·b/a)/b
+//   product-log:  a·var·log(var)   + c = 0   → exp(W(−c/a))
+//   additive-exp: var + exp(var)   + c = 0   → −c − W(e^(−c))
+//   additive-log: var + log(var)   + c = 0   → W(e^(−c))
+// (a, b, c var-free; the additive forms require unit coefficients and argument
+// var.) Matches SymPy's LambertW results.
 [[nodiscard]] std::optional<std::vector<Expr>>
 solve_lambert(const Expr& expr, const Expr& var) {
+    // Additive forms: var + {exp(var)|log(var)} + c, with a single bare `var`
+    // term and a single exp/log(var) term (each coefficient 1).
+    if (expr->type_id() == TypeId::Add) {
+        Expr c = S::Zero();
+        bool have_var = false, have_trans = false, trans_is_exp = false;
+        bool ok = true;
+        for (const auto& t : expr->args()) {
+            if (!has(t, var)) {
+                c = (c == S::Zero()) ? t : add({c, t});
+            } else if (t == var && !have_var) {
+                have_var = true;
+            } else if (auto id = as_exp_or_log_of_var(t, var);
+                       id && !have_trans) {
+                have_trans = true;
+                trans_is_exp = (*id == FunctionId::Exp);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && have_var && have_trans) {
+            Expr negc = simplify(mul(S::NegativeOne(), c));  // −c
+            if (trans_is_exp) {
+                // var + e^var + c = 0 → var = −c − W(e^(−c)).
+                return std::vector<Expr>{
+                    simplify(negc - lambertw(exp(negc)))};
+            }
+            // var + log(var) + c = 0 → var = W(e^(−c)).
+            return std::vector<Expr>{simplify(lambertw(exp(negc)))};
+        }
+    }
+
+    // Product forms: a·var·exp(b·var) + c  or  a·var·log(var) + c.
     Expr cst = S::Zero();
     Expr dep;
     if (expr->type_id() == TypeId::Add) {
@@ -447,10 +497,9 @@ solve_lambert(const Expr& expr, const Expr& var) {
         dep = expr;
     }
     if (dep->type_id() != TypeId::Mul) return std::nullopt;
-    // dep = a · var · exp(b·var): a var-free coeff, one bare var, one exp(b·var).
     Expr a = S::One();
     Expr b;
-    bool have_var = false, have_exp = false;
+    bool have_var = false, have_exp = false, have_log = false;
     for (const auto& f : dep->args()) {
         if (!has(f, var)) {
             a = mul({a, f});
@@ -461,25 +510,39 @@ solve_lambert(const Expr& expr, const Expr& var) {
             have_var = true;
             continue;
         }
-        if (f->type_id() == TypeId::Function
-            && static_cast<const Function&>(*f).function_id()
-                   == FunctionId::Exp) {
-            if (have_exp) return std::nullopt;
-            const Expr& arg = f->args()[0];
-            Expr bb = simplify(arg * pow(var, integer(-1)));
-            if (has(bb, var) || simplify(bb * var - arg) != S::Zero()) {
-                return std::nullopt;  // exp argument is not linear b·var
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && !have_exp && !have_log) {
+                const Expr& arg = f->args()[0];
+                Expr bb = simplify(arg * pow(var, integer(-1)));
+                if (has(bb, var) || simplify(bb * var - arg) != S::Zero()) {
+                    return std::nullopt;  // exp argument is not linear b·var
+                }
+                b = bb;
+                have_exp = true;
+                continue;
             }
-            b = bb;
-            have_exp = true;
-            continue;
+            if (fn.function_id() == FunctionId::Log && !have_exp && !have_log
+                && f->args()[0] == var) {
+                have_log = true;
+                continue;
+            }
         }
         return std::nullopt;  // another var-dependent factor
     }
-    if (!have_var || !have_exp || b == S::Zero()) return std::nullopt;
-    // a·var·e^(b·var) = −c → (b·var)·e^(b·var) = −c·b/a → var = W(−c·b/a)/b.
-    Expr z = simplify(mul({S::NegativeOne(), cst, b, pow(a, integer(-1))}));
-    return std::vector<Expr>{simplify(lambertw(z) * pow(b, integer(-1)))};
+    if (!have_var) return std::nullopt;
+    if (have_exp) {
+        if (b == S::Zero()) return std::nullopt;
+        // a·var·e^(b·var) = −c → var = W(−c·b/a)/b.
+        Expr z = simplify(mul({S::NegativeOne(), cst, b, pow(a, integer(-1))}));
+        return std::vector<Expr>{simplify(lambertw(z) * pow(b, integer(-1)))};
+    }
+    if (have_log) {
+        // a·var·log(var) = −c → var·log(var) = −c/a → var = exp(W(−c/a)).
+        Expr z = simplify(mul({S::NegativeOne(), cst, pow(a, integer(-1))}));
+        return std::vector<Expr>{simplify(exp(lambertw(z)))};
+    }
+    return std::nullopt;
 }
 
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method

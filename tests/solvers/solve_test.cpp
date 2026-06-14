@@ -259,6 +259,15 @@ TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
                       {"LambertW(15)/3"}));
     // Homogeneous: x·eˣ = 0 → W(0) = 0.
     REQUIRE(set_equal(solve(x * exp(x), x), {"0"}));
+    // Product-log: x·log(x) − c → exp(W(c)).
+    REQUIRE(set_equal(solve(x * log(x) - integer(1), x), {"exp(LambertW(1))"}));
+    REQUIRE(set_equal(solve(x * log(x) + integer(1), x), {"exp(LambertW(-1))"}));
+    // Additive-log: x + log(x) + c → W(e^(−c)); x+log(x)−1 auto-evaluates to 1.
+    REQUIRE(set_equal(solve(x + log(x), x), {"LambertW(1)"}));
+    REQUIRE(set_equal(solve(x + log(x) - integer(1), x), {"1"}));
+    // Additive-exp: x + eˣ + c → −c − W(e^(−c)); x+eˣ−1 auto-evaluates to 0.
+    REQUIRE(set_equal(solve(x + exp(x), x), {"-LambertW(1)"}));
+    REQUIRE(set_equal(solve(x + exp(x) - integer(1), x), {"0"}));
 }
 
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to

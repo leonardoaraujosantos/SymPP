@@ -29,10 +29,14 @@ truth and links the issue number.
 - **Regression test:** `SOLVE-LAMBERT-1` in `tests/solvers/solve_test.cpp`
   (`[10][solve][transcendental][oracle][regression]`, 7 assertions). SOLVE-VAR-1's
   comment was updated — it no longer claims SymPP lacks a LambertW solver.
-- **Scope:** the single canonical `a·x·exp(b·x)+c` pattern only. The
-  rearrangement forms SymPy also closes via W — `x+eˣ=0` (`−W(1)`), `x·log(x)−c`
-  (`exp(W(c))`), `x+log(x)=0` (`W(1)`) — need an extra normalization step and
-  remain follow-ups.
+- **Update (rearrangement forms now covered):** `solve_lambert` was extended to
+  the product-log `a·x·log(x)+c → exp(W(−c/a))` and the additive
+  `x+eˣ+c → −c−W(e^(−c))` / `x+log(x)+c → W(e^(−c))` forms (additive forms
+  require unit coefficients and argument `var`). Verified against SymPy for
+  `x·log(x)∓{1,2}`, `x+log(x)+{−1,0,1}`, `x+eˣ+{−1,0,1}`, incl. the
+  auto-evaluating `x+log(x)−1 → 1` and `x+eˣ−1 → 0`. Remaining: scaled arguments
+  / non-unit coefficients in the additive forms, and `log(b·x)` in the product
+  form.
 
 ### LIMIT-SIGN-1 — `limit` of a discontinuous `sign`/`abs` returned the point value
 - **Problem:** `limit(sign(x), x, 0)` returned `0` — the point value `sign(0)=0`
