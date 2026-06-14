@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-QUAD-IRRATIONAL-1 — `∫1/(quadratic)` failed for positive-discriminant irrational roots
+- **Problem:** `∫1/(x²−3)`, `∫1/(2x²−3)`, `∫1/(x²+x−1)` came back unevaluated. The
+  arctan handler only covered `Δ<0` (no real roots), and `try_rational` only
+  factors over ℚ — so a quadratic with a positive discriminant but irrational
+  roots (no rational factorization) fell through both.
+- **Fix:** in `src/integrals/integrate.cpp`, `try_arctan_quadratic` now handles
+  the `disc < 0` (i.e. `Δ = b²−4ac > 0`) branch too:
+  `∫1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)]/√Δ`. It only reaches this
+  branch for irrational roots, since rational-root quadratics are split into
+  clean logs by `try_rational`, which runs first.
+- **Verified:** `1/(x²−3)`, `1/(3−x²)`, `1/(2x²−3)`, `1/(x²−2)`, `1/(x²+x−1)`,
+  `1/(5x²−7)` each differentiate back to the integrand; the rational-root
+  (`1/(x²−1)`) and `Δ<0` (`1/(x²+1)`) cases are unchanged. This also retroactively
+  closes `∫1/(x·√(2x+3))` (INT-LINRADICAL-SUB-1's documented limitation), whose
+  reduced `∫2/(u²−3)` now resolves.
+- **Regression test:** `INT-QUAD-IRRATIONAL-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  10 assertions).
+- **Scope:** quadratics with rational coefficients; the irreducible-over-ℚ
+  *quartic* `1/(x⁴+1)` (algebraic-extension factorization) is still a separate,
+  larger gap.
+
 ### INT-LINRADICAL-SUB-1 — `integrate` missed the √(a·x+b) substitution
 - **Problem:** integrands containing a radical of a non-trivial linear inner —
   `∫1/(x·√(x+1))`, `∫√(x+1)/x` — came back unevaluated. `try_radical_substitution`

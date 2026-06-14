@@ -2027,12 +2027,22 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
         //   ∫ 1/(a·(x − r)²) dx = −2/(2a·x + b).
         return integer(-2) / (integer(2) * a * var + b);
     }
-    if (is_positive(disc) != true) return std::nullopt;
-
-    // ∫ 1/(a·x² + b·x + c) dx = 2·atan((2a·x + b)/√D) / √D.
-    Expr root_d = sqrt(disc);
-    Expr arg = (integer(2) * a * var + b) / root_d;
-    return simplify(integer(2) * atan(arg) / root_d);
+    if (is_positive(disc) == true) {
+        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D.
+        Expr root_d = sqrt(disc);
+        Expr arg = (integer(2) * a * var + b) / root_d;
+        return simplify(integer(2) * atan(arg) / root_d);
+    }
+    // D < 0 ⇒ two distinct real roots. Rational roots are split into clean logs
+    // by try_rational (which runs first); irrational roots reach here, where the
+    // partial-fraction logs carry √Δ (Δ = b²−4ac = −D):
+    //   ∫ 1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)] / √Δ.
+    Expr delta = simplify(mul(S::NegativeOne(), disc));  // b² − 4ac > 0
+    if (is_positive(delta) != true) return std::nullopt;
+    Expr root_delta = sqrt(delta);
+    Expr lin = integer(2) * a * var + b;
+    return simplify((log(lin - root_delta) - log(lin + root_delta))
+                    / root_delta);
 }
 
 std::optional<Expr> try_linear_over_quadratic(const Expr& expr,

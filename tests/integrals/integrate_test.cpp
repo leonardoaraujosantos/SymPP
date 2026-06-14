@@ -2217,3 +2217,33 @@ TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-
     REQUIRE(oracle.equivalent(integrate(sx1, x)->str(),
                               "2*(x + 1)**(3/2)/3"));
 }
+
+// INT-QUAD-IRRATIONAL-1: ∫1/(a·x²+b·x+c) where the discriminant is positive but
+// the roots are irrational (no rational factorization) — 1/(x²−3), 1/(2x²−3),
+// 1/(x²+x−1). The partial-fraction logs carry √Δ. Previously unevaluated (the
+// rational path only factors over ℚ; the arctan path only handled Δ<0).
+TEST_CASE("integrate: 1/quadratic with irrational roots (INT-QUAD-IRRATIONAL-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip_quad = [&](const Expr& q) { return pow(q, integer(-1)); };
+    const std::vector<Expr> integrands = {
+        recip_quad(pow(x, integer(2)) - integer(3)),                // 1/(x²−3)
+        recip_quad(integer(3) - pow(x, integer(2))),                // 1/(3−x²)
+        recip_quad(integer(2) * pow(x, integer(2)) - integer(3)),   // 1/(2x²−3)
+        recip_quad(pow(x, integer(2)) + x - integer(1)),            // 1/(x²+x−1)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Rational-root and negative-discriminant cases are unchanged.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) - integer(1), integer(-1)), x)->str(),
+        "log(x - 1)/2 - log(x + 1)/2"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + integer(1), integer(-1)), x)->str(),
+        "atan(x)"));
+}
