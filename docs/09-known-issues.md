@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EQ-1 — `solve(Eq(lhs, rhs))` and relational parsing returned `[]`
+- **Problem:** `solve(Eq(x**2, 4))` returned `[]` instead of `{2, −2}`. Two
+  causes: (1) the parser built `Eq(a, b)` (and `Ne`/`Lt`/`Le`/`Gt`/`Ge`) as an
+  opaque user-function node rather than a `Relational`, and (2) `solve` had no
+  branch to reduce an equation to `lhs − rhs = 0`.
+- **Fix:**
+  - registered `Eq`, `Ne`, `Lt`, `Le`, `Gt`, `Ge` in the parser's two-argument
+    table (`src/parsing/parser.cpp`), so they build proper `Relational` nodes;
+  - in `src/solvers/solve.cpp`, `solve` now reduces a `Relational` of kind `Eq`
+    to `solve(lhs − rhs, var)` (matching SymPy's `solve(Eq(...))`). Inequalities
+    describe a region, not a discrete root list, so they are not forced into the
+    vector API.
+- **Verified:** `Eq(x², 4) → {2, −2}`, `Eq(x³, x) → {0, 1, −1}`,
+  `Eq(sin x, 1/2) → {π/6, 5π/6}`, `Eq(eˣ, 3) → {log 3}`, `Eq(2x+1, 5) → {2}`,
+  and the parsed-string forms — all match SymPy; `Eq(x, x)` still evaluates to
+  `True`.
+- **Regression test:** `SOLVE-EQ-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`).
+
 ### SUM-EXP-2 — polynomial × exponential series Σ P(k)·rᵏ/k! stayed unevaluated
 - **Problem:** `Σ k/k!`, `Σ k²/k!`, `Σ (2k+3)/k!`, `Σ k·xᵏ/k!` came back
   unevaluated. `SUM-EXP-1` closed only a bare `rᵏ/k!`; a polynomial numerator

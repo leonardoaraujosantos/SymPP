@@ -1110,6 +1110,14 @@ solve_rational(const Expr& expr, const Expr& var) {
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
+    // An equation Eq(lhs, rhs) reduces to solving lhs − rhs = 0 (matching
+    // SymPy's solve(Eq(...))). Other relations (inequalities) describe a region,
+    // not a discrete root list, so they don't fit this vector API.
+    if (expr->type_id() == TypeId::Relational) {
+        const auto& r = static_cast<const Relational&>(*expr);
+        if (r.kind() == RelKind::Eq) return solve(r.lhs() - r.rhs(), var);
+        return {};
+    }
     // Expand first so a factored polynomial reaches the Poly machinery:
     // solve((x-1)*(x-2)) was empty because Poly couldn't build from the Mul.
     auto roots = solve_poly(expand(expr), var);

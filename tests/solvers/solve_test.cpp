@@ -508,6 +508,44 @@ TEST_CASE("linsolve: identity returns b unchanged", "[10][linsolve]") {
 #include <sympp/sets/sets.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/parsing/parser.hpp>
+
+using sympp::parsing::parse;
+
+// SOLVE-EQ-1: solve() accepts an equation Eq(lhs, rhs), reducing it to
+// solve(lhs − rhs). Previously an Eq node fell through to the polynomial path
+// as an opaque function and returned []. The parser now builds Eq/Ne/Lt/… as
+// Relational nodes, and solve() reduces the Eq case.
+TEST_CASE("solve: equation form Eq(lhs, rhs) (SOLVE-EQ-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // Eq(x², 4) → {2, −2}.
+    REQUIRE(set_eq(solve(eq(pow(x, integer(2)), integer(4)), x), {"2", "-2"}));
+    // Eq(x³, x) → {0, 1, −1}.
+    REQUIRE(set_eq(solve(eq(pow(x, integer(3)), x), x), {"0", "1", "-1"}));
+    // Eq(2x+1, 5) → {2}.
+    REQUIRE(set_eq(solve(eq(integer(2) * x + integer(1), integer(5)), x),
+                   {"2"}));
+    // The parser builds Eq as a Relational, so solving the parsed string works.
+    REQUIRE(set_eq(solve(parse("Eq(x**2, 2*x)"), x), {"0", "2"}));
+}
 
 // ----- solveset --------------------------------------------------------------
 

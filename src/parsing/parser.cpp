@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <sympp/core/add.hpp>
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -181,6 +182,13 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"gcd", &gcd},
         {"lcm", &lcm},
         {"log", static_cast<TwoArgFn>(&log)},
+        // Relational constructors: Eq(a, b), Ne(a, b), Lt/Le/Gt/Ge(a, b).
+        {"Eq", &eq},
+        {"Ne", &ne},
+        {"Lt", &lt},
+        {"Le", &le},
+        {"Gt", &gt},
+        {"Ge", &ge},
         {"Mod", &mod},
         {"mod", &mod},
         {"RisingFactorial", &rising_factorial},
