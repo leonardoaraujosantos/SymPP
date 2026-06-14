@@ -165,16 +165,21 @@ Expr exp(const Expr& arg) {
     }
 
     // exp(log(x)) = x, when x is positive (otherwise needs branch handling).
+    // exp(log(w)) = w. On the principal branch exp(log(z)) = z for every z ≠ 0,
+    // so no positivity assumption is needed (matching SymPy). A concrete
+    // negative argument never reaches here — log(−3) is already expanded to
+    // iπ + log(3), an Add handled below — so only an unevaluated log(w) (generic
+    // w, or a positive real) hits this case.
     if (arg->type_id() == TypeId::Function) {
         const auto& fn = static_cast<const Function&>(*arg);
-        if (fn.function_id() == FunctionId::Log) {
-            const auto& inner = arg->args()[0];
-            if (is_positive(inner) == true) return inner;
+        if (fn.function_id() == FunctionId::Log && fn.args().size() == 1) {
+            return fn.args()[0];
         }
     }
 
-    // exp(c·log(p)) = p^c for positive p (any real exponent c). Same positivity
-    // gate as exp(log p) above — for non-positive p this is branch-cut sensitive.
+    // exp(c·log(w)) = w^c. Unconditional when the coefficient c is numeric (then
+    // w^c is exactly exp(c·log w) by definition); for a symbolic c we still
+    // require w > 0, since pow's branch for a concrete negative w could differ.
     if (arg->type_id() == TypeId::Mul) {
         Expr log_inner;
         std::vector<Expr> coeff_factors;
@@ -188,9 +193,56 @@ Expr exp(const Expr& arg) {
             }
             coeff_factors.push_back(f);
         }
-        if (log_inner && !coeff_factors.empty()
-            && is_positive(log_inner) == true) {
-            return pow(log_inner, mul(std::move(coeff_factors)));
+        if (log_inner && !coeff_factors.empty()) {
+            Expr c = mul(std::move(coeff_factors));
+            if (is_number(c) || is_positive(log_inner) == true) {
+                return pow(log_inner, std::move(c));
+            }
+        }
+    }
+
+    // exp(Σ tᵢ) with some tᵢ a numeric-coefficient log term → pull them out:
+    // exp(log w₁ + c·log w₂ + r) = w₁ · w₂^c · exp(r). Mirrors SymPy, which
+    // turns exp(log x + 1) into E·x and exp(log x + log y) into x·y.
+    if (arg->type_id() == TypeId::Add) {
+        // A term is extractable iff it is log(w) or (numeric · log(w)); return
+        // the corresponding power w^c, else nullopt.
+        auto as_log_power = [](const Expr& t) -> std::optional<Expr> {
+            if (t->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*t);
+                if (fn.function_id() == FunctionId::Log && fn.args().size() == 1)
+                    return fn.args()[0];  // w^1
+            }
+            if (t->type_id() == TypeId::Mul) {
+                Expr inner;
+                std::vector<Expr> nums;
+                for (const auto& f : t->args()) {
+                    if (!inner && f->type_id() == TypeId::Function) {
+                        const auto& fn = static_cast<const Function&>(*f);
+                        if (fn.function_id() == FunctionId::Log
+                            && fn.args().size() == 1) {
+                            inner = fn.args()[0];
+                            continue;
+                        }
+                    }
+                    if (!is_number(f)) return std::nullopt;  // symbolic coeff
+                    nums.push_back(f);
+                }
+                if (inner && !nums.empty())
+                    return pow(inner, mul(std::move(nums)));
+            }
+            return std::nullopt;
+        };
+        std::vector<Expr> powers;
+        std::vector<Expr> rest;
+        for (const auto& t : arg->args()) {
+            if (auto p = as_log_power(t)) powers.push_back(*p);
+            else rest.push_back(t);
+        }
+        if (!powers.empty()) {
+            Expr prod = mul(std::move(powers));
+            Expr r = rest.empty() ? Expr{S::Zero()} : add(std::move(rest));
+            return mul(std::move(prod), exp(std::move(r)));
         }
     }
 

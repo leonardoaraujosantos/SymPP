@@ -117,11 +117,15 @@ TEST_CASE("exp(log(x)) = x for positive x", "[3c][exp][log]") {
     REQUIRE(exp(log(x)) == x);
 }
 
-TEST_CASE("exp(log(x)) stays unevaluated for unknown x", "[3c][exp][log]") {
+TEST_CASE("exp(log(x)) = x even for unknown x (principal branch)",
+          "[3c][exp][log][regression]") {
+    // exp(log(z)) = z holds for every z ≠ 0 on the principal branch, so no
+    // positivity assumption is required (matching SymPy). A concrete negative
+    // argument is unaffected: log(−3) expands to iπ + log(3) before reaching
+    // exp, so this rule only fires for an unevaluated log(w).
     auto x = symbol("x");
-    auto e = exp(log(x));
-    REQUIRE(e->type_id() == TypeId::Function);
-    REQUIRE(e->str() == "exp(log(x))");
+    REQUIRE(exp(log(x)) == x);
+    REQUIRE(exp(log(x + integer(1))) == x + integer(1));
 }
 
 TEST_CASE("exp(c*log(p)) = p^c for positive p (ASSUME-6)",
@@ -133,8 +137,34 @@ TEST_CASE("exp(c*log(p)) = p^c for positive p (ASSUME-6)",
     REQUIRE(exp(log(p) / integer(2)) == pow(p, rational(1, 2)));
     REQUIRE(exp(mul(S::NegativeOne(), log(p))) == pow(p, integer(-1)));
     REQUIRE(exp(x * log(p)) == pow(p, x));
-    // Generic (non-positive) base stays unevaluated (branch-cut conservative).
-    REQUIRE(exp(integer(2) * log(x))->str() == "exp(2*log(x))");
+    // Generic base with a NUMERIC coefficient folds unconditionally — w^n is
+    // exactly exp(n·log w) by definition (matching SymPy: exp(2·log x) = x²).
+    REQUIRE(exp(integer(2) * log(x)) == pow(x, integer(2)));
+    REQUIRE(exp(log(x) / integer(2)) == pow(x, rational(1, 2)));
+    REQUIRE(exp(mul(S::NegativeOne(), log(x))) == pow(x, integer(-1)));
+    // A SYMBOLIC coefficient over a generic (non-positive) base stays an exp,
+    // since pow's branch for a concrete negative base could differ.
+    REQUIRE(exp(x * log(symbol("y")))->str() == "exp(x*log(y))");
+}
+
+// EXP-LOGSUM-1: exp of a sum containing numeric-coefficient log terms pulls
+// them out as a product — exp(log x + 1) = E·x, exp(log x + log y) = x·y,
+// exp(log x − log y) = x/y. Non-log terms remain inside the exp.
+TEST_CASE("exp: sum with log terms factors out (EXP-LOGSUM-1)",
+          "[3c][exp][log][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(exp(log(x) + integer(1))->str(), "E*x"));
+    REQUIRE(oracle.equivalent(exp(log(x) + log(y))->str(), "x*y"));
+    REQUIRE(oracle.equivalent(
+        exp(log(x) + mul(S::NegativeOne(), log(y)))->str(), "x/y"));
+    REQUIRE(oracle.equivalent(
+        exp(log(x) + integer(2) * log(y))->str(), "x*y**2"));
+    // A non-log additive term stays inside the exp: exp(log x + y) = x·exp(y).
+    REQUIRE(oracle.equivalent(exp(log(x) + y)->str(), "x*exp(y)"));
+    // No extractable log term → unchanged.
+    REQUIRE(oracle.equivalent(exp(x + integer(1))->str(), "exp(x + 1)"));
 }
 
 TEST_CASE("log(exp(x)) = x for real x", "[3c][exp][log]") {

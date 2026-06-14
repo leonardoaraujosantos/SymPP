@@ -16,6 +16,34 @@ truth and links the issue number.
 
 ## Fixed
 
+### EXP-LOG-INVERSE-1 — `exp(log(x))` stayed unevaluated for a generic argument
+- **Problem:** `exp(log(x))` returned `exp(log(x))` instead of `x`, and
+  `exp(2·log(x)) → exp(2·log(x))` instead of `x²`, for a generic (unknown-sign)
+  symbol. The factory gated `exp∘log` folding on `is_positive(arg) == true`,
+  which is unknown for a bare symbol, so the simplification never fired —
+  diverging from SymPy, which folds unconditionally. Sums such as
+  `exp(log x + 1)` and `exp(log x + log y)` were likewise left intact.
+- **Fix:** in `src/functions/exponential.cpp`,
+  - `exp(log(w)) → w` is now unconditional: `exp(log(z)) = z` for every `z ≠ 0`
+    on the principal branch, and a concrete negative argument never reaches this
+    case (`log(−3)` is already `iπ + log(3)`, an Add);
+  - `exp(c·log(w)) → w^c` folds unconditionally when `c` is numeric (then `w^c`
+    *is* `exp(c·log w)` by definition); a symbolic `c` still requires `w > 0`;
+  - `exp(Σ tᵢ)` pulls out every numeric-coefficient log term:
+    `exp(log w₁ + c·log w₂ + r) = w₁ · w₂^c · exp(r)`.
+- **Verified:** `exp(log x) → x`, `exp(2 log x) → x²`, `exp(log x / 2) → √x`,
+  `exp(−log x) → 1/x`, `exp(log x + 1) → E·x`, `exp(log x + log y) → x·y`,
+  `exp(log x − log y) → x/y`, `exp(log x + y) → x·exp(y)` — all match SymPy;
+  `exp(y·log x)` (symbolic coefficient) and `exp(x + 1)` (no log term) are left
+  unchanged, also matching SymPy.
+- **Regression tests:** updated the `exp`/`log` inverse-pair cases and added
+  `EXP-LOGSUM-1` in `tests/functions/exponential_test.cpp`. The two earlier
+  tests that asserted the over-conservative "stays unevaluated" behavior were
+  updated to the principal-branch result.
+- **Note:** this intentionally replaces a previously deliberate branch-cut
+  conservatism; the folding is mathematically exact (principal branch), so it
+  introduces no incorrect results.
+
 ### EXPAND-POWBASE-1 — `expand` left a power of a product unflattened
 - **Problem:** `expand((2x)²)` returned `(2x)²` rather than `4x²`; likewise
   `(xy)² → (xy)²`, `(3xy)² → (3xy)²`. The core `expand` only multinomial-expanded
