@@ -230,6 +230,36 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// bernoulli(n): the n-th Bernoulli number Bₙ (SymPy's convention B₁ = +1/2).
+// Evaluates for a non-negative integer; stays symbolic otherwise.
+class SYMPP_EXPORT Bernoulli final : public Function {
+public:
+    explicit Bernoulli(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Bernoulli;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "bernoulli";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// euler(n): the n-th Euler number Eₙ (1, 0, −1, 0, 5, …; odd indices are 0).
+// Evaluates for a non-negative integer; stays symbolic otherwise.
+class SYMPP_EXPORT Euler final : public Function {
+public:
+    explicit Euler(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Euler;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "euler";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -308,6 +338,8 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr bernoulli(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr euler(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);

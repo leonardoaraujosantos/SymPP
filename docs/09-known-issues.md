@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### BERNOULLI-EULER-1 — `bernoulli` and `euler` numbers were missing
+- **Problem:** `bernoulli(4)` and `euler(4)` parsed only as undefined functions,
+  where SymPy gives `−1/30` and `5`.
+- **Fix:** added `Bernoulli` and `Euler` functions (FunctionId, classes, builders,
+  parser entries) in `src/functions/combinatorial.cpp`, each from its binomial
+  recurrence. `bernoulli(n)` builds `Bₖ` exactly as rationals via
+  `B_m = −1/(m+1)·Σ_{k<m} C(m+1,k) Bₖ`, returning SymPy's convention `B₁ = +1/2`;
+  `euler(n)` builds the secant numbers via `E_{2m} = −Σ_{k<m} C(2m,2k) E_{2k}`.
+  Odd `Bₙ>1` and odd `Eₙ` vanish; symbolic/negative arguments stay unevaluated.
+- **Verified:** `bernoulli(0…20)` and `euler(0…16)` checked against SymPy,
+  including `bernoulli(12)=−691/2730` and `euler(10)=−50521`.
+- **Regression test:** `BERNOULLI-EULER-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][bernoulli][euler][oracle]`,
+  16 assertions).
+- **Scope:** integer-index Bernoulli/Euler numbers only; the polynomial forms
+  `bernoulli(n, x)` / `euler(n, x)` remain. This completes the elementary
+  special-number family (harmonic, bernoulli, euler).
+
 ### HARMONIC-FACT2-1 — `harmonic` and `factorial2` were missing
 - **Problem:** `harmonic(5)` and `factorial2(5)` parsed only as undefined
   functions, where SymPy gives `137/60` and `15`.

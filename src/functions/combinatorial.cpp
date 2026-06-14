@@ -466,6 +466,106 @@ Expr factorial2(const Expr& arg) {
 }
 
 // ============================================================================
+// Bernoulli / Euler numbers
+// ============================================================================
+
+namespace {
+[[nodiscard]] mpz_class binom(unsigned long n, unsigned long k) {
+    mpz_class c;
+    mpz_bin_uiui(c.get_mpz_t(), n, k);
+    return c;
+}
+}  // namespace
+
+Bernoulli::Bernoulli(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Bernoulli);
+}
+Expr Bernoulli::rebuild(std::vector<Expr> new_args) const {
+    return bernoulli(new_args[0]);
+}
+std::optional<bool> Bernoulli::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr bernoulli(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Bernoulli>(arg);
+        long n = z.to_long();
+        if (n > 5000) return make<Bernoulli>(arg);  // safety bound (O(n²))
+        if (n & 1L) return (n == 1) ? rational(1, 2) : integer(0);  // odd: B₁=½
+        // Recurrence (B₁ = −1/2 internally): B_m = −1/(m+1) Σ_{k<m} C(m+1,k) B_k.
+        std::vector<mpq_class> b(static_cast<std::size_t>(n) + 1);
+        b[0] = 1;
+        for (long m = 1; m <= n; ++m) {
+            mpq_class s(0);
+            for (long k = 0; k < m; ++k) {
+                s += mpq_class(binom(static_cast<unsigned long>(m + 1),
+                                     static_cast<unsigned long>(k)))
+                     * b[static_cast<std::size_t>(k)];
+            }
+            b[static_cast<std::size_t>(m)] = -s / mpq_class(m + 1);
+        }
+        mpq_class r = b[static_cast<std::size_t>(n)];
+        r.canonicalize();
+        return rational(r.get_num(), r.get_den());
+    }
+    return make<Bernoulli>(arg);
+}
+
+Euler::Euler(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Euler);
+}
+Expr Euler::rebuild(std::vector<Expr> new_args) const {
+    return euler(new_args[0]);
+}
+std::optional<bool> Euler::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr euler(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (z.is_negative() || !z.fits_long()) return make<Euler>(arg);
+        long n = z.to_long();
+        if (n & 1L) return integer(0);          // odd Euler numbers vanish
+        if (n > 5000) return make<Euler>(arg);  // safety bound (O(n²))
+        // E_{2m} = −Σ_{k=0}^{m-1} C(2m, 2k) E_{2k}, indexing by half (e[j]=E_{2j}).
+        const long half = n / 2;
+        std::vector<mpz_class> e(static_cast<std::size_t>(half) + 1);
+        e[0] = 1;
+        for (long m = 1; m <= half; ++m) {
+            mpz_class s(0);
+            for (long k = 0; k < m; ++k) {
+                s += binom(static_cast<unsigned long>(2 * m),
+                           static_cast<unsigned long>(2 * k))
+                     * e[static_cast<std::size_t>(k)];
+            }
+            e[static_cast<std::size_t>(m)] = -s;
+        }
+        return make<Integer>(e[static_cast<std::size_t>(half)]);
+    }
+    return make<Euler>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 

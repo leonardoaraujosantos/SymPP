@@ -158,6 +158,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"mobius", &mobius}, {"divisor_count", &divisor_count},
         {"divisor_sigma", &divisor_sigma},
         {"harmonic", &harmonic}, {"factorial2", &factorial2},
+        {"bernoulli", &bernoulli}, {"euler", &euler},
         {"gamma", &gamma}, {"loggamma", &loggamma}, {"digamma", &digamma},
         {"erf", &erf}, {"erfc", &erfc}, {"erfi", &erfi}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},

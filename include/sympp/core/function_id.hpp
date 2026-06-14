@@ -85,6 +85,8 @@ enum class FunctionId : std::uint16_t {
     DivisorSigma,
     Harmonic,
     Factorial2,
+    Bernoulli,
+    Euler,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

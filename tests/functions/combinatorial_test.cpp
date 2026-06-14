@@ -340,6 +340,35 @@ TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
     REQUIRE(factorial2(integer(-3))->type_id() == TypeId::Function);
 }
 
+// BERNOULLI-EULER-1: the Bernoulli numbers Bₙ (SymPy convention B₁ = +1/2) and
+// Euler numbers Eₙ, computed from their binomial recurrences. Both evaluate for
+// non-negative integers (odd Bₙ>1 and odd Eₙ are 0) and stay symbolic otherwise.
+// Matches SymPy.
+TEST_CASE("bernoulli/euler numbers (BERNOULLI-EULER-1)",
+          "[3i][bernoulli][euler][oracle]") {
+    auto& oracle = Oracle::instance();
+    // Bernoulli: B₀=1, B₁=1/2, B₂=1/6, odd>1 vanish, B₄=−1/30, …
+    REQUIRE(bernoulli(integer(0)) == integer(1));
+    REQUIRE(oracle.equivalent(bernoulli(integer(1))->str(), "1/2"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(2))->str(), "1/6"));
+    REQUIRE(bernoulli(integer(3)) == integer(0));
+    REQUIRE(oracle.equivalent(bernoulli(integer(4))->str(), "-1/30"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(6))->str(), "1/42"));
+    REQUIRE(oracle.equivalent(bernoulli(integer(12))->str(), "-691/2730"));
+    // Euler: E₀=1, odd vanish, E₂=−1, E₄=5, E₆=−61, …
+    REQUIRE(euler(integer(0)) == integer(1));
+    REQUIRE(euler(integer(1)) == integer(0));
+    REQUIRE(euler(integer(2)) == integer(-1));
+    REQUIRE(euler(integer(4)) == integer(5));
+    REQUIRE(euler(integer(6)) == integer(-61));
+    REQUIRE(euler(integer(10)) == integer(-50521));
+    // Symbolic / negative arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(bernoulli(n)->type_id() == TypeId::Function);
+    REQUIRE(euler(n)->type_id() == TypeId::Function);
+    REQUIRE(bernoulli(integer(-1))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("catalan: integer values", "[3i][catalan]") {
     REQUIRE(catalan(integer(0)) == integer(1));
     REQUIRE(catalan(integer(1)) == integer(1));
