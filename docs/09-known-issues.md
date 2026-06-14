@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### RADSIMP-SIMPLIFY-2 — `simplify` didn't rationalize two-surd denominators
+- **Problem:** following RADSIMP-SIMPLIFY-1, denominators that are a sum of two
+  surds with no rational part (`√3−√2`, `√5+√2`) were still left as reciprocals,
+  where SymPy returns `√2+√3`, `(√5−√2)/3`, etc. Two causes: `radsimp` only
+  handled a single `a+b√c` binomial; and even when extended, a result with a
+  non-unit rational denominator (`(√5−√2)/3`) has a larger node count than the
+  reciprocal, so `simplify`'s anti-bloat guard reverted it.
+- **Fix in `src/simplify/simplify.cpp`:** (1) `radsimp` now also rationalizes
+  `b₁√c₁ ± b₂√c₂` via the conjugate `b₁√c₁ ∓ b₂√c₂` (product `b₁²c₁ − b₂²c₂`,
+  rational); (2) the anti-bloat guard in `simplify` is relaxed via a new
+  `has_surd_denominator` check — when the pipeline removes a surd denominator
+  that the input still carries, the (possibly larger) rationalized form is kept,
+  while ordinary expansion bloat is still rejected.
+- **Verified:** `1/(√3−√2)`, `1/(√5+√2)`, `1/(√7−√3)`, `2/(√3+√2)`,
+  `x/(√5−√3)` all checked equal to SymPy and free of a surd reciprocal; the
+  single-binomial cases (RADSIMP-SIMPLIFY-1) and unrelated forms are unchanged.
+- **Regression test:** `RADSIMP-SIMPLIFY-2` in
+  `tests/simplify/simplify_test.cpp` (`[5][simplify][radsimp][oracle][regression]`,
+  6 assertions).
+- **Scope:** a rational part plus two surds (`1/(1+√2+√3)`) needs a two-step
+  conjugate and remains a follow-up.
+
 ### RADSIMP-SIMPLIFY-1 — `simplify` left a surd in a binomial denominator
 - **Problem:** `simplify(1/(1+√2))` returned the reciprocal unchanged instead of
   `√2−1`. Two issues compounded: (1) `radsimp` only looked for the denominator

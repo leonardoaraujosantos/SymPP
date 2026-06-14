@@ -823,6 +823,35 @@ TEST_CASE("simplify: rationalizes binomial-surd denominators (RADSIMP-SIMPLIFY-1
                 .find(")**(-1)") == std::string::npos);
 }
 
+// RADSIMP-SIMPLIFY-2: two-surd denominators b₁√c₁ ± b₂√c₂ (no rational part)
+// rationalize via the conjugate b₁√c₁ ∓ b₂√c₂, whose product is the rational
+// b₁²c₁ − b₂²c₂. The anti-bloat guard is relaxed when a surd denominator is
+// removed, so the (larger) rationalized form is kept.
+TEST_CASE("simplify: rationalizes two-surd denominators (RADSIMP-SIMPLIFY-2)",
+          "[5][simplify][radsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [](int n) { return sqrt(integer(n)); };
+    // Difference of surds, denominator 1.
+    REQUIRE(oracle.equivalent(simplify(pow(sq(3) - sq(2), integer(-1)))->str(),
+                              "sqrt(2) + sqrt(3)"));
+    // Sum of surds, fractional rational denominator (guard must be relaxed).
+    REQUIRE(oracle.equivalent(simplify(pow(sq(5) + sq(2), integer(-1)))->str(),
+                              "(sqrt(5) - sqrt(2))/3"));
+    REQUIRE(oracle.equivalent(simplify(pow(sq(7) - sq(3), integer(-1)))->str(),
+                              "(sqrt(3) + sqrt(7))/4"));
+    // Scaled surds and a numerator carry through.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * pow(sq(3) + sq(2), integer(-1)))->str(),
+        "2*sqrt(3) - 2*sqrt(2)"));
+    REQUIRE(oracle.equivalent(
+        simplify(x * pow(sq(5) - sq(3), integer(-1)))->str(),
+        "x*(sqrt(5) + sqrt(3))/2"));
+    // No surd reciprocal remains.
+    REQUIRE(simplify(pow(sq(5) + sq(2), integer(-1)))->str().find(")**(-1)")
+            == std::string::npos);
+}
+
 // ----- sqrtdenest ------------------------------------------------------------
 
 TEST_CASE("sqrtdenest: sqrt(3 + 2*sqrt(2)) → 1 + sqrt(2)",

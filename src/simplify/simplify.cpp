@@ -49,6 +49,35 @@ namespace {
     return n;
 }
 
+// Does `e` contain a √ (a Pow with exponent 1/2) anywhere?
+[[nodiscard]] bool contains_sqrt(const Expr& e) {
+    if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) return true;
+    for (const auto& a : e->args()) {
+        if (contains_sqrt(a)) return true;
+    }
+    return false;
+}
+
+// True iff `e` has an un-rationalized surd denominator — a Pow with a negative
+// exponent whose base carries a √ (e.g. the 1/(1+√2) in Pow(1+√2, −1)).
+// radsimp removes these; a rationalized result is preferred even when its node
+// count is larger, so simplify()'s anti-bloat guard exempts this case.
+[[nodiscard]] bool has_surd_denominator(const Expr& e) {
+    if (e->type_id() == TypeId::Pow) {
+        const Expr& ex = e->args()[1];
+        const bool neg =
+            (ex->type_id() == TypeId::Integer
+             && static_cast<const Integer&>(*ex).is_negative())
+            || (ex->type_id() == TypeId::Rational
+                && static_cast<const Rational&>(*ex).value() < 0);
+        if (neg && contains_sqrt(e->args()[0])) return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_surd_denominator(a)) return true;
+    }
+    return false;
+}
+
 // True iff `e` is a rational function in its symbols — built only from
 // numbers, symbols, +, *, and integer powers. cancel()/Poly() can loop
 // forever on transcendental subexpressions (e.g. sin(x)), so simplify()
@@ -180,7 +209,12 @@ Expr simplify(const Expr& e) {
     //    ((x+1)**3, (exp(x)-1)/(exp(x/2)+1), a/b + c/b); when the pipeline
     //    result ends up bigger, fall back to the canonical input.
     if (node_count(current) > node_count(canon)) {
-        return canon;
+        // Exception: a rationalized surd denominator is the preferred canonical
+        // form even when larger. Only fall back to canon when current did not
+        // remove a surd denominator that canon still carries.
+        if (!(has_surd_denominator(canon) && !has_surd_denominator(current))) {
+            return canon;
+        }
     }
     return current;
 }
@@ -1632,16 +1666,27 @@ Expr radsimp(const Expr& e) {
     }
 
     auto decomp = decompose_sqrts(den);
-    if (decomp.sqrt_terms.size() != 1) return t;
-    // Binomial: den = a + b * sqrt(c). Conjugate: a - b * sqrt(c).
-    const auto& [b_coef, sqrt_arg] = decomp.sqrt_terms[0];
-    const Expr& a = decomp.rational_part;
-    Expr b_sqrt = mul(b_coef, sqrt(sqrt_arg));
-    Expr conjugate = a - b_sqrt;
-    Expr new_num = num * conjugate;
-    // (a + b√c)(a - b√c) = a² - b²c
-    Expr new_den = a * a - b_coef * b_coef * sqrt_arg;
+    Expr conjugate;
+    Expr new_den;
+    if (decomp.sqrt_terms.size() == 1) {
+        // Binomial: den = a + b·√c. Conjugate a − b·√c; (a+b√c)(a−b√c) = a²−b²c.
+        const auto& [b_coef, sqrt_arg] = decomp.sqrt_terms[0];
+        const Expr& a = decomp.rational_part;
+        conjugate = a - mul(b_coef, sqrt(sqrt_arg));
+        new_den = a * a - b_coef * b_coef * sqrt_arg;
+    } else if (decomp.sqrt_terms.size() == 2
+               && decomp.rational_part == S::Zero()) {
+        // Two-surd: den = b₁·√c₁ + b₂·√c₂. Conjugate b₁·√c₁ − b₂·√c₂;
+        // the product is the rational b₁²c₁ − b₂²c₂.
+        const auto& [b1, c1] = decomp.sqrt_terms[0];
+        const auto& [b2, c2] = decomp.sqrt_terms[1];
+        conjugate = mul(b1, sqrt(c1)) - mul(b2, sqrt(c2));
+        new_den = b1 * b1 * c1 - b2 * b2 * c2;
+    } else {
+        return t;
+    }
     if (new_den == S::Zero()) return t;
+    Expr new_num = num * conjugate;
     // Distribute so the result is the compact rationalized form (√2−1, not
     // −(−√2+1)); this also keeps it small enough to survive simplify()'s
     // anti-bloat guard, which otherwise reverts to the reciprocal.
