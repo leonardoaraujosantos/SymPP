@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-BIQUADRATIC-1 — `∫1/(x⁴+1)` (irreducible biquadratic) was unevaluated
+- **Problem:** `∫1/(x⁴+1)` — the canonical biquadratic that is irreducible over ℚ
+  — and its scaled relatives (`1/(x⁴+4)`, `1/(2x⁴+2)`) came back unevaluated. The
+  rational path only factors over ℚ; `x⁴+1` factors only over ℚ(√2). This was the
+  long-standing headline integration gap (previously deferred to a full
+  Lazard–Rioboo–Trager implementation).
+- **Fix:** added `try_biquadratic` in `src/integrals/integrate.cpp` (after
+  `try_arctan_quadratic`). For a denominator `a₄x⁴+a₂x²+a₀` it normalizes to
+  `x⁴+p·x²+q` and, when `q>0` and `|p|<2√q` (real irreducible quadratic factors),
+  factors `x⁴+p·x²+q = (x²+a·x+b)(x²−a·x+b)` with `b=√q`, `a=√(2√q−p)`. Partial
+  fractions give two `(P·x+Q)/(irreducible quadratic)` pieces, each integrated
+  directly to a `log + arctan` (handling the irrational `a`,`b` that the generic
+  `try_linear_over_quadratic` can't). Runs only when `try_rational` (which handles
+  the ℚ-factorable biquadratics like `x⁴+x²+1`) has already failed.
+- **Verified:** `1/(x⁴+1)`, `1/(x⁴+4)`, `1/(2x⁴+2)`, `1/(x⁴+9)`, `1/(3x⁴+12)` each
+  differentiate back to the integrand; the ℚ-factorable (`x⁴+x²+1`, `x⁴−1`) and
+  quadratic cases are unchanged.
+- **Regression test:** `INT-BIQUADRATIC-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  9 assertions).
+- **Scope:** biquadratics (`x⁴+p·x²+q`, no `x`/`x³` term) with real irreducible
+  factors. A general irreducible quartic with an `x³` or `x` term, or one needing
+  a higher algebraic extension, is still a separate (LRT-scale) gap.
+
 ### INT-QUAD-IRRATIONAL-1 — `∫1/(quadratic)` failed for positive-discriminant irrational roots
 - **Problem:** `∫1/(x²−3)`, `∫1/(2x²−3)`, `∫1/(x²+x−1)` came back unevaluated. The
   arctan handler only covered `Δ<0` (no real roots), and `try_rational` only

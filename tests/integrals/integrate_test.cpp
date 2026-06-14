@@ -2247,3 +2247,36 @@ TEST_CASE("integrate: 1/quadratic with irrational roots (INT-QUAD-IRRATIONAL-1)"
         integrate(pow(pow(x, integer(2)) + integer(1), integer(-1)), x)->str(),
         "atan(x)"));
 }
+
+// INT-BIQUADRATIC-1: ∫1/(a₄x⁴+a₂x²+a₀) for a biquadratic that is irreducible
+// over ℚ but factors into two real quadratics over ℚ(√q) — the canonical
+// ∫1/(x⁴+1). Closed via that factorization and partial fractions; previously
+// unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: irreducible biquadratic 1/(x⁴+q) (INT-BIQUADRATIC-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip4 = [&](const Expr& num4, const Expr& c) {
+        return pow(num4 * pow(x, integer(4)) + c, integer(-1));
+    };
+    const std::vector<Expr> integrands = {
+        recip4(integer(1), integer(1)),   // 1/(x⁴+1)
+        recip4(integer(1), integer(4)),   // 1/(x⁴+4)
+        recip4(integer(2), integer(2)),   // 1/(2x⁴+2)
+        recip4(integer(1), integer(9)),   // 1/(x⁴+9)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Biquadratics that factor over ℚ are still handled by the rational path.
+    REQUIRE(oracle.equivalent(
+        diff(integrate(pow(pow(x, integer(4)) + pow(x, integer(2)) + integer(1),
+                           integer(-1)),
+                       x),
+             x)
+            ->str(),
+        "1/(x**4 + x**2 + 1)"));
+}

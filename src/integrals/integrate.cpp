@@ -395,6 +395,13 @@ namespace {
 // var with numeric coefficients and positive discriminant.
 [[nodiscard]] std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ 1/(a₄·x⁴ + a₂·x² + a₀) dx for a biquadratic that is irreducible over ℚ but
+// factors into two real quadratics over ℚ(√q): x⁴+p·x²+q = (x²+a·x+b)(x²−a·x+b)
+// with b=√q, a=√(2√q−p). Partial fractions give two (linear)/(irreducible
+// quadratic) pieces, each integrated to a log + arctan. Closes ∫1/(x⁴+1).
+[[nodiscard]] std::optional<Expr> try_biquadratic(const Expr& expr,
+                                                  const Expr& var);
+
 // ∫ (p·x + q)/(a·x² + b·x + c) dx for an irreducible quadratic denominator:
 // split the numerator into the part proportional to the denominator's
 // derivative (→ log) plus a constant remainder (→ the arctangent rule). E.g.
@@ -501,6 +508,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_arctan_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_biquadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_linear_over_quadratic(expr, var); r.has_value()) {
@@ -2043,6 +2053,56 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     Expr lin = integer(2) * a * var + b;
     return simplify((log(lin - root_delta) - log(lin + root_delta))
                     / root_delta);
+}
+
+std::optional<Expr> try_biquadratic(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Pow
+        || !(expr->args()[1] == S::NegativeOne())) {
+        return std::nullopt;
+    }
+    const Expr& base = expr->args()[0];
+    if (!depends_on(base, var)) return std::nullopt;
+    Poly poly(expand(base), var);
+    if (poly.degree() != 4) return std::nullopt;
+    const auto& cf = poly.coeffs();  // [a0, a1, a2, a3, a4]
+    // Biquadratic: no x or x³ term, rational coefficients.
+    if (!(cf[1] == S::Zero()) || !(cf[3] == S::Zero())) return std::nullopt;
+    if (is_rational(cf[0]) != true || is_rational(cf[2]) != true
+        || is_rational(cf[4]) != true) {
+        return std::nullopt;
+    }
+    const Expr& a4 = cf[4];
+    Expr p = simplify(cf[2] / a4);  // normalize to x⁴ + p·x² + q
+    Expr q = simplify(cf[0] / a4);
+    if (is_positive(q) != true) return std::nullopt;
+    Expr b = sqrt(q);                          // √q
+    Expr two_b = simplify(integer(2) * b);
+    // Real, irreducible quadratic factors need 2√q − p > 0 and 2√q + p > 0.
+    if (is_positive(simplify(two_b - p)) != true
+        || is_positive(simplify(two_b + p)) != true) {
+        return std::nullopt;
+    }
+    Expr a = sqrt(simplify(two_b - p));        // √(2√q − p)
+    Expr cap_p = simplify(pow(mul({integer(2), a, b}), integer(-1)));  // 1/(2ab)
+    Expr cap_q = simplify(pow(two_b, integer(-1)));                    // 1/(2b)
+    // ∫ (α·x + β)/(x² + γ·x + b) for an irreducible quadratic (4b − γ² > 0):
+    //   (α/2)·log(x² + γ·x + b)
+    //   + (β − αγ/2)·(2/√(4b − γ²))·atan((2x + γ)/√(4b − γ²)).
+    auto integ_lin_quad = [&](const Expr& alpha, const Expr& beta,
+                              const Expr& gamma) -> Expr {
+        Expr quad = pow(var, integer(2)) + gamma * var + b;
+        Expr root = sqrt(simplify(integer(4) * b - gamma * gamma));
+        Expr log_part = mul({alpha, rational(1, 2), log(quad)});
+        Expr atan_coef = simplify(beta - alpha * gamma * rational(1, 2));
+        Expr atan_part =
+            mul({atan_coef, integer(2), pow(root, integer(-1)),
+                 atan((integer(2) * var + gamma) * pow(root, integer(-1)))});
+        return log_part + atan_part;
+    };
+    Expr r1 = integ_lin_quad(cap_p, cap_q, a);
+    Expr r2 = integ_lin_quad(mul(S::NegativeOne(), cap_p), cap_q,
+                             mul(S::NegativeOne(), a));
+    return simplify(mul(pow(a4, integer(-1)), r1 + r2));
 }
 
 std::optional<Expr> try_linear_over_quadratic(const Expr& expr,
