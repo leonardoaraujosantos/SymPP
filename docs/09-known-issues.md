@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-RADICAL-SUB-1 — `integrate` missed the radical substitution u = x^(1/d)
+- **Problem:** integrands that are functions of a radical `x^(1/d)` came back
+  unevaluated — `∫exp(√x)`, `∫sin(√x)`, `∫1/(1+√x)`, `∫1/(1+x^(1/3))` all returned
+  `Integral(…)`, where SymPy gives elementary closed forms.
+- **Fix:** added `try_radical_substitution` in `src/integrals/integrate.cpp`
+  (run after `try_heurisch`). It takes `d = lcm` of the denominators of every
+  `var` exponent; if `d > 1` it substitutes `x = uᵈ` (`dx = d·u^(d-1) du`,
+  rewriting each `x^e → u^(e·d)` via `xreplace`), integrates the now-rational/
+  elementary integrand in `u`, and back-substitutes `u = x^(1/d)`. This parallels
+  the `solve_radical_poly` substitution.
+- **Verified:** `∫exp(√x)`, `∫sin(√x)`, `∫1/(1+√x)`, `∫1/(√x+x)`, `∫1/(1+x^(1/3))`
+  each differentiate back to the integrand (oracle), with the explicit
+  `∫exp(√x) = 2√x·exp(√x) − 2exp(√x)`; the power rule still handles plain `√x`.
+- **Regression test:** `INT-RADICAL-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  12 assertions).
+- **Scope:** a single radical generator `x^(1/d)`; nested or mixed radicals
+  (`√(x+√x)`) need a different substitution.
+
 ### SUM-POLYGEOM-1 — `summation` of P(k)·rᵏ only worked for degree 1
 - **Problem:** `Σ k²·2ᵏ`, `Σ (2k+1)·3ᵏ`, `Σ k²/2ᵏ` came back unevaluated; only the
   hardcoded degree-1 `Σ k·rᵏ` formula existed.

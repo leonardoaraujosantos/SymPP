@@ -2163,3 +2163,32 @@ TEST_CASE("integrate: no partial rational results (INT-RATIONAL-NOPARTIAL-1)",
             ->str(),
         "1/(x**4 - 1)"));
 }
+
+// INT-RADICAL-SUB-1: integrands that are functions of x^(1/d) close via the
+// substitution u = x^(1/d) (x = u^d, dx = d·u^(d-1) du): ∫exp(√x), ∫1/(1+√x),
+// ∫1/(1+x^(1/3)). Previously unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: radical substitution u = x^(1/d) (INT-RADICAL-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        exp(pow(x, rational(1, 2))),                              // exp(√x)
+        sin(pow(x, rational(1, 2))),                              // sin(√x)
+        pow(integer(1) + pow(x, rational(1, 2)), integer(-1)),   // 1/(1+√x)
+        pow(integer(1) + pow(x, rational(1, 3)), integer(-1)),   // 1/(1+x^(1/3))
+        pow(pow(x, rational(1, 2)) + x, integer(-1)),            // 1/(√x + x)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // Explicit closed form: ∫exp(√x) = 2√x·exp(√x) − 2exp(√x).
+    REQUIRE(oracle.equivalent(
+        integrate(exp(pow(x, rational(1, 2))), x)->str(),
+        "2*sqrt(x)*exp(sqrt(x)) - 2*exp(sqrt(x))"));
+    // A plain power is still handled by the power rule (not this path).
+    REQUIRE(oracle.equivalent(integrate(pow(x, rational(1, 2)), x)->str(),
+                              "2*x**(3/2)/3"));
+}

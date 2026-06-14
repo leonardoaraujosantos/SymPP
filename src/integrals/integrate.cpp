@@ -14,6 +14,8 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <gmpxx.h>
+
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
@@ -294,6 +296,13 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_monomial_substitution(const Expr& expr,
                                                             const Expr& var);
 
+// Radical substitution u = x^(1/d): for an integrand that is a function of
+// x^(1/d) (every var-power has a rational exponent and d = lcm of their
+// denominators > 1), substitute x = u^d, dx = d·u^(d-1) du, integrate in u, and
+// back-substitute. Closes ∫exp(√x), ∫1/(1+√x), ∫1/(1+x^(1/3)), …
+[[nodiscard]] std::optional<Expr> try_radical_substitution(const Expr& expr,
+                                                           const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -516,6 +525,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_radical_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -750,6 +762,78 @@ std::optional<Expr> try_monomial_substitution(const Expr& expr,
         return simplify(subs(anti, u, pow(var, integer(d))));
     }
     return std::nullopt;
+}
+
+namespace {
+// Read the rational exponent of a var-power node (bare var → 1).
+[[nodiscard]] std::optional<mpq_class> var_power_exponent(const Expr& e,
+                                                         const Expr& var) {
+    if (e == var) return mpq_class(1);
+    if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+        const Expr& ex = e->args()[1];
+        if (ex->type_id() == TypeId::Integer) {
+            return mpq_class(static_cast<const Integer&>(*ex).value());
+        }
+        if (ex->type_id() == TypeId::Rational) {
+            return static_cast<const Rational&>(*ex).value();
+        }
+    }
+    return std::nullopt;
+}
+}  // namespace
+
+std::optional<Expr> try_radical_substitution(const Expr& expr,
+                                             const Expr& var) {
+    // d = lcm of the denominators of every var exponent; bail if all integer.
+    mpz_class d = 1;
+    bool has_frac = false, bad = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (bad || !depends_on(e, var)) return;
+        if (e == var) return;  // exponent 1 → denominator 1
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+            auto q = var_power_exponent(e, var);
+            if (!q) { bad = true; return; }  // var^(symbolic)
+            mpz_class den = q->get_den();
+            if (den > 1) has_frac = true;
+            mpz_class g;
+            mpz_gcd(g.get_mpz_t(), d.get_mpz_t(), den.get_mpz_t());
+            d = d / g * den;
+            return;  // do not descend into the var base
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (bad || !has_frac || d <= 1 || !d.fits_slong_p()) return std::nullopt;
+    const long dl = d.get_si();
+    auto u = symbol("__rad_u");
+    // Rewrite each var-power x^e → u^(e·d) (an integer power).
+    ExprMap<Expr> repl;
+    bool bad2 = false;
+    auto build = [&](auto&& self, const Expr& e) -> void {
+        if (bad2 || !depends_on(e, var)) return;
+        if (e == var) {
+            repl.emplace(e, pow(u, integer(dl)));
+            return;
+        }
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var) {
+            auto q = var_power_exponent(e, var);
+            if (!q) { bad2 = true; return; }
+            mpq_class ed = *q * mpq_class(d);  // integer
+            repl.emplace(e, pow(u, integer(ed.get_num().get_si())));
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    build(build, expr);
+    if (bad2) return std::nullopt;
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;  // var survived (non-power use)
+    // dx = d·u^(d-1) du.
+    Expr integrand_u =
+        simplify(mul({g, integer(dl), pow(u, integer(dl - 1))}));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(var, rational(1, dl))));
 }
 
 // True if `e` is a polynomial in `var` (only non-negative integer powers of
