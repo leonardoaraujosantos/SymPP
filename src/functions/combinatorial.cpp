@@ -90,6 +90,8 @@ std::optional<bool> Factorial::ask(AssumptionKey k) const noexcept {
 }
 
 Expr factorial(const Expr& arg) {
+    // (+∞)! = +∞.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
     if (arg->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*arg);
         if (z.is_negative()) {
@@ -894,6 +896,9 @@ Expr GammaFn::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr gamma(const Expr& arg) {
+    // gamma(+∞) = +∞ (Γ grows without bound). gamma(−∞) is indeterminate
+    // (poles accumulate), so only the positive infinity folds.
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();
     // gamma(n+1) = n! for nonneg Integer n means gamma(positive integer) = (n-1)!
     if (arg->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*arg);
