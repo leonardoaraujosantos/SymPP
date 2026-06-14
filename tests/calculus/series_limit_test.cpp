@@ -347,6 +347,34 @@ TEST_CASE("limit: rational at ∞ with symbolic coefficients (LIMIT-RAT-SYM-1)",
                               "exp(2)"));
 }
 
+// LIMIT-POWFORM-1: indeterminate power forms (1^∞, 0^0, ∞^0) at a FINITE
+// target. Direct substitution collapses (1+x)^(1/x) to pow(1, zoo) = 1 before
+// the power-form handler runs, so the textbook e-limit returned 1 instead of E.
+// The handler now runs before substitution.
+TEST_CASE("limit: indeterminate power forms at a finite point (LIMIT-POWFORM-1)",
+          "[6][limit][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto z = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, S::NegativeOne()); };
+    // (1+x)^(1/x) → e (the definition of e).
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) + x, inv(x)), x, z)->str(), "E"));
+    // (1+2x)^(1/x) → e², (1+x)^(2/x) → e², (1−x)^(1/x) → e⁻¹.
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) + integer(2) * x, inv(x)), x, z)->str(), "exp(2)"));
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) + x, integer(2) * inv(x)), x, z)->str(), "exp(2)"));
+    REQUIRE(oracle.equivalent(
+        limit(pow(integer(1) - x, inv(x)), x, z)->str(), "exp(-1)"));
+    // cos(x)^(1/x²) → e^(−1/2).
+    REQUIRE(oracle.equivalent(
+        limit(pow(cos(x), inv(pow(x, integer(2)))), x, z)->str(), "exp(-1/2)"));
+    // Determinate powers are unaffected: (1+x)² → 1, x^x → 1.
+    REQUIRE(limit(pow(integer(1) + x, integer(2)), x, z) == S::One());
+    REQUIRE(limit(pow(x, x), x, z) == S::One());
+}
+
 TEST_CASE("limit: 0*oo and oo/oo forms at oo",
           "[6][limit][infinity][oracle][regression]") {
     auto& oracle = Oracle::instance();

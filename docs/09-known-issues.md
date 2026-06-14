@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-POWFORM-1 — `(1+x)^(1/x)` and other 1^∞ limits returned 1 instead of e
+- **Problem:** `limit((1+x)^(1/x), x, 0)` returned `1` instead of `e` — the
+  textbook definition of e. Likewise `(1+2x)^(1/x) → 1` (should be `e²`),
+  `cos(x)^(1/x²) → 1` (should be `e^(−1/2)`), `(1−x)^(1/x) → 1` (`e⁻¹`). At a
+  finite target, direct substitution evaluates the exponent `1/x` to `zoo` and
+  collapses `pow(1, zoo)` to `1` *before* the `1^∞` indeterminate handler runs,
+  so the indeterminacy was lost. (The same forms at `∞` already worked, because
+  `pow(1, ∞)` surfaced as `nan` there.)
+- **Fix:** in `src/calculus/limit.cpp`, call `try_power_form` for a `Pow`
+  expression *before* the direct-substitution step. It resolves the genuine
+  indeterminate forms `1^∞`, `0^0`, `∞^0` via `exp(lim exponent·log base)` and
+  returns `nullopt` for any determinate power, so ordinary powers
+  (`(1+x)²`, `2^x`, `x^x`) are unaffected.
+- **Verified:** `(1+x)^(1/x) → e`, `(1+2x)^(1/x) → e²`, `(1+x)^(2/x) → e²`,
+  `(1−x)^(1/x) → e⁻¹`, `(1+3x)^(2/x) → e⁶`, `cos(x)^(1/x²) → e^(−1/2)` — all
+  match SymPy; determinate powers and the `∞`-target cases are unchanged.
+- **Regression test:** `LIMIT-POWFORM-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][limit][oracle][regression]`).
+- **Note:** correctness bug (confidently wrong answers). Other limit gaps
+  surfaced in the same survey — `x − √(x²+1) → 0` and `log x / log(2x) → 1`
+  still return `nan` — remain open (different root causes).
+
 ### SERIES-LAURENT-1 — functions with a pole at 0 had no series expansion
 - **Problem:** `series(cot(x))`, `csc(x)`, `coth(x)`, `csch(x)`, `csc(x)²`,
   `1/(eˣ−1)` all returned the input unexpanded. The series engine was a pure

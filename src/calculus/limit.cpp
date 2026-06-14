@@ -588,6 +588,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         if (!(g == expr)) return limit_impl(g, var, target, depth + 1);
     }
 
+    // Indeterminate power forms (1^∞, 0^0, ∞^0) must be resolved before direct
+    // substitution, which would collapse 1^∞ to 1 — e.g. (1+x)^(1/x) → E (not 1)
+    // as x → 0. try_power_form returns nullopt for any determinate power.
+    if (depth < 12 && expr->type_id() == TypeId::Pow) {
+        if (auto v = try_power_form(expr, var, target, depth)) return *v;
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
