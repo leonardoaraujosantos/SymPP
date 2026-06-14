@@ -232,6 +232,27 @@ TEST_CASE("fibonacci: integer values", "[3i][fibonacci]") {
     REQUIRE(fibonacci(integer(-1))->type_id() == TypeId::Function);
 }
 
+// TOTIENT-1: Euler's totient φ(n) evaluates for positive integers (φ(p)=p−1
+// for prime p, φ(p^k·…) via the product formula), stays symbolic for symbols
+// and non-positive integers. Matches SymPy's totient.
+TEST_CASE("totient: Euler's phi (TOTIENT-1)", "[3i][totient][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(totient(integer(1)) == integer(1));
+    REQUIRE(totient(integer(2)) == integer(1));
+    REQUIRE(totient(integer(7)) == integer(6));    // prime: p − 1
+    REQUIRE(totient(integer(12)) == integer(4));   // 2²·3
+    REQUIRE(totient(integer(36)) == integer(12));  // 2²·3²
+    REQUIRE(totient(integer(100)) == integer(40));
+    REQUIRE(totient(integer(17)) == integer(16));
+    // Cross-check a larger composite against SymPy.
+    REQUIRE(oracle.equivalent(totient(integer(360360))->str(), "69120"));
+    // Symbolic and non-positive arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(totient(n)->type_id() == TypeId::Function);
+    REQUIRE(totient(integer(0))->type_id() == TypeId::Function);
+    REQUIRE(totient(integer(-5))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("catalan: integer values", "[3i][catalan]") {
     REQUIRE(catalan(integer(0)) == integer(1));
     REQUIRE(catalan(integer(1)) == integer(1));

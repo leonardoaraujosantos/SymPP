@@ -159,6 +159,54 @@ Expr fibonacci(const Expr& arg) {
 }
 
 // ============================================================================
+// Totient (Euler's φ)
+// ============================================================================
+
+Totient::Totient(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Totient);
+}
+Expr Totient::rebuild(std::vector<Expr> new_args) const {
+    return totient(new_args[0]);
+}
+std::optional<bool> Totient::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_positive(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr totient(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // φ is defined for n ≥ 1; non-positive n stays symbolic.
+        if (!z.is_positive()) return make<Totient>(arg);
+        mpz_class n = z.value();
+        // φ(n) = n · ∏_{p|n} (1 − 1/p), computed by trial-dividing out each
+        // distinct prime: when p divides the remaining m, do result -= result/p.
+        mpz_class result = n;
+        mpz_class m = n;
+        for (mpz_class p = 2; p * p <= m; ++p) {
+            if (mpz_divisible_p(m.get_mpz_t(), p.get_mpz_t())) {
+                while (mpz_divisible_p(m.get_mpz_t(), p.get_mpz_t())) m /= p;
+                result -= result / p;
+            }
+        }
+        if (m > 1) result -= result / m;  // a remaining prime factor > √n
+        return make<Integer>(std::move(result));
+    }
+    return make<Totient>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 

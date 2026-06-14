@@ -153,7 +153,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"sqrt", &sqrt}, {"abs", &abs}, {"sign", &sign},
         {"floor", &floor}, {"ceiling", &ceiling}, {"frac", &frac},
         {"factorial", &factorial}, {"subfactorial", &subfactorial},
-        {"fibonacci", &fibonacci}, {"catalan", &catalan},
+        {"fibonacci", &fibonacci}, {"catalan", &catalan}, {"totient", &totient},
         {"gamma", &gamma}, {"loggamma", &loggamma}, {"digamma", &digamma},
         {"erf", &erf}, {"erfc", &erfc}, {"erfi", &erfi}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},

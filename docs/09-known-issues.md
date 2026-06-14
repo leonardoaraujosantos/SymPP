@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### TOTIENT-1 — Euler's totient `totient(n)` was missing
+- **Problem:** `totient(n)` parsed only as an undefined function and never
+  evaluated, where SymPy's `totient` computes Euler's φ for positive integers
+  (`totient(12)=4`, `totient(7)=6`).
+- **Fix:** added a `Totient` function (FunctionId, class, builder, parser entry)
+  in `src/functions/combinatorial.cpp` / `include/sympp/functions/combinatorial.hpp`.
+  For a positive Integer it computes `φ(n) = n·∏_{p|n}(1−1/p)` by trial-dividing
+  out each distinct prime; symbolic and non-positive arguments stay unevaluated,
+  matching SymPy.
+- **Verified:** values for `{1,2,7,12,17,36,100,1000000}` and a large composite
+  (`totient(360360)=69120`) checked against SymPy.
+- **Regression test:** `TOTIENT-1` in `tests/functions/combinatorial_test.cpp`
+  (`[3i][totient][oracle]`, 11 assertions).
+- **Scope:** trial-division factorization is fine for everyday inputs; a
+  cryptographically large `n` with two huge prime factors would be slow (SymPy
+  has the same characteristic). Related number-theory functions (`isprime`,
+  `primepi`, `factorint`) remain unimplemented.
+
 ### SOLVE-INVFN-1 — `solve` returned `[]` for inverse trig/hyperbolic equations
 - **Problem:** `asin(x)−1`, `atan(x)−1`, `asinh(x)−2`, … all came back empty,
   where SymPy returns `[sin(1)]`, `[tan(1)]`, `[sinh(2)]` — the forward-function

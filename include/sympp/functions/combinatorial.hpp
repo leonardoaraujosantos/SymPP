@@ -109,6 +109,21 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Euler's totient φ(n): the count of integers in [1, n] coprime to n. Evaluates
+// for a positive integer; stays symbolic otherwise. Mirrors SymPy's totient.
+class SYMPP_EXPORT Totient final : public Function {
+public:
+    explicit Totient(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Totient;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "totient";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -179,6 +194,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr beta(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr totient(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);
