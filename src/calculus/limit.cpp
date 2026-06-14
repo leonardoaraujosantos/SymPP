@@ -22,6 +22,8 @@
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -375,6 +377,39 @@ struct NumDen { Expr num; Expr den; };
     return xreplace(e, m);
 }
 
+// Rewrite reciprocal trig/hyperbolic functions as sin/cos ratios:
+//   cot→cos/sin, csc→1/sin, sec→1/cos, coth→cosh/sinh, csch→1/sinh,
+//   sech→1/cosh. The limit machinery (direct substitution, L'Hôpital) handles
+//   sin/cos but treats cot/csc/… as opaque, so e.g. x·cot(x) → nan instead of 1.
+[[nodiscard]] Expr rewrite_reciprocal_trig(const Expr& e) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            if (fn.args().size() == 1) {
+                const Expr& u = fn.args()[0];
+                const Expr inv_sin = pow(sin(u), S::NegativeOne());
+                const Expr inv_cos = pow(cos(u), S::NegativeOne());
+                const Expr inv_sinh = pow(sinh(u), S::NegativeOne());
+                const Expr inv_cosh = pow(cosh(u), S::NegativeOne());
+                switch (fn.function_id()) {
+                    case FunctionId::Cot:  m.emplace(x, mul(cos(u), inv_sin)); break;
+                    case FunctionId::Csc:  m.emplace(x, inv_sin); break;
+                    case FunctionId::Sec:  m.emplace(x, inv_cos); break;
+                    case FunctionId::Coth: m.emplace(x, mul(cosh(u), inv_sinh)); break;
+                    case FunctionId::Csch: m.emplace(x, inv_sinh); break;
+                    case FunctionId::Sech: m.emplace(x, inv_cosh); break;
+                    default: break;
+                }
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    if (m.empty()) return e;
+    return xreplace(e, m);
+}
+
 // Number of gamma/factorial applications anywhere in e.
 [[nodiscard]] int count_gamma_factorial(const Expr& e) {
     int n = 0;
@@ -513,6 +548,13 @@ struct Growth {
 
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
+    // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
+    // rewrite them as sin/cos ratios (cot x → cos x/sin x, …) and retry, so
+    // forms like x·cot(x) resolve via L'Hôpital instead of returning nan.
+    if (depth < 12) {
+        Expr rw = rewrite_reciprocal_trig(expr);
+        if (!(rw == expr)) return limit_impl(rw, var, target, depth + 1);
+    }
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve
     // it from the one-sided signs rather than the point value sign(0)=0.
     if (depth < 12) {

@@ -16,6 +16,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-RECIPTRIG-1 — limits of cot/csc/sec (and hyperbolic) returned nan
+- **Problem:** `limit(x·cot(x), 0)` returned `nan` instead of `1`; likewise
+  `cot(x)·sin(x)`, `x·csc(x)`, `x·coth(x)`, `x²·csc²(x)`. The limit machinery
+  (direct substitution, L'Hôpital) understands sin/cos but treats the
+  reciprocal functions cot/csc/sec/coth/csch/sech as opaque, so any `0·∞` form
+  built from them failed.
+- **Fix:** added `rewrite_reciprocal_trig` in `src/calculus/limit.cpp`, applied
+  at the top of `limit_impl`: it rewrites `cot→cos/sin`, `csc→1/sin`,
+  `sec→1/cos`, `coth→cosh/sinh`, `csch→1/sinh`, `sech→1/cosh` and retries. The
+  rewrite is exact, so the limit is unchanged; the sin/cos form is one the
+  L'Hôpital path resolves.
+- **Verified:** `x·cot(x) → 1`, `cot(x)·sin(x) → 1`, `x·csc(x) → 1`,
+  `x·coth(x) → 1`, `x²·csc²(x) → 1`, `tan(x)·cot(x) → 1`,
+  `(cos x − 1)·csc(x) → 0` — all match SymPy. (`limit(cot(x), 0)` is `zoo`, the
+  correct two-sided value; SymPy's default one-sided gives `oo`.)
+- **Regression test:** `LIMIT-RECIPTRIG-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][limit][oracle][regression]`).
+- **Note:** this also unblocks part of the still-open Laurent-series gap
+  (`series(cot(x)) = 1/x − x/3 − …`), which additionally needs pole handling in
+  the series engine.
+
 ### SOLVE-EQ-1 — `solve(Eq(lhs, rhs))` and relational parsing returned `[]`
 - **Problem:** `solve(Eq(x**2, 4))` returned `[]` instead of `{2, −2}`. Two
   causes: (1) the parser built `Eq(a, b)` (and `Ne`/`Lt`/`Le`/`Gt`/`Ge`) as an

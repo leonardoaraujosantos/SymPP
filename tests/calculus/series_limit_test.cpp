@@ -359,6 +359,27 @@ TEST_CASE("limit: gamma/factorial at infinity (LIMIT-GAMMA-1)",
     REQUIRE(limit(pow(integer(2), x) / factorial(x), x, oo) == S::Zero());
 }
 
+// LIMIT-RECIPTRIG-1: reciprocal trig/hyperbolic functions (cot, csc, sec, coth,
+// csch, sech) were opaque to the limit engine, so 0·∞ forms like x·cot(x)
+// returned nan. The engine now rewrites them as sin/cos ratios before resolving.
+TEST_CASE("limit: reciprocal trig/hyperbolic (LIMIT-RECIPTRIG-1)",
+          "[6][limit][oracle][regression]") {
+    auto x = symbol("x");
+    const Expr z = S::Zero();
+    REQUIRE(limit(x * cot(x), x, z) == S::One());
+    REQUIRE(limit(cot(x) * sin(x), x, z) == S::One());
+    REQUIRE(limit(x * csc(x), x, z) == S::One());
+    REQUIRE(limit(x * coth(x), x, z) == S::One());
+    REQUIRE(limit(x * csch(x), x, z) == S::One());
+    REQUIRE(limit(sec(x), x, z) == S::One());
+    // x²·csc²(x) → 1, and tan·cot → 1 (both 0·∞ / ∞·0 reciprocal forms).
+    REQUIRE(limit(pow(x, integer(2)) * pow(csc(x), integer(2)), x, z)
+            == S::One());
+    REQUIRE(limit(tan(x) * cot(x), x, z) == S::One());
+    // (cos x − 1)·csc(x) → 0.
+    REQUIRE(limit((cos(x) - integer(1)) * csc(x), x, z) == S::Zero());
+}
+
 TEST_CASE("limit: at -oo", "[6][limit][infinity][oracle][regression]") {
     auto x = symbol("x");
     REQUIRE(limit(exp(x), x, S::NegativeInfinity()) == S::Zero());
