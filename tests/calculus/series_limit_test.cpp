@@ -375,6 +375,24 @@ TEST_CASE("limit: indeterminate power forms at a finite point (LIMIT-POWFORM-1)"
     REQUIRE(limit(pow(x, x), x, z) == S::One());
 }
 
+// LIMIT-CONJUGATE-1: ∞ − ∞ involving a radical, resolved by the conjugate.
+// x − √(x²+1) = −1/(x + √(x²+1)) → 0. Direct substitution gives the
+// indeterminate ∞ − ∞ (nan); the engine rationalizes via t₁+t₂ =
+// (t₁²−t₂²)/(t₁−t₂), clearing the radical from the numerator.
+TEST_CASE("limit: conjugate of a radical difference (LIMIT-CONJUGATE-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto sq = [&](const Expr& e) { return pow(e, rational(1, 2)); };
+    // x − √(x²+1) → 0, x − √(x²−1) → 0.
+    REQUIRE(limit(x - sq(pow(x, integer(2)) + integer(1)), x, oo) == S::Zero());
+    REQUIRE(limit(x - sq(pow(x, integer(2)) - integer(1)), x, oo) == S::Zero());
+    // √(x+1) − √x → 0.
+    REQUIRE(limit(sq(x + integer(1)) - sq(x), x, oo) == S::Zero());
+    // The non-indeterminate companion still diverges: x + √(x²+1) → ∞.
+    REQUIRE(limit(x + sq(pow(x, integer(2)) + integer(1)), x, oo) == oo);
+}
+
 TEST_CASE("limit: 0*oo and oo/oo forms at oo",
           "[6][limit][infinity][oracle][regression]") {
     auto& oracle = Oracle::instance();

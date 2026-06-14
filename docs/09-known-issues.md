@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-CONJUGATE-1 — `x − √(x²+1)` and radical ∞−∞ limits returned nan
+- **Problem:** `limit(x − √(x²+1), ∞)` returned `nan` instead of `0`; likewise
+  `x − √(x²−1)`, `√(x+1) − √x`. Direct substitution gives the indeterminate
+  `∞ − ∞`, and the existing polynomial / L'Hôpital paths don't handle radicals.
+- **Fix:** added `try_conjugate_difference` in `src/calculus/limit.cpp`. For a
+  two-term sum `t₁ + t₂` containing a radical whose limit is `∞ − ∞`, it
+  rationalizes via the conjugate: `t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂)`. Squaring
+  clears the radical from the numerator, and the resulting ratio resolves. A
+  key subtlety: the ratio is passed to `limit` **unsimplified**, because
+  `simplify` would rationalize the denominator straight back to the original
+  `∞ − ∞` form and loop (`limit` substitutes before simplifying, so the pole
+  collapses first).
+- **Verified:** `x − √(x²+1) → 0`, `x − √(x²−1) → 0`, `√(x+1) − √x → 0`;
+  the non-indeterminate `x + √(x²+1) → ∞` is unaffected.
+- **Regression test:** `LIMIT-CONJUGATE-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][limit][infinity][oracle][regression]`).
+- **Scope:** the conjugate resolves cases where squaring leaves a *constant* (or
+  lower-degree) numerator. `√(x²+x) − x → 1/2` is still open — its conjugate
+  leaves an `∞/∞`-with-radical ratio that needs a leading-term asymptotic
+  expansion (factoring the dominant power out of the radical). The log-ratio
+  `log x / log(2x) → 1` is also still open (different root cause).
+
 ### LIMIT-POWFORM-1 — `(1+x)^(1/x)` and other 1^∞ limits returned 1 instead of e
 - **Problem:** `limit((1+x)^(1/x), x, 0)` returned `1` instead of `e` — the
   textbook definition of e. Likewise `(1+2x)^(1/x) → 1` (should be `e²`),

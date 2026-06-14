@@ -546,6 +546,44 @@ struct Growth {
     return top_dir_sum > 0 ? S::Infinity() : S::Zero();
 }
 
+// True if e contains a non-integer power of a var-dependent base (a radical such
+// as √(x²+1) = (x²+1)^(1/2)), which the conjugate rationalization targets.
+[[nodiscard]] bool has_var_radical(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Pow
+        && e->args()[1]->type_id() != TypeId::Integer
+        && has(e->args()[0], var)) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_var_radical(a, var)) return true;
+    }
+    return false;
+}
+
+// ∞ − ∞ involving a radical, resolved by the conjugate. For a two-term sum
+// t₁ + t₂ (one term a square root) whose direct limit is the indeterminate
+// ∞ − ∞: t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂). Squaring clears the radical and the
+// ratio resolves — e.g. x − √(x²+1) → 0, √(x²+x) − x → 1/2, √(x+1) − √x → 0.
+[[nodiscard]] std::optional<Expr> try_conjugate_difference(
+    const Expr& expr, const Expr& var, const Expr& target, int depth) {
+    if (expr->type_id() != TypeId::Add || expr->args().size() != 2) {
+        return std::nullopt;
+    }
+    if (!has_var_radical(expr, var)) return std::nullopt;
+    const Expr& t1 = expr->args()[0];
+    const Expr& t2 = expr->args()[1];
+    Expr num = simplify(mul(t1, t1) + mul(S::NegativeOne(), mul(t2, t2)));
+    Expr den = simplify(t1 + mul(S::NegativeOne(), t2));  // t₁ − t₂
+    if (den == S::Zero() || has_var_radical(num, var)) return std::nullopt;
+    // Pass the ratio UNSIMPLIFIED: simplify() would rationalize the denominator
+    // straight back to the original ∞ − ∞ form and loop. limit_impl substitutes
+    // before simplifying, so the genuine pole collapses first.
+    Expr val = limit_impl(mul(num, pow(den, S::NegativeOne())), var, target,
+                          depth + 1);
+    if (is_nan(val)) return std::nullopt;
+    return val;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -624,6 +662,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                     }
                 } catch (const std::exception&) {
                     // not a polynomial in var — fall through to other methods
+                }
+                // ∞ − ∞ with a radical: rationalize via the conjugate.
+                if (auto v = try_conjugate_difference(expr, var, target, depth)) {
+                    return *v;
                 }
             }
             // Linearity over a sum: when every term has a determinate finite
