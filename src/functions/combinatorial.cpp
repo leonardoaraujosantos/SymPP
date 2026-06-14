@@ -207,6 +207,89 @@ Expr totient(const Expr& arg) {
 }
 
 // ============================================================================
+// Prime / PrimePi
+// ============================================================================
+
+namespace {
+// Shared integer-arg / assumption boilerplate for the prime functions.
+[[nodiscard]] std::optional<bool> prime_fn_ask(const Expr& a,
+                                               AssumptionKey k) noexcept {
+    switch (k) {
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_integer(a) == true && is_positive(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+}  // namespace
+
+Prime::Prime(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Prime);
+}
+Expr Prime::rebuild(std::vector<Expr> new_args) const {
+    return prime(new_args[0]);
+}
+std::optional<bool> Prime::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr prime(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // prime(n) is the n-th prime, defined for n ≥ 1.
+        if (!z.is_positive() || !z.fits_long()) return make<Prime>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Prime>(arg);  // safety bound
+        mpz_class p = 1;
+        for (long i = 0; i < n; ++i) {
+            mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
+        }
+        return make<Integer>(std::move(p));
+    }
+    return make<Prime>(arg);
+}
+
+PrimePi::PrimePi(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::PrimePi);
+}
+Expr PrimePi::rebuild(std::vector<Expr> new_args) const {
+    return primepi(new_args[0]);
+}
+std::optional<bool> PrimePi::ask(AssumptionKey k) const noexcept {
+    return prime_fn_ask(args_[0], k);
+}
+
+Expr primepi(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // π(n) counts primes ≤ n; π(n) = 0 for n < 2.
+        if (z.is_negative() || !z.fits_long()) {
+            if (z.is_negative()) return integer(0);
+            return make<PrimePi>(arg);
+        }
+        long n = z.to_long();
+        if (n < 2) return integer(0);
+        if (n > 100'000'000) return make<PrimePi>(arg);  // safety bound
+        long count = 0;
+        mpz_class p = 1;
+        const mpz_class limit = z.value();
+        for (;;) {
+            mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
+            if (p > limit) break;
+            ++count;
+        }
+        return integer(count);
+    }
+    return make<PrimePi>(arg);
+}
+
+// ============================================================================
 // Catalan
 // ============================================================================
 

@@ -253,6 +253,35 @@ TEST_CASE("totient: Euler's phi (TOTIENT-1)", "[3i][totient][oracle]") {
     REQUIRE(totient(integer(-5))->type_id() == TypeId::Function);
 }
 
+// PRIME-PRIMEPI-1: prime(n) is the n-th prime and primepi(n) counts primes ≤ n.
+// Both evaluate for integers (primepi clamps to 0 below 2) and stay symbolic for
+// symbols / non-positive prime() indices. Matches SymPy.
+TEST_CASE("prime/primepi: nth prime and prime counting (PRIME-PRIMEPI-1)",
+          "[3i][prime][primepi][oracle]") {
+    auto& oracle = Oracle::instance();
+    // prime(n): 1-indexed n-th prime.
+    REQUIRE(prime(integer(1)) == integer(2));
+    REQUIRE(prime(integer(5)) == integer(11));
+    REQUIRE(prime(integer(10)) == integer(29));
+    REQUIRE(prime(integer(100)) == integer(541));
+    REQUIRE(oracle.equivalent(prime(integer(1000))->str(), "7919"));
+    // primepi(n): count of primes ≤ n.
+    REQUIRE(primepi(integer(1)) == integer(0));
+    REQUIRE(primepi(integer(2)) == integer(1));
+    REQUIRE(primepi(integer(10)) == integer(4));
+    REQUIRE(primepi(integer(100)) == integer(25));
+    REQUIRE(primepi(integer(-3)) == integer(0));
+    REQUIRE(oracle.equivalent(primepi(integer(10000))->str(), "1229"));
+    // prime(primepi(p)) == p for a prime p; primepi(prime(k)) == k.
+    REQUIRE(prime(primepi(integer(13))) == integer(13));
+    REQUIRE(primepi(prime(integer(7))) == integer(7));
+    // Symbolic / out-of-domain arguments stay unevaluated.
+    auto n = symbol("n");
+    REQUIRE(prime(n)->type_id() == TypeId::Function);
+    REQUIRE(primepi(n)->type_id() == TypeId::Function);
+    REQUIRE(prime(integer(0))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("catalan: integer values", "[3i][catalan]") {
     REQUIRE(catalan(integer(0)) == integer(1));
     REQUIRE(catalan(integer(1)) == integer(1));

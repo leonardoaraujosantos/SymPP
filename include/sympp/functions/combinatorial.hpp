@@ -124,6 +124,36 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// prime(n): the n-th prime (prime(1)=2, prime(5)=11). Evaluates for a positive
+// integer index; stays symbolic otherwise. Mirrors SymPy's prime.
+class SYMPP_EXPORT Prime final : public Function {
+public:
+    explicit Prime(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Prime;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "prime";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
+// primepi(n): the count of primes ≤ n. Evaluates for an integer; stays symbolic
+// otherwise. Mirrors SymPy's primepi.
+class SYMPP_EXPORT PrimePi final : public Function {
+public:
+    explicit PrimePi(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::PrimePi;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "primepi";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 class SYMPP_EXPORT Catalan final : public Function {
 public:
     explicit Catalan(Expr arg);
@@ -195,6 +225,8 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr beta(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr totient(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr prime(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr primepi(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr catalan(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gcd(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr lcm(const Expr& a, const Expr& b);

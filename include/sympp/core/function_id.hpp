@@ -78,6 +78,8 @@ enum class FunctionId : std::uint16_t {
     Gcd,
     Lcm,
     Totient,
+    Prime,
+    PrimePi,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

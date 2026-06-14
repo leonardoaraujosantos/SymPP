@@ -154,6 +154,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"floor", &floor}, {"ceiling", &ceiling}, {"frac", &frac},
         {"factorial", &factorial}, {"subfactorial", &subfactorial},
         {"fibonacci", &fibonacci}, {"catalan", &catalan}, {"totient", &totient},
+        {"prime", &prime}, {"primepi", &primepi},
         {"gamma", &gamma}, {"loggamma", &loggamma}, {"digamma", &digamma},
         {"erf", &erf}, {"erfc", &erfc}, {"erfi", &erfi}, {"zeta", &zeta},
         {"LambertW", &lambertw}, {"lambertw", &lambertw},

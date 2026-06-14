@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### PRIME-PRIMEPI-1 — `prime(n)` and `primepi(n)` were missing
+- **Problem:** following TOTIENT-1, the prime-indexing/counting functions stayed
+  symbolic — `prime(5)`, `primepi(10)` parsed only as undefined functions, where
+  SymPy gives `11` and `4`.
+- **Fix:** added `Prime` and `PrimePi` functions (FunctionId, classes, builders,
+  parser entries) in `src/functions/combinatorial.cpp` /
+  `include/sympp/functions/combinatorial.hpp`. `prime(n)` walks `mpz_nextprime`
+  `n` times for the n-th prime; `primepi(n)` counts primes ≤ n the same way
+  (clamping to 0 below 2). Symbolic args and a non-positive `prime` index stay
+  unevaluated, matching SymPy.
+- **Verified:** `prime` on `{1,5,10,100,1000}` and `primepi` on
+  `{1,2,10,100,10000}` checked against SymPy, plus the round-trips
+  `prime(primepi(13))=13` and `primepi(prime(7))=7`.
+- **Regression test:** `PRIME-PRIMEPI-1` in
+  `tests/functions/combinatorial_test.cpp` (`[3i][prime][primepi][oracle]`,
+  16 assertions).
+- **Scope:** the `mpz_nextprime` walk is linear in the index/count (safety-bounded
+  at `prime(10⁶)` / `primepi(10⁸)`); a very large `primepi` would want a
+  Meissel–Mertens sieve. `isprime`, `factorint`, `divisors` remain.
+
 ### TOTIENT-1 — Euler's totient `totient(n)` was missing
 - **Problem:** `totient(n)` parsed only as an undefined function and never
   evaluated, where SymPy's `totient` computes Euler's φ for positive integers
