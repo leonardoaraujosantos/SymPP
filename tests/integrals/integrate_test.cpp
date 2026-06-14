@@ -2280,3 +2280,32 @@ TEST_CASE("integrate: irreducible biquadratic 1/(x⁴+q) (INT-BIQUADRATIC-1)",
             ->str(),
         "1/(x**4 + x**2 + 1)"));
 }
+
+// INT-BIQUAD-NUM-1: ∫(n₂x²+n₀)/(a₄x⁴+a₂x²+a₀) — an even polynomial numerator
+// over an irreducible biquadratic, e.g. ∫x²/(x⁴+1). Closed via the same
+// ℚ(√q) factorization as INT-BIQUADRATIC-1 with the numerator distributed
+// across the two real-quadratic partial fractions; previously unevaluated.
+// Verified by differentiating back.
+TEST_CASE("integrate: even numerator over biquadratic (INT-BIQUAD-NUM-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto over4 = [&](const Expr& numer, const Expr& a2, const Expr& a0) {
+        return numer
+               * pow(pow(x, integer(4)) + a2 * pow(x, integer(2)) + a0,
+                     integer(-1));
+    };
+    const std::vector<Expr> integrands = {
+        over4(pow(x, integer(2)), integer(0), integer(1)),                 // x²/(x⁴+1)
+        over4(pow(x, integer(2)) + integer(1), integer(0), integer(1)),    // (x²+1)/(x⁴+1)
+        over4(pow(x, integer(2)), integer(1), integer(1)),                 // x²/(x⁴+x²+1)
+        over4(integer(3) * pow(x, integer(2)) + integer(2), integer(0),
+              integer(4)),                                    // (3x²+2)/(x⁴+4)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}

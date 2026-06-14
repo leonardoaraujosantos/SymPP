@@ -1649,6 +1649,14 @@ std::optional<Expr> try_hyperbolic_power(const Expr& expr, const Expr& var) {
 }
 
 std::optional<Expr> try_rational(const Expr& expr, const Expr& var) {
+    // Defer to monomial substitution when one applies (e.g. x²/(x⁶+1) →
+    // ⅓·atan(x³)): a partial-fraction expansion would yield the same
+    // antiderivative in a far messier form. The later try_monomial_substitution
+    // in the dispatch chain picks these up; bare quadratics like x/(x²+1) are
+    // not monomial candidates and are unaffected.
+    if (try_monomial_substitution(expr, var).has_value()) {
+        return std::nullopt;
+    }
     // Bring to single fraction.
     Expr t = together(expr);
     Expr num = S::One();
@@ -2056,11 +2064,27 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
 }
 
 std::optional<Expr> try_biquadratic(const Expr& expr, const Expr& var) {
-    if (expr->type_id() != TypeId::Pow
-        || !(expr->args()[1] == S::NegativeOne())) {
+    // Split into numerator N and the quartic denominator: N · base^(-1).
+    Expr num = S::One();
+    Expr base;
+    if (expr->type_id() == TypeId::Pow && expr->args()[1] == S::NegativeOne()) {
+        base = expr->args()[0];
+    } else if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> num_factors;
+        for (const auto& f : expr->args()) {
+            if (!base && f->type_id() == TypeId::Pow
+                && f->args()[1] == S::NegativeOne()
+                && depends_on(f->args()[0], var)) {
+                base = f->args()[0];
+            } else {
+                num_factors.push_back(f);
+            }
+        }
+        if (!base) return std::nullopt;
+        num = num_factors.empty() ? Expr{S::One()} : mul(std::move(num_factors));
+    } else {
         return std::nullopt;
     }
-    const Expr& base = expr->args()[0];
     if (!depends_on(base, var)) return std::nullopt;
     Poly poly(expand(base), var);
     if (poly.degree() != 4) return std::nullopt;
@@ -2069,6 +2093,21 @@ std::optional<Expr> try_biquadratic(const Expr& expr, const Expr& var) {
     if (!(cf[1] == S::Zero()) || !(cf[3] == S::Zero())) return std::nullopt;
     if (is_rational(cf[0]) != true || is_rational(cf[2]) != true
         || is_rational(cf[4]) != true) {
+        return std::nullopt;
+    }
+    // Numerator must be an even polynomial of degree ≤ 2: n₀ + n₂·x². (Odd
+    // numerators — x, x³ — are handled more cleanly by the substitution paths.)
+    Expr n0 = S::Zero();
+    Expr n2 = S::Zero();
+    try {
+        Poly np(expand(num), var);
+        if (np.degree() > 2) return std::nullopt;
+        const auto& nc = np.coeffs();
+        if (nc.size() > 0) n0 = nc[0];
+        if (nc.size() > 1 && !(nc[1] == S::Zero())) return std::nullopt;  // odd
+        if (nc.size() > 2) n2 = nc[2];
+        if (has(n0, var) || has(n2, var)) return std::nullopt;
+    } catch (const std::exception&) {
         return std::nullopt;
     }
     const Expr& a4 = cf[4];
@@ -2083,8 +2122,13 @@ std::optional<Expr> try_biquadratic(const Expr& expr, const Expr& var) {
         return std::nullopt;
     }
     Expr a = sqrt(simplify(two_b - p));        // √(2√q − p)
-    Expr cap_p = simplify(pow(mul({integer(2), a, b}), integer(-1)));  // 1/(2ab)
-    Expr cap_q = simplify(pow(two_b, integer(-1)));                    // 1/(2b)
+    // Partial fractions of (n₀ + n₂·x²)/((x²+a·x+b)(x²−a·x+b)) exploit the mirror
+    // symmetry (x → −x): the two numerators are P₁·x+Q and −P₁·x+Q, with
+    //   S_Q = n₀/b,  D_P = (n₂ − S_Q)/a,  P₁ = −D_P/2,  Q = S_Q/2.
+    Expr s_q = simplify(n0 * pow(b, integer(-1)));
+    Expr d_p = simplify((n2 - s_q) * pow(a, integer(-1)));
+    Expr cap_p = simplify(mul(rational(-1, 2), d_p));   // P₁
+    Expr cap_q = simplify(mul(rational(1, 2), s_q));    // Q
     // ∫ (α·x + β)/(x² + γ·x + b) for an irreducible quadratic (4b − γ² > 0):
     //   (α/2)·log(x² + γ·x + b)
     //   + (β − αγ/2)·(2/√(4b − γ²))·atan((2x + γ)/√(4b − γ²)).

@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-BIQUAD-NUM-1 — `∫x²/(x⁴+1)` (even numerator over a biquadratic) was unevaluated
+- **Problem:** `INT-BIQUADRATIC-1` only handled `1/(biquadratic)`. A polynomial
+  numerator over the same irreducible biquadratic — `∫x²/(x⁴+1)`,
+  `∫(x²+1)/(x⁴+1)`, `∫(3x²+2)/(x⁴+4)` — still came back unevaluated, since the
+  rational path factors only over ℚ.
+- **Fix:** generalized `try_biquadratic` in `src/integrals/integrate.cpp` to
+  accept `N·base^(-1)` where `N` is an even polynomial of degree ≤ 2
+  (`n₀+n₂·x²`; odd numerators are left to the cleaner substitution paths). The
+  numerator is distributed across the two real-quadratic partial fractions
+  (`s_q=n₀/b`, `d_p=(n₂−s_q)/a`), each `(α·x+β)/(x²±a·x+b)` piece integrating to
+  `log + arctan` as before. To keep clean closed forms, `try_rational` now
+  defers (returns `nullopt`) whenever a monomial substitution applies — so
+  `x²/(x⁶+1)` still yields `⅓·atan(x³)` rather than a partial-fraction expansion,
+  while non-candidate forms like `x²/(x⁴+1)` reach the biquadratic path.
+- **Verified:** `x²/(x⁴+1)`, `(x²+1)/(x⁴+1)`, `x²/(x⁴+x²+1)`, `1/(x⁴+1)`,
+  `(3x²+2)/(x⁴+4)` each differentiate back to the integrand; `x²/(x⁶+1)`,
+  `x/(x²+1)` and the prior biquadratic/rational cases are unchanged.
+- **Regression test:** `INT-BIQUAD-NUM-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`,
+  8 assertions).
+- **Scope:** even numerators (degree ≤ 2) over an irreducible biquadratic. Odd
+  numerators and higher-degree numerators remain on the substitution/rational
+  paths.
+
 ### LIMIT-RAT-SYM-1 — limit of a rational function at ∞ broke with symbolic coefficients
 - **Problem:** `limit((x+a)/x, x, ∞)` returned `0` (should be `1`), and
   `a·x/(x+1)` stayed unevaluated. Numeric-coefficient rationals (`(2x+1)/(x+1)→2`)
