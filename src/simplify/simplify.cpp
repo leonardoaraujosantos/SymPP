@@ -1799,6 +1799,21 @@ namespace {
                         neg_used[j] = true;
                         break;
                     }
+                    if (k < 0 && k >= -50) {
+                        // Denominator is the larger factorial: the ratio is the
+                        // reciprocal of the rising product. m = b - a terms.
+                        //   factorial(a)/factorial(b) → 1/falling_factorial(b, m)
+                        //   gamma(a)/gamma(b)         → 1/falling_factorial(b-1, m)
+                        long m = -k;
+                        Expr bot = (matcher == as_factorial_arg)
+                                       ? neg_args[j]
+                                       : (neg_args[j] - integer(1));
+                        pairings.push_back(
+                            pow(falling_factorial(bot, m), integer(-1)));
+                        pos_used[i] = true;
+                        neg_used[j] = true;
+                        break;
+                    }
                 }
             }
         }
@@ -1957,7 +1972,61 @@ namespace {
     return mul(std::move(factors));
 }
 
+// Does any subexpression apply the function `id`?
+[[nodiscard]] bool contains_function_id(const Expr& e, FunctionId id) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).function_id() == id) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_function_id(a, id)) return true;
+    }
+    return false;
+}
+
+// combsimp on a ratio/product of binomials: rewrite binomial(a,b) =
+// a!/(b!·(a−b)!) so the factorial-ratio cancellation closes shifts like
+// binomial(n,k)/binomial(n,k−1) → (n−k+1)/k. Only adopted when the rewrite
+// fully resolves (no factorial or binomial remains); otherwise binomial(n,k)
+// would expand into an uglier factorial form, so the input is kept. Mirrors
+// SymPy's combsimp, which collapses such ratios.
+[[nodiscard]] Expr combsimp_binomial_ratio(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    bool has_binom = false;
+    std::vector<Expr> expanded;
+    for (const auto& f : e->args()) {
+        Expr base = f;
+        Expr exp_e = S::One();
+        if (f->type_id() == TypeId::Pow) {
+            base = f->args()[0];
+            exp_e = f->args()[1];
+        }
+        if (auto b = as_binomial(base)) {
+            has_binom = true;
+            const Expr& a = b->first;
+            const Expr& k = b->second;
+            Expr neg_exp = mul(S::NegativeOne(), exp_e);
+            // binomial(a,k)^p = a!^p · k!^(−p) · (a−k)!^(−p).
+            expanded.push_back(pow(factorial(a), exp_e));
+            expanded.push_back(pow(factorial(k), neg_exp));
+            expanded.push_back(pow(factorial(simplify(a - k)), neg_exp));
+        } else {
+            expanded.push_back(f);
+        }
+    }
+    if (!has_binom) return e;
+    Expr canceled = gamma_recurrence(
+        simplify_func_ratio(mul(std::move(expanded)), as_factorial_arg));
+    if (contains_function_id(canceled, FunctionId::Factorial)
+        || contains_function_id(canceled, FunctionId::Binomial)) {
+        return e;  // didn't fully resolve — keep the cleaner binomial form
+    }
+    return canceled;
+}
+
 [[nodiscard]] Expr combsimp_node(const Expr& e) {
+    if (Expr ratio = combsimp_binomial_ratio(e); !(ratio == e)) return ratio;
     return gamma_recurrence(
         combsimp_binomial(simplify_func_ratio(e, as_factorial_arg)));
 }

@@ -871,6 +871,49 @@ TEST_CASE("combsimp: leaves unrelated factorials alone",
                               "factorial(n)/factorial(m)"));
 }
 
+// COMB-RATIO-1: factorial/gamma ratios where the DENOMINATOR is the larger
+// argument (factorial(k−1)/factorial(k) → 1/k), and binomial ratios that reduce
+// through them (binomial(n,k)/binomial(n,k−1) → (n−k+1)/k). The ratio simplifier
+// previously only cancelled when the numerator argument was larger.
+TEST_CASE("combsimp: reciprocal factorial/binomial ratios (COMB-RATIO-1)",
+          "[5][combsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto k = symbol("k");
+    auto z = symbol("z");
+    // Denominator-larger factorial ratio.
+    REQUIRE(oracle.equivalent(
+        combsimp(factorial(k - integer(1)) * pow(factorial(k), integer(-1)))
+            ->str(),
+        "1/k"));
+    REQUIRE(oracle.equivalent(
+        combsimp(factorial(n) * pow(factorial(n + integer(2)), integer(-1)))
+            ->str(),
+        "1/((n+1)*(n+2))"));
+    // Gamma direction: gamma(z)/gamma(z+1) → 1/z.
+    REQUIRE(oracle.equivalent(
+        gammasimp(gamma(z) * pow(gamma(z + integer(1)), integer(-1)))->str(),
+        "1/z"));
+    // Binomial ratios that need the reciprocal cancellation.
+    auto binom = [](const Expr& a, const Expr& b) { return binomial(a, b); };
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n, k) * pow(binom(n, k - integer(1)), integer(-1)))
+            ->str(),
+        "(n - k + 1)/k"));
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n + integer(1), k) * pow(binom(n, k), integer(-1)))
+            ->str(),
+        "(n + 1)/(n - k + 1)"));
+    REQUIRE(oracle.equivalent(
+        combsimp(binom(n, k) * pow(binom(n - integer(1), k), integer(-1)))
+            ->str(),
+        "n/(n - k)"));
+    // A binomial that does not simplify stays in binomial form (not expanded
+    // into an uglier factorial ratio).
+    REQUIRE(oracle.equivalent(combsimp(binom(integer(2) * n, n))->str(),
+                              "binomial(2*n, n)"));
+}
+
 // GAMMA-REC-1 — gamma recurrence z*gamma(z) = gamma(z+1) inside a product.
 TEST_CASE("combsimp: gamma recurrence absorbs polynomial factors",
           "[5][combsimp][gamma][oracle][regression]") {

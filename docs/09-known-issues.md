@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### COMB-RATIO-1 — `combsimp`/`gammasimp` only cancelled ratios when the numerator was larger
+- **Problem:** `simplify_func_ratio` cancelled `factorial(a)/factorial(b)` (and
+  the gamma analogue) only when `a − b` was a *non-negative* integer. When the
+  denominator held the larger argument it gave up: `factorial(k−1)/factorial(k)`
+  stayed instead of `1/k`, `gamma(z)/gamma(z+1)` instead of `1/z`. This also
+  blocked binomial-ratio simplification entirely — `binomial(n,k)/binomial(n,k−1)`
+  stayed where SymPy returns `(n−k+1)/k`.
+- **Fix (two parts) in `src/simplify/simplify.cpp`:**
+  1. Added the negative-difference branch to `simplify_func_ratio`: for
+     `a − b = −m` it emits `1/falling_factorial(b, m)` (factorial) or
+     `1/falling_factorial(b−1, m)` (gamma).
+  2. Added `combsimp_binomial_ratio`, which rewrites `binomial(a,b) =
+     a!/(b!·(a−b)!)` inside a `Mul` so the now-bidirectional factorial
+     cancellation closes binomial shifts — but only adopts the result when it
+     fully resolves (no factorial/binomial left), so a lone `binomial(2n,n)`
+     keeps its compact form rather than expanding into factorials.
+- **Verified:** `factorial(k−1)/factorial(k) → 1/k`, `gamma(z)/gamma(z+1) → 1/z`,
+  and `binomial(n,k)/binomial(n,k−1)`, `binomial(n+1,k)/binomial(n,k)`,
+  `binomial(n,k)/binomial(n−1,k)`, `binomial(n,k)/binomial(n,k−2)` all checked
+  equal to SymPy; non-reducible binomials/factorials are unchanged.
+- **Regression test:** `COMB-RATIO-1` in `tests/simplify/simplify_test.cpp`
+  (`[5][combsimp][oracle][regression]`, 7 assertions).
+
 ### TRIG-PI5-1 — `sin/cos/tan` of the pentagon angles (π/5, π/10) stayed unevaluated
 - **Problem:** following TRIG-PI8-1, the remaining common special angles — the
   pentagon family π/5 (36°) and π/10 (18°) — were still symbolic, where SymPy
