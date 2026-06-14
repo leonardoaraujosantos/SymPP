@@ -79,6 +79,35 @@ TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
                               "1 + x + x**2/2 + x**3/6"));
 }
 
+// SERIES-LAURENT-1: functions with a pole at 0 (cot, csc, coth, csch, 1/sin,
+// csc², 1/(eˣ−1)) expand to a Laurent series. The engine rewrites reciprocal
+// trig/hyperbolic to sin/cos ratios and divides the numerator and denominator
+// power series; previously these returned the input unexpanded.
+TEST_CASE("series: Laurent expansion at a pole (SERIES-LAURENT-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto chk = [&](const Expr& e, const std::string& want) {
+        REQUIRE(oracle.equivalent(series(e, x, zero, 6)->str(), want));
+    };
+    // cot(x) = 1/x − x/3 − x³/45 − 2x⁵/945.
+    chk(cot(x), "1/x - x/3 - x**3/45 - 2*x**5/945");
+    // csc(x) = 1/x + x/6 + 7x³/360 + 31x⁵/15120.
+    chk(csc(x), "1/x + x/6 + 7*x**3/360 + 31*x**5/15120");
+    // coth(x) = 1/x + x/3 − x³/45 + 2x⁵/945.
+    chk(coth(x), "1/x + x/3 - x**3/45 + 2*x**5/945");
+    // csch(x) = 1/x − x/6 + 7x³/360 − 31x⁵/15120.
+    chk(csch(x), "1/x - x/6 + 7*x**3/360 - 31*x**5/15120");
+    // Second-order pole: csc²(x) = 1/x² + 1/3 + x²/15 + 2x⁴/189.
+    chk(pow(csc(x), integer(2)), "1/x**2 + 1/3 + x**2/15 + 2*x**4/189");
+    // 1/(eˣ − 1) = 1/x − 1/2 + x/12 − x³/720 + x⁵/30240.
+    chk(pow(exp(x) - integer(1), integer(-1)),
+        "1/x - 1/2 + x/12 - x**3/720 + x**5/30240");
+    // x·cot(x) is analytic (the pole cancels): 1 − x²/3 − x⁴/45.
+    chk(x * cot(x), "1 - x**2/3 - x**4/45");
+}
+
 // ----- limit ----------------------------------------------------------------
 
 TEST_CASE("limit: polynomial substitution", "[6][limit]") {

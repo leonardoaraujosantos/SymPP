@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### SERIES-LAURENT-1 — functions with a pole at 0 had no series expansion
+- **Problem:** `series(cot(x))`, `csc(x)`, `coth(x)`, `csch(x)`, `csc(x)²`,
+  `1/(eˣ−1)` all returned the input unexpanded. The series engine was a pure
+  Taylor expansion: at a pole the leading coefficient is non-finite, so it gave
+  up. (Even `x·cot(x)`, which is analytic, failed — the Taylor path's
+  higher derivatives hit ∞−∞ forms the limit engine could not resolve.)
+- **Fix:** rewrote `src/calculus/series.cpp` around a **power-series division**
+  Laurent path. When the ordinary Taylor expansion fails, the engine rewrites
+  reciprocal trig/hyperbolic functions to sin/cos ratios
+  (`cot→cos/sin`, `csc→1/sin`, …), splits the result into numerator `N` and
+  denominator `D`, Taylor-expands both (analytic), and divides the power series:
+  `f = x^(v_N − v_D)·(Ñ/D̃)` with `Ñ(0), D̃(0) ≠ 0`. This yields the Laurent
+  series directly, including negative powers, without differentiating the
+  singular function. Genuine singularities (`log x`) still return unexpanded.
+- **Verified:** `cot(x) = 1/x − x/3 − x³/45 − …`,
+  `csc(x) = 1/x + x/6 + 7x³/360 + …`, `coth`, `csch`, `csc²(x) = 1/x² + 1/3 + …`,
+  `1/(eˣ−1) = 1/x − 1/2 + x/12 − …`, and `x·cot(x) = 1 − x²/3 − …` — all match
+  SymPy; analytic functions (`exp`, `sin`, `1/(1−x)`) and `log x`, `1/x`, `1/x²`
+  are unchanged.
+- **Regression test:** `SERIES-LAURENT-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][series][oracle][regression]`).
+- **Scope:** Laurent expansion at `x0 = 0`. A pole at a non-zero point would
+  need the same division after shifting the expansion variable.
+
 ### LIMIT-RECIPTRIG-1 — limits of cot/csc/sec (and hyperbolic) returned nan
 - **Problem:** `limit(x·cot(x), 0)` returned `nan` instead of `1`; likewise
   `cot(x)·sin(x)`, `x·csc(x)`, `x·coth(x)`, `x²·csc²(x)`. The limit machinery
