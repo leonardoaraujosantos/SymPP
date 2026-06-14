@@ -19,8 +19,10 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/matrices/matrix.hpp>
 
@@ -1118,6 +1120,72 @@ Expr cancel(const Expr& expr, const Expr& var) {
         return reduced_num.as_expr();
     }
     return reduced_num.as_expr() / reduced_den.as_expr();
+}
+
+namespace {
+// The single free symbol of the given expressions, or nullopt if there is not
+// exactly one (used to infer the polynomial variable for the parser-facing
+// poly operations).
+[[nodiscard]] std::optional<Expr> inferred_var(const Expr& a, const Expr& b) {
+    ExprSet vars;
+    for (const auto& s : free_symbols(a)) vars.insert(s);
+    if (b) {
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+    }
+    if (vars.size() != 1) return std::nullopt;
+    return *vars.begin();
+}
+}  // namespace
+
+Expr cancel(const Expr& expr) {
+    auto nd = as_numer_denom(expr);
+    auto var = inferred_var(nd.numer, nd.denom);
+    if (!var) return expr;  // no/multiple vars: nothing univariate to cancel
+    return cancel(expr, *var);
+}
+
+Expr degree(const Expr& expr) {
+    auto var = inferred_var(expr, Expr{});
+    if (!var) {
+        // A constant: deg(0) = −∞, deg(c≠0) = 0 (matching SymPy).
+        if (free_symbols(expr).empty()) {
+            return expr == S::Zero() ? S::NegativeInfinity()
+                                     : Expr{integer(0)};
+        }
+        return function_symbol("degree")(std::vector<Expr>{expr});
+    }
+    try {
+        Poly p(expand(expr), *var);
+        return integer(static_cast<long>(p.degree()));
+    } catch (const std::exception&) {
+        return function_symbol("degree")(std::vector<Expr>{expr});
+    }
+}
+
+Expr quo(const Expr& a, const Expr& b) {
+    auto var = inferred_var(a, b);
+    if (var) {
+        try {
+            Poly pa(expand(a), *var);
+            Poly pb(expand(b), *var);
+            return pa.divmod(pb).first.as_expr();
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("quo")(std::vector<Expr>{a, b});
+}
+
+Expr rem(const Expr& a, const Expr& b) {
+    auto var = inferred_var(a, b);
+    if (var) {
+        try {
+            Poly pa(expand(a), *var);
+            Poly pb(expand(b), *var);
+            return pa.divmod(pb).second.as_expr();
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("rem")(std::vector<Expr>{a, b});
 }
 
 namespace {

@@ -23,6 +23,7 @@
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/integers.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
@@ -167,6 +168,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"Shi", &sinhint}, {"Chi", &coshint},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate}, {"arg", &arg_},
+        // Univariate polynomial operations (variable inferred from the args).
+        {"cancel", static_cast<OneArgFn>(&cancel)}, {"degree", &degree},
         // SymPy canonical spellings — these are the names str() emits, so the
         // parser must accept them too for round-tripping (parse(e->str()) == e).
         {"Abs", &abs}, {"Heaviside", &heaviside}, {"DiracDelta", &dirac_delta},
@@ -181,6 +184,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"beta", &beta},
         {"gcd", &gcd},
         {"lcm", &lcm},
+        {"quo", &quo},
+        {"rem", &rem},
         {"log", static_cast<TwoArgFn>(&log)},
         // Relational constructors: Eq(a, b), Ne(a, b), Lt/Le/Gt/Ge(a, b).
         {"Eq", &eq},

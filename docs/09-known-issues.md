@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### POLYOP-1 — `degree`, `quo`, `rem`, `cancel` parsed to unevaluated nodes
+- **Problem:** `degree(x³+2x)`, `quo(x²−1, x−1)`, `rem(x², x−1)` and the
+  one-argument `cancel((x²−1)/(x−1))` came back as opaque function nodes. The
+  `cancel(expr, var)` C++ function existed but needed an explicit variable, and
+  `degree`/`quo`/`rem` were not implemented or registered with the parser.
+- **Fix:** added parser-facing wrappers in `src/polys/poly.cpp` that infer the
+  polynomial variable from the single free symbol (`inferred_var`), then call
+  the `Poly` primitives: `degree → Poly::degree`, `quo`/`rem →
+  `Poly::divmod`, and a 1-argument `cancel` over the existing `cancel(expr,
+  var)`. Each falls back to an unevaluated node when the argument is not a
+  univariate polynomial expression. Registered `cancel`, `degree` (one-arg) and
+  `quo`, `rem` (two-arg) in the parser.
+- **Verified:** `degree(x³+2x) = 3`, `degree(5) = 0`, `quo(x²−1, x−1) = x+1`,
+  `quo(x³−1, x−1) = x²+x+1`, `rem(x², x−1) = 1`,
+  `cancel((x²−1)/(x−1)) = x+1` — all match SymPy.
+- **Regression test:** `POLYOP-1` in `tests/polys/poly_test.cpp`
+  (`[4][poly][oracle][regression]`).
+- **Scope:** univariate. `degree(0) = −∞` and `degree(c≠0) = 0` for constants,
+  matching SymPy.
+
 ### LCM-POLY-1 — `lcm` of polynomials stayed unevaluated
 - **Problem:** `lcm(x²−1, x−1)` returned an unevaluated `lcm(...)` node instead
   of `x²−1`. Like `gcd`, the `lcm` function only handled two integers.

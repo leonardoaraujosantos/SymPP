@@ -807,6 +807,29 @@ TEST_CASE("cancel: nothing in common returns input", "[4][cancel][oracle]") {
     REQUIRE(oracle.equivalent(c->str(), "(x + 1)/(x - 1)"));
 }
 
+// POLYOP-1: parser-facing univariate polynomial operations with the variable
+// inferred from the single free symbol — degree, quo, rem, and 1-argument
+// cancel. Previously these parsed to opaque unevaluated function nodes.
+TEST_CASE("poly ops: degree/quo/rem/cancel infer the variable (POLYOP-1)",
+          "[4][poly][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // degree.
+    REQUIRE(degree(pow(x, integer(3)) + integer(2) * x) == integer(3));
+    REQUIRE(degree(integer(5)) == integer(0));
+    // quo / rem: x²−1 = (x+1)(x−1) + 0; x² = (x+1)(x−1) + 1.
+    REQUIRE(oracle.equivalent(quo(sq(x) - integer(1), x - integer(1))->str(),
+                              "x + 1"));
+    REQUIRE(rem(sq(x), x - integer(1)) == integer(1));
+    REQUIRE(oracle.equivalent(
+        quo(pow(x, integer(3)) - integer(1), x - integer(1))->str(),
+        "x**2 + x + 1"));
+    // 1-argument cancel infers the variable.
+    REQUIRE(oracle.equivalent(
+        cancel((sq(x) - integer(1)) / (x - integer(1)))->str(), "x + 1"));
+}
+
 TEST_CASE("apart: (3x + 5)/((x-1)(x+2))", "[4][apart][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
