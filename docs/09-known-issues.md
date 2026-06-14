@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-FAULHABER-1 — `summation` of kᵖ only worked for p ∈ {2, 3}
+- **Problem:** `Σ_{k=1}^n k⁴` (and any higher power) came back as an unevaluated
+  `Sum(…)`; only the hardcoded `k²` and `k³` formulas existed.
+- **Fix:** in `src/calculus/summation.cpp`, replaced the special cases with
+  general Faulhaber's formula `Σ_{k=1}^n kᵖ = 1/(p+1)·Σ_{j=0}^p C(p+1,j) B_j
+  n^(p+1−j)`, using the `bernoulli` numbers (added in BERNOULLI-EULER-1) and
+  binomial coefficients. Evaluated for any positive integer `p` (capped at 200
+  for cost) and over an arbitrary range via `F(hi) − F(lo−1)`.
+- **Verified:** `Σ kᵖ` for `p = 2…15` checked equal to `sympy.summation`,
+  including a partial range `Σ_{k=2}^n k⁴`; no leftover `Sum()` marker.
+- **Regression test:** `SUM-FAULHABER-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`,
+  13 assertions). The existing `k²`/`k³` oracle tests still pass on the new
+  (unfactored but equivalent) form.
+- **Scope:** integer powers of the bare summation variable; `Σ P(k)` for a
+  general polynomial `P` already works through the existing Add-linearity path.
+
 ### SOLVE-EXPSUM-1 — `solve` returned `[]` for a Laurent polynomial in exp(x)
 - **Problem:** `exp(x)+exp(-x)-2` and `exp(2x)-3·exp(x)+2` came back empty (or
   incomplete). They mix several `exp(m·x)` atoms, so `solve_exp_log_poly`

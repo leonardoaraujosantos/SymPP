@@ -382,6 +382,34 @@ TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
     REQUIRE(oracle.equivalent(s->str(), "(n*(n+1)/2)**2"));
 }
 
+// SUM-FAULHABER-1: Σ kᵖ for any positive integer p via Faulhaber's formula
+// (Bernoulli-number coefficients). Previously only p ∈ {2,3} were closed; higher
+// powers came back unevaluated. Matches SymPy.
+TEST_CASE("summation: Σ kᵖ for higher p (SUM-FAULHABER-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto sum_pow = [&](int p) {
+        return summation(pow(k, integer(p)), k, integer(1), n);
+    };
+    REQUIRE(oracle.equivalent(sum_pow(4)->str(),
+                              "n**5/5 + n**4/2 + n**3/3 - n/30"));
+    REQUIRE(oracle.equivalent(sum_pow(5)->str(),
+                              "n**6/6 + n**5/2 + 5*n**4/12 - n**2/12"));
+    REQUIRE(oracle.equivalent(
+        sum_pow(6)->str(),
+        "n**7/7 + n**6/2 + n**5/2 - n**3/6 + n/42"));
+    // No leftover Sum() marker for any of them.
+    for (int p = 4; p <= 12; ++p) {
+        REQUIRE(sum_pow(p)->str().find("Sum(") == std::string::npos);
+    }
+    // A partial range still works: Σ_{k=2}^n k⁴ = (Σ_{1}^n) − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(4)), k, integer(2), n)->str(),
+        "n**5/5 + n**4/2 + n**3/3 - n/30 - 1"));
+}
+
 // SUM-TELESCOPE-1: Σ of a rational summand c/D(k), where D is a quadratic with
 // two distinct linear factors whose roots differ by an integer, telescopes to a
 // closed form (the sum was returned unevaluated before). Verified equivalent to

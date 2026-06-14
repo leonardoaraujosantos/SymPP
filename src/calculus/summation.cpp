@@ -18,6 +18,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
@@ -149,26 +150,27 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         return simplify((hi - lo + integer(1)) * (lo + hi) / integer(2));
     }
 
-    // Σ k^p with integer p ∈ {2, 3} via the standard formulas (telescoped
-    // from 1..n form).
+    // Σ kᵖ for a positive integer p via Faulhaber's formula, using Bernoulli
+    // numbers (SymPy's B₁ = +1/2 convention):
+    //   Σ_{k=1}^n kᵖ = 1/(p+1) · Σ_{j=0}^{p} C(p+1, j) B_j n^(p+1−j).
     if (expr->type_id() == TypeId::Pow && expr->args()[0] == var
         && expr->args()[1]->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*expr->args()[1]);
         if (z.fits_long()) {
             long p = z.to_long();
-            auto sum_to_n = [&](const Expr& n) -> Expr {
-                if (p == 2) {
-                    // n(n+1)(2n+1)/6
-                    return n * (n + integer(1))
-                           * (integer(2) * n + integer(1)) / integer(6);
-                }
-                if (p == 3) {
-                    // (n(n+1)/2)²
-                    return pow(n * (n + integer(1)) / integer(2), integer(2));
-                }
-                return Expr{};
-            };
-            if (p == 2 || p == 3) {
+            if (p >= 2 && p <= 200) {  // p=1 handled above; cap for cost
+                auto sum_to_n = [&](const Expr& n) -> Expr {
+                    std::vector<Expr> terms;
+                    terms.reserve(static_cast<std::size_t>(p) + 1);
+                    for (long j = 0; j <= p; ++j) {
+                        terms.push_back(mul(
+                            {binomial(integer(p + 1), integer(j)),
+                             bernoulli(integer(j)),
+                             pow(n, integer(p + 1 - j))}));
+                    }
+                    return mul(pow(integer(p + 1), integer(-1)),
+                               add(std::move(terms)));
+                };
                 Expr s_hi = sum_to_n(hi);
                 Expr s_lo = sum_to_n(lo - integer(1));
                 return simplify(s_hi - s_lo);
