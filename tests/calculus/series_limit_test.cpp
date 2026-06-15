@@ -272,6 +272,21 @@ TEST_CASE("limit: ratio of exponentials at infinity (LIMIT-EXPRATIO-1)",
     // so this is checked directly; (2/3)^(−100) ≈ 4·10¹⁷ confirms the divergence.)
     REQUIRE(limit(pow(integer(2), x) * pow(integer(3), mul(S::NegativeOne(), x)),
                   x, S::NegativeInfinity()) == oo);
+    // Polynomial residual: exponential growth class dominates any polynomial
+    // degree, where the generic L'Hôpital path stalled for degree ≥ 2 with a
+    // rational base (degree 1 worked, x·(1/2)^x → 0). Decaying exp → 0 regardless
+    // of degree; growing exp → ±∞ with the polynomial's sign.
+    REQUIRE(limit(pow(x, integer(2))
+                      * pow(integer(2), mul(S::NegativeOne(), x)),
+                  x, oo) == S::Zero());  // x²/2^x
+    REQUIRE(limit(pow(x, integer(3)) * pow(integer(2), x)
+                      * pow(integer(3), mul(S::NegativeOne(), x)),
+                  x, oo) == S::Zero());  // x³·2^x/3^x
+    REQUIRE(limit(pow(x, integer(2)) * pow(integer(3), x)
+                      * pow(integer(2), mul(S::NegativeOne(), x)),
+                  x, oo) == oo);  // x²·3^x/2^x → ∞
+    REQUIRE(limit(mul(S::NegativeOne(), pow(x, integer(2))) * pow(integer(3), x),
+                  x, oo) == S::NegativeInfinity());  // −x²·3^x → −∞
 }
 
 // LIMIT-POLY-INF-1: a polynomial at ±∞ is governed by its leading term, so the

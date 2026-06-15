@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXPPOLY-1 — `lim x²·(2/3)^x` and polynomial × exponential-ratio returned `nan`
+- **Problem:** `lim_{x→∞} x²·(2/3)^x` (= 0), `x³·2^x/3^x` (= 0), `x²/2^x` (= 0),
+  `x²·3^x/2^x` (= ∞) returned `nan`. The generic product/L'Hôpital path closed a
+  degree-1 polynomial against a rational-base exponential (`x·(1/2)^x → 0`) but
+  stalled at degree ≥ 2 — each L'Hôpital step lowers the polynomial degree by one
+  while reproducing the rational-base exponential, and the recursion did not
+  converge (natural-base `x^n·e^(−x)` worked, via the exp-aware reciprocal).
+- **Fix:** extended `try_exponential_product` (see `LIMIT-EXPRATIO-1`) to accept a
+  residual factor, required to be a polynomial in var. The exponential's growth
+  class strictly dominates any polynomial, so once the combined base `B` is known:
+  a decaying `B^m` (→ 0) drives the whole product to 0 regardless of polynomial
+  degree, and a growing `B^m` (→ +∞) gives ±∞ with the sign of the polynomial
+  residual's divergence. A non-polynomial residual is rejected (left to other
+  paths) so the dominance argument stays valid.
+- **Verified:** `x²·(2/3)^x → 0`, `x³·2^x/3^x → 0`, `x²/2^x → 0`,
+  `x²·3^x/2^x → ∞`, `−x²·3^x → −∞`, all matching SymPy; pure exponential ratios
+  and `x^n·e^(−x)` unchanged.
+- **Regression test:** extended `LIMIT-EXPRATIO-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### LIMIT-EXPRATIO-1 — `lim 2^x/3^x` and other exponential ratios returned `nan`
 - **Problem:** `lim_{x→∞} 2^x/3^x` (= 0), `3^x/2^x` (= ∞), `exp(x)/exp(2x)`,
   `2^x·e^(−3x)` and similar returned `nan`. Each is a product/ratio of distinct
@@ -30,9 +50,8 @@ truth and links the issue number.
   `1/exp(g)`) sharing one var-monomial `m`, it folds them into a single `B^m` with
   `B = ∏bᵢ^cᵢ·e^(Σdⱼ)` a concrete positive constant, and decides the limit from
   `sign(B−1)` and the direction of `m` (numeric `evalf` fallback signs `B` when the
-  base carries an `exp`, e.g. `exp(−1)−1`). Deliberately scoped to the pure
-  exponential ratio — a polynomial factor (`x²·(2/3)^x`) is left to other paths
-  (still an open gap) to avoid feeding the downstream a form it can't reduce.
+  base carries an `exp`, e.g. `exp(−1)−1`). A polynomial residual factor is handled
+  by growth dominance — see `LIMIT-EXPPOLY-1`.
 - **Verified:** `2^x/3^x → 0`, `3^x/2^x → ∞`, `exp(x)/exp(2x) → 0`,
   `2^x·e^(−3x) → 0`, `2^x·2^(−x) → 1`, all matching SymPy at `+∞`. At `−∞` the
   direction flips correctly (`2^x/3^x → ∞`); note SymPy is itself internally

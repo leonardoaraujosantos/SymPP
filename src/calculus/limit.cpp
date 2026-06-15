@@ -267,6 +267,7 @@ struct NumDen { Expr num; Expr den; };
     Expr shared_mono;             // the common var-monomial in every exponent
     Expr base_prod = S::One();    // ∏ bᵢ^cᵢ for the constant-base power factors
     Expr exp_csum = S::Zero();    // Σ dⱼ for the exp(dⱼ·m) factors
+    std::vector<Expr> rest;       // remaining (must be polynomial in var) factors
     int combined = 0;
     auto take_exp_arg = [&](const Expr& arg) -> bool {
         auto sp = split(arg);
@@ -301,22 +302,35 @@ struct NumDen { Expr num; Expr den; };
         if (const Function* fn = is_exp(f); fn && has(fn->args()[0], var)) {
             if (take_exp_arg(fn->args()[0])) continue;
         }
-        // A factor that is not a constant-base exponential: bail. Keeping the
-        // transform to the pure exponential-ratio case avoids handing the
-        // downstream product/L'Hôpital path a polynomial × decaying-exponential
-        // form it cannot yet reduce (x²·(2/3)^x is a separate, open gap).
-        return std::nullopt;
+        // Anything else is kept as a residual factor; it must be polynomial in var
+        // (checked below) so growth dominance against the exponential is decidable.
+        rest.push_back(f);
     }
-    if (combined < 2 || !shared_mono) return std::nullopt;
+    if (combined < 2 && !(combined >= 1 && !rest.empty())) return std::nullopt;
+    if (!shared_mono) return std::nullopt;
 
-    // The product equals B^m with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete positive
-    // constant and m = shared_mono. As m → ±∞ the limit is set by B vs 1 — decide
-    // it from the sign of B−1 directly. (Going through exp(m·log B) instead lets
-    // simplify distribute log(2·e⁻³) → log 2 − 3, which the engine then can't
+    // The residual factors must form a polynomial in var: the exponential's growth
+    // class strictly dominates any polynomial, so a decaying exponential drives
+    // the whole product to 0 and a growing one to ±∞ regardless of polynomial
+    // degree. A non-polynomial residual (another transcendental) would break that.
+    Expr rest_prod = rest.empty() ? Expr{S::One()} : mul(rest);
+    if (!rest.empty()) {
+        try {
+            Poly rp(expand(rest_prod), var);
+            for (const auto& cc : rp.coeffs()) {
+                if (has(cc, var)) return std::nullopt;
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;  // residual not polynomial in var
+        }
+    }
+
+    // The exponential part is B^m with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete positive
+    // constant and m = shared_mono. As m → ±∞ its behaviour is set by B vs 1 —
+    // decide it from the sign of B−1 directly. (Going through exp(m·log B) instead
+    // lets simplify distribute log(2·e⁻³) → log 2 − 3, which the engine then can't
     // sign — so we avoid symbolic logs here.)
     Expr B = simplify(mul(base_prod, exp(exp_csum)));
-    if (B == S::One()) return S::One();  // B = 1 ⇒ B^m ≡ 1
-    Expr Bm1 = simplify(add(B, S::NegativeOne()));
     // Sign of B−1, falling back to a numeric evaluation: the assumption system
     // can sign a rational like 2/3−1 but not exp(−1)−1, which surfaces for the
     // exp(·)/exp(·) and mixed base·exp cases.
@@ -328,8 +342,6 @@ struct NumDen { Expr num; Expr den; };
         if (is_negative(ef) == true) return -1;
         return 0;
     };
-    int s = sign_of(Bm1);
-    if (s == 0) return std::nullopt;  // B vs 1 undecidable
     Expr Lm = limit_impl(shared_mono, var, target, depth + 1);
     int dir;
     if (Lm->type_id() == TypeId::Infinity) {
@@ -339,7 +351,33 @@ struct NumDen { Expr num; Expr den; };
     } else {
         return std::nullopt;  // monomial does not diverge — leave to other paths
     }
-    return (dir * s > 0) ? Expr{S::Infinity()} : Expr{S::Zero()};
+
+    if (B == S::One()) {
+        // B^m ≡ 1: the limit is just the residual's. (Reachable only with a
+        // residual, since a bare B=1 product collapses to 1 upstream.)
+        return rest.empty() ? Expr{S::One()}
+                            : limit_impl(rest_prod, var, target, depth + 1);
+    }
+    const int s = sign_of(simplify(add(B, S::NegativeOne())));
+    if (s == 0) return std::nullopt;  // B vs 1 undecidable
+
+    const bool exp_decays = (dir * s < 0);  // B^m → 0
+    if (exp_decays) {
+        // Geometric decay dominates any polynomial residual → 0.
+        return S::Zero();
+    }
+    // B^m → +∞ (B > 0 so the exponential itself is positive); the sign of the
+    // whole product is the sign of the polynomial residual's divergence.
+    Expr Lrest = limit_impl(rest_prod, var, target, depth + 1);
+    if (Lrest == S::Zero()) return S::Zero();  // residual ≡ 0
+    if (Lrest->type_id() == TypeId::Infinity || is_positive(Lrest) == true) {
+        return S::Infinity();
+    }
+    if (Lrest->type_id() == TypeId::NegativeInfinity
+        || is_negative(Lrest) == true) {
+        return S::NegativeInfinity();
+    }
+    return std::nullopt;  // residual sign undecidable
 }
 
 // Sign of `expr` evaluated at `point`: +1 / −1, or 0 when indeterminate (a
