@@ -848,6 +848,38 @@ TEST_CASE("summation: polynomial × geometric (SUM-POLYGEOM-1)",
             == integer(90));
 }
 
+// SUM-POLYGEOM-INF-1: Σ_{k=lo}^∞ P(k)·r^k with |r| < 1. The finite closed form
+// evaluates the upper boundary term Q(k)·r^k at k = ∞ as (poly in ∞)·r^∞ = ∞·0,
+// which returned nan; for |r| < 1 that term vanishes, so the sum is −S(lo).
+TEST_CASE("summation: infinite polynomial × geometric, |r| < 1 (SUM-POLYGEOM-INF-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    auto inv_pow = [&](int b) { return pow(integer(b), mul(S::NegativeOne(), k)); };
+    auto suminf = [&](const Expr& e, const Expr& lo) {
+        Expr s = summation(e, k, lo, oo);
+        REQUIRE(s->str().find("Sum(") == std::string::npos);
+        return s;
+    };
+    // Σ_{k=0}^∞ k/2^k = 2 (degree 1, routed through the poly·geometric path).
+    REQUIRE(oracle.equivalent(suminf(k * inv_pow(2), S::Zero())->str(), "2"));
+    // Σ_{k=1}^∞ k/2^k = 2 (the k = 0 term is 0).
+    REQUIRE(oracle.equivalent(suminf(k * inv_pow(2), S::One())->str(), "2"));
+    // Σ_{k=0}^∞ k²/2^k = 6.
+    REQUIRE(oracle.equivalent(
+        suminf(pow(k, integer(2)) * inv_pow(2), S::Zero())->str(), "6"));
+    // Σ_{k=0}^∞ k/3^k = 3/4.
+    REQUIRE(oracle.equivalent(suminf(k * inv_pow(3), S::Zero())->str(), "3/4"));
+    // Σ_{k=0}^∞ (k+1)/2^k = 4.
+    REQUIRE(oracle.equivalent(
+        suminf((k + integer(1)) * inv_pow(2), S::Zero())->str(), "4"));
+    // A divergent ratio (|r| > 1) is NOT given a bogus finite value — it stays an
+    // unevaluated Sum rather than nan.
+    REQUIRE(summation(k * pow(integer(2), k), k, S::Zero(), oo)->str()
+                .find("Sum(") != std::string::npos);
+}
+
 // Regression: geometric detection used to require the exponent to be
 // *exactly* the summation variable, so Σ 2^(-k) (which canonicalizes to
 // base 2, exponent -k) and Σ 2^(2k) fell through and returned the summand

@@ -170,8 +170,20 @@ namespace {
         }
         return add(std::move(terms));
     };
-    Expr s_hi = eval_q(hi + integer(1)) * pow(ratio, hi + integer(1));
     Expr s_lo = eval_q(lo) * pow(ratio, lo);
+    Expr s_hi;
+    if (hi->type_id() == TypeId::Infinity) {
+        // Σ_{k=lo}^∞ P(k)·r^k converges iff |r| < 1 (⇔ r² < 1); then the upper
+        // boundary term Q(k)·r^k → 0 (geometric decay dominates the polynomial Q),
+        // so the sum is −S(lo). A divergent or undecidable ratio is left alone.
+        if (!(is_negative(simplify(ratio * ratio - S::One()))
+              == std::optional<bool>{true})) {
+            return std::nullopt;
+        }
+        s_hi = S::Zero();
+    } else {
+        s_hi = eval_q(hi + integer(1)) * pow(ratio, hi + integer(1));
+    }
     return simplify(prefactor * (s_hi - s_lo));
 }
 
@@ -422,8 +434,10 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Arithmetic-geometric: Σ k·r^k where r = base^c is a concrete numeric
     // ratio ≠ 1 (k times a geometric term). Restricted to a numeric base so the
     // result is the plain closed form, matching SymPy (a symbolic ratio would
-    // need a Piecewise on r = 1). Higher-degree P(k)·r^k stays unevaluated.
-    if (expr->type_id() == TypeId::Mul && expr->args().size() == 2) {
+    // need a Piecewise on r = 1). An infinite upper bound is left to the general
+    // poly·geometric path below, which has the |r| < 1 convergence handling.
+    if (expr->type_id() == TypeId::Mul && expr->args().size() == 2
+        && hi->type_id() != TypeId::Infinity) {
         const Expr& f0 = expr->args()[0];
         const Expr& f1 = expr->args()[1];
         // Identify the bare `var` factor and the geometric `base^(c·var+d)`.

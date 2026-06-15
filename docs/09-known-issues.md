@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-POLYGEOM-INF-1 — `Σ_{k=0}^∞ k/2^k` returned `nan`
+- **Problem:** infinite polynomial × geometric sums `Σ_{k=lo}^∞ P(k)·r^k` with
+  `|r| < 1` — `Σ k/2^k = 2`, `Σ k²/2^k = 6`, `Σ k/3^k = 3/4` — returned `nan`.
+  The closed form sums the antidifference `Q(k)·r^k` and evaluates the upper
+  boundary at `k = ∞` as `(polynomial in ∞)·r^∞ = ∞·0 = nan`.
+- **Fix:** in `src/calculus/summation.cpp`, `sum_poly_geometric` now treats an
+  infinite upper bound specially: when `|r| < 1` (`r² < 1` provable), the boundary
+  term `Q(k)·r^k → 0` (geometric decay dominates the polynomial), so the sum is
+  `−S(lo)`. A divergent or undecidable ratio is left as an unevaluated `Sum`
+  (not a bogus value). The degree-1 arithmetic-geometric block now defers infinite
+  bounds to this path so both go through the convergence handling.
+- **Verified:** `Σ_{k=0}^∞ k/2^k = 2`, `Σ_{k=1}^∞ k/2^k = 2`, `Σ k²/2^k = 6`,
+  `Σ k/3^k = 3/4`, `Σ (k+1)/2^k = 4`, matching SymPy; the divergent `Σ k·2^k`
+  stays unevaluated; finite sums (`Σ_{k=1}^n k·2^k`, `Σ_{k=1}^3 k²·2^k`) unchanged.
+- **Regression test:** `SUM-POLYGEOM-INF-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### SOLVE-RADISOLATE-1 — `solve(√(x+1) − x + 1)` and single-radical equations returned `[]`
 - **Problem:** equations with a single square root of a non-trivial radicand
   appearing linearly — `√(x+1) − x + 1 = 0`, `√(2x+3) − x = 0`, `√(x+1) + x = 0`,
