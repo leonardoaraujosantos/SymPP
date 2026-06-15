@@ -1962,6 +1962,15 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     // non-rational and the rational path mis-handles it) — they bail to a marker.
     REQUIRE(integrate(asin(x) / pow(x, integer(2)), x)->str().find("Integral(")
             != std::string::npos);
+    // INT-INVTRIG-SQ-1: x·f(x)² for a rational-derivative inverse function. The
+    // by-parts target now admits a positive integer power f^k (recursing down a
+    // power each step), and a rational dv keeps the residual rational so it closes.
+    // ∫x·atan(x)² = x²·atan²/2 − x·atan + atan²/2 + log(x²+1)/2.
+    REQUIRE(db(x * pow(atan(x), integer(2))));
+    REQUIRE(db(x * pow(acot(x), integer(2))));
+    // A non-elementary case (no polynomial factor) stays an unevaluated marker.
+    REQUIRE(integrate(pow(atan(x), integer(2)), x)->str().find("Integral(")
+            != std::string::npos);
 }
 
 TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)",

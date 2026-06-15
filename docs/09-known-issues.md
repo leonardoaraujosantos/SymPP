@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-INVTRIG-SQ-1 — `∫x·atan(x)²` (polynomial × inverse-trig squared) was unevaluated
+- **Problem:** `∫x·atan(x)²` (= `x²·atan²/2 − x·atan + atan²/2 + log(x²+1)/2`) and
+  `∫x·acot(x)²` were left unevaluated, though elementary. The inverse-trig by-parts
+  block only matched a bare `f(affine)` (power 1) and required a *polynomial* `dv`.
+- **Fix:** in `src/integrals/integrate.cpp`, the block now (a) matches a positive
+  integer power `f^k` as the by-parts factor — `u = f^k` lowers the power by one
+  each step, recursing to `f^1`; (b) for the rational-derivative functions
+  (atan/acot/atanh/acoth) admits a *rational* `dv`, so the parts residual
+  (`x²·atan/(1+x²)` for `∫x·atan²`) stays rational and closes; and (c) `expand`s the
+  residual `v·f'` so a form like `(x−atan x)/(1+x²)` distributes for term-by-term
+  integration. A recursive marker check bails (no partial garbage) when a branch
+  doesn't reduce.
+- **Verified:** `∫x·atan(x)² `, `∫x·acot(x)²` diff-back to the integrand, matching
+  SymPy; bare `∫atan(x)²` (non-elementary) stays an unevaluated marker, and the
+  earlier `∫atan/x²` / `∫x²·atan` cases are unchanged.
+- **Regression test:** extended `INT-32` in `tests/integrals/integrate_test.cpp`.
+
 ### INT-RECIPTRIG-PARTS-1 — `∫x·sec²(x)` (= `∫x/cos²x`) and reciprocal-square trig were unevaluated
 - **Problem:** `∫x/cos²(x)` (= `∫x·sec²x = x·tan x + log cos x`) and the family
   `∫x/sin²x`, `∫x/cosh²x`, `∫x/sinh²x` were left unevaluated. The polynomial × trig

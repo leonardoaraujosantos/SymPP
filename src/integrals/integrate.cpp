@@ -45,6 +45,8 @@ namespace {
     return has(e, var);
 }
 
+[[nodiscard]] bool is_rational_in(const Expr& e, const Expr& t);
+
 // Decompose `e` as (a, b) such that e == a*var + b, with a, b independent
 // of var. Returns nullopt if e isn't affine in var.
 [[nodiscard]] std::optional<std::pair<Expr, Expr>>
@@ -1375,21 +1377,45 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
     // remaining v·f' is still rational/closable. The marker guard bails on the
     // non-elementary residuals (e.g. ∫atan(x)/x, whose v·f' = log(x)/(x²+1)).
     if (expr->type_id() == TypeId::Mul) {
+        // The by-parts function factor, as a bare f(affine) or a positive integer
+        // power f(affine)^k. For k ≥ 2 the parts step lowers the power by one each
+        // time (u = f^k, du = k·f^(k−1)·f'), recursing down to the f^1 case —
+        // closing e.g. ∫x·atan(x)².
+        auto match_fn = [&](const Expr& f) -> bool {
+            const Function* fn = nullptr;
+            if (f->type_id() == TypeId::Function) {
+                fn = &static_cast<const Function&>(*f);
+            } else if (f->type_id() == TypeId::Pow
+                       && f->args()[1]->type_id() == TypeId::Integer
+                       && static_cast<const Integer&>(*f->args()[1]).is_positive()
+                       && f->args()[0]->type_id() == TypeId::Function) {
+                fn = &static_cast<const Function&>(*f->args()[0]);
+            }
+            return fn && is_by_parts_fn(fn->function_id())
+                   && fn->args().size() == 1 && as_affine(fn->args()[0], var);
+        };
         Expr fn_factor;
         std::vector<Expr> rest_factors;
         for (const auto& f : expr->args()) {
-            if (!fn_factor && f->type_id() == TypeId::Function) {
-                const auto& fn = static_cast<const Function&>(*f);
-                if (is_by_parts_fn(fn.function_id()) && fn.args().size() == 1
-                    && as_affine(fn.args()[0], var)) {
-                    fn_factor = f;
-                    continue;
-                }
+            if (!fn_factor && match_fn(f)) {
+                fn_factor = f;
+                continue;
             }
             rest_factors.push_back(f);
         }
         if (fn_factor && !rest_factors.empty()) {
             Expr rest = mul(rest_factors);
+            const bool fn_is_power = fn_factor->type_id() == TypeId::Pow;
+            auto contains_marker = [](const Expr& e) {
+                bool found = false;
+                auto rec = [&](auto&& self, const Expr& x) -> void {
+                    if (found) return;
+                    if (is_integral_marker(x)) { found = true; return; }
+                    for (const auto& a : x->args()) self(self, a);
+                };
+                rec(rec, e);
+                return found;
+            };
             // dv is a polynomial, or a bare reciprocal power x^(−n) of the
             // variable. The negative power is only admitted for functions with a
             // *rational* derivative (atan/acot/atanh/acoth): then v·f' is rational
@@ -1398,21 +1424,34 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
             // the rational path can mis-handle (∫asin(x)/x² collapsed to a bogus 0),
             // so they keep the polynomial-only gate. The marker guard still bails
             // on the non-elementary n = 1 case (∫atan(x)/x).
+            const Expr& base_fn =
+                fn_is_power ? fn_factor->args()[0] : fn_factor;
             const FunctionId fid =
-                static_cast<const Function&>(*fn_factor).function_id();
+                static_cast<const Function&>(*base_fn).function_id();
+            // The reciprocal-power dv = x^(−n) shortcut is only for a bare f with a
+            // rational derivative; for f^k the parts residual already recurses.
             const bool rational_deriv =
                 fid == FunctionId::Atan || fid == FunctionId::Acot
                 || fid == FunctionId::Atanh || fid == FunctionId::Acoth;
-            const bool neg_power = rational_deriv
+            const bool neg_power = rational_deriv && !fn_is_power
                 && rest->type_id() == TypeId::Pow
                 && rest->args()[0] == var
                 && rest->args()[1]->type_id() == TypeId::Integer
                 && static_cast<const Integer&>(*rest->args()[1]).is_negative();
-            if (is_polynomial_in(rest, var) || neg_power) {
+            // For atan/acot/atanh/acoth (rational f'), a rational dv keeps the
+            // residual ∫v·f' rational too, so the recursion closes — this is what
+            // ∫x·atan² needs (its parts residual is x²·atan/(1+x²)). The marker
+            // guard bails on anything that doesn't reduce.
+            const bool rational_rest = rational_deriv && is_rational_in(rest, var);
+            if (is_polynomial_in(rest, var) || neg_power || rational_rest) {
                 Expr v = integrate(rest, var);
-                if (!is_integral_marker(v)) {
-                    Expr remaining = integrate(v * diff(fn_factor, var), var);
-                    if (!is_integral_marker(remaining)) {
+                if (!contains_marker(v)) {
+                    // expand so a residual like (x − atan x)/(1+x²) distributes
+                    // into x/(1+x²) − atan(x)/(1+x²), which linearity integrates
+                    // term-by-term (the unexpanded Mul matches no single strategy).
+                    Expr remaining =
+                        integrate(expand(v * diff(fn_factor, var)), var);
+                    if (!contains_marker(remaining)) {
                         return expand(fn_factor * v - remaining);
                     }
                 }
