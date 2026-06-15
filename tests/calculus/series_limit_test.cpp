@@ -261,6 +261,39 @@ TEST_CASE("limit: radical infinity ratio terminates (LIMIT-HANG-1)",
     REQUIRE(limit(sin(x) / x, x, S::Zero()) == integer(1));
 }
 
+// LIMIT-LOGSUMEXP-1: log of an exponential-dominated sum. Factoring out the
+// fastest-growing exp(e_dom) gives log(g) = e_dom + log(g·e^(−e_dom)) with a
+// finite residual, so x − log(cosh x) → log 2 and log(2^x+3^x)/x → log 3 (hence
+// (2^x+3^x)^(1/x) → 3, the max of the bases). Previously these returned nan or
+// an unevaluated ∞-arithmetic mess.
+TEST_CASE("limit: log of an exponential-dominated sum (LIMIT-LOGSUMEXP-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto pw = [&](int b) { return pow(integer(b), x); };
+    // x − log(cosh x) → log 2 (and sinh likewise).
+    REQUIRE(oracle.equivalent(
+        limit(x - log(cosh(x)), x, oo)->str(), "log(2)"));
+    REQUIRE(oracle.equivalent(
+        limit(x - log(sinh(x)), x, oo)->str(), "log(2)"));
+    // log(1 + e^x) − x → 0.
+    REQUIRE(oracle.equivalent(
+        limit(log(integer(1) + exp(x)) - x, x, oo)->str(), "0"));
+    // log(2^x + 3^x)/x → log 3 (dominant base 3).
+    REQUIRE(oracle.equivalent(
+        limit(log(pw(2) + pw(3)) / x, x, oo)->str(), "log(3)"));
+    // (2^x + 3^x)^(1/x) → 3, and a three-term max.
+    REQUIRE(oracle.equivalent(
+        limit(pow(pw(2) + pw(3), pow(x, S::NegativeOne())), x, oo)->str(), "3"));
+    REQUIRE(oracle.equivalent(
+        limit(pow(pw(3) + pw(5) + pw(2), pow(x, S::NegativeOne())), x, oo)->str(),
+        "5"));
+    // log(e^(2x) + e^x)/x → 2 (dominant rate 2).
+    REQUIRE(oracle.equivalent(
+        limit(log(exp(integer(2) * x) + exp(x)) / x, x, oo)->str(), "2"));
+}
+
 // LIMIT-EXP-1: 0·∞ where an exponential dominates a polynomial. x^n·e^(-x) → 0
 // at +∞. try_product_form now tries both the 0/0 and ∞/∞ arrangements (the
 // latter, x^n / e^x, is the one L'Hôpital can crack), with an exp-aware

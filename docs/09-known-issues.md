@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGSUMEXP-1 — `(2^x+3^x)^(1/x) = 3` and log-of-exponential-sum limits failed
+- **Problem:** limits of `log` of an exponential-dominated sum returned `nan` or
+  an unevaluated ∞-arithmetic mess: `x − log(cosh x) = log 2`,
+  `log(2^x+3^x)/x = log 3`, `(2^x+3^x)^(1/x) = 3` (the max of the bases). The engine
+  folded the inner `log(∞)` directly and had no asymptotic for the sum.
+- **Fix:** added `try_log_exp_asymptotic` in `src/calculus/limit.cpp`, run before
+  direct substitution at `+∞`. For `log(g)` with `g` a sum of exponential terms
+  (`cosh`/`sinh` and `a^x` first rewritten into `exp`), it picks the fastest-growing
+  exponent `e_dom` (max coefficient of `x`) and rewrites
+  `log(g) = e_dom + log(g·e^(−e_dom))`, where the residual `g·e^(−e_dom)` tends to a
+  finite positive constant — so the residual `log` has a finite limit. The whole
+  expression is expanded and re-limited (so a wrapping `log(g)/x` distributes
+  instead of staying an `∞·0` product).
+- **Verified:** `x − log(cosh x) → log 2`, `x − log(sinh x) → log 2`,
+  `log(1+e^x) − x → 0`, `log(2^x+3^x)/x → log 3`, `(2^x+3^x)^(1/x) → 3`,
+  `(3^x+5^x+2^x)^(1/x) → 5`, `log(e^(2x)+e^x)/x → 2`, all matching SymPy.
+- **Regression test:** `LIMIT-LOGSUMEXP-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### LIMIT-LHOPITAL-NEST-1 — `lim x·(π/2 − atan x) = 1` returned `nan`
 - **Problem:** `0·∞` limits whose L'Hôpital derivative ratio has a denominator
   derivative that is itself a fraction — `x·(π/2 − atan x)`, `x·atan(1/x)`,

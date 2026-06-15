@@ -817,6 +817,150 @@ struct Growth {
     return val;
 }
 
+// Asymptotic of log(g) at +∞ when g is dominated by an exponential — the
+// "log-sum-exp → max" identity. For g = Σ cᵢ·exp(eᵢ) (after rewriting cosh/sinh
+// and a^x into exp), factoring out the fastest-growing exp(e_dom) gives
+//   log(g) = e_dom + log(g·exp(−e_dom)),   g·exp(−e_dom) → (finite) > 0,
+// so the residual log has a finite limit. Rewrites the first such log(g) inside
+// `expr` and re-takes the limit. Resolves x − log(cosh x) → log 2,
+// log(2^x+3^x)/x → log 3, (2^x+3^x)^(1/x) → 3.
+[[nodiscard]] std::optional<Expr> try_log_exp_asymptotic(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& target,
+                                                         int depth) {
+    if (target->type_id() != TypeId::Infinity) return std::nullopt;  // +∞ only
+
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    // Find the first log(g) with g depending on var.
+    Expr the_log;
+    auto find = [&](auto&& self, const Expr& e) -> void {
+        if (the_log) return;
+        if (is_log(e) && has(e->args()[0], var)) { the_log = e; return; }
+        for (const auto& a : e->args()) {
+            if (the_log) return;
+            self(self, a);
+        }
+    };
+    find(find, expr);
+    if (!the_log) return std::nullopt;
+
+    // Rewrite cosh(u)/sinh(u) → (e^u ± e^(−u))/2 inside g, then expand to a sum.
+    ExprMap<Expr> hyp;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.args().size() == 1) {
+                const Expr& u = fn.args()[0];
+                if (fn.function_id() == FunctionId::Cosh) {
+                    hyp.emplace(e, (exp(u) + exp(mul(S::NegativeOne(), u)))
+                                       / integer(2));
+                } else if (fn.function_id() == FunctionId::Sinh) {
+                    hyp.emplace(e, (exp(u) - exp(mul(S::NegativeOne(), u)))
+                                       / integer(2));
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    const Expr& g = the_log->args()[0];
+    scan(scan, g);
+    Expr g_exp = expand(hyp.empty() ? g : xreplace(g, hyp));
+
+    // The exponent e such that `term = const·exp(e)` (a^h ↦ e = h·log a; a bare
+    // constant ↦ e = 0). Bails on a non-exponential var factor (e.g. x·eˣ).
+    auto exp_exponent = [&](const Expr& term) -> std::optional<Expr> {
+        if (!has(term, var)) return Expr{S::Zero()};
+        std::vector<Expr> facs;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) facs.push_back(f);
+        } else {
+            facs.push_back(term);
+        }
+        Expr exponent;
+        bool found = false;
+        for (const auto& f : facs) {
+            if (!has(f, var)) continue;
+            if (f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Exp) {
+                if (found) return std::nullopt;
+                exponent = f->args()[0];
+                found = true;
+            } else if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+                       && is_positive(f->args()[0]) == std::optional<bool>{true}
+                       && has(f->args()[1], var)) {
+                if (found) return std::nullopt;
+                exponent = mul(f->args()[1], log(f->args()[0]));
+                found = true;
+            } else {
+                return std::nullopt;
+            }
+        }
+        return found ? exponent : Expr{S::Zero()};
+    };
+
+    // Pick the term with the fastest-growing exponent (max coefficient of x).
+    std::vector<Expr> terms;
+    if (g_exp->type_id() == TypeId::Add) {
+        for (const auto& t : g_exp->args()) terms.push_back(t);
+    } else {
+        terms.push_back(g_exp);
+    }
+    Expr e_dom;
+    double best_rate = 0.0;
+    for (const auto& t : terms) {
+        auto e = exp_exponent(t);
+        if (!e) return std::nullopt;
+        // Rate = coefficient of x in the exponent (must be affine in var).
+        Expr rate_coeff;
+        try {
+            Poly pe(expand(*e), var);
+            if (pe.degree() < 1) {
+                rate_coeff = S::Zero();  // constant exponent
+            } else if (pe.degree() == 1) {
+                rate_coeff = pe.coeffs()[1];
+            } else {
+                return std::nullopt;  // super-exponential — out of scope
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+        Expr rate_e = evalf(rate_coeff, 30);
+        double rate = 0.0;
+        try {
+            rate = std::stod(rate_e->str());
+        } catch (...) {
+            return std::nullopt;  // non-numeric rate (e.g. a symbolic coefficient)
+        }
+        if (!e_dom || rate > best_rate) {
+            best_rate = rate;
+            e_dom = *e;
+        }
+    }
+    if (!e_dom || best_rate <= 0.0) return std::nullopt;  // not exp-growing
+
+    // log(g) → e_dom + log(g·exp(−e_dom)); replace and re-limit. Use the
+    // exp-rewritten g_exp (cosh/sinh already in exponential form) so the residual
+    // collapses — e.g. cosh(x)·e^(−x) = (1 + e^(−2x))/2 → 1/2 rather than the
+    // unevaluated cosh(x)·e^(−x) the limit engine can't fold directly.
+    Expr residual = simplify(expand(mul(g_exp, exp(mul(S::NegativeOne(), e_dom)))));
+    Expr new_log = add(e_dom, log(residual));
+    ExprMap<Expr> repl;
+    repl.emplace(the_log, new_log);
+    // expand so a wrapping product distributes — log(g)/x must become
+    // e_dom/x + log(residual)/x for the per-term limits to resolve, rather than
+    // staying an (∞)·(0) Mul.
+    Expr expr2 = expand(xreplace(expr, repl));
+    Expr r = limit_impl(expr2, var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 // Resolve logarithms at the target.
 //   (a) limit(log(g)) = log(limit g)   for a positive-finite or +∞ inner limit;
 //   (b) Σ cᵢ·log(gᵢ) + rest: factor a common κ so every cᵢ/κ is an integer,
@@ -948,6 +1092,14 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // atan terms of the ∫1/(1+x⁴) antiderivative at ∞.
     if (depth < 12 && expr->type_id() == TypeId::Function) {
         if (auto v = try_log_limit(expr, var, target, depth)) return *v;
+    }
+
+    // log of an exponential-dominated sum (log(2^x+3^x)/x → log 3): resolve before
+    // direct substitution, which folds the inner log(∞) into an unevaluated
+    // ∞-arithmetic mess rather than nan, so the post-substitution path can't catch
+    // it. The handler bails fast unless such a log is present.
+    if (depth < 12) {
+        if (auto v = try_log_exp_asymptotic(expr, var, target, depth)) return *v;
     }
 
     Expr direct = simplify(subs(expr, var, target));
