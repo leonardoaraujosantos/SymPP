@@ -170,6 +170,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate}, {"arg", &arg_},
         // Univariate polynomial operations (variable inferred from the args).
         {"cancel", static_cast<OneArgFn>(&cancel)}, {"degree", &degree},
+        {"discriminant", static_cast<OneArgFn>(&discriminant)},
         // SymPy canonical spellings — these are the names str() emits, so the
         // parser must accept them too for round-tripping (parse(e->str()) == e).
         {"Abs", &abs}, {"Heaviside", &heaviside}, {"DiracDelta", &dirac_delta},
@@ -186,6 +187,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"lcm", &lcm},
         {"quo", &quo},
         {"rem", &rem},
+        {"resultant", static_cast<TwoArgFn>(&resultant)},
         {"log", static_cast<TwoArgFn>(&log)},
         // Relational constructors: Eq(a, b), Ne(a, b), Lt/Le/Gt/Ge(a, b).
         {"Eq", &eq},

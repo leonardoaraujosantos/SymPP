@@ -830,6 +830,25 @@ TEST_CASE("poly ops: degree/quo/rem/cancel infer the variable (POLYOP-1)",
         cancel((sq(x) - integer(1)) / (x - integer(1)))->str(), "x + 1"));
 }
 
+// POLYOP-2: parser-facing resultant (two-arg) and discriminant (one-arg) with
+// the variable inferred from the free symbols. Previously opaque function nodes.
+TEST_CASE("poly ops: resultant/discriminant infer the variable (POLYOP-2)",
+          "[4][poly][regression]") {
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // discriminant of a quadratic: b² − 4ac.
+    REQUIRE(discriminant(sq(x) + integer(2) * x + integer(1)) == integer(0));
+    REQUIRE(discriminant(sq(x) - integer(5) * x + integer(6)) == integer(1));
+    REQUIRE(discriminant(sq(x) + integer(1)) == integer(-4));
+    REQUIRE(discriminant(sq(x) - integer(2)) == integer(8));
+    // resultant: zero iff the polynomials share a root.
+    REQUIRE(resultant(sq(x) - integer(1), x - integer(1)) == integer(0));
+    REQUIRE(resultant(sq(x) + integer(1), x - integer(2)) == integer(5));
+    // Sign convention matches SymPy: res(x−1, x−2) = −1, res(x−2, x−1) = 1.
+    REQUIRE(resultant(x - integer(1), x - integer(2)) == integer(-1));
+    REQUIRE(resultant(x - integer(2), x - integer(1)) == integer(1));
+}
+
 TEST_CASE("apart: (3x + 5)/((x-1)(x+2))", "[4][apart][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

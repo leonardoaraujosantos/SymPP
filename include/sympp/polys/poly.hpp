@@ -139,6 +139,8 @@ private:
 [[nodiscard]] SYMPP_EXPORT Expr resultant(const Poly& p, const Poly& q);
 [[nodiscard]] SYMPP_EXPORT Expr resultant(const Expr& p, const Expr& q,
                                             const Expr& var);
+// Variable inferred from the single free symbol — the parser-facing form.
+[[nodiscard]] SYMPP_EXPORT Expr resultant(const Expr& p, const Expr& q);
 
 // Discriminant of a polynomial. By definition:
 //   disc(p) = (-1)^(n(n-1)/2) * resultant(p, p') / lc(p)
@@ -147,6 +149,8 @@ private:
 // Reference: sympy/polys/polytools.py::discriminant
 [[nodiscard]] SYMPP_EXPORT Expr discriminant(const Poly& p);
 [[nodiscard]] SYMPP_EXPORT Expr discriminant(const Expr& p, const Expr& var);
+// Variable inferred from the single free symbol — the parser-facing form.
+[[nodiscard]] SYMPP_EXPORT Expr discriminant(const Expr& p);
 
 // Univariate polynomial GCD via Euclidean algorithm. Result is monic
 // (leading coefficient 1) for non-zero inputs. Behaves correctly over ℚ.

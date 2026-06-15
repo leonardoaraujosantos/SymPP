@@ -1188,6 +1188,28 @@ Expr rem(const Expr& a, const Expr& b) {
     return function_symbol("rem")(std::vector<Expr>{a, b});
 }
 
+Expr resultant(const Expr& p, const Expr& q) {
+    auto var = inferred_var(p, q);
+    if (var) {
+        try {
+            return resultant(p, q, *var);
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("resultant")(std::vector<Expr>{p, q});
+}
+
+Expr discriminant(const Expr& p) {
+    auto var = inferred_var(p, Expr{});
+    if (var) {
+        try {
+            return discriminant(p, *var);
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("discriminant")(std::vector<Expr>{p});
+}
+
 namespace {
 
 // Partial-fraction decomposition of num/den over the irreducible factorization

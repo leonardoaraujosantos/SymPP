@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### POLYOP-2 — `resultant` and `discriminant` parsed to unevaluated nodes
+- **Problem:** `resultant(x²−1, x−1)` and `discriminant(x²+1)` came back as
+  opaque function nodes, even though `resultant(p, q, var)` and
+  `discriminant(p, var)` already existed and were tested — they just required an
+  explicit variable and weren't registered with the parser.
+- **Fix:** added parser-facing `resultant(p, q)` (two-arg) and
+  `discriminant(p)` (one-arg) wrappers in `src/polys/poly.cpp` that infer the
+  variable from the single free symbol (reusing `inferred_var`), and registered
+  them. Same pattern as `POLYOP-1`.
+- **Verified:** `discriminant(x²+2x+1) = 0`, `discriminant(x²−5x+6) = 1`,
+  `discriminant(x²+1) = −4`, `discriminant(x³−3x+1) = 81`,
+  `resultant(x²−1, x−1) = 0`, `resultant(x²+1, x−2) = 5`, and the sign
+  convention `resultant(x−1, x−2) = −1` vs `resultant(x−2, x−1) = 1` — all match
+  SymPy.
+- **Regression test:** `POLYOP-2` in `tests/polys/poly_test.cpp`
+  (`[4][poly][regression]`).
+
 ### POLYOP-1 — `degree`, `quo`, `rem`, `cancel` parsed to unevaluated nodes
 - **Problem:** `degree(x³+2x)`, `quo(x²−1, x−1)`, `rem(x², x−1)` and the
   one-argument `cancel((x²−1)/(x−1))` came back as opaque function nodes. The
