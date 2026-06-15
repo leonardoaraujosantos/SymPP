@@ -18,6 +18,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
@@ -1187,6 +1188,37 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
         // substitution collapses to 0 or nan).
         if (auto v = lhopital(expr, var, target)) return *v;
+    }
+    // Essential singularity at a finite point (exp(1/x), 1/x² at 0): substitute
+    // u = 1/(x − a) and take u → ±∞; the two one-sided limits agree iff the
+    // two-sided limit exists. Only at a finite target with a non-finite direct
+    // value and a reciprocal singularity (a negative power of a factor that
+    // vanishes at the target), so ordinary limits are untouched. Resolves
+    // exp(−1/x²) → 0 and x/(exp(1/x)−1) → 0.
+    if (depth < 12 && is_number(target)
+        && (is_nan(direct) || direct->type_id() == TypeId::ComplexInfinity)) {
+        bool has_sing = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (has_sing) return;
+            if (e->type_id() == TypeId::Pow
+                && e->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*e->args()[1]).is_negative()
+                && has(e->args()[0], var)
+                && limit_impl(e->args()[0], var, target, depth + 1)
+                       == S::Zero()) {
+                has_sing = true;
+                return;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, expr);
+        if (has_sing) {
+            Expr u = symbol("__recip_pt_u");
+            Expr sub = subs(expr, var, add(target, pow(u, S::NegativeOne())));
+            Expr lr = limit_impl(sub, u, S::Infinity(), depth + 1);
+            Expr ll = limit_impl(sub, u, S::NegativeInfinity(), depth + 1);
+            if (!is_nan(lr) && !is_nan(ll) && lr == ll) return lr;
+        }
     }
     return direct;
 }

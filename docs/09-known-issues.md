@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ESSENTIAL-PT-1 — `lim_{x→0} x/(exp(1/x)−1)` returned `nan`
+- **Problem:** limits at a finite point with an *essential* singularity —
+  `exp(−1/x²) → 0`, `x/(exp(1/x)−1) → 0`, `x²/(exp(1/x²)−1) → 0` — returned `nan`.
+  Direct substitution evaluates `exp(1/x)` at `x = 0` as `exp(zoo) = nan`, and no
+  method recovered.
+- **Fix:** added a reciprocal-substitution fallback in `src/calculus/limit.cpp`:
+  at a finite target `a` whose direct value is non-finite and which carries a
+  reciprocal singularity (a negative power of a factor vanishing at `a`),
+  substitute `u = 1/(x − a)` and take the `u → +∞` and `u → −∞` one-sided limits.
+  They agree iff the two-sided limit exists, so the result is returned only then —
+  genuinely two-sided-divergent cases (`exp(1/x)`, `1/x`) keep their `nan`/`zoo`.
+- **Verified:** `exp(−1/x²) → 0`, `x/(exp(1/x)−1) → 0`, `x²/(exp(1/x²)−1) → 0`,
+  matching SymPy; `exp(1/x)` stays `nan` and `1/x` stays `zoo` (two-sided DNE),
+  and ordinary pole limits (`1/x² → ∞`, `1/(x−1)² → ∞`) are unchanged.
+- **Regression test:** `LIMIT-ESSENTIAL-PT-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### INT-INVTRIG-SQRT-SQ-1 — `∫asin(x)²` and √-derivative inverse-function squares were unevaluated
 - **Problem:** `∫asin(x)²` (= `x·asin² − 2x + 2√(1−x²)·asin`), `∫x·asin(x)²`,
   `∫acos²`, `∫asinh²`, `∫asin³` were unevaluated, though elementary. (An earlier

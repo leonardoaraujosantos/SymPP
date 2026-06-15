@@ -395,6 +395,28 @@ TEST_CASE("limit: signed infinity at an even pole (POLE-SIGN-1)",
     REQUIRE(limit(pow(x, integer(-1)), x, S::Zero()) == S::ComplexInfinity());
 }
 
+// LIMIT-ESSENTIAL-PT-1: an essential singularity at a finite point (exp(1/x),
+// 1/x² at 0). Substituting u = 1/(x−a) and comparing the u → ±∞ one-sided limits
+// resolves it: direct substitution gives exp(zoo) = nan otherwise.
+TEST_CASE("limit: essential singularity at a finite point (LIMIT-ESSENTIAL-PT-1)",
+          "[6][limit][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto z = S::Zero();
+    // exp(−1/x²) → 0 (both sides); x/(exp(1/x)−1) → 0; x²/(exp(1/x²)−1) → 0.
+    REQUIRE(limit(exp(mul(S::NegativeOne(), pow(x, integer(-2)))), x, z)
+            == S::Zero());
+    REQUIRE(oracle.equivalent(
+        limit(x / (exp(pow(x, integer(-1))) - integer(1)), x, z)->str(), "0"));
+    REQUIRE(limit(pow(x, integer(2))
+                      / (exp(pow(x, integer(-2))) - integer(1)),
+                  x, z) == S::Zero());
+    // Genuinely two-sided-divergent cases are NOT coerced: the one-sided limits
+    // disagree, so exp(1/x) and 1/x stay nan / zoo.
+    REQUIRE(limit(exp(pow(x, integer(-1))), x, z)->type_id() == TypeId::NaN);
+    REQUIRE(limit(pow(x, integer(-1)), x, z) == S::ComplexInfinity());
+}
+
 // LIMIT-SIGN-1: an expression with sign(g) or abs(g) where g → 0 is
 // discontinuous at the target. Direct substitution wrongly used sign(0)=0 (so
 // limit(sign(x),x,0) returned 0); it now samples g's sign on each side. Matching
