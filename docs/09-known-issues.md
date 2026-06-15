@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAUSS-PARAM-1 — parametric Gaussian `∫exp(−a·x²)` unevaluated
+- **Problem:** `∫exp(−a·x²)` and `∫exp(a·x²)` were unevaluated for a symbolic
+  positive coefficient — `try_gaussian` already branched on `is_negative`/
+  `is_positive(c₂)` but a leftover `is_rational(c₂)` gate blocked symbolic ones.
+- **Fix:** in `src/integrals/integrate.cpp`, removed the `is_rational(c₂)` gate
+  in `try_gaussian`; the sign branches decide erf vs erfi. Same pattern as
+  `INT-ARCTAN-PARAM-1` / `INT-SQRTQUAD-PARAM-1`.
+- **Verified:** `∫exp(−a·x²) = √π·erf(√a·x)/(2√a)`,
+  `∫exp(a·x²) = √π·erfi(√a·x)/(2√a)` (a > 0) — match SymPy exactly; numeric
+  Gaussians unchanged, undecidable-sign coefficients left unevaluated.
+- **Regression test:** `INT-GAUSS-PARAM-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-SQRTQUAD-PARAM-1 — `∫1/√(x²+a²)` unevaluated for symbolic coefficients
 - **Problem:** `∫1/√(x²+a²)`, `∫1/√(a²−x²)`, `∫1/√(x²+a)` came back unevaluated
   for symbolic positive coefficients, even though `try_sqrt_quadratic`'s branches

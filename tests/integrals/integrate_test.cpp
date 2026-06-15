@@ -1086,6 +1086,24 @@ TEST_CASE("integrate: ∫exp(x^2) dx = sqrt(pi)*erfi(x)/2",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// INT-GAUSS-PARAM-1: the Gaussian with a symbolic positive coefficient —
+// ∫exp(−a·x²) = √π·erf(√a·x)/(2√a), ∫exp(a·x²) = √π·erfi(√a·x)/(2√a). try_gaussian
+// already branched on is_negative/is_positive; a leftover rational-only gate
+// blocked symbolic coefficients (now relaxed). Matches SymPy exactly.
+TEST_CASE("integrate: parametric Gaussian → erf/erfi (INT-GAUSS-PARAM-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    REQUIRE(oracle.equivalent(
+        integrate(exp(mul(mul(S::NegativeOne(), a), pow(x, integer(2)))), x)
+            ->str(),
+        "sqrt(pi)*erf(sqrt(a)*x)/(2*sqrt(a))"));
+    REQUIRE(oracle.equivalent(
+        integrate(exp(a * pow(x, integer(2))), x)->str(),
+        "sqrt(pi)*erfi(sqrt(a)*x)/(2*sqrt(a))"));
+}
+
 // ----- Hyperbolic table integrals (regression, INT-12) -----------------------
 // Hyperbolic analogues of INT-3: ∫tanh = log(cosh), ∫1/cosh² = tanh,
 // ∫1/sinh² = −cosh/sinh (= −coth), of an affine argument. Oracle-checked

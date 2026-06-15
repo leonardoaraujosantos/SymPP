@@ -2548,10 +2548,10 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     const Expr& c1 = p.coeffs()[1];
     const Expr& c2 = p.coeffs()[2];
     // Pure c·x² only (no linear or constant term — a linear/constant part needs
-    // completing the square, out of scope), with c a non-zero rational.
-    // Negative c → real erf; positive c → the imaginary error function erfi.
+    // completing the square, out of scope). Negative c → real erf; positive c →
+    // the imaginary error function erfi. A symbolic coefficient is allowed when
+    // its sign is provable (e.g. exp(−a·x²) with a > 0 → √π·erf(√a·x)/(2√a)).
     if (!(c0 == S::Zero()) || !(c1 == S::Zero())) return std::nullopt;
-    if (is_rational(c2) != true) return std::nullopt;
 
     if (is_negative(c2) == true) {
         // ∫ exp(−a·x²) dx = √π·erf(√a·x) / (2·√a),  a = −c₂ > 0.
