@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-EXPINT-POWER-1 — `∫sin(x)/x²` and `∫f(c·x)/xⁿ` (n ≥ 2) were unevaluated
+- **Problem:** `∫sin(x)/x²`, `∫cos(x)/x²`, `∫exp(x)/x²`, `∫sin(x)/x³`, … were left
+  unevaluated. SymPP closed `∫f(c·x)/x = Si/Ci/Ei` (the n = 1 special-integral
+  functions) but had no reduction for a higher reciprocal power.
+- **Fix:** in `src/integrals/integrate.cpp`, `try_expint_integral` now matches a
+  general reciprocal power `x^(−n)` (not just `x⁻¹`). For `n ≥ 2` it integrates by
+  parts — `∫f(c·x)/xⁿ = f(c·x)/((1−n)·x^(n−1)) − c/(1−n)·∫f'(c·x)/x^(n−1)` —
+  recursing on the residual (which is the same family with `n−1` and `f` replaced
+  by its derivative) down to the `n = 1` Si/Ci/Ei base case. The marker guard bails
+  if the residual doesn't close.
+- **Verified:** `∫sin(x)/x² = Ci(x) − sin(x)/x`, `∫cos(x)/x² = −Si(x) − cos(x)/x`,
+  `∫exp(x)/x² = Ei(x) − exp(x)/x`, `∫sin(x)/x³`, `∫sinh(x)/x² = Chi(x) − sinh(x)/x`,
+  `∫sin(2x)/x²` — all diff-back to the integrand, matching SymPy; the `n = 1`
+  Si/Ci/Ei cases are unchanged.
+- **Regression test:** `INT-EXPINT-POWER-1` in `tests/integrals/integrate_test.cpp`.
+
 ### SUM-DIRICHLET-BETA-1 — `Σ (−1)^k/(2k+1)` (Leibniz) stayed unevaluated
 - **Problem:** the Dirichlet beta series `Σ_{k=0}^∞ (−1)^k/(2k+1)^s` returned an
   unevaluated `Sum`. The Leibniz series `Σ(−1)^k/(2k+1) = π/4` and

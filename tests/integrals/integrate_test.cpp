@@ -1725,6 +1725,28 @@ TEST_CASE("integrate: ∫sin(3x)/x = Si(3x) (scaled argument)",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// INT-EXPINT-POWER-1: ∫f(c·x)/xⁿ for f ∈ {sin,cos,exp,sinh,cosh}, n ≥ 2 — by
+// parts down to the n = 1 Si/Ci/Ei base case. Previously only n = 1 was handled.
+TEST_CASE("integrate: ∫f(c·x)/x^n reduces to Si/Ci/Ei (INT-EXPINT-POWER-1)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(sin(x) / pow(x, integer(2))));            // = Ci(x) − sin(x)/x
+    REQUIRE(db(cos(x) / pow(x, integer(2))));            // = −Si(x) − cos(x)/x
+    REQUIRE(db(exp(x) / pow(x, integer(2))));            // = Ei(x) − exp(x)/x
+    REQUIRE(db(sin(x) / pow(x, integer(3))));            // two-step reduction
+    REQUIRE(db(sinh(x) / pow(x, integer(2))));           // hyperbolic → Chi
+    REQUIRE(db(sin(integer(2) * x) / pow(x, integer(2))));  // scaled argument
+    // n = 1 base cases still close to the bare special-integral functions.
+    REQUIRE(oracle.equivalent(integrate(sin(x) / x, x)->str(), "Si(x)"));
+    REQUIRE(oracle.equivalent(integrate(cos(x) / x, x)->str(), "Ci(x)"));
+}
+
 // ----- ∫ of a special-integral function by parts (regression, EXPINT-BYPARTS)
 // ∫f(x) dx = x·f(x) − ∫x·f'(x), closing because x·f' is elementary: ∫erf =
 // x·erf+e^(-x²)/√π, ∫Si = x·Si+cos, ∫Ei = x·Ei−e^x, etc. Verified by oracle.

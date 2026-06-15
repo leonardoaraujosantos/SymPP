@@ -2926,13 +2926,16 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
 std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr func;                    // the sin/cos/exp factor
-    bool has_recip = false;       // saw a 1/var factor
+    long n = 0;                   // the integrand carries x^(−n), n ≥ 1
     std::vector<Expr> consts;     // constant prefactors
     for (const auto& f : expr->args()) {
-        if (!has_recip && f->type_id() == TypeId::Pow
-            && f->args()[0] == var && f->args()[1] == S::NegativeOne()) {
-            has_recip = true;
-            continue;
+        if (n == 0 && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z.is_negative() && z.fits_long()) {
+                n = -z.to_long();
+                continue;
+            }
         }
         if (!func && f->type_id() == TypeId::Function) {
             const auto& fn = static_cast<const Function&>(*f);
@@ -2953,18 +2956,41 @@ std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
         if (depends_on(f, var)) return std::nullopt;  // some other var factor
         consts.push_back(f);
     }
-    if (!has_recip || !func) return std::nullopt;
+    if (n == 0 || !func) return std::nullopt;
 
     const auto& fn = static_cast<const Function&>(*func);
+    const FunctionId id = fn.function_id();
     const Expr& g = fn.args()[0];
     Expr result;
-    switch (fn.function_id()) {
-        case FunctionId::Sin: result = sinint(g); break;     // ∫sin(c·x)/x = Si
-        case FunctionId::Cos: result = cosint(g); break;     // ∫cos(c·x)/x = Ci
-        case FunctionId::Exp: result = expint_ei(g); break;  // ∫exp(c·x)/x = Ei
-        case FunctionId::Sinh: result = sinhint(g); break;   // ∫sinh(c·x)/x = Shi
-        case FunctionId::Cosh: result = coshint(g); break;   // ∫cosh(c·x)/x = Chi
-        default: return std::nullopt;
+    if (n == 1) {
+        switch (id) {
+            case FunctionId::Sin: result = sinint(g); break;   // ∫sin(c·x)/x = Si
+            case FunctionId::Cos: result = cosint(g); break;   // ∫cos(c·x)/x = Ci
+            case FunctionId::Exp: result = expint_ei(g); break;  // = Ei
+            case FunctionId::Sinh: result = sinhint(g); break;   // = Shi
+            case FunctionId::Cosh: result = coshint(g); break;   // = Chi
+            default: return std::nullopt;
+        }
+    } else {
+        // ∫f(c·x)/xⁿ by parts (u = f, dv = x^(−n) dx, v = x^(1−n)/(1−n)):
+        //   = f(c·x)/((1−n)·x^(n−1)) − c/(1−n)·∫f'(c·x)/x^(n−1) dx,
+        // recursing on the residual down to the n = 1 Si/Ci/Ei base case.
+        Expr c = as_affine(g, var)->first;
+        Expr deriv;  // f'(c·x)
+        switch (id) {
+            case FunctionId::Sin: deriv = cos(g); break;
+            case FunctionId::Cos: deriv = mul(S::NegativeOne(), sin(g)); break;
+            case FunctionId::Exp: deriv = exp(g); break;
+            case FunctionId::Sinh: deriv = cosh(g); break;
+            case FunctionId::Cosh: deriv = sinh(g); break;
+            default: return std::nullopt;
+        }
+        Expr inv_1mn = pow(integer(1 - n), S::NegativeOne());
+        Expr boundary = mul(mul(func, pow(var, integer(1 - n))), inv_1mn);
+        Expr residual = integrate(mul(deriv, pow(var, integer(1 - n))), var);
+        if (is_integral_marker(residual)) return std::nullopt;
+        result = boundary - mul(mul(c, inv_1mn), residual);
+        result = simplify(result);
     }
     if (!consts.empty()) result = mul(mul(consts), result);
     return result;
