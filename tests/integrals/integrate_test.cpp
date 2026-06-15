@@ -2218,6 +2218,32 @@ TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-
                               "2*(x + 1)**(3/2)/3"));
 }
 
+// INT-EXP-SUB-1: an integrand rational in eˣ closes via u = eˣ (each
+// exp(k·x+d) → e^d·uᵏ, dx = du/u), e.g. ∫1/(eˣ+e⁻ˣ) = atan(eˣ). Previously
+// exp(2x)/exp(−x) terms (distinct nodes from exp(x)) blocked the substitution.
+// Verified by differentiating back.
+TEST_CASE("integrate: exponential substitution u=eˣ (INT-EXP-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto ex = [&](const Expr& a) { return exp(a); };
+    const std::vector<Expr> integrands = {
+        pow(ex(x) + ex(-x), integer(-1)),                       // 1/(eˣ+e⁻ˣ)
+        ex(x) * pow(ex(integer(2) * x) + integer(1), integer(-1)),  // eˣ/(e²ˣ+1)
+        ex(integer(2) * x) * pow(integer(1) + ex(x), integer(-1)),  // e²ˣ/(1+eˣ)
+        pow(ex(x) + ex(integer(2) * x), integer(-1)),           // 1/(eˣ+e²ˣ)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // The headline closed form matches SymPy exactly.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(ex(x) + ex(-x), integer(-1)), x)->str(), "atan(exp(x))"));
+}
+
 // INT-RECIP-SUB-1: ∫dx/(xⁿ·√(a·x²+c)) closes via the reciprocal substitution
 // x = 1/u: substituting clears the x in the denominator, and pulling u out of
 // the radical ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e) leaves an ordinary

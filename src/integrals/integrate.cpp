@@ -309,6 +309,14 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_linear_radical_substitution(
     const Expr& expr, const Expr& var);
 
+// Exponential substitution u = eˣ for an integrand that is a rational function
+// of eˣ: every exp factor is exp(k·x+d) with integer k, so exp(k·x+d) → e^d·uᵏ
+// and dx = du/u turn the integrand into a rational function of u, which
+// try_rational/integrate closes. Closes ∫1/(eˣ+e⁻ˣ)=atan(eˣ),
+// ∫eˣ/(e²ˣ+1)=atan(eˣ), ∫e²ˣ/(1+eˣ)=eˣ−log(1+eˣ).
+[[nodiscard]] std::optional<Expr> try_exp_substitution(const Expr& expr,
+                                                       const Expr& var);
+
 // Reciprocal substitution x = 1/u for ∫ dx/(xⁿ·√(a·x²+c)): substituting clears
 // the x in the denominator and, after pulling u out of the radical
 // ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e), leaves an ordinary √-of-quadratic integral.
@@ -548,6 +556,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_exp_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_radical_substitution(expr, var); r.has_value()) {
@@ -989,6 +1000,52 @@ std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
     Expr anti = integrate(integrand_u, u);
     if (is_integral_marker(anti)) return std::nullopt;
     return simplify(subs(anti, u, pow(var, integer(-1))));
+}
+
+std::optional<Expr> try_exp_substitution(const Expr& expr, const Expr& var) {
+    // Collect every exp(arg) subexpression; each arg must be k·var + d with k a
+    // non-zero integer and d var-free, so exp(arg) = e^d · (eˣ)^k.
+    auto u = symbol("__exp_u");
+    ExprMap<Expr> repl;
+    bool ok = true;
+    bool found = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (!ok || !depends_on(e, var)) return;
+        if (e->type_id() == TypeId::Function
+            && static_cast<const Function&>(*e).function_id()
+                   == FunctionId::Exp) {
+            const Expr& arg = e->args()[0];
+            try {
+                Poly p(expand(arg), var);
+                if (p.degree() != 1) { ok = false; return; }
+                const auto& cf = p.coeffs();
+                Expr d = cf[0];
+                Expr k = cf[1];
+                if (has(d, var) || k->type_id() != TypeId::Integer) {
+                    ok = false;
+                    return;
+                }
+                const long kl = static_cast<const Integer&>(*k).to_long();
+                if (kl == 0) { ok = false; return; }
+                repl.emplace(e, mul(exp(d), pow(u, integer(kl))));
+                found = true;
+            } catch (const std::exception&) {
+                ok = false;
+            }
+            return;  // do not descend into the exp argument
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (!ok || !found) return std::nullopt;
+
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;  // bare var outside an exp
+    // dx = du/u (u = eˣ), so the integrand becomes (rational in u)/u.
+    Expr integrand_u = simplify(mul(g, pow(u, integer(-1))));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, exp(var)));
 }
 
 // True if `e` is a polynomial in `var` (only non-negative integer powers of

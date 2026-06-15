@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-EXP-SUB-1 — `∫1/(eˣ+e⁻ˣ)` and other eˣ-rational integrals were unevaluated
+- **Problem:** `∫1/(eˣ+e⁻ˣ)`, `∫eˣ/(e²ˣ+1)`, `∫e²ˣ/(1+eˣ)`, `∫1/(eˣ+e²ˣ)` came
+  back unevaluated. The heurisch substitution `subs(eˣ → u)` does not catch
+  `e²ˣ` or `e⁻ˣ` — those are distinct nodes (`exp(2x)`, `exp(−x)`), not powers
+  of `exp(x)` — so the substituted integrand still depended on `x` and bailed.
+- **Fix:** added `try_exp_substitution` in `src/integrals/integrate.cpp`. It maps
+  every `exp(k·x+d)` (integer `k`) to `e^d·uᵏ` with `u = eˣ`, and `dx = du/u`,
+  turning the integrand into a rational function of `u` that `try_rational` /
+  `integrate` closes; it back-substitutes `u = eˣ`.
+- **Verified:** `∫1/(eˣ+e⁻ˣ) = atan(eˣ)`, `∫eˣ/(e²ˣ+1) = atan(eˣ)`,
+  `∫e²ˣ/(1+eˣ) = eˣ−log(1+eˣ)`, `∫1/(eˣ+e²ˣ) = −e⁻ˣ−x+log(eˣ+1)`,
+  `∫1/(eˣ+4e⁻ˣ) = atan(eˣ/2)/2` — all differentiate back to the integrand
+  (and the headline matches SymPy's `atan(eˣ)`). The previously-working
+  `1/(eˣ+1)` family is unchanged.
+- **Regression test:** `INT-EXP-SUB-1` in `tests/integrals/integrate_test.cpp`
+  (`[7][integrate][oracle][regression]`).
+- **Scope:** integrands rational in `eˣ` with integer exponent multiples. A
+  fractional rate (`e^(x/2)`) would need `u = e^(x/2)` and is left unhandled.
+
 ### SOLVE-EXPBASE-SUM-1 — sums of constant-base exponentials returned `[]`
 - **Problem:** `solve(2^x − 3^x)`, `solve(2^(2x) − 5·2^x + 4)`,
   `solve(2^(x+1) − 8)`, `solve(2^x·3^x − 6)` returned `[]`. The existing
