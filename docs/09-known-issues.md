@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-CONSTBASEEXP-1 — `∫2ˣ` and `∫P(x)·aˣ` (constant-base exponential) were unevaluated
+- **Problem:** `∫2ˣ`, `∫x·2ˣ`, `∫x²·2ˣ` and every `∫P(x)·a^(b·x+c)` with a constant
+  base `a ≠ e` were left unevaluated. SymPP integrated the natural base `eˣ` but had
+  no rule for `aˣ`; rewriting `aˣ = exp(x·ln a)` does not help because that form
+  canonicalizes straight back to `a^x`.
+- **Fix:** added `try_const_base_exp_integral` in `src/integrals/integrate.cpp`
+  (dispatched with the other special-exponential rules). It isolates a constant,
+  provably-positive base power `a^(affine)` (`a ≠ 1`, exponent affine in var) and a
+  polynomial residual, then integrates each monomial by the by-parts reduction
+  `∫xⁿ·a^g = xⁿ·a^g/k − (n/k)·∫xⁿ⁻¹·a^g` with `k = b·ln a`, bottoming out at
+  `∫a^g = a^g/(b·ln a)`. The natural base `eˣ` (a `Function`, not a `Pow`) is not
+  matched, so the existing elementary path for it is untouched.
+- **Verified:** `∫2ˣ = 2ˣ/ln 2`, `∫x·2ˣ = 2ˣ(x·ln 2 − 1)/ln²2`, `∫x²·2ˣ`, `∫x·3ˣ`,
+  `∫(x+1)·2ˣ`, `∫x·2^(−x)`, `∫2^(3x)` — all diff-back exactly to the integrand,
+  matching SymPy; `∫x·eˣ` unchanged.
+- **Regression test:** `INT-CONSTBASEEXP-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### SOLVE-ZEROPROD-1 — `solve(x²·eˣ − eˣ)` returned `[]`; `eˣ·(x²−4)` gave a spurious `zoo`
 - **Problem:** Equations that factor into a polynomial × transcendental were
   mis-solved. `x²·eˣ − eˣ` returned `[]` (the common `eˣ` is not polynomial, so the

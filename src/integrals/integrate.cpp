@@ -455,6 +455,11 @@ namespace {
 // at ∫exp(c·x²) (erf/erfi) for even n and ∫x·exp(c·x²) = exp(c·x²)/(2c) for odd n.
 [[nodiscard]] std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·a^(b·x+c) dx for a polynomial P and a constant positive base a ≠ 1 with
+// an affine exponent — the constant-base analogue of ∫P(x)·eˣ. Reduces by parts to
+// lower powers, bottoming out at ∫a^(b·x+c) = a^(b·x+c)/(b·ln a). Closes ∫2ˣ, ∫x·2ˣ.
+[[nodiscard]] std::optional<Expr> try_const_base_exp_integral(const Expr& expr, const Expr& var);
+
 // ∫ P(x)·exp(a·x²+b·x+c) dx with a linear term (b ≠ 0) — completes the square via
 // the shift u = x + b/(2a) so the exponent becomes pure-quadratic in u, then
 // delegates to the Gaussian/moment rules. Closes ∫exp(−(x−1)²), ∫x·exp(−x²+x), …
@@ -578,6 +583,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_reciprocal_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_const_base_exp_integral(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_poly_times_gaussian(expr, var); r.has_value()) {
@@ -2619,6 +2627,70 @@ std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& v
                - integer(k - 1) * c * prev)
               / (integer(k) * a);
     return simplify(lead * Jk);
+}
+
+std::optional<Expr> try_const_base_exp_integral(const Expr& expr, const Expr& var) {
+    // Match a constant-base power a^(affine in var): base var-free and provably
+    // positive (so ln a is real), a ≠ 1, exponent depending on var and affine.
+    auto match_pow = [&](const Expr& f) -> bool {
+        if (f->type_id() != TypeId::Pow) return false;
+        const Expr& base = f->args()[0];
+        const Expr& exn = f->args()[1];
+        if (has(base, var)) return false;
+        if (!(is_positive(base) == true)) return false;
+        if (base == S::One()) return false;
+        if (!has(exn, var)) return false;
+        return as_affine(exn, var).has_value();
+    };
+
+    Expr powfac;
+    std::vector<Expr> rest;
+    if (match_pow(expr)) {
+        powfac = expr;  // bare a^(b·x+c), P = 1
+    } else if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!powfac && match_pow(f)) {
+                powfac = f;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!powfac) return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+
+    const Expr& base = powfac->args()[0];
+    auto aff = as_affine(powfac->args()[1], var);  // exponent = b·var + c
+    const Expr& b = aff->first;
+    if (b == S::Zero()) return std::nullopt;
+    // d/dx a^(b·x+c) = a^(b·x+c)·b·ln a, so ∫a^(b·x+c) = a^(b·x+c)/(b·ln a).
+    Expr k = mul(b, log(base));
+
+    // The residual factor must be a polynomial in var with var-free coefficients.
+    Expr poly_part = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    Poly pp(expand(poly_part), var);
+    for (const auto& cc : pp.coeffs()) {
+        if (depends_on(cc, var)) return std::nullopt;
+    }
+
+    // ∫xⁿ·a^g = xⁿ·a^g/k − (n/k)·∫xⁿ⁻¹·a^g, bottoming at ∫a^g = a^g/k.
+    auto moment = [&](auto&& self, long n) -> Expr {
+        if (n == 0) return powfac / k;
+        Expr head = pow(var, integer(n)) * powfac / k;
+        Expr tail = integer(n) / k * self(self, n - 1);
+        return head - tail;
+    };
+
+    const long deg = static_cast<long>(pp.degree());
+    std::vector<Expr> terms;
+    for (long i = 0; i <= deg; ++i) {
+        const Expr& ai = pp.coeffs()[static_cast<std::size_t>(i)];
+        if (ai == S::Zero()) continue;
+        terms.push_back(mul(ai, moment(moment, i)));
+    }
+    if (terms.empty()) return std::nullopt;
+    return simplify(add(std::move(terms)));
 }
 
 std::optional<Expr> try_shifted_gaussian(const Expr& expr, const Expr& var) {

@@ -1059,6 +1059,33 @@ TEST_CASE("integrate: ∫1/(x*log(x)^2) dx = -1/log(x)",
 // ----- Gaussian integral → erf (regression, INT-11) -------------------------
 // ∫exp(−a·x²) dx = √π·erf(√a·x)/(2√a) — the error-function antiderivative.
 // Verified by differentiation (erf' was fixed in DIFF-2).
+// INT-CONSTBASEEXP-1: constant-base exponential ∫P(x)·a^(b·x+c). SymPP integrated
+// the natural base eˣ but left aˣ unevaluated (exp(x·ln a) even canonicalizes back
+// to a^x). Reduces by parts to ∫a^g = a^g/(b·ln a). Verified by diff-back.
+TEST_CASE("integrate: constant-base exponential ∫P(x)·a^x (INT-CONSTBASEEXP-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(pow(integer(2), x)));                       // ∫2ˣ
+    REQUIRE(db(x * pow(integer(2), x)));                   // ∫x·2ˣ
+    REQUIRE(db(pow(x, integer(2)) * pow(integer(2), x)));  // ∫x²·2ˣ
+    REQUIRE(db(x * pow(integer(3), x)));                   // different base
+    REQUIRE(db((x + integer(1)) * pow(integer(2), x)));    // mixed polynomial
+    REQUIRE(db(x * pow(integer(2), mul(S::NegativeOne(), x))));  // decaying 2^(−x)
+    REQUIRE(db(pow(integer(2), integer(3) * x)));          // affine exponent 3x
+    // ∫2ˣ closed form.
+    REQUIRE(oracle.equivalent(integrate(pow(integer(2), x), x)->str(),
+                              "2**x/log(2)"));
+    // Natural base is still handled by the elementary path, unchanged.
+    REQUIRE(oracle.equivalent(integrate(x * exp(x), x)->str(),
+                              "x*exp(x) - exp(x)"));
+}
+
 TEST_CASE("integrate: ∫exp(-x^2) dx = sqrt(pi)*erf(x)/2",
           "[7][integrate][erf][oracle][regression]") {
     auto& oracle = Oracle::instance();
