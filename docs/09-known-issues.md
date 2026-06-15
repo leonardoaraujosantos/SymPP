@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-SQRTQUAD-PARAM-1 — `∫1/√(x²+a²)` unevaluated for symbolic coefficients
+- **Problem:** `∫1/√(x²+a²)`, `∫1/√(a²−x²)`, `∫1/√(x²+a)` came back unevaluated
+  for symbolic positive coefficients, even though `try_sqrt_quadratic`'s branches
+  already use `is_positive`/`is_negative` (which handle symbolic) — a leftover
+  rational-only gate blocked them.
+- **Fix:** in `src/integrals/integrate.cpp`, removed the `is_rational(a)/`
+  `is_rational(c)` gate in `try_sqrt_quadratic`'s pure-quadratic case; the
+  sign-gated branches below decide the asinh / asin / log form. Combined with the
+  `MUL-POS-1` fix (`is_positive(a²) = true`), symbolic positive coefficients now
+  close.
+- **Verified:** `∫1/√(x²+a²) = asinh(x/a)`, `∫1/√(a²−x²) = asin(x/a)`,
+  `∫1/√(x²+a) = asinh(x/√a)`, `∫√(a²−x²) = (a²·asin(x/a) + x·√(a²−x²))/2` — the
+  reciprocal forms match SymPy exactly. Undecidable-sign coefficients fall
+  through unevaluated.
+- **Regression test:** `INT-SQRTQUAD-PARAM-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-ARCTAN-PARAM-1 / MUL-POS-1 — `∫1/(x²+a²)` unevaluated; `is_positive(4·a²)` unknown
 - **Problem:** `∫1/(x²+a²)` (and `∫1/(x²+a)`, `∫1/(ax²+b)`) came back unevaluated
   for symbolic positive coefficients — `try_arctan_quadratic` required *rational*

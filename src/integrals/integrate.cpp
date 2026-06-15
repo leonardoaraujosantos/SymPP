@@ -2387,7 +2387,9 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
         if (!inner.has_value()) return std::nullopt;
         return simplify(subs(inner.value(), var, var + shift));
     }
-    if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+    // Symbolic coefficients are allowed: each branch below is gated on a
+    // *provable* sign (is_positive/is_negative), so 1/√(x²+a²) (c = a² > 0) →
+    // asinh(x/a). Coefficients of undecidable sign fall through unevaluated.
 
     // ∫ √(a·x² + c) dx = (x/2)·√(a·x²+c) + (c/2)·∫ 1/√(a·x²+c) dx (by parts).
     // Reduce to the reciprocal case below and reuse its asin/asinh/log result;

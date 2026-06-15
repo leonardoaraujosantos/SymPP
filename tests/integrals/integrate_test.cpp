@@ -309,6 +309,40 @@ TEST_CASE("integrate: arctan over a symbolic-coefficient quadratic (INT-ARCTAN-P
     REQUIRE(is_positive(integer(4) * pow(a, integer(2))) == true);
 }
 
+// INT-SQRTQUAD-PARAM-1: ∫1/√(quadratic) with symbolic positive coefficients —
+// ∫1/√(x²+a²) = asinh(x/a), ∫1/√(a²−x²) = asin(x/a). The sign-gated branches in
+// try_sqrt_quadratic already handled symbolic coefficients; only a rational-only
+// gate blocked them (now relaxed). These match SymPy's forms exactly.
+TEST_CASE("integrate: sqrt-quadratic with symbolic coefficients (INT-SQRTQUAD-PARAM-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    // ∫1/√(x²+a²) = asinh(x/a), exactly SymPy's form.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + pow(a, integer(2)), rational(-1, 2)),
+                  x)
+            ->str(),
+        "asinh(x/a)"));
+    // ∫1/√(a²−x²) = asin(x/a).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(a, integer(2)) - pow(x, integer(2)), rational(-1, 2)),
+                  x)
+            ->str(),
+        "asin(x/a)"));
+    // ∫1/√(x²+a) = asinh(x/√a).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + a, rational(-1, 2)), x)->str(),
+        "asinh(x/sqrt(a))"));
+    // ∫√(a²−x²) = (a²·asin(x/a) + x·√(a²−x²))/2 (verified by diff-back at a=2).
+    auto F = integrate(
+        pow(pow(a, integer(2)) - pow(x, integer(2)), rational(1, 2)), x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    Expr Fc = xreplace(F, ExprMap<Expr>{{a, integer(2)}});
+    Expr ic = pow(integer(4) - pow(x, integer(2)), rational(1, 2));
+    REQUIRE(oracle.equivalent(diff(Fc, x)->str(), ic->str()));
+}
+
 TEST_CASE("integrate: ∫1/(x^2+2x+5) dx = atan((x+1)/2)/2 (completed square)",
           "[7][integrate][arctan][oracle][regression]") {
     auto& oracle = Oracle::instance();
