@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-ABS-DEF-1 — definite integral of `|x|` returned garbage `−Integral(1,−1) + Integral(1,1)`
+- **Problem:** definite integrals of integrands containing `abs`/`sign` —
+  `∫_{-1}^1 |x|`, `∫_0^π |cos x|`, `∫_{-1}^1 (|x|+x²)` — produced garbage. These
+  have no elementary antiderivative (SymPy leaves the *indefinite* form too), so
+  the Newton–Leibniz path substituted the bounds into the unevaluated
+  `Integral(|x|, x)` marker, yielding nonsense like `−Integral(1,−1)+Integral(1,1)`.
+- **Fix:** added `try_abs_definite` in `src/integrals/integrate.cpp`, invoked from
+  the 4-arg `integrate` when the antiderivative still contains an integral marker
+  (detected recursively, since it can be buried in a sum). `|g|` and `sign(g)` are
+  piecewise-constant in the sign of `g`, so it splits `[lower, upper]` at the real
+  roots of each argument (via `solve`), replaces `abs(g)→±g` / `sign(g)→±1` by the
+  numerically-sampled sign on each subinterval, integrates the now-smooth pieces,
+  and sums. Finite bounds only; bails unless every piece closes.
+- **Verified:** `∫_{-1}^1 |x| = 1`, `∫_{-2}^3 |x| = 13/2`, `∫_0^2 |x−1| = 1`,
+  `∫_{-1}^1 x|x| = 0`, `∫_{-1}^2 sign x = 1`, `∫_{-1}^1 (|x|+x²) = 5/3`,
+  `∫_0^π |cos x| = 2`, all matching SymPy; a smooth integrand (no interior root)
+  reduces to the ordinary integral.
+- **Regression test:** `INT-ABS-DEF-1` in `tests/integrals/integrate_test.cpp`.
+
 ### SUM-POLYGEOM-INF-1 — `Σ_{k=0}^∞ k/2^k` returned `nan`
 - **Problem:** infinite polynomial × geometric sums `Σ_{k=lo}^∞ P(k)·r^k` with
   `|r| < 1` — `Σ k/2^k = 2`, `Σ k²/2^k = 6`, `Σ k/3^k = 3/4` — returned `nan`.

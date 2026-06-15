@@ -1,10 +1,14 @@
 #include <sympp/integrals/integrate.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <optional>
 #include <utility>
 #include <vector>
 
 #include <sympp/calculus/limit.hpp>
+#include <sympp/core/float.hpp>
+#include <sympp/solvers/solve.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
@@ -3034,11 +3038,135 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(subs(result_u, u, root_base));
 }
 
+// A definite integral of an integrand containing abs(g)/sign(g): the
+// antiderivative is generally not elementary, but |g| and sign(g) are piecewise
+// over the sign of g. Split [lower, upper] at the real roots of each g, replace
+// abs(g)→±g and sign(g)→±1 by the sign on each subinterval, and integrate the now
+// smooth pieces. Finite bounds only. Returns nullopt unless every piece closes.
+[[nodiscard]] std::optional<Expr> try_abs_definite(const Expr& expr,
+                                                   const Expr& var,
+                                                   const Expr& lower,
+                                                   const Expr& upper) {
+    if (is_infinity(lower) || is_infinity(upper)) return std::nullopt;
+
+    // Collect the abs(g)/sign(g) nodes that depend on var.
+    std::vector<Expr> nodes;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            const FunctionId id = fn.function_id();
+            if ((id == FunctionId::Abs || id == FunctionId::Sign)
+                && fn.args().size() == 1 && depends_on(fn.args()[0], var)) {
+                if (std::none_of(nodes.begin(), nodes.end(),
+                                 [&](const Expr& n) { return n == e; })) {
+                    nodes.push_back(e);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (nodes.empty()) return std::nullopt;
+
+    auto to_double = [](const Expr& e) -> std::optional<double> {
+        Expr v = evalf(e, 30);
+        if (v->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            return std::stod(v->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    };
+    auto lo_d = to_double(lower);
+    auto hi_d = to_double(upper);
+    if (!lo_d || !hi_d || !(*lo_d < *hi_d)) return std::nullopt;
+
+    // Breakpoints: real roots of each g strictly inside (lower, upper).
+    std::vector<std::pair<double, Expr>> bps;
+    for (const auto& nd : nodes) {
+        const Expr& g = nd->args()[0];
+        for (const auto& r : solve(g, var)) {
+            if (depends_on(r, var)) continue;
+            auto rd = to_double(r);
+            if (!rd || *rd <= *lo_d + 1e-9 || *rd >= *hi_d - 1e-9) continue;
+            if (std::none_of(bps.begin(), bps.end(), [&](const auto& p) {
+                    return std::fabs(p.first - *rd) < 1e-9;
+                })) {
+                bps.emplace_back(*rd, r);
+            }
+        }
+    }
+    std::sort(bps.begin(), bps.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    std::vector<Expr> points;
+    points.push_back(lower);
+    for (const auto& [d, r] : bps) points.push_back(r);
+    points.push_back(upper);
+
+    auto sign_at = [&](const Expr& g, const Expr& pt) -> int {
+        Expr v = evalf(simplify(subs(g, var, pt)), 30);
+        if (is_positive(v) == true) return 1;
+        if (is_negative(v) == true) return -1;
+        return 0;
+    };
+
+    std::vector<Expr> pieces;
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        const Expr& p = points[i];
+        const Expr& q = points[i + 1];
+        Expr mid = (p + q) / integer(2);
+        ExprMap<Expr> repl;
+        bool ok = true;
+        for (const auto& nd : nodes) {
+            const auto& fn = static_cast<const Function&>(*nd);
+            const Expr& g = fn.args()[0];
+            const int s = sign_at(g, mid);
+            if (s == 0) { ok = false; break; }
+            if (fn.function_id() == FunctionId::Abs) {
+                repl.emplace(nd, s > 0 ? g : mul(S::NegativeOne(), g));
+            } else {
+                repl.emplace(nd, s > 0 ? Expr{S::One()} : Expr{S::NegativeOne()});
+            }
+        }
+        if (!ok) return std::nullopt;
+        Expr smooth = xreplace(expr, repl);
+        Expr piece = integrate(smooth, var, p, q);  // recursive (now smooth)
+        bool has_marker = false;
+        auto check = [&](auto&& self, const Expr& e) -> void {
+            if (is_integral_marker(e)) { has_marker = true; return; }
+            for (const auto& a : e->args()) {
+                if (has_marker) return;
+                self(self, a);
+            }
+        };
+        check(check, piece);
+        if (has_marker || piece->type_id() == TypeId::NaN) return std::nullopt;
+        pieces.push_back(std::move(piece));
+    }
+    return simplify(add(std::move(pieces)));
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
     auto antider = integrate(expr, var);
+    // An integrand with abs/sign has no elementary antiderivative (the marker can
+    // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is
+    // piecewise-smooth: split the interval at the sign changes and sum the pieces.
+    bool antider_has_marker = false;
+    auto find_marker = [&](auto&& self, const Expr& e) -> void {
+        if (is_integral_marker(e)) { antider_has_marker = true; return; }
+        for (const auto& a : e->args()) {
+            if (antider_has_marker) return;
+            self(self, a);
+        }
+    };
+    find_marker(find_marker, antider);
+    if (antider_has_marker) {
+        if (auto r = try_abs_definite(expr, var, lower, upper)) return *r;
+    }
     // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
     // (or when direct substitution lands on the unevaluated nan / an infinity —
     // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative

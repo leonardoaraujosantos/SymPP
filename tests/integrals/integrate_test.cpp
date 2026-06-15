@@ -18,6 +18,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/integrate.hpp>
@@ -118,6 +119,30 @@ TEST_CASE("integrate: definite cos(x) from 0 to pi = 0",
     auto x = symbol("x");
     auto r = integrate(cos(x), x, S::Zero(), S::Pi());
     REQUIRE(r == integer(0));
+}
+
+// INT-ABS-DEF-1: a definite integral of an abs/sign integrand has no elementary
+// antiderivative, but is piecewise-smooth — split at the sign changes (roots of
+// the argument) and sum. Previously the unevaluated marker was substituted at the
+// bounds, producing garbage like −Integral(1, −1) + Integral(1, 1).
+TEST_CASE("integrate: definite integral of abs/sign by sign-splitting (INT-ABS-DEF-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+    auto I = [&](const Expr& e, int a, int b) {
+        return integrate(e, x, integer(a), integer(b));
+    };
+    REQUIRE(I(abs(x), -1, 1) == integer(1));               // two triangles
+    REQUIRE(I(abs(x), -2, 3) == rational(13, 2));          // asymmetric
+    REQUIRE(I(abs(x - integer(1)), 0, 2) == integer(1));   // shifted root
+    REQUIRE(I(x * abs(x), -1, 1) == integer(0));           // odd integrand
+    REQUIRE(I(sign(x), -1, 2) == integer(1));              // ∫sign = −1+2
+    REQUIRE(I(abs(x) + pow(x, integer(2)), -1, 1)
+            == rational(5, 3));  // marker buried in a sum: 1 + 2/3
+    // No interior root: the integrand is smooth over [0,1], plain ∫x = 1/2.
+    REQUIRE(I(abs(x), 0, 1) == rational(1, 2));
+    // |cos x| over [0, π] = 2 (root at π/2).
+    auto two = integrate(abs(cos(x)), x, S::Zero(), S::Pi());
+    REQUIRE(two == integer(2));
 }
 
 // ----- Round-trip property: diff(integrate(f, x), x) == f --------------------
