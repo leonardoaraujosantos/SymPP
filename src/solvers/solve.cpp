@@ -895,12 +895,14 @@ solve_inverse_func_poly(const Expr& expr, const Expr& var) {
             roots.push_back(std::move(r));
         }
     };
-    // c is in range when known-numeric and within bounds; an unbounded range
-    // accepts anything (including a symbolic c).
+    // c is in range when known-numeric and within bounds. A symbolic c yields the
+    // formal principal-branch inverse (matching SymPy: solve(atan(z)−a) = tan(a));
+    // only a concrete out-of-range value is rejected. An unbounded range accepts
+    // anything.
     auto in_range = [&](const Expr& c, double lo, double hi, bool bounded) {
         if (!bounded) return true;
         auto v = numeric_value(c);
-        if (!v) return false;  // symbolic c with a bounded range — conservative
+        if (!v) return true;  // symbolic c: return the formal inverse
         return *v >= lo - kEps && *v <= hi + kEps;
     };
     for (auto& c : cvals) {

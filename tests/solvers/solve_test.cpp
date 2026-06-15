@@ -967,6 +967,16 @@ TEST_CASE("solve: inverse trig/hyperbolic equations (SOLVE-INVFN-1)",
     REQUIRE(solve(asin(x) - integer(2), x).empty());       // 2 > π/2
     REQUIRE(solve(acos(x) - integer(4), x).empty());       // 4 > π
     REQUIRE(solve(acosh(x) + integer(1), x).empty());      // c = -1 < 0
+    // Symbolic RHS → the formal principal-branch inverse (matching SymPy). The
+    // bounded-range check previously rejected a non-numeric c, returning [].
+    auto a = symbol("a");
+    REQUIRE(set_equal(solve(atan(x) - a, x), {"tan(a)"}));
+    REQUIRE(set_equal(solve(asin(x) - a, x), {"sin(a)"}));
+    REQUIRE(set_equal(solve(acos(x) - a, x), {"cos(a)"}));
+    REQUIRE(set_equal(solve(atanh(x) - a, x), {"tanh(a)"}));
+    REQUIRE(set_equal(solve(asinh(x) - a, x), {"sinh(a)"}));
+    // Scaled argument with a symbolic RHS: atan(2x) = a → x = tan(a)/2.
+    REQUIRE(set_equal(solve(atan(integer(2) * x) - a, x), {"tan(a)/2"}));
 }
 
 // SOLVE-TRIG-LINEAR-1: solve() of a linear combination a·sin(B·x)+b·cos(B·x)+c

@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-INVFN-SYM-1 — `solve(atan(x) − a)` (inverse fn = symbolic RHS) returned `[]`
+- **Problem:** inverting an inverse trig/hyperbolic function against a *symbolic*
+  right-hand side returned `[]`: `solve(atan(x) − a) → []`, `asin(x) − a`,
+  `acos(x) − a`, … although the numeric case worked (`atan(x) − 1 → tan(1)`).
+- **Fix:** in `src/solvers/solve.cpp`, `solve_inverse_func_poly`'s `in_range` check
+  no longer rejects a non-numeric angle `c` for the bounded-range functions
+  (asin/acos/atan). A concrete out-of-range value is still rejected; a symbolic `c`
+  now yields the formal principal-branch inverse, matching SymPy.
+- **Verified:** `atan(x) − a → tan(a)`, `asin(x) − a → sin(a)`, `acos(x) − a → cos(a)`,
+  `atanh(x) − a → tanh(a)`, `asinh(x) − a → sinh(a)`, `atan(2x) − a → tan(a)/2`,
+  all matching SymPy; numeric in-range (`atan(x) − 1 → tan(1)`) and out-of-range
+  rejection (`asin(x) − 5 → []`) unchanged. As a knock-on, the ODE `y′ = 1 + y²`
+  now solves explicitly to `tan(x + C)` (was an implicit `atan` form).
+- **Regression test:** extended `SOLVE-INVFN-1` in `tests/solvers/solve_test.cpp`.
+
 ### DSOLVE-SEPARABLE-NONLIN-1 — `dsolve(y′ = y²)` and nonlinear separable ODEs were unsolved
 - **Problem:** separable equations `y′ = f(x)·g(y)` with a non-trivial `g(y)` —
   `y′ = y²`, `y′ = √y`, `y′ = x·y²`, `y′ = 1 + y²` — returned an unevaluated
