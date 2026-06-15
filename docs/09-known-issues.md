@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LHOPITAL-NEST-1 — `lim x·(π/2 − atan x) = 1` returned `nan`
+- **Problem:** `0·∞` limits whose L'Hôpital derivative ratio has a denominator
+  derivative that is itself a fraction — `x·(π/2 − atan x)`, `x·atan(1/x)`,
+  `x·tan(1/x)` (all → 1) — returned `nan`. After differentiating, `d/dx(1/x) = −x⁻²`
+  goes into the denominator, and the re-rationalisation step used `together()`,
+  which does not flatten a nested reciprocal like `(−x⁻²)⁻¹`; the leftover negative
+  power survived into the next substitution and produced `nan`. (`x·sin(1/x)`
+  worked because the stray `x⁻²` happened to cancel against a matching factor.)
+- **Fix:** in `src/calculus/limit.cpp`, `lhopital_nd` now rationalises each
+  derivative ratio with `flatten_fraction(together(num'/den'))` — `together` cancels
+  common factors (keeping `x·sin(1/x)` working) and a new recursive
+  `flatten_fraction` helper (`(p/q)^(−k) = q^k/p^k`, descending into `Pow` bases)
+  clears any residual nested reciprocal `together` leaves behind.
+- **Verified:** `x·(π/2 − atan x) → 1`, `x·atan(1/x) → 1`, `x·tan(1/x) → 1`,
+  matching SymPy; `x·sin(1/x) → 1`, `x·log(1+1/x) → 1`, and the existing rational /
+  radical L'Hôpital limits are unchanged.
+- **Regression test:** extended the `0·∞` test in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### INT-TRIGSQ-POWER-1 — `∫sin²(x)/xⁿ` and squared-trig over a power were unevaluated
 - **Problem:** `∫sin²(x)/x²`, `∫cos²(x)/x`, `∫sin²(x)/x³`, … were left unevaluated.
   `try_trig_reduction` applied the half-angle identity only to a *standalone*

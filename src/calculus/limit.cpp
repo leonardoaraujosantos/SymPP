@@ -66,6 +66,60 @@ struct NumDen { Expr num; Expr den; };
     return e->type_id() == TypeId::NaN;
 }
 
+// Recursively combine a rational expression into a single numerator/denominator,
+// descending into the bases of integer powers so nested reciprocals flatten —
+// (p/q)^(−k) = q^k/p^k. together() stops at a Pow base, so a compound fraction
+// like (−x⁻²)⁻¹ stays un-flattened; this clears it (used to rationalise the
+// L'Hôpital ratio when a derivative is itself a fraction).
+[[nodiscard]] NumDen flatten_fraction(const Expr& e) {
+    switch (e->type_id()) {
+        case TypeId::Mul: {
+            std::vector<Expr> nums, dens;
+            for (const auto& a : e->args()) {
+                auto r = flatten_fraction(a);
+                nums.push_back(r.num);
+                dens.push_back(r.den);
+            }
+            return {mul(std::move(nums)), mul(std::move(dens))};
+        }
+        case TypeId::Add: {
+            std::vector<NumDen> parts;
+            parts.reserve(e->args().size());
+            for (const auto& a : e->args()) parts.push_back(flatten_fraction(a));
+            Expr den = S::One();
+            for (const auto& p : parts) den = mul(den, p.den);
+            std::vector<Expr> terms;
+            terms.reserve(parts.size());
+            for (std::size_t i = 0; i < parts.size(); ++i) {
+                Expr cof = S::One();
+                for (std::size_t j = 0; j < parts.size(); ++j) {
+                    if (j != i) cof = mul(cof, parts[j].den);
+                }
+                terms.push_back(mul(parts[i].num, cof));
+            }
+            return {add(std::move(terms)), den};
+        }
+        case TypeId::Pow: {
+            const Expr& base = e->args()[0];
+            const Expr& ex = e->args()[1];
+            if (ex->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*ex);
+                if (z.fits_long()) {
+                    auto br = flatten_fraction(base);
+                    const long k = z.to_long();
+                    if (k < 0) {
+                        return {pow(br.den, integer(-k)), pow(br.num, integer(-k))};
+                    }
+                    if (k > 0) return {pow(br.num, ex), pow(br.den, ex)};
+                }
+            }
+            return {e, S::One()};
+        }
+        default:
+            return {e, S::One()};
+    }
+}
+
 // L'Hôpital on the fraction num/den. Resolves the 0/0 and ∞/∞ indeterminate
 // forms by differentiating top and bottom, re-rationalising the ratio each
 // step (so algebraic cancellation, e.g. x²/(x²+x) → x/(x+1), keeps the limit
@@ -102,9 +156,19 @@ struct NumDen { Expr num; Expr den; };
             Expr num_d = diff(num, var);
             Expr den_d = diff(den, var);
             if (den_d == S::Zero()) return std::nullopt;
-            // Re-rationalise the new ratio with together() (cheap) before the
-            // next step; full simplify() here is too slow over many iterations.
-            auto nd = split_after_together(num_d / den_d);
+            // Re-rationalise the new ratio before the next step. together() does
+            // not flatten a nested reciprocal like (−x⁻²)⁻¹, so when den_d is itself
+            // a fraction (e.g. d/dx(1/x) = −x⁻²) the naive num_d/den_d leaves a
+            // negative power in the denominator and the next substitution is nan.
+            // flatten_fraction recursively combines into a single numer/denom first;
+            // split_after_together then consolidates (cheaper than full simplify).
+            // together() cancels common factors (e.g. x²·cos(1/x)/x² → cos(1/x))
+            // but can leave a residual nested power when num and den have unrelated
+            // denominators (e.g. the atan case: a stray x⁻² stuck in the
+            // denominator); flatten_fraction then clears that nesting. Doing only
+            // one of the two breaks the other family, so apply both.
+            auto ff = flatten_fraction(together(num_d / den_d));
+            auto nd = split_after_together(ff.num / ff.den);
             num = std::move(nd.num);
             den = std::move(nd.den);
             continue;

@@ -533,6 +533,17 @@ TEST_CASE("limit: 0*oo and oo/oo forms at oo",
     REQUIRE(limit(exp(x) / x, x, S::Infinity()) == S::Infinity());
     // log(x)/x → 0.
     REQUIRE(oracle.equivalent(limit(log(x) / x, x, S::Infinity())->str(), "0"));
+    // LIMIT-LHOPITAL-NEST-1: a 0·∞ whose L'Hôpital ratio has a derivative that is
+    // itself a fraction (d/dx(1/x) = −x⁻²). together() leaves the resulting
+    // nested reciprocal un-flattened, which made these return nan; flattening the
+    // ratio each step fixes it. x·(π/2 − atan x) → 1, x·atan(1/x) → 1.
+    REQUIRE(oracle.equivalent(
+        limit(x * (S::Pi() / integer(2) - atan(x)), x, S::Infinity())->str(),
+        "1"));
+    REQUIRE(oracle.equivalent(
+        limit(x * atan(integer(1) / x), x, S::Infinity())->str(), "1"));
+    REQUIRE(oracle.equivalent(
+        limit(x * tan(integer(1) / x), x, S::Infinity())->str(), "1"));
 }
 
 // LIMIT-GAMMA-1: limits of gamma/factorial at +∞. Direct substitution gives
