@@ -547,6 +547,44 @@ TEST_CASE("solve: equation form Eq(lhs, rhs) (SOLVE-EQ-1)",
     REQUIRE(set_eq(solve(parse("Eq(x**2, 2*x)"), x), {"0", "2"}));
 }
 
+// SOLVE-LOGSUM-1: solve() of a sum of logarithms. Combine Σ cᵢ·log(gᵢ) + K via
+// log(∏ gᵢ^cᵢ) = −K ⇒ ∏ gᵢ^cᵢ = exp(−K), solve, and keep only roots in the log
+// domain (every gᵢ(root) > 0): log(x)+log(x−1)=0 → x(x−1)=1 → (1+√5)/2 (the
+// negative root is dropped). Previously these returned [].
+TEST_CASE("solve: sum of logarithms (SOLVE-LOGSUM-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // log(x)+log(x−1)=0 → only the in-domain root (1+√5)/2.
+    REQUIRE(set_eq(solve(log(x) + log(x - integer(1)), x),
+                   {"1/2 + sqrt(5)/2"}));
+    // log(x)+log(x+1)=log(6) → {2} (the root −3 is out of domain).
+    REQUIRE(set_eq(
+        solve(log(x) + log(x + integer(1)) - log(integer(6)), x), {"2"}));
+    // 2·log(x)−log(x+2)=0 → x²=x+2 → {2} (−1 out of domain).
+    REQUIRE(set_eq(
+        solve(integer(2) * log(x) - log(x + integer(2)), x), {"2"}));
+    // log(x+1)+log(x−1)=0 → x²−1=1 → √2 (−√2 out of domain).
+    REQUIRE(set_eq(solve(log(x + integer(1)) + log(x - integer(1)), x),
+                   {"sqrt(2)"}));
+}
+
 // ----- solveset --------------------------------------------------------------
 
 TEST_CASE("solveset: x^2 - 4 = 0 → {2, -2}", "[10][solveset]") {

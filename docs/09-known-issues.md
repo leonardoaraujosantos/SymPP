@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-LOGSUM-1 — `solve(log(x)+log(x−1))` returned `[]`
+- **Problem:** equations with a *sum* of logarithms — `log(x)+log(x−1)`,
+  `log(x)+log(x+1)−log(6)`, `2·log(x)−log(x+2)` — returned `[]`. The existing
+  log solver handles only a single log atom; a sum of several is not a
+  polynomial in one atom.
+- **Fix:** added `solve_log_sum` in `src/solvers/solve.cpp`. It recognizes
+  `Σ cᵢ·log(gᵢ(x)) + K` (cᵢ, K var-free), combines via
+  `log(∏ gᵢ^cᵢ) = −K ⇒ ∏ gᵢ^cᵢ = exp(−K)`, solves that recursively, and keeps
+  only roots in the log domain (every `gᵢ(root) > 0`). The domain filter uses a
+  numeric sign from `evalf`, since `is_positive` cannot judge an irrational like
+  `(1+√5)/2`.
+- **Verified:** `log(x)+log(x−1)=0 → (1+√5)/2` (the negative root dropped),
+  `log(x)+log(x+1)=log(6) → 2`, `2log(x)−log(x+2)=0 → 2`,
+  `log(x+1)+log(x−1)=0 → √2`, `log(x)−log(x−1)=1 → e/(e−1)` — all match SymPy;
+  single-log equations are unchanged.
+- **Regression test:** `SOLVE-LOGSUM-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`).
+- **Scope:** sums of `cᵢ·log(gᵢ)` with var-free coefficients. A log with the
+  variable also outside a log, or symbolic coefficients, is left to other paths.
+
 ### SOLVE-ABS-1 — `solve(|x−1|−2)` returned `[]`, and `|g|=c<0` gave spurious roots
 - **Problem:** `solve(abs(x−1)−2)` returned `[]` instead of `{3, −1}`.
   `solveset` correctly produced `{3} ∪ {−1}`, but `solve` only extracted roots

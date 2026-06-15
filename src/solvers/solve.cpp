@@ -539,6 +539,88 @@ solve_exp_log_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a sum of logarithms: Σ cᵢ·log(gᵢ(x)) + K = 0 with the cᵢ and K var-free.
+// Combine via log(∏ gᵢ^cᵢ) = −K ⇒ ∏ gᵢ^cᵢ = exp(−K), solve that, and keep only
+// roots in the log domain (every gᵢ(root) > 0). Mirrors SymPy's logcombine path:
+// log(x)+log(x−1)=0 → x(x−1)=1 → x=(1+√5)/2 (the negative root is dropped).
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_log_sum(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Add) return std::nullopt;
+    std::vector<std::pair<Expr, Expr>> logs;  // (g, coeff)
+    Expr konst = S::Zero();
+    auto as_log = [&](const Expr& t) -> std::optional<std::pair<Expr, Expr>> {
+        // log(g) or (var-free coeff)·log(g).
+        auto is_log = [&](const Expr& f) {
+            return f->type_id() == TypeId::Function
+                   && static_cast<const Function&>(*f).function_id()
+                          == FunctionId::Log
+                   && f->args().size() == 1;
+        };
+        if (is_log(t)) return std::make_pair(t->args()[0], Expr{S::One()});
+        if (t->type_id() == TypeId::Mul) {
+            Expr inner;
+            std::vector<Expr> coeff;
+            for (const auto& f : t->args()) {
+                if (!inner && is_log(f)) {
+                    inner = f->args()[0];
+                    continue;
+                }
+                if (has(f, var)) return std::nullopt;  // non-log var factor
+                coeff.push_back(f);
+            }
+            if (inner) return std::make_pair(inner, mul(std::move(coeff)));
+        }
+        return std::nullopt;
+    };
+    for (const auto& term : expr->args()) {
+        if (!has(term, var)) {
+            konst = konst + term;
+            continue;
+        }
+        auto lp = as_log(term);
+        if (!lp) return std::nullopt;  // a var-dependent non-log term
+        logs.push_back(std::move(*lp));
+    }
+    if (logs.size() < 2) return std::nullopt;  // single log: handled elsewhere
+
+    std::vector<Expr> factors;
+    for (const auto& [g, c] : logs) factors.push_back(pow(g, c));
+    Expr prod = mul(std::move(factors));
+    Expr target = simplify(exp(mul(S::NegativeOne(), konst)));
+    std::vector<Expr> raw = solve(simplify(prod - target), var);
+
+    // A log argument is in-domain when it is positive. is_positive can't judge an
+    // irrational like (1+√5)/2, so fall back to a numeric sign from evalf.
+    auto positive_arg = [&](const Expr& g, const Expr& r) -> bool {
+        Expr gv = simplify(subs(g, var, r));
+        if (is_positive(gv) == true) return true;
+        Expr fv = evalf(gv, 30);
+        if (fv->type_id() != TypeId::Float) return false;
+        try {
+            return std::stod(fv->str()) > 1e-12;
+        } catch (...) {
+            return false;
+        }
+    };
+    std::vector<Expr> out;
+    for (auto& r : raw) {
+        if (has(r, var)) continue;
+        bool valid = true;
+        for (const auto& [g, c] : logs) {
+            if (!positive_arg(g, r)) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid
+            && std::none_of(out.begin(), out.end(),
+                            [&](const Expr& u) { return u == r; })) {
+            out.push_back(std::move(r));
+        }
+    }
+    return out;
+}
+
 // Solve a (Laurent) polynomial in exp(var) whose terms are exp(m·var) for
 // integer m — e.g. exp(x)+exp(-x)-2, exp(2x)-3·exp(x)+2. Substitute u = exp(var)
 // (so exp(m·var) → uᵐ), solve the resulting equation in u (the rational/poly
@@ -1162,6 +1244,7 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
             return *tp;
         if (auto el = solve_exp_log_poly(expr, var); el && !el->empty())
             return *el;
+        if (auto ls = solve_log_sum(expr, var); ls && !ls->empty()) return *ls;
         if (auto es = solve_exp_sum(expr, var); es && !es->empty()) return *es;
         if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
             return *inv;
