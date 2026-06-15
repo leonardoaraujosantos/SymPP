@@ -504,6 +504,30 @@ TEST_CASE("integrate: ∫1/sqrt(x^2+1) dx = asinh(x)",
     REQUIRE(oracle.equivalent(r->str(), "asinh(x)"));
 }
 
+// INT-XSQRTQUAD-NUM-1: a non-polynomial numerator over √(quadratic) must NOT be
+// treated as a constant coefficient. Poly(asin(x), x) sees asin(x) as a degree-0
+// "coefficient", so ∫asin(x)/√(1−x²) was wrongly pulled out as asin(x)·∫1/√Q =
+// asin(x)² (a factor-of-2 error; correct is asin²/2). Guard the numerator
+// coefficients var-free; the residual is then verified by heurisch's diff-back.
+TEST_CASE("integrate: non-polynomial numerator over sqrt-quadratic (INT-XSQRTQUAD-NUM-1)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto isqrt = pow(integer(1) - pow(x, integer(2)), rational(-1, 2));  // 1/√(1−x²)
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // ∫asin/√(1−x²) = asin²/2 (was the wrong asin²); ∫asin²/√ = asin³/3.
+    REQUIRE(db(asin(x) * isqrt));
+    REQUIRE(db(pow(asin(x), integer(2)) * isqrt));
+    REQUIRE(db(acos(x) * isqrt));  // −acos²/2 (was the wrong acos·asin)
+    // Genuine numerator forms (bare x, linear) are unaffected.
+    REQUIRE(db(x * isqrt));                                   // −√(1−x²)
+    REQUIRE(db((integer(2) * x + integer(1)) * isqrt));       // −2√(1−x²)+asin
+}
+
 TEST_CASE("integrate: ∫1/sqrt(4x^2+9) dx = asinh(2x/3)/2",
           "[7][integrate][invtrig][oracle][regression]") {
     auto& oracle = Oracle::instance();

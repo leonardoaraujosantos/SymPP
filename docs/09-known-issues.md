@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-XSQRTQUAD-NUM-1 — `∫asin(x)/√(1−x²)` returned the wrong `asin(x)²` (should be `asin²/2`)
+- **Problem:** a *wrong* (not merely unevaluated) answer: `∫asin(x)/√(1−x²) → asin(x)²`
+  (correct is `asin²/2` — a factor-of-2 error), `∫asin²/√ → asin³`, `∫acos/√ → acos·asin`.
+  `try_x_over_sqrt_quadratic` builds `Poly(numerator, var)` and reads its constant
+  coefficient; for a *non-polynomial* numerator like `asin(x)`, Poly treats the whole
+  thing as an opaque degree-0 "coefficient", so the handler pulled the var-dependent
+  `asin(x)` out of the integral as if constant: `asin·∫1/√Q = asin·asin = asin²`.
+- **Fix:** in `src/integrals/integrate.cpp`, `try_x_over_sqrt_quadratic` now rejects a
+  numerator whose Poly coefficients depend on var (the check `try_poly_over_sqrt_quadratic`
+  already had). The integrals then route to heurisch (`u = asin`), which gives the
+  correct `asin²/2` — and a new **numeric diff-back self-check** was added to
+  `try_heurisch` so any future mis-integration there fails to a clean marker rather
+  than a wrong answer.
+- **Verified:** `∫asin/√(1−x²) = asin²/2`, `∫asin²/√ = asin³/3`, `∫acos/√ = −acos²/2`
+  all diff-back to the integrand, matching SymPy; the legitimate `∫x/√(1−x²) = −√(1−x²)`
+  and `∫(2x+1)/√(1−x²)` are unchanged.
+- **Regression test:** `INT-XSQRTQUAD-NUM-1` in `tests/integrals/integrate_test.cpp`.
+
 ### INT-INVTRIG-SQ-1 — `∫x·atan(x)²` (polynomial × inverse-trig squared) was unevaluated
 - **Problem:** `∫x·atan(x)²` (= `x²·atan²/2 − x·atan + atan²/2 + log(x²+1)/2`) and
   `∫x·acot(x)²` were left unevaluated, though elementary. The inverse-trig by-parts

@@ -800,8 +800,30 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         rec_check(rec_check, integrated);
         if (has_marker) return std::nullopt;
         // Substitute u back to g.
-        Expr result = subs(integrated, u, g);
-        return simplify(result);
+        Expr result = simplify(subs(integrated, u, g));
+        // Numeric diff-back: heurisch is a heuristic, and a mis-integrated
+        // substituted form (e.g. dropping the 1/(n+1) power factor in
+        // ∫asinⁿ/√(1−x²)) yields a *wrong* antiderivative, not a marker. Verify
+        // d/dx result == integrand at sample points so such cases fail cleanly
+        // (fall through to a marker) rather than returning a wrong answer.
+        Expr resid = diff(result, var) - expr;
+        int checks = 0;
+        int bad = 0;
+        for (int num : {3, 7, 13, 19}) {
+            Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+            if (val->type_id() != TypeId::Float) continue;
+            double d = 0.0;
+            try {
+                d = std::stod(val->str());
+            } catch (...) {
+                continue;
+            }
+            if (!std::isfinite(d)) continue;
+            ++checks;
+            if (std::fabs(d) > 1e-6) ++bad;
+        }
+        if (checks > 0 && bad > 0) return std::nullopt;  // verified wrong
+        return result;
     };
     for (const auto& g : candidates) {
         Expr gp_simplified = simplify(diff(g, var));
@@ -2762,9 +2784,15 @@ std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var)
         return std::nullopt;
     }
 
-    // The numerator must be linear in var: N = p·x + q.
+    // The numerator must be linear in var: N = p·x + q. A non-polynomial factor
+    // such as asin(x) is seen by Poly as an opaque degree-0 "coefficient" — so the
+    // coefficients must be checked var-free, else asin(x)/√(1−x²) would be treated
+    // as the *constant* asin(x) times ∫1/√Q = asin(x), giving the wrong asin(x)².
     Poly n_poly(expand(mul(num_factors)), var);
     if (n_poly.degree() > 1) return std::nullopt;
+    for (const auto& cf : n_poly.coeffs()) {
+        if (has(cf, var)) return std::nullopt;
+    }
     const Expr p = n_poly.degree() >= 1 ? n_poly.coeffs()[1] : S::Zero();
     const Expr& qn = n_poly.coeffs()[0];
 
