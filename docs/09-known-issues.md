@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-ABS-1 — `solve(|x−1|−2)` returned `[]`, and `|g|=c<0` gave spurious roots
+- **Problem:** `solve(abs(x−1)−2)` returned `[]` instead of `{3, −1}`.
+  `solveset` correctly produced `{3} ∪ {−1}`, but `solve` only extracted roots
+  from a single `FiniteSet`, not a **Union** of finite sets. (`abs(x)−3` worked
+  only because its solveset is one FiniteSet.) Exposing the Union also revealed
+  a soundness bug: `|g| = c` with a negative `c` (e.g. `|x+1|+2 = 0`) returned
+  spurious roots, since the inverse never checked `c ≥ 0`.
+- **Fix:** in `src/solvers/solve.cpp`, the solveset-extraction step now flattens
+  a `FiniteSet`, the empty set, or a `Union` of finite sets into the root list
+  (deduplicated); anything with a non-finite component is left empty. The
+  solveset `Abs` inverse now returns the empty set when `c` is a concrete
+  negative.
+- **Verified:** `|x−1|=2 → {3,−1}`, `|2x−1|=5 → {3,−2}`, `|x²−1|=3 → {2,−2}`,
+  `|x|=0 → {0}`, and `|x+1|+2`, `|x|+5 → ∅` — all match SymPy (real domain).
+- **Regression test:** `SOLVE-ABS-1` in `tests/solvers/solve_test.cpp`
+  (`[10][solve][oracle][regression]`).
+- **Scope:** `|affine or polynomial| = const`. An absolute value with the
+  variable also outside (`|x−1| = x`) or a coefficient on the abs (`2|x| = 6`)
+  is still unhandled.
+
 ### INT-RECIP-SUB-1 — `∫1/(xⁿ√(a x²+c))` was unevaluated
 - **Problem:** `∫1/(x√(x²+1))`, `∫1/(x²√(x²+1))`, `∫1/(x√(x²+4))` came back
   unevaluated. These need the reciprocal substitution `x = 1/u`, which the

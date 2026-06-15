@@ -963,6 +963,43 @@ TEST_CASE("solveset: |x| = 3 → {3, -3}",
     REQUIRE(fs->size() == 2);
 }
 
+// SOLVE-ABS-1: solve() of an absolute-value equation |g(x)| = c. solveset
+// returns {3} ∪ {−1} for |x−1| = 2 (a Union of finite sets); solve() now
+// flattens a Union of finite sets into the root list. |g| = c with c < 0 has no
+// real solution (the previously-unsound case that the flattening exposed).
+TEST_CASE("solve: absolute-value equations (SOLVE-ABS-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // |x−1| = 2 → {3, −1}; |2x−1| = 5 → {3, −2}; |x²−1| = 3 → {2, −2}.
+    REQUIRE(set_eq(solve(abs(x - integer(1)) - integer(2), x), {"3", "-1"}));
+    REQUIRE(set_eq(solve(abs(integer(2) * x - integer(1)) - integer(5), x),
+                   {"3", "-2"}));
+    REQUIRE(set_eq(solve(abs(pow(x, integer(2)) - integer(1)) - integer(3), x),
+                   {"2", "-2"}));
+    // |x| = 0 → {0}.
+    REQUIRE(set_eq(solve(abs(x), x), {"0"}));
+    // |g| = c with c < 0 has no real solution (soundness).
+    REQUIRE(solve(abs(x + integer(1)) + integer(2), x).empty());
+    REQUIRE(solve(abs(x) + integer(5), x).empty());
+}
+
 TEST_CASE("solveset: sin(x) = 1/2 → ImageSet over ℤ",
           "[10][solveset][invert]") {
     auto x = symbol("x");

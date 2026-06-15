@@ -1174,10 +1174,42 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         if (auto tm = solve_trig_reduce(expr, var); tm && !tm->empty())
             return *tm;
         SetPtr s = solveset(expr, var);
-        if (s && s->kind() == SetKind::FiniteSet) {
-            auto elems = static_cast<const FiniteSet&>(*s).elements();
-            std::erase_if(elems, [&](const Expr& r) { return has(r, var); });
-            return elems;
+        // Flatten a finite solution set — a FiniteSet, or a Union of finite sets
+        // (e.g. solveset(|x−1|−2) = {3} ∪ {−1}). Anything containing a
+        // non-finite component (ImageSet, Interval, …) is not a discrete root
+        // list and is left empty.
+        std::function<std::optional<std::vector<Expr>>(const SetPtr&)> flatten =
+            [&](const SetPtr& set) -> std::optional<std::vector<Expr>> {
+            if (!set) return std::nullopt;
+            switch (set->kind()) {
+                case SetKind::Empty:
+                    return std::vector<Expr>{};
+                case SetKind::FiniteSet:
+                    return static_cast<const FiniteSet&>(*set).elements();
+                case SetKind::Union: {
+                    const auto& u = static_cast<const Union&>(*set);
+                    auto a = flatten(u.lhs());
+                    if (!a) return std::nullopt;
+                    auto b = flatten(u.rhs());
+                    if (!b) return std::nullopt;
+                    a->insert(a->end(), b->begin(), b->end());
+                    return a;
+                }
+                default:
+                    return std::nullopt;
+            }
+        };
+        if (auto elems = flatten(s)) {
+            std::erase_if(*elems, [&](const Expr& r) { return has(r, var); });
+            // Deduplicate (a union may repeat a shared root).
+            std::vector<Expr> out;
+            for (auto& r : *elems) {
+                if (std::none_of(out.begin(), out.end(),
+                                 [&](const Expr& u) { return u == r; })) {
+                    out.push_back(std::move(r));
+                }
+            }
+            return out;
         }
     }
     return roots;
@@ -1388,6 +1420,9 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
                               solveset_impl(g + p, var, domain));
         }
         case FunctionId::Abs: {
+            // |g| = c has real solutions only for c ≥ 0; a concrete negative c
+            // (e.g. |x+1| = −2 from |x+1|+2 = 0) has none.
+            if (is_negative(c) == true) return empty_set();
             if (g == var) return finite_set({c, -c});
             return set_union(solveset_impl(g - c, var, domain),
                               solveset_impl(g + c, var, domain));
