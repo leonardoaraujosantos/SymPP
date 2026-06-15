@@ -351,6 +351,31 @@ TEST_CASE("re/im/conjugate: numeric complex a+b·I",
     REQUIRE(oracle.equivalent(conjugate(w)->str(), "1/2 - I/3"));
 }
 
+// REIM-CXDIV-1: re/im of an expression with a complex denominator. The
+// denominator is rationalized (1/(a+bI) = (a−bI)/(a²+b²)) so the value reaches
+// the a+bI form re/im already handle: re((1+I)/(1−I)) = 0, im = 1. Previously
+// these stayed an unevaluated re(...)/im(...).
+TEST_CASE("re/im: complex denominators are rationalized (REIM-CXDIV-1)",
+          "[3h][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto I = S::I();
+    auto z = (integer(1) + I) / (integer(1) - I);  // = I
+    REQUIRE(oracle.equivalent(re(z)->str(), "0"));
+    REQUIRE(oracle.equivalent(im(z)->str(), "1"));
+    // 1/(1+I) = 1/2 − I/2.
+    auto w = pow(integer(1) + I, integer(-1));
+    REQUIRE(oracle.equivalent(re(w)->str(), "1/2"));
+    REQUIRE(oracle.equivalent(im(w)->str(), "-1/2"));
+    // (2+3I)/(1+I) = 5/2 − I/2.
+    auto v = (integer(2) + integer(3) * I) / (integer(1) + I);
+    REQUIRE(oracle.equivalent(re(v)->str(), "5/2"));
+    REQUIRE(oracle.equivalent(im(v)->str(), "1/2"));
+    // A real-denominator / symbolic case is unaffected.
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(re(x + I * y)->str(), "re(x) - im(y)"));
+}
+
 // CONJ-DIST-1: conjugate is a ring homomorphism — distributes over products,
 // sums and integer powers (conjugate(I·x) = −I·conjugate(x)). Matches SymPy.
 TEST_CASE("conjugate: distributes over Mul/Add/Pow (CONJ-DIST-1)",

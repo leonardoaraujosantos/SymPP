@@ -11,7 +11,11 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/expand.hpp>
+#include <sympp/core/expr_collections.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -417,7 +421,39 @@ struct MulComplexParts { Expr c; int k; Expr w; };
 
 }  // namespace
 
+// Rationalize a complex denominator: 1/(a+bI) = (a−bI)/(a²+b²). Rewrites every
+// Pow(d, −m) whose base d carries the imaginary unit and whose |d|² = d·conj(d)
+// is provably real (the numeric-complex case), so the expanded result is a real
+// + imaginary split. Symbolic denominators (where |d|² stays complex) are left
+// untouched.
+[[nodiscard]] Expr rationalize_complex(const Expr& e) {
+    ExprMap<Expr> repl;
+    std::function<void(const Expr&)> scan = [&](const Expr& x) {
+        if (x->type_id() == TypeId::Pow
+            && x->args()[1]->type_id() == TypeId::Integer) {
+            const Expr& base = x->args()[0];
+            const auto& z = static_cast<const Integer&>(*x->args()[1]);
+            if (z.is_negative() && z.fits_long() && has(base, S::I())
+                && is_real(base) != true) {
+                Expr cj = conjugate(base);
+                Expr denom = expand(mul(base, cj));
+                if (is_real(denom) == true) {
+                    const long m = -z.to_long();
+                    repl.emplace(x, mul(pow(cj, integer(m)),
+                                        pow(denom, integer(-m))));
+                }
+            }
+        }
+        for (const auto& a : x->args()) scan(a);
+    };
+    scan(e);
+    if (repl.empty()) return e;
+    return xreplace(e, repl);
+}
+
 Expr re(const Expr& arg) {
+    // Multiply out any complex denominator, then re-enter on the a+bI form.
+    if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return re(n);
     // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
     // Numeric complex a + b·I → a.
@@ -447,6 +483,7 @@ Expr re(const Expr& arg) {
 }
 
 Expr im(const Expr& arg) {
+    if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return im(n);
     if (is_real(arg) == true) return S::Zero();
     // Numeric complex a + b·I → b.
     if (auto z = rational_complex(arg); z.has_value()) return z->second;

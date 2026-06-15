@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### REIM-CXDIV-1 — `re`/`im` of an expression with a complex denominator stayed unevaluated
+- **Problem:** `re((1+I)/(1−I))` and `im((1+I)/(1−I))` returned an unevaluated
+  `re(...)`/`im(...)` instead of `0` and `1`. Complex *products* already expand
+  (`(1+I)² = 2I`), but a complex *denominator* `(a+bI)⁻¹` was never rationalized,
+  so `re`/`im` couldn't reach the `a+bI` form they already handle.
+- **Fix:** added `rationalize_complex` in `src/functions/miscellaneous.cpp`. It
+  rewrites every `Pow(d, −m)` whose base `d` carries the imaginary unit and whose
+  `|d|² = d·conj(d)` is provably real, as `conj(d)^m/|d|^{2m}` —
+  i.e. `1/(a+bI) = (a−bI)/(a²+b²)`. `re`/`im` apply it (then `expand`) to their
+  argument and re-enter on the resulting `a+bI` form; the value then folds at
+  construction, so `re((1+I)/(1−I))` evaluates to `0` directly.
+- **Verified:** `re((1+I)/(1−I)) = 0`, `im = 1`, `1/(1+I) → re 1/2, im −1/2`,
+  `(2+3I)/(1+I) → re 5/2, im 1/2`, `I/(2−I) → re −1/5` — all match SymPy;
+  symbolic/real arguments (`re(x+Iy) = re(x)−im(y)`) are unchanged.
+- **Regression test:** `REIM-CXDIV-1` in
+  `tests/functions/miscellaneous_test.cpp` (`[3h][complex][oracle][regression]`).
+- **Scope:** numeric (provably-real `|d|²`) complex denominators. A symbolic
+  denominator whose `|d|²` stays complex is left untouched.
+
 ### DSOLVE-UNIFIED-1 — no single-entry `dsolve(eq, y, x)` (only per-method solvers)
 - **Problem:** SymPP exposed `dsolve_first_order`, `dsolve_constant_coeff`,
   `dsolve_cauchy_euler`, … but had no unified `dsolve(eq)` like SymPy's — the
