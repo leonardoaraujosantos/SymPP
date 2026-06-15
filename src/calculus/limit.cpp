@@ -151,7 +151,14 @@ struct NumDen { Expr num; Expr den; };
     const bool inf_zero = (is_infinity(bl) && el == S::Zero());
     const bool zero_zero = (bl == S::Zero() && el == S::Zero());
     if (!(one_inf || inf_zero || zero_zero)) return std::nullopt;
-    Expr inner = limit_impl(mul(ex, log(base)), var, target, depth + 1);
+    // For the 1^∞ form use log(base) ~ (base − 1) as base → 1, so
+    // lim ex·log(base) = lim ex·(base − 1). This avoids needing the Taylor series
+    // of log of a composite base — the series engine leaves log(sin x / x)
+    // unexpanded — letting e.g. (sin x / x)^(1/x²) resolve to e^(−1/6). The other
+    // forms (∞^0, 0^0) genuinely need log(base) and keep it.
+    Expr rate = one_inf ? mul(ex, add(base, S::NegativeOne()))
+                        : mul(ex, log(base));
+    Expr inner = limit_impl(rate, var, target, depth + 1);
     if (is_nan(inner)) return std::nullopt;
     return exp_of_limit(inner);
 }

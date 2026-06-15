@@ -418,6 +418,18 @@ TEST_CASE("limit: indeterminate power forms at a finite point (LIMIT-POWFORM-1)"
     // cos(x)^(1/x²) → e^(−1/2).
     REQUIRE(oracle.equivalent(
         limit(pow(cos(x), inv(pow(x, integer(2)))), x, z)->str(), "exp(-1/2)"));
+    // Composite base → 1: the 1^∞ rate uses log(base) ~ (base−1), which avoids the
+    // missing Taylor series of log(sin x/x). (sin x/x)^(1/x²) → e^(−1/6),
+    // (tan x/x)^(1/x²) → e^(1/3), cos(2x)^(1/x²) → e^(−2).
+    REQUIRE(oracle.equivalent(
+        limit(pow(sin(x) * inv(x), inv(pow(x, integer(2)))), x, z)->str(),
+        "exp(-1/6)"));
+    REQUIRE(oracle.equivalent(
+        limit(pow(tan(x) * inv(x), inv(pow(x, integer(2)))), x, z)->str(),
+        "exp(1/3)"));
+    REQUIRE(oracle.equivalent(
+        limit(pow(cos(integer(2) * x), inv(pow(x, integer(2)))), x, z)->str(),
+        "exp(-2)"));
     // Determinate powers are unaffected: (1+x)² → 1, x^x → 1.
     REQUIRE(limit(pow(integer(1) + x, integer(2)), x, z) == S::One());
     REQUIRE(limit(pow(x, x), x, z) == S::One());

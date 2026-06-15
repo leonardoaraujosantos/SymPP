@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-POWFORM-COMPOSITE-1 — `(sin x / x)^(1/x²)` returned `nan` instead of `e^(−1/6)`
+- **Problem:** `1^∞` limits whose base tends to 1 through a *composite* expression —
+  `(sin x / x)^(1/x²) → e^(−1/6)`, `(tan x / x)^(1/x²) → e^(1/3)` — returned `nan`.
+  `try_power_form` resolves `a^b` via `exp(lim b·log a)`, but the inner limit
+  `lim log(sin x / x)/x²` failed: the series engine leaves `log(sin x / x)`
+  (a log of a quotient) unexpanded, so the `0/0` rate could not be evaluated.
+  Single-function bases like `cos(x)^(1/x²)` worked because `log(cos x)` does expand.
+- **Fix:** in `src/calculus/limit.cpp`, the `1^∞` branch of `try_power_form` now
+  uses the rate `b·(a−1)` instead of `b·log a`. As `a → 1`,
+  `log a = (a−1) − (a−1)²/2 + … = (a−1)·(1 + o(1))`, so `lim b·log a = lim b·(a−1)`
+  exactly (the correction is `b·(a−1)·(a−1) → 0`). This sidesteps the missing
+  log-of-composite series entirely. The `∞^0` and `0^0` forms genuinely need
+  `log a` and keep it.
+- **Verified:** `(sin x/x)^(1/x²) → e^(−1/6)`, `(tan x/x)^(1/x²) → e^(1/3)`,
+  `cos(2x)^(1/x²) → e^(−2)`, `(1+sin x)^(1/x) → e`, matching SymPy; the existing
+  `(1+a/x)^x → eᵃ`, `cos(x)^(1/x²)`, `x^x → 1` cases are unchanged.
+- **Regression test:** extended `LIMIT-POWFORM-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### INT-INVTRIG-RECIP-1 — `∫atan(x)/x²` and inverse-trig over a reciprocal power were unevaluated
 - **Problem:** `∫atan(x)/x²`, `∫atan(x)/x³`, `∫atanh(x)/x²`, `∫acot(x)/x²` were left
   unevaluated, although they are elementary (by parts the residual is rational).
