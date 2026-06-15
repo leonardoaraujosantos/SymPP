@@ -309,6 +309,13 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_linear_radical_substitution(
     const Expr& expr, const Expr& var);
 
+// Reciprocal substitution x = 1/u for ∫ dx/(xⁿ·√(a·x²+c)): substituting clears
+// the x in the denominator and, after pulling u out of the radical
+// ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e), leaves an ordinary √-of-quadratic integral.
+// Closes ∫1/(x·√(x²+1)) = −asinh(1/x), ∫1/(x²·√(x²+1)) = −√(x²+1)/x.
+[[nodiscard]] std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
+                                                              const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -547,6 +554,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_linear_radical_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_reciprocal_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -897,6 +907,88 @@ std::optional<Expr> try_linear_radical_substitution(const Expr& expr,
     Expr anti = integrate(integrand_u, u);
     if (is_integral_marker(anti)) return std::nullopt;
     return simplify(subs(anti, u, pow(a * var + b, rational(1, 2))));
+}
+
+std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
+                                                const Expr& var) {
+    // Gate: the integrand must have a negative integer power of var (the xⁿ in
+    // the denominator) AND a half-integer power of a degree-2 polynomial in var
+    // (the √(a·x²+c)). This keeps the substitution to the form it closes.
+    // Flatten (x·√(a·x²+c))⁻¹ → x⁻¹·(a·x²+c)^(−1/2) so the gate sees both factors.
+    Expr e0 = expand(expr);
+    bool has_neg_pow = false;
+    bool has_sqrt_quad = false;
+    auto gate = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var
+            && e->args()[1]->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*e->args()[1]).is_negative()) {
+            has_neg_pow = true;
+        }
+        if (e->type_id() == TypeId::Pow && e->args()[1]->type_id() == TypeId::Rational
+            && depends_on(e->args()[0], var)) {
+            const auto& q = static_cast<const Rational&>(*e->args()[1]);
+            if (q.denominator() == 2) {
+                try {
+                    if (Poly(expand(e->args()[0]), var).degree() == 2) {
+                        has_sqrt_quad = true;
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    gate(gate, e0);
+    if (!has_neg_pow || !has_sqrt_quad) return std::nullopt;
+
+    auto u = symbol("__recip_u");
+    Expr inv_u = pow(u, integer(-1));
+    // f(1/u) · dx, with dx = −1/u² du.
+    Expr sub = mul({subs(e0, var, inv_u), S::NegativeOne(),
+                    pow(u, integer(-2))});
+
+    // Pull u out of each radical so the integrand becomes an ordinary
+    // √(quadratic) form: (a·u⁻² + c)^e = u^(−2e)·(a + c·u²)^e (valid u > 0).
+    ExprMap<Expr> repl;
+    auto clear = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow
+            && e->args()[1]->type_id() == TypeId::Rational
+            && e->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = e->args()[0];
+            const auto& ex = static_cast<const Rational&>(*e->args()[1]);
+            Expr a_coeff = S::Zero();  // coefficient of u⁻²
+            Expr c_const = S::Zero();  // constant term
+            bool ok = true;
+            for (const auto& term : base->args()) {
+                if (!depends_on(term, u)) {
+                    c_const = c_const + term;
+                    continue;
+                }
+                // term is (var-free)·u⁻²?
+                Expr coeff = simplify(term * pow(u, integer(2)));
+                if (depends_on(coeff, u)) { ok = false; break; }
+                a_coeff = a_coeff + coeff;
+            }
+            if (ok && !(a_coeff == S::Zero())) {
+                mpq_class out = mpq_class(-2) * ex.value();
+                if (out.get_den() == 1) {
+                    Expr lifted = mul(
+                        pow(u, integer(out.get_num().get_si())),
+                        pow(add(a_coeff, mul(c_const, pow(u, integer(2)))),
+                            e->args()[1]));
+                    repl.emplace(e, lifted);
+                    return;
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    clear(clear, sub);
+    Expr integrand_u = simplify(repl.empty() ? sub : xreplace(sub, repl));
+
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(var, integer(-1))));
 }
 
 // True if `e` is a polynomial in `var` (only non-negative integer powers of

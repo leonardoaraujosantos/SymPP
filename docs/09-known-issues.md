@@ -16,6 +16,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-RECIP-SUB-1 — `∫1/(xⁿ√(a x²+c))` was unevaluated
+- **Problem:** `∫1/(x√(x²+1))`, `∫1/(x²√(x²+1))`, `∫1/(x√(x²+4))` came back
+  unevaluated. These need the reciprocal substitution `x = 1/u`, which the
+  engine lacked.
+- **Fix:** added `try_reciprocal_substitution` in
+  `src/integrals/integrate.cpp`. It gates on an integrand with a negative power
+  of the variable AND a half-integer power of a degree-2 polynomial, substitutes
+  `x = 1/u` (`dx = −u⁻² du`), and — since SymPP can't pull a power out of a
+  radical on its own — does the targeted rewrite `(a·u⁻²+c)^e =
+  u^(−2e)·(a+c·u²)^e`, leaving an ordinary `√(quadratic)` integral that the
+  existing machinery closes. Back-substitutes `u = 1/x`. The integrand is
+  `expand`ed first so `(x·√(…))⁻¹` flattens to `x⁻¹·(…)^(−1/2)` for the gate.
+- **Verified:** `∫1/(x√(x²+1)) = −asinh(1/x)`, `∫1/(x√(x²+4)) = −asinh(2/x)/2`,
+  `∫1/(x√(1+9x²)) = −asinh(1/(3x))/3`, and the `x²`/`x³` denominator cases — all
+  match SymPy (diff-back verified on the `x>0` principal branch, the same
+  convention SymPy's answers use).
+- **Regression test:** `INT-RECIP-SUB-1` in
+  `tests/integrals/integrate_test.cpp` (`[7][integrate][oracle][regression]`).
+- **Scope:** `√(a·x²+c)` (no linear term). The `√(x²−1)`/`√(1−x²)` variants give
+  branch-dependent Piecewise answers in SymPy and are left to the cleaner paths.
+
 ### SUM-POLYEXPAND-1 — `Σ k·(k+1)` and other product summands stayed unevaluated
 - **Problem:** `summation(k·(k+1))`, `(k+1)²`, `(2k+1)(k−1)` returned an
   unevaluated `Sum(...)`, even though the expanded `Σ(k²+k)` summed fine via

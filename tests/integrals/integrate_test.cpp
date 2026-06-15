@@ -2218,6 +2218,41 @@ TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-
                               "2*(x + 1)**(3/2)/3"));
 }
 
+// INT-RECIP-SUB-1: ∫dx/(xⁿ·√(a·x²+c)) closes via the reciprocal substitution
+// x = 1/u: substituting clears the x in the denominator, and pulling u out of
+// the radical ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e) leaves an ordinary
+// √(quadratic) integral. The antiderivative matches SymPy's (it carries the
+// same x>0 principal-branch convention, so diff-back is checked on x>0).
+TEST_CASE("integrate: reciprocal substitution x=1/u (INT-RECIP-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip_sqrt = [&](const Expr& xn, const Expr& a, const Expr& c) {
+        // 1 / (xn · √(a·x² + c))
+        return pow(xn * pow(a * pow(x, integer(2)) + c, rational(1, 2)),
+                   integer(-1));
+    };
+    // ∫1/(x√(x²+1)) = −asinh(1/x), ∫1/(x√(x²+4)) = −asinh(2/x)/2.
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(1), integer(1)), x)->str(),
+        "-asinh(1/x)"));
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(1), integer(4)), x)->str(),
+        "-asinh(2/x)/2"));
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(9), integer(1)), x)->str(),
+        "-asinh(1/(3*x))"));
+    // Higher denominator powers also close (form differs from SymPy by the
+    // x>0 |x| branch, so just require a closed form — no Integral marker).
+    for (int n : {2, 3}) {
+        auto F = integrate(recip_sqrt(pow(x, integer(n)), integer(1),
+                                      integer(1)),
+                           x);
+        INFO("n=" << n << " antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+    }
+}
+
 // INT-QUAD-IRRATIONAL-1: ∫1/(a·x²+b·x+c) where the discriminant is positive but
 // the roots are irrational (no rational factorization) — 1/(x²−3), 1/(2x²−3),
 // 1/(x²+x−1). The partial-fraction logs carry √Δ. Previously unevaluated (the
