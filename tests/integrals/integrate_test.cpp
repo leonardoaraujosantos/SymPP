@@ -173,6 +173,34 @@ TEST_CASE("integrate: ∫tan(x) dx = -log(cos(x))",
     REQUIRE(oracle.equivalent(r->str(), "-log(cos(x))"));
 }
 
+// INT-LOGSUB-1: integrands built from log(x) close under u = log(x)
+// (x = eᵘ, dx = eᵘ du): ∫cos(log x), ∫sin(log x), ∫cos(2·log x) become cyclic
+// exp·trig integrals in u, and ∫log(log x)/x becomes ∫log(u). Verified by
+// diff-back against the oracle.
+TEST_CASE("integrate: substitution u = log(x) for log-composite integrands (INT-LOGSUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(cos(log(x))));                          // ∫cos(log x)
+    REQUIRE(db(sin(log(x))));                          // ∫sin(log x)
+    REQUIRE(db(cos(integer(2) * log(x))));             // affine inner 2·log x
+    REQUIRE(db(log(log(x)) / x));                      // ∫log(log x)/x → ∫log u
+    REQUIRE(db(sin(log(x)) * cos(log(x))));            // product of logs
+    // Known closed form for ∫cos(log x).
+    REQUIRE(oracle.equivalent(integrate(cos(log(x)), x)->str(),
+                              "x*sin(log(x))/2 + x*cos(log(x))/2"));
+    // Integrands without log(x) are untouched: ∫1/x = log x, ∫x·log x by parts.
+    REQUIRE(oracle.equivalent(integrate(pow(x, integer(-1)), x)->str(),
+                              "log(x)"));
+    REQUIRE(oracle.equivalent(integrate(x * log(x), x)->str(),
+                              "x**2*log(x)/2 - x**2/4"));
+}
+
 TEST_CASE("integrate: ∫1/cos(x)^2 dx = tan(x)",
           "[7][integrate][trig][oracle][regression]") {
     auto& oracle = Oracle::instance();

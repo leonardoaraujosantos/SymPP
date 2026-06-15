@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-LOGSUB-1 — `∫cos(log x)`, `∫log(log x)/x` and log-composite integrands were unevaluated
+- **Problem:** integrands built from `log(x)` — `∫cos(log x)`, `∫sin(log x)`,
+  `∫cos(2·log x)`, `∫log(log x)/x` — were left unevaluated, though each is
+  elementary under the substitution `u = log(x)`.
+- **Fix:** added `try_log_substitution` in `src/integrals/integrate.cpp`
+  (dispatched after integration-by-parts, before the Weierstrass path). When
+  `log(var)` appears, it substitutes `u = log(x)` (`x = eᵘ`, `dx = eᵘ du`) by
+  replacing `log(var) → u` and every remaining bare `var → eᵘ`, leaving
+  `∫f(u)·eᵘ du`, which it integrates and back-substitutes. A surviving `var` (e.g.
+  `log(2x)`, not the `log(x)` node) means the substitution is incomplete and it
+  bails. The gate on `log(var)` keeps ordinary integrands untouched.
+- **Verified:** `∫cos(log x) = x(cos(log x)+sin(log x))/2` (a cyclic exp·trig
+  integral in `u`), `∫sin(log x)`, `∫cos(2·log x) = x(cos(2log x)+2sin(2log x))/5`,
+  `∫log(log x)/x = log x·log(log x) − log x` (becomes `∫log u`) — all diff-back to
+  the integrand, matching SymPy; `∫1/x`, `∫x·log x` unchanged.
+- **Regression test:** `INT-LOGSUB-1` in `tests/integrals/integrate_test.cpp`.
+
 ### SERIES-COMPOSE-1 — `series(log(sin x / x))` stayed unexpanded
 - **Problem:** the Taylor series of a composite `f(g(x))` whose inner `g` is finite
   but non-simple at the expansion point — e.g. `g = sin(x)/x`, with its `1/x`

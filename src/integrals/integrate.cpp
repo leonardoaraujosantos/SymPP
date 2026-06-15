@@ -317,6 +317,12 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_exp_substitution(const Expr& expr,
                                                        const Expr& var);
 
+// Substitution u = log(x) (x = eᵘ, dx = eᵘ du) for an integrand built from
+// log(var): replaces log(var)→u and the remaining bare var→eᵘ, leaving ∫f(u)·eᵘ du
+// in u. Closes ∫cos(log x), ∫sin(log x), ∫log(log x)/x, ∫cos(2·log x), …
+[[nodiscard]] std::optional<Expr> try_log_substitution(const Expr& expr,
+                                                       const Expr& var);
+
 // Reciprocal substitution x = 1/u for ∫ dx/(xⁿ·√(a·x²+c)): substituting clears
 // the x in the denominator and, after pulling u out of the radical
 // ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e), leaves an ordinary √-of-quadratic integral.
@@ -598,6 +604,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_log_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_weierstrass(expr, var); r.has_value()) {
@@ -1024,6 +1033,33 @@ std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
     Expr anti = integrate(integrand_u, u);
     if (is_integral_marker(anti)) return std::nullopt;
     return simplify(subs(anti, u, pow(var, integer(-1))));
+}
+
+std::optional<Expr> try_log_substitution(const Expr& expr, const Expr& var) {
+    // Only worth attempting when log(var) actually appears — that is the signal
+    // that u = log(x) collapses the integrand.
+    Expr logx = log(var);
+    bool has_logx = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (has_logx) return;
+        if (e == logx) { has_logx = true; return; }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (!has_logx) return std::nullopt;
+
+    // u = log(x): replace log(var) → u, then every remaining bare var → eᵘ. With
+    // dx = eᵘ du the integrand becomes f(u)·eᵘ. If a var survives (e.g. log(2x),
+    // which is not the log(x) node), the substitution is incomplete — bail.
+    Expr u = symbol("__logsub_u");
+    Expr e1 = subs(expr, logx, u);
+    Expr e2 = subs(e1, var, exp(u));
+    if (depends_on(e2, var)) return std::nullopt;
+
+    Expr integrand_u = e2 * exp(u);
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, logx));
 }
 
 std::optional<Expr> try_exp_substitution(const Expr& expr, const Expr& var) {
