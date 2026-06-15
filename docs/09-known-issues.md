@@ -16,6 +16,31 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXPRATIO-1 — `lim 2^x/3^x` and other exponential ratios returned `nan`
+- **Problem:** `lim_{x→∞} 2^x/3^x` (= 0), `3^x/2^x` (= ∞), `exp(x)/exp(2x)`,
+  `2^x·e^(−3x)` and similar returned `nan`. Each is a product/ratio of distinct
+  constant-base exponentials; the limit engine evaluated the factors
+  independently (`2^x → ∞`, `3^(−x) → 0`) and saw an `∞·0` indeterminate that
+  L'Hôpital cannot crack — differentiating reproduces the same form — so the
+  product path stalled and returned `nan`. A single `(2/3)^x` worked, because it
+  is one power, not a product.
+- **Fix:** added `try_exponential_product` in `src/calculus/limit.cpp`, run before
+  the generic product path for `Mul` at `±∞`. When every factor is a constant-base
+  exponential `bᵢ^(cᵢ·m)` or `exp(dⱼ·m)` (incl. `exp(g)^k`, the canonical form of
+  `1/exp(g)`) sharing one var-monomial `m`, it folds them into a single `B^m` with
+  `B = ∏bᵢ^cᵢ·e^(Σdⱼ)` a concrete positive constant, and decides the limit from
+  `sign(B−1)` and the direction of `m` (numeric `evalf` fallback signs `B` when the
+  base carries an `exp`, e.g. `exp(−1)−1`). Deliberately scoped to the pure
+  exponential ratio — a polynomial factor (`x²·(2/3)^x`) is left to other paths
+  (still an open gap) to avoid feeding the downstream a form it can't reduce.
+- **Verified:** `2^x/3^x → 0`, `3^x/2^x → ∞`, `exp(x)/exp(2x) → 0`,
+  `2^x·e^(−3x) → 0`, `2^x·2^(−x) → 1`, all matching SymPy at `+∞`. At `−∞` the
+  direction flips correctly (`2^x/3^x → ∞`); note SymPy is itself internally
+  inconsistent there (`limit((2/3)**x,−∞)=0` vs `limit((2/3)**(−x),∞)=∞`), and the
+  numeric values confirm SymPP's `∞` is the correct branch.
+- **Regression test:** `LIMIT-EXPRATIO-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### INT-WEIERSTRASS-NUM-1 — `∫cos(x)/(1+cos x)` and numerator-bearing rational trig unevaluated
 - **Problem:** `∫cos(x)/(1+cos x)` (SymPy: `x − tan(x/2)`) was left unevaluated.
   Same root cause as `INT-WEIERSTRASS-DEGEN-1`, but worse: with a non-constant

@@ -241,6 +241,39 @@ TEST_CASE("limit: polynomial times decaying exponential (LIMIT-EXP-1)",
     REQUIRE(limit(x + integer(1) / x, x, oo) == oo);
 }
 
+// LIMIT-EXPRATIO-1: a product/ratio of constant-base exponentials sharing one
+// var-monomial — 2^x/3^x, exp(x)/exp(2x), 2^x·e^(−3x) — is an ∞·0 form that
+// L'Hôpital cannot crack (differentiating reproduces it), so the generic
+// product path returned nan. Combining into a single B^x (B = ∏bᵢ^cᵢ·e^Σdⱼ) and
+// deciding the limit from sign(B−1) resolves it.
+TEST_CASE("limit: ratio of exponentials at infinity (LIMIT-EXPRATIO-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    // 2^x/3^x = (2/3)^x → 0; 3^x/2^x → oo.
+    REQUIRE(limit(pow(integer(2), x) * pow(integer(3), mul(S::NegativeOne(), x)),
+                  x, oo) == S::Zero());
+    REQUIRE(limit(pow(integer(3), x) * pow(integer(2), mul(S::NegativeOne(), x)),
+                  x, oo) == oo);
+    // exp(x)/exp(2x) = exp(−x) → 0; exp(2x)/exp(x) → oo (1/exp surfaces as
+    // Pow(exp,−1), exercising the exp(g)^k branch).
+    REQUIRE(limit(exp(x) * pow(exp(mul(integer(2), x)), integer(-1)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(exp(mul(integer(2), x)) * pow(exp(x), integer(-1)), x, oo)
+            == oo);
+    // Mixed constant-base × exp: 2^x·e^(−3x) = e^(x(ln2−3)) → 0 (ln2−3 < 0).
+    REQUIRE(limit(pow(integer(2), x) * exp(mul(integer(-3), x)), x, oo)
+            == S::Zero());
+    // Equal rates cancel to the constant 1 (no false ∞ or 0).
+    REQUIRE(limit(pow(integer(2), x) * pow(integer(2), mul(S::NegativeOne(), x)),
+                  x, oo) == S::One());
+    // Toward −∞ the direction flips: (2/3)^x → oo. (SymPy itself is internally
+    // inconsistent here — limit((2/3)**x,-oo)=0 yet limit((2/3)**(-x),oo)=oo —
+    // so this is checked directly; (2/3)^(−100) ≈ 4·10¹⁷ confirms the divergence.)
+    REQUIRE(limit(pow(integer(2), x) * pow(integer(3), mul(S::NegativeOne(), x)),
+                  x, S::NegativeInfinity()) == oo);
+}
+
 // LIMIT-POLY-INF-1: a polynomial at ±∞ is governed by its leading term, so the
 // ∞−∞ that direct substitution leaves as nan resolves to the signed infinity.
 TEST_CASE("limit: polynomial at infinity via the leading term (LIMIT-POLY-INF-1)",

@@ -218,6 +218,130 @@ struct NumDen { Expr num; Expr den; };
     return lhopital_nd(prod(std::move(nf)), prod(recips(zero_f)), var, target);
 }
 
+// A product/ratio of constant-base exponentials sharing one var-monomial in the
+// exponent — e.g. 2^x/3^x = 2^x·3^(−x), or exp(x)/exp(2x) = exp(x)·exp(−2x).
+// Evaluated factor by factor these are an ∞·0 (or 0·∞) indeterminate that
+// L'Hôpital cannot crack (differentiating reproduces the same form), so the
+// product path returns nan. But the combined rate is a single exponential:
+// ∏ bᵢ^(cᵢ·m) · ∏ exp(dⱼ·m) = exp(m·log B), with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete
+// positive constant. The single-exponential path then resolves it (B<1 → 0,
+// B>1 → ∞, B=1 → 1 as m → +∞). Fixes lim 2^x/3^x = 0 (was nan).
+[[nodiscard]] std::optional<Expr> try_exponential_product(const Expr& expr,
+                                                          const Expr& var,
+                                                          const Expr& target,
+                                                          int depth) {
+    if (!is_infinity(target)) return std::nullopt;
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+
+    // Split an exponent e into (coeff, monomial) with e = coeff·monomial, coeff a
+    // number and monomial var-dependent; nullopt if e has no such factorization.
+    auto split = [&](const Expr& e) -> std::optional<std::pair<Expr, Expr>> {
+        if (!has(e, var)) return std::nullopt;
+        if (e->type_id() == TypeId::Mul) {
+            std::vector<Expr> nums, rest_f;
+            for (const auto& f : e->args()) {
+                if (f->type_id() == TypeId::Integer
+                    || f->type_id() == TypeId::Rational) {
+                    nums.push_back(f);
+                } else {
+                    rest_f.push_back(f);
+                }
+            }
+            Expr m = rest_f.empty() ? Expr{S::One()} : mul(rest_f);
+            if (!has(m, var)) return std::nullopt;
+            Expr c = nums.empty() ? Expr{S::One()} : mul(nums);
+            return std::make_pair(c, m);
+        }
+        return std::make_pair(Expr{S::One()}, e);
+    };
+
+    auto is_exp = [](const Expr& f) -> const Function* {
+        if (f->type_id() != TypeId::Function) return nullptr;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            return &fn;
+        }
+        return nullptr;
+    };
+
+    Expr shared_mono;             // the common var-monomial in every exponent
+    Expr base_prod = S::One();    // ∏ bᵢ^cᵢ for the constant-base power factors
+    Expr exp_csum = S::Zero();    // Σ dⱼ for the exp(dⱼ·m) factors
+    int combined = 0;
+    auto take_exp_arg = [&](const Expr& arg) -> bool {
+        auto sp = split(arg);
+        if (!sp || (shared_mono && !(shared_mono == sp->second))) return false;
+        shared_mono = sp->second;
+        exp_csum = add(exp_csum, sp->first);
+        ++combined;
+        return true;
+    };
+    for (const auto& f : expr->args()) {
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& b = f->args()[0];
+            const Expr& e = f->args()[1];
+            // Constant positive base ^ var-dependent exponent: bᵢ^(cᵢ·m).
+            if (!has(b, var) && is_positive(b) == true && has(e, var)) {
+                if (auto sp = split(e);
+                    sp && (!shared_mono || shared_mono == sp->second)) {
+                    shared_mono = sp->second;
+                    base_prod = mul(base_prod, pow(b, sp->first));
+                    ++combined;
+                    continue;
+                }
+            }
+            // exp(g)^k with numeric k = exp(k·g) — this is how a/exp(g) and
+            // exp(g)^2 surface after canonicalization (1/exp(2x) is Pow(exp,−1)).
+            if (const Function* fn = is_exp(b);
+                fn && (e->type_id() == TypeId::Integer
+                       || e->type_id() == TypeId::Rational)) {
+                if (take_exp_arg(mul(e, fn->args()[0]))) continue;
+            }
+        }
+        if (const Function* fn = is_exp(f); fn && has(fn->args()[0], var)) {
+            if (take_exp_arg(fn->args()[0])) continue;
+        }
+        // A factor that is not a constant-base exponential: bail. Keeping the
+        // transform to the pure exponential-ratio case avoids handing the
+        // downstream product/L'Hôpital path a polynomial × decaying-exponential
+        // form it cannot yet reduce (x²·(2/3)^x is a separate, open gap).
+        return std::nullopt;
+    }
+    if (combined < 2 || !shared_mono) return std::nullopt;
+
+    // The product equals B^m with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete positive
+    // constant and m = shared_mono. As m → ±∞ the limit is set by B vs 1 — decide
+    // it from the sign of B−1 directly. (Going through exp(m·log B) instead lets
+    // simplify distribute log(2·e⁻³) → log 2 − 3, which the engine then can't
+    // sign — so we avoid symbolic logs here.)
+    Expr B = simplify(mul(base_prod, exp(exp_csum)));
+    if (B == S::One()) return S::One();  // B = 1 ⇒ B^m ≡ 1
+    Expr Bm1 = simplify(add(B, S::NegativeOne()));
+    // Sign of B−1, falling back to a numeric evaluation: the assumption system
+    // can sign a rational like 2/3−1 but not exp(−1)−1, which surfaces for the
+    // exp(·)/exp(·) and mixed base·exp cases.
+    auto sign_of = [&](const Expr& e) -> int {
+        if (is_positive(e) == true) return 1;
+        if (is_negative(e) == true) return -1;
+        Expr ef = evalf(e, 30);
+        if (is_positive(ef) == true) return 1;
+        if (is_negative(ef) == true) return -1;
+        return 0;
+    };
+    int s = sign_of(Bm1);
+    if (s == 0) return std::nullopt;  // B vs 1 undecidable
+    Expr Lm = limit_impl(shared_mono, var, target, depth + 1);
+    int dir;
+    if (Lm->type_id() == TypeId::Infinity) {
+        dir = 1;
+    } else if (Lm->type_id() == TypeId::NegativeInfinity) {
+        dir = -1;
+    } else {
+        return std::nullopt;  // monomial does not diverge — leave to other paths
+    }
+    return (dir * s > 0) ? Expr{S::Infinity()} : Expr{S::Zero()};
+}
+
 // Sign of `expr` evaluated at `point`: +1 / −1, or 0 when indeterminate (a
 // non-real value, an unsigned/indeterminate infinity, or no definite sign).
 [[nodiscard]] int side_sign_at(const Expr& expr, const Expr& var,
@@ -791,6 +915,12 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 }
             }
             if (auto v = try_power_form(expr, var, target, depth)) return *v;
+            // Merge a product of constant-base exponentials (2^x/3^x,
+            // exp(x)/exp(2x)) into one exp(rate) before the generic product path,
+            // which would otherwise see ∞·0 and stall in L'Hôpital → nan.
+            if (auto v = try_exponential_product(expr, var, target, depth)) {
+                return *v;
+            }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
