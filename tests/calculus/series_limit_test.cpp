@@ -980,6 +980,46 @@ TEST_CASE("summation: even p-series close to zeta values",
         summation(pow(k, integer(-5)), k, integer(1), oo)->str(), "zeta(5)"));
 }
 
+// SUM-ALT-PSERIES-1: the alternating p-series Σ_{k=1}^∞ (−1)^k/k^s — the Dirichlet
+// eta values η(s). s=1 closes to −log 2 (alternating harmonic), s≥2 to
+// (2^(1−s)−1)·ζ(s) (−π²/12, −7π⁴/720, …). A (−1)^(a·k+b) factor with odd a is
+// (−1)^k up to the constant sign (−1)^b; a leading constant multiplies through.
+TEST_CASE("summation: alternating p-series → Dirichlet eta (SUM-ALT-PSERIES-1)",
+          "[6][summation][zeta][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    auto altk = pow(integer(-1), k);
+    // Σ (−1)^k/k = −log 2 (alternating harmonic).
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(k, integer(-1)), k, integer(1), oo)->str(),
+        "-log(2)"));
+    // Σ (−1)^(k+1)/k = log 2 (the shifted sign).
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(-1), k + integer(1)) * pow(k, integer(-1)), k,
+                  integer(1), oo)->str(),
+        "log(2)"));
+    // Σ (−1)^k/k² = −π²/12, Σ (−1)^k/k⁴ = −7π⁴/720 (even s → closed π-form).
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(k, integer(-2)), k, integer(1), oo)->str(),
+        "-pi**2/12"));
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(k, integer(-4)), k, integer(1), oo)->str(),
+        "-7*pi**4/720"));
+    // Σ (−1)^k/k³ = −¾·ζ(3) (odd s → symbolic ζ).
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(k, integer(-3)), k, integer(1), oo)->str(),
+        "-3*zeta(3)/4"));
+    // A leading constant multiplies through: Σ 3·(−1)^k/k = −3·log 2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * altk * pow(k, integer(-1)), k, integer(1), oo)
+            ->str(),
+        "-3*log(2)"));
+    // Non-alternating p-series unaffected: Σ 1/k² = π²/6.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), oo)->str(), "pi**2/6"));
+}
+
 // SUM-EXP-1: the exponential series Σ_{k=0}^∞ r^k/k! = e^r (and its shifted /
 // scaled forms). Converges for every r, so no convergence test is needed.
 TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",

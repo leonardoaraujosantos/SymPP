@@ -403,6 +403,72 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
+    // Alternating p-series Σ_{k=1}^∞ (−1)^k / k^s = (2^(1−s) − 1)·ζ(s) for s ≥ 2,
+    // and −log 2 for s = 1 (the Dirichlet eta values η(s)). A (−1)^(a·k+b) factor
+    // with odd a is (−1)^k up to the constant sign (−1)^b; a leading constant and
+    // the sign multiply through.
+    if (lo == S::One() && hi->type_id() == TypeId::Infinity) {
+        Expr sign_exp;
+        long m = 0;
+        bool have_sign = false;
+        bool have_pow = false;
+        Expr coeff = S::One();
+        bool ok = true;
+        std::vector<Expr> factors;
+        if (expr->type_id() == TypeId::Mul) {
+            for (const auto& f : expr->args()) factors.push_back(f);
+        } else {
+            factors.push_back(expr);
+        }
+        for (const auto& f : factors) {
+            if (f->type_id() == TypeId::Pow
+                && f->args()[0] == integer(-1) && has(f->args()[1], var)) {
+                if (have_sign) { ok = false; break; }
+                sign_exp = f->args()[1];
+                have_sign = true;
+            } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                       && f->args()[1]->type_id() == TypeId::Integer) {
+                const auto& zp = static_cast<const Integer&>(*f->args()[1]);
+                if (have_pow || !zp.fits_long()) { ok = false; break; }
+                m = zp.to_long();
+                have_pow = true;
+            } else if (!has(f, var)) {
+                coeff = mul(coeff, f);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && have_sign && have_pow && m <= -1) {
+            // sign_exp = a·k + b, a an odd integer (so (−1)^(a·k) = (−1)^k) and b
+            // an integer (so (−1)^b is a concrete ±1).
+            try {
+                Poly pe(expand(sign_exp), var);
+                if (pe.degree() == 1
+                    && pe.coeffs()[1]->type_id() == TypeId::Integer
+                    && pe.coeffs()[0]->type_id() == TypeId::Integer) {
+                    const long a = static_cast<const Integer&>(*pe.coeffs()[1])
+                                       .to_long();
+                    const long b = static_cast<const Integer&>(*pe.coeffs()[0])
+                                       .to_long();
+                    if (a % 2 != 0) {
+                        const long s = -m;
+                        Expr sign_b = (b % 2 == 0) ? S::One() : S::NegativeOne();
+                        Expr base_sum =
+                            (s == 1)
+                                ? Expr{mul(S::NegativeOne(), log(integer(2)))}
+                                : mul(simplify(pow(integer(2), integer(1 - s))
+                                               - S::One()),
+                                      zeta(integer(s)));
+                        return simplify(mul(mul(coeff, sign_b), base_sum));
+                    }
+                }
+            } catch (const std::exception&) {
+                // not a clean affine sign exponent — fall through
+            }
+        }
+    }
+
     // Exponential series Σ_{k=lo}^∞ r^k/k! = e^r (e.g. Σ 1/k! = e,
     // Σ x^k/k! = e^x, Σ 2^k/k! = e²). Convergent for every r.
     if (auto r = sum_exponential_series(expr, var, lo, hi)) return *r;

@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-ALT-PSERIES-1 — `Σ (−1)^k/k` and alternating p-series stayed unevaluated
+- **Problem:** the alternating p-series `Σ_{k=1}^∞ (−1)^k/k^s` — `Σ(−1)^k/k = −log 2`,
+  `Σ(−1)^k/k² = −π²/12`, `Σ(−1)^k/k³ = −¾ζ(3)` — returned an unevaluated `Sum`.
+  Only the non-alternating `Σ1/k^s = ζ(s)` was handled.
+- **Fix:** added an alternating-p-series branch in `src/calculus/summation.cpp`
+  (next to the ζ p-series). It recognizes a summand `C·(−1)^(a·k+b)·k^(−s)` with `a`
+  an odd integer (so `(−1)^(a·k) = (−1)^k`) and `b` an integer (constant sign
+  `(−1)^b`), and returns the Dirichlet eta value: `−log 2` for `s = 1`, and
+  `(2^(1−s) − 1)·ζ(s)` for `s ≥ 2` (closing to a π-power for even `s`). A leading
+  constant multiplies through.
+- **Verified:** `Σ(−1)^k/k = −log 2`, `Σ(−1)^(k+1)/k = log 2`, `Σ(−1)^k/k² = −π²/12`,
+  `Σ(−1)^k/k⁴ = −7π⁴/720`, `Σ(−1)^k/k³ = −¾ζ(3)` (= SymPy's `−η(3)`),
+  `Σ 3(−1)^k/k = −3 log 2`, all matching SymPy; non-alternating p-series
+  (`Σ1/k² = π²/6`) and divergent/other sums unchanged.
+- **Regression test:** `SUM-ALT-PSERIES-1` in `tests/calculus/series_limit_test.cpp`.
+
 ### SOLVE-INVFN-SYM-1 — `solve(atan(x) − a)` (inverse fn = symbolic RHS) returned `[]`
 - **Problem:** inverting an inverse trig/hyperbolic function against a *symbolic*
   right-hand side returned `[]`: `solve(atan(x) − a) → []`, `asin(x) − a`,
