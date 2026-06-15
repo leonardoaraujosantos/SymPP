@@ -1807,6 +1807,21 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     REQUIRE(db(x * atanh(x)));                     // x·atanh
     REQUIRE(db(x * acot(x)));                      // x·acot
     REQUIRE(db((x + integer(1)) * atan(x)));      // (x+1)·atan
+    // INT-INVTRIG-RECIP-1: a reciprocal-power dv = 1/xⁿ for the rational-derivative
+    // inverse functions (atan/acot/atanh) — the residual stays rational, so it
+    // closes where the polynomial-only gate previously bailed.
+    REQUIRE(db(atan(x) / pow(x, integer(2))));    // ∫atan(x)/x²
+    REQUIRE(db(atan(x) / pow(x, integer(3))));    // ∫atan(x)/x³
+    REQUIRE(db(acot(x) / pow(x, integer(2))));    // ∫acot(x)/x²
+    REQUIRE(db(atanh(x) / pow(x, integer(2))));   // ∫atanh(x)/x²
+    // ∫atan(x)/x is genuinely non-elementary (residual log(x)/(x²+1)) — must stay
+    // an unevaluated marker, not a wrong closed form.
+    REQUIRE(integrate(atan(x) / x, x)->str().find("Integral(")
+            != std::string::npos);
+    // The √-derivative functions over 1/xⁿ are NOT admitted (the residual is
+    // non-rational and the rational path mis-handles it) — they bail to a marker.
+    REQUIRE(integrate(asin(x) / pow(x, integer(2)), x)->str().find("Integral(")
+            != std::string::npos);
 }
 
 TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)",

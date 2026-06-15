@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-INVTRIG-RECIP-1 — `∫atan(x)/x²` and inverse-trig over a reciprocal power were unevaluated
+- **Problem:** `∫atan(x)/x²`, `∫atan(x)/x³`, `∫atanh(x)/x²`, `∫acot(x)/x²` were left
+  unevaluated, although they are elementary (by parts the residual is rational).
+  The polynomial × by-parts-function block required the `dv` factor to be a
+  *polynomial* (`is_polynomial_in(rest, var)`), so a reciprocal power `1/xⁿ` failed
+  the gate even though `∫x^(−n)` is elementary.
+- **Fix:** in `src/integrals/integrate.cpp`, the block now also admits a bare
+  reciprocal power `dv = x^(−n)`, but only for the inverse functions with a
+  *rational* derivative — atan/acot/atanh/acoth — where the by-parts residual
+  `v·f'` stays rational and `try_rational` closes it exactly. The √-derivative
+  functions (asin/acos/asinh/acosh) keep the polynomial-only gate: over a `1/x`
+  factor their residual is non-rational and the rational path silently mis-handled
+  it (`∫asin(x)/x²` collapsed to a bogus `0`). The marker guard still bails on the
+  genuinely non-elementary `n = 1` case (`∫atan(x)/x`, residual `log(x)/(x²+1)`).
+- **Verified:** `∫atan(x)/x² = log x − ½log(x²+1) − atan(x)/x`, `∫atan(x)/x³`,
+  `∫atanh(x)/x²`, `∫acot(x)/x²` — all diff-back to the integrand (numeric), matching
+  SymPy; `∫atan(x)/x` and `∫asin(x)/x²` correctly stay unevaluated.
+- **Regression test:** extended `INT-32` in `tests/integrals/integrate_test.cpp`.
+
 ### INT-CONSTBASEEXP-1 — `∫2ˣ` and `∫P(x)·aˣ` (constant-base exponential) were unevaluated
 - **Problem:** `∫2ˣ`, `∫x·2ˣ`, `∫x²·2ˣ` and every `∫P(x)·a^(b·x+c)` with a constant
   base `a ≠ e` were left unevaluated. SymPP integrated the natural base `eˣ` but had

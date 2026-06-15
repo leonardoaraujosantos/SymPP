@@ -1317,12 +1317,15 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
-    // Polynomial × f(affine) for a whitelisted by-parts function f (inverse
-    // trig/hyperbolic, erf, Si, …), by parts with u = f, dv = rest dx:
+    // Polynomial (or 1/xⁿ) × f(affine) for a whitelisted by-parts function f
+    // (inverse trig/hyperbolic, erf, Si, …), by parts with u = f, dv = rest dx:
     //   ∫ rest·f dx = f·∫rest − ∫(∫rest)·f' dx.
     // For atan/acot/atanh, f' is rational so the remaining integral is rational
     // (closed by try_rational); for asin/acos/asinh/acosh it is a polynomial over
-    // √(quadratic), closed when low-degree. The marker guard bails otherwise.
+    // √(quadratic), closed when low-degree. A negative-power dv = x^(−n) is also
+    // admitted — ∫atan(x)/x² needs v = −1/x — since ∫x^(−n) is elementary and the
+    // remaining v·f' is still rational/closable. The marker guard bails on the
+    // non-elementary residuals (e.g. ∫atan(x)/x, whose v·f' = log(x)/(x²+1)).
     if (expr->type_id() == TypeId::Mul) {
         Expr fn_factor;
         std::vector<Expr> rest_factors;
@@ -1339,7 +1342,25 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
         if (fn_factor && !rest_factors.empty()) {
             Expr rest = mul(rest_factors);
-            if (is_polynomial_in(rest, var)) {
+            // dv is a polynomial, or a bare reciprocal power x^(−n) of the
+            // variable. The negative power is only admitted for functions with a
+            // *rational* derivative (atan/acot/atanh/acoth): then v·f' is rational
+            // and try_rational closes it exactly. The √-derivative functions
+            // (asin/acos/…) over a 1/x factor produce a non-rational residual that
+            // the rational path can mis-handle (∫asin(x)/x² collapsed to a bogus 0),
+            // so they keep the polynomial-only gate. The marker guard still bails
+            // on the non-elementary n = 1 case (∫atan(x)/x).
+            const FunctionId fid =
+                static_cast<const Function&>(*fn_factor).function_id();
+            const bool rational_deriv =
+                fid == FunctionId::Atan || fid == FunctionId::Acot
+                || fid == FunctionId::Atanh || fid == FunctionId::Acoth;
+            const bool neg_power = rational_deriv
+                && rest->type_id() == TypeId::Pow
+                && rest->args()[0] == var
+                && rest->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*rest->args()[1]).is_negative();
+            if (is_polynomial_in(rest, var) || neg_power) {
                 Expr v = integrate(rest, var);
                 if (!is_integral_marker(v)) {
                     Expr remaining = integrate(v * diff(fn_factor, var), var);
