@@ -441,6 +441,76 @@ Expr dsolve_first_order(const Expr& eq, const Expr& y, const Expr& yp,
     return function_symbol("Dsolve")(std::vector<Expr>{eq, y, x});
 }
 
+Expr dsolve(const Expr& eq, const Expr& y, const Expr& x) {
+    auto fail = [&]() {
+        return function_symbol("Dsolve")(std::vector<Expr>{eq, y, x});
+    };
+    auto deriv = [&](long k) {
+        return k == 0 ? y : diff(y, x, static_cast<std::size_t>(k));
+    };
+
+    // Order = highest derivative of y present.
+    long order = 0;
+    for (long k = 1; k <= 8; ++k) {
+        if (has(eq, deriv(k))) order = k;
+    }
+    if (order == 0) return fail();
+    if (order == 1) return dsolve_first_order(eq, y, diff(y, x), x);
+
+    // Linearize: replace each y^(k) with a fresh symbol; the ODE must be first
+    // degree in those symbols (a linear ODE).
+    std::vector<Expr> sy(static_cast<std::size_t>(order) + 1);
+    ExprMap<Expr> repl;
+    for (long k = 0; k <= order; ++k) {
+        sy[static_cast<std::size_t>(k)] =
+            symbol("__dsolve_d" + std::to_string(k));
+        repl.emplace(deriv(k), sy[static_cast<std::size_t>(k)]);
+    }
+    Expr lin = xreplace(eq, repl);
+    if (has(lin, y)) return fail();  // a derivative of y survived substitution
+
+    std::vector<Expr> coeffs(static_cast<std::size_t>(order) + 1);
+    for (long k = 0; k <= order; ++k) {
+        Expr ak = diff(lin, sy[static_cast<std::size_t>(k)]);
+        for (long j = 0; j <= order; ++j) {
+            if (has(ak, sy[static_cast<std::size_t>(j)])) return fail();
+        }
+        coeffs[static_cast<std::size_t>(k)] = simplify(ak);
+    }
+    // rhs g(x): lin = Σ aₖ·sₖ − g ⇒ g = −lin|_{s=0}.
+    ExprMap<Expr> zero;
+    for (long k = 0; k <= order; ++k) {
+        zero.emplace(sy[static_cast<std::size_t>(k)], S::Zero());
+    }
+    Expr g = simplify(mul(S::NegativeOne(), xreplace(lin, zero)));
+
+    bool all_const = true;
+    for (const auto& c : coeffs) {
+        if (has(c, x)) { all_const = false; break; }
+    }
+    if (all_const) {
+        if (g == S::Zero()) return dsolve_constant_coeff(coeffs, x);
+        if (order == 2) {
+            return dsolve_constant_coeff_nonhomogeneous(coeffs, g, x);
+        }
+        return fail();
+    }
+    // Cauchy-Euler: aₖ = cₖ·xᵏ with cₖ constant.
+    std::vector<Expr> ce(static_cast<std::size_t>(order) + 1);
+    bool is_ce = true;
+    for (long k = 0; k <= order; ++k) {
+        Expr ck = simplify(
+            mul(coeffs[static_cast<std::size_t>(k)], pow(x, integer(-k))));
+        if (has(ck, x)) { is_ce = false; break; }
+        ce[static_cast<std::size_t>(k)] = ck;
+    }
+    if (is_ce) {
+        if (g == S::Zero()) return dsolve_cauchy_euler(ce, x);
+        if (order == 2) return dsolve_cauchy_euler_nonhomogeneous(ce, g, x);
+    }
+    return fail();
+}
+
 // ---------------------------------------------------------------------------
 // Constant-coefficient linear ODE.
 //   coeffs[n] y^(n) + ... + coeffs[0] y = 0

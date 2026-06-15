@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### DSOLVE-UNIFIED-1 — no single-entry `dsolve(eq, y, x)` (only per-method solvers)
+- **Problem:** SymPP exposed `dsolve_first_order`, `dsolve_constant_coeff`,
+  `dsolve_cauchy_euler`, … but had no unified `dsolve(eq)` like SymPy's — the
+  caller had to know the ODE class and the right signature in advance.
+- **Fix:** added `dsolve(eq, y, x)` in `src/ode/dsolve.cpp`. It finds the order
+  from the highest derivative of `y` present, delegates a first-order ODE to
+  `dsolve_first_order`, and for a linear higher-order ODE linearizes (each
+  `y^(k)` → a fresh symbol), extracts the coefficients `aₖ` and rhs `g(x)`, and
+  dispatches: constant `aₖ` → `dsolve_constant_coeff` (homogeneous) /
+  `dsolve_constant_coeff_nonhomogeneous` (order 2); `aₖ = cₖ·xᵏ` →
+  `dsolve_cauchy_euler`. A nonlinear or unrecognized ODE returns an unevaluated
+  `Dsolve(...)` marker.
+- **Verified:** every general solution substitutes back to an ODE residual of 0
+  — `y'=y`, `y'+y=x`, `y''+y=0`, `y''−3y'+2y=0` (distinct roots),
+  `y''−2y'+y=0` (repeated root), `y''+y=x` (nonhomogeneous),
+  `x²y''−2y=0` (Cauchy-Euler), `y'''−y'=0` (third order).
+- **Regression test:** `DSOLVE-UNIFIED-1` in `tests/ode/dsolve_test.cpp`
+  (`[11][dsolve][oracle][regression]`).
+- **Scope:** linear ODEs with constant or `cₖ·xᵏ` coefficients (any order
+  homogeneous; order 2 nonhomogeneous). General variable-coefficient linear and
+  nonlinear higher-order ODEs are still per-method / unevaluated.
+
 ### INT-EXP-SUB-1 — `∫1/(eˣ+e⁻ˣ)` and other eˣ-rational integrals were unevaluated
 - **Problem:** `∫1/(eˣ+e⁻ˣ)`, `∫eˣ/(e²ˣ+1)`, `∫e²ˣ/(1+eˣ)`, `∫1/(eˣ+e²ˣ)` came
   back unevaluated. The heurisch substitution `subs(eˣ → u)` does not catch

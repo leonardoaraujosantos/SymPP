@@ -12,6 +12,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/matrices/matrix.hpp>
@@ -526,4 +527,39 @@ TEST_CASE("dae_structural_index: index-1 algebraic constraint",
     std::vector<Expr> F = {y1p - y2, y1 + y2 - integer(1)};
     auto idx = dae_structural_index(F, {y1, y2}, {y1p, y2p});
     REQUIRE(idx >= 1);
+}
+
+// DSOLVE-UNIFIED-1: the single-entry dsolve(eq, y, x) detects the ODE order and
+// dispatches — first-order, constant-coefficient (homogeneous, repeated roots,
+// nonhomogeneous), Cauchy-Euler, and higher order. Each general solution is
+// verified by substituting it back: the ODE residual must simplify to 0.
+TEST_CASE("dsolve: unified order-detecting entry point (DSOLVE-UNIFIED-1)",
+          "[11][dsolve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto ypp = diff(y, x, 2);
+    auto yppp = diff(y, x, 3);
+    auto satisfies = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        Expr r = subs(ode, yppp, diff(sol, x, 3));
+        r = subs(r, ypp, diff(sol, x, 2));
+        r = subs(r, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return oracle.equivalent(simplify(expand(r))->str(), "0");
+    };
+    // First-order (delegates to dsolve_first_order).
+    REQUIRE(satisfies(yp - y));            // y' = y
+    REQUIRE(satisfies(yp + y - x));        // y' + y = x
+    // Constant-coefficient, second order.
+    REQUIRE(satisfies(ypp + y));                               // y'' + y = 0
+    REQUIRE(satisfies(ypp - integer(3) * yp + integer(2) * y)); // distinct roots
+    REQUIRE(satisfies(ypp - integer(2) * yp + y));             // repeated root
+    REQUIRE(satisfies(ypp + y - x));                          // nonhomogeneous
+    // Cauchy-Euler: x²y'' − 2y = 0.
+    REQUIRE(satisfies(pow(x, integer(2)) * ypp - integer(2) * y));
+    // Third order, constant coefficient.
+    REQUIRE(satisfies(yppp - yp));
 }

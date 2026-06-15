@@ -47,6 +47,17 @@
 
 namespace sympp {
 
+// --- Unified entry point ---
+// Solve the ODE `eq = 0` for the unknown function `y` (= f(x)). Detects the
+// order from the highest derivative of y present, delegates a first-order ODE to
+// dsolve_first_order, and for a linear higher-order ODE extracts the
+// coefficients of each y^(k): constant coefficients → dsolve_constant_coeff
+// (homogeneous) / dsolve_constant_coeff_nonhomogeneous (order 2); cₖ·xᵏ
+// coefficients → dsolve_cauchy_euler. Returns an unevaluated Dsolve(...) marker
+// when no method applies. Mirrors SymPy's single-entry dsolve().
+[[nodiscard]] SYMPP_EXPORT Expr dsolve(const Expr& eq, const Expr& y,
+                                       const Expr& x);
+
 // --- First-order classifier + dispatch ---
 [[nodiscard]] SYMPP_EXPORT Expr dsolve_first_order(
     const Expr& eq, const Expr& y, const Expr& yp, const Expr& x);
