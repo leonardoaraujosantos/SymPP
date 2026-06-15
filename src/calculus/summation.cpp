@@ -328,6 +328,17 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
+    // A product or power that expands to a sum — e.g. k·(k+1) → k²+k,
+    // (k+1)² → k²+2k+1, (k+1)·2ᵏ → k·2ᵏ+2ᵏ — isn't matched by the closed forms
+    // below. Expand and recurse so linearity splits it into terms each of which
+    // (a monomial kᵖ, or a poly·geometric) is summable.
+    if (expr->type_id() == TypeId::Mul || expr->type_id() == TypeId::Pow) {
+        Expr ex = expand(expr);
+        if (!(ex == expr) && ex->type_id() == TypeId::Add) {
+            return summation(ex, var, lo, hi);
+        }
+    }
+
     // Constant w.r.t. var: c * (hi - lo + 1).
     if (!has(expr, var)) {
         return simplify(expr * (hi - lo + integer(1)));

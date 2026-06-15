@@ -567,6 +567,31 @@ TEST_CASE("summation: Σ kᵖ for higher p (SUM-FAULHABER-1)",
         "n**5/5 + n**4/2 + n**3/3 - n/30 - 1"));
 }
 
+// SUM-POLYEXPAND-1: a product/power polynomial summand is expanded before
+// dispatch, so k·(k+1), (k+1)², (2k+1)(k−1) sum via linearity + Faulhaber
+// instead of returning an unevaluated Sum.
+TEST_CASE("summation: product/power polynomial summands (SUM-POLYEXPAND-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto S = [&](const Expr& e) { return summation(e, k, integer(1), n); };
+    // Σ k(k+1) = n(n+1)(n+2)/3.
+    REQUIRE(oracle.equivalent(S(mul(k, k + integer(1)))->str(),
+                              "n*(n + 1)*(n + 2)/3"));
+    // Σ k(k−1) = n(n−1)(n+1)/3.
+    REQUIRE(oracle.equivalent(S(mul(k, k - integer(1)))->str(),
+                              "n*(n - 1)*(n + 1)/3"));
+    // Σ (k+1)² = n(2n²+9n+13)/6.
+    REQUIRE(oracle.equivalent(S(pow(k + integer(1), integer(2)))->str(),
+                              "n*(2*n**2 + 9*n + 13)/6"));
+    // Σ (2k+1)(k−1) = n(n−1)(4n+7)/6.
+    REQUIRE(oracle.equivalent(
+        S(mul(integer(2) * k + integer(1), k - integer(1)))->str(),
+        "n*(n - 1)*(4*n + 7)/6"));
+    REQUIRE(S(mul(k, k + integer(1)))->str().find("Sum(") == std::string::npos);
+}
+
 // SUM-TELESCOPE-1: Σ of a rational summand c/D(k), where D is a quadratic with
 // two distinct linear factors whose roots differ by an integer, telescopes to a
 // closed form (the sum was returned unevaluated before). Verified equivalent to

@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-POLYEXPAND-1 — `Σ k·(k+1)` and other product summands stayed unevaluated
+- **Problem:** `summation(k·(k+1))`, `(k+1)²`, `(2k+1)(k−1)` returned an
+  unevaluated `Sum(...)`, even though the expanded `Σ(k²+k)` summed fine via
+  Faulhaber. A product or power summand isn't matched by the closed-form
+  branches, and the constant-pull only fires when there's a var-free factor.
+- **Fix:** in `src/calculus/summation.cpp`, before the closed-form dispatch,
+  expand a `Mul`/`Pow` summand and — when expansion produces an `Add` — recurse,
+  so linearity splits it into individually-summable terms (monomials `kᵖ`, or
+  poly·geometric). This also picks up mixed forms like `(k+1)·2ᵏ`.
+- **Verified:** `Σ k(k+1) = n(n+1)(n+2)/3`, `Σ k(k−1) = n(n−1)(n+1)/3`,
+  `Σ (k+1)² = n(2n²+9n+13)/6`, `Σ (2k+1)(k−1) = n(n−1)(4n+7)/6` — all match
+  SymPy; pure geometric/exponential summands (`2ᵏ`, `k·2ᵏ`) are unaffected
+  (they don't expand to an `Add`).
+- **Regression test:** `SUM-POLYEXPAND-1` in
+  `tests/calculus/series_limit_test.cpp` (`[6][summation][oracle][regression]`).
+
 ### POLYOP-2 — `resultant` and `discriminant` parsed to unevaluated nodes
 - **Problem:** `resultant(x²−1, x−1)` and `discriminant(x²+1)` came back as
   opaque function nodes, even though `resultant(p, q, var)` and
