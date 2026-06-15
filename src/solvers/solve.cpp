@@ -621,6 +621,160 @@ solve_log_sum(const Expr& expr, const Expr& var) {
     return out;
 }
 
+// True if e is a concrete positive real number (numeric sign via evalf).
+[[nodiscard]] bool numeric_positive(const Expr& e) {
+    if (is_positive(e) == true) return true;
+    Expr v = evalf(e, 30);
+    if (v->type_id() != TypeId::Float) return false;
+    try {
+        return std::stod(v->str()) > 1e-12;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Solve a sum of constant-base exponentials Σ cᵢ·∏ⱼ aⱼ^(pⱼ·x+qⱼ) = 0. Each term
+// reduces to coeffᵢ·exp(rateᵢ·x) with rateᵢ = Σ pⱼ·log(aⱼ) var-free. After
+// combining equal rates: (A) when every rate is an integer multiple of a common
+// r₀, substitute u = exp(r₀·x) → a polynomial in u (2^(2x)−5·2^x+4 → u²−5u+4);
+// (B) with exactly two rates, d₁·exp(r₁x)+d₂·exp(r₂x)=0 ⇒
+// x = log(−d₂/d₁)/(r₁−r₂) when −d₂/d₁ > 0 (2^x−3^x → 0).
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_const_base_exp_sum(const Expr& expr, const Expr& var) {
+    // Only claim equations with a genuine constant-base power a^(…) (a ≠ e).
+    // Pure exp(…) equations are left to solve_exp_sum, which keeps the complex
+    // (period 2πi) roots SymPy enumerates for base e.
+    bool has_const_pow = false;
+    std::function<void(const Expr&)> scan = [&](const Expr& e) {
+        if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+            && !has(e->args()[0], var) && !(e->args()[0] == S::E())) {
+            has_const_pow = true;
+        }
+        for (const auto& a : e->args()) scan(a);
+    };
+    scan(expr);
+    if (!has_const_pow) return std::nullopt;
+
+    auto term_rate =
+        [&](const Expr& term) -> std::optional<std::pair<Expr, Expr>> {
+        Expr coeff = S::One();
+        Expr rate = S::Zero();
+        std::vector<Expr> factors;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) factors.push_back(f);
+        } else {
+            factors.push_back(term);
+        }
+        for (const auto& f : factors) {
+            if (!has(f, var)) {
+                coeff = mul(coeff, f);
+                continue;
+            }
+            Expr base;
+            Expr exponent;
+            if (f->type_id() == TypeId::Pow) {
+                base = f->args()[0];
+                exponent = f->args()[1];
+            } else if (f->type_id() == TypeId::Function
+                       && static_cast<const Function&>(*f).function_id()
+                              == FunctionId::Exp) {
+                base = S::E();
+                exponent = f->args()[0];
+            } else {
+                return std::nullopt;
+            }
+            if (has(base, var) || is_positive(base) != std::optional<bool>{true})
+                return std::nullopt;
+            Expr p;
+            Expr q;
+            try {
+                Poly pe(expand(exponent), var);
+                if (pe.degree() > 1) return std::nullopt;
+                const auto& cf = pe.coeffs();
+                p = cf.size() > 1 ? cf[1] : Expr{S::Zero()};
+                q = !cf.empty() ? cf[0] : Expr{S::Zero()};
+            } catch (...) {
+                return std::nullopt;
+            }
+            if (has(p, var) || has(q, var)) return std::nullopt;
+            coeff = mul(coeff, pow(base, q));
+            rate = add(rate, mul(p, log(base)));
+        }
+        return std::make_pair(simplify(coeff), simplify(rate));
+    };
+
+    std::vector<Expr> terms;
+    if (expr->type_id() == TypeId::Add) {
+        for (const auto& t : expr->args()) terms.push_back(t);
+    } else {
+        terms.push_back(expr);
+    }
+    std::vector<std::pair<Expr, Expr>> cr;  // (coeff, rate), combined by rate
+    for (const auto& t : terms) {
+        auto pr = term_rate(t);
+        if (!pr) return std::nullopt;
+        bool merged = false;
+        for (auto& [c, r] : cr) {
+            if (r == pr->second) {
+                c = simplify(c + pr->first);
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) cr.emplace_back(pr->first, pr->second);
+    }
+    std::erase_if(cr, [](const auto& e) { return e.first == S::Zero(); });
+    if (cr.size() < 2) return std::nullopt;
+
+    Expr r0;
+    for (const auto& [c, r] : cr) {
+        if (!(r == S::Zero())) {
+            r0 = r;
+            break;
+        }
+    }
+    // (A) commensurate rates → polynomial in u = exp(r₀·x).
+    if (r0) {
+        std::vector<std::pair<long, Expr>> pows;  // (exponent, coeff)
+        bool commensurate = true;
+        for (const auto& [c, r] : cr) {
+            Expr ratio = simplify(r * pow(r0, integer(-1)));
+            if (ratio->type_id() != TypeId::Integer
+                || !static_cast<const Integer&>(*ratio).fits_long()) {
+                commensurate = false;
+                break;
+            }
+            pows.emplace_back(static_cast<const Integer&>(*ratio).to_long(), c);
+        }
+        if (commensurate) {
+            auto u = symbol("__cbexp_u");
+            std::vector<Expr> uterms;
+            for (const auto& [nexp, c] : pows)
+                uterms.push_back(mul(c, pow(u, integer(nexp))));
+            std::vector<Expr> out;
+            for (auto& ur : solve(add(std::move(uterms)), u)) {
+                if (has(ur, u) || has(ur, var)) continue;
+                if (numeric_positive(ur)) {
+                    out.push_back(simplify(log(ur) * pow(r0, integer(-1))));
+                }
+            }
+            return out;
+        }
+    }
+    // (B) two incommensurate rates → ratio method.
+    if (cr.size() == 2) {
+        Expr ratio = simplify(
+            mul({S::NegativeOne(), cr[1].first, pow(cr[0].first, integer(-1))}));
+        Expr denom = simplify(cr[0].second - cr[1].second);
+        if (numeric_positive(ratio) && !(denom == S::Zero())) {
+            return std::vector<Expr>{
+                simplify(log(ratio) * pow(denom, integer(-1)))};
+        }
+        return std::vector<Expr>{};
+    }
+    return std::nullopt;
+}
+
 // Solve a (Laurent) polynomial in exp(var) whose terms are exp(m·var) for
 // integer m — e.g. exp(x)+exp(-x)-2, exp(2x)-3·exp(x)+2. Substitute u = exp(var)
 // (so exp(m·var) → uᵐ), solve the resulting equation in u (the rational/poly
@@ -1231,6 +1385,11 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // it skips the transcendental branch below).
     if (auto ce = solve_const_base_exp(expr, var); ce && !ce->empty())
         return *ce;
+    // Sums of constant-base exponentials (2^x − 3^x, 2^(2x) − 5·2^x + 4, …),
+    // which a^x being a Pow (not the exp function) also keeps out of the
+    // transcendental branch below.
+    if (auto ces = solve_const_base_exp_sum(expr, var); ces && !ces->empty())
+        return *ces;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
     // _invert chain; route through it and surface any finite solution set as

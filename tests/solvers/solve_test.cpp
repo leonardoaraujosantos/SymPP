@@ -394,9 +394,54 @@ TEST_CASE("solve: constant-base exponential a^x = c (SOLVE-EXPBASE-1)",
                       {"(log(7) + I*pi)/log(2)"}));
     // a^x = 0 has no solution.
     REQUIRE(solve(powx(2), x).empty());
-    // Perfect-power base / scaled exponent stay unsolved (complex reps omitted).
-    REQUIRE(solve(pow(integer(4), x) - integer(2), x).empty());
-    REQUIRE(solve(pow(integer(2), integer(2) * x) - integer(8), x).empty());
+    // Perfect-power base / scaled exponent now solve via solve_const_base_exp_sum
+    // (4^x = 2 → 1/2, 2^(2x) = 8 → 3/2), matching SymPy.
+    REQUIRE(set_equal(solve(pow(integer(4), x) - integer(2), x), {"1/2"}));
+    REQUIRE(set_equal(solve(pow(integer(2), integer(2) * x) - integer(8), x),
+                      {"3/2"}));
+}
+
+// SOLVE-EXPBASE-SUM-1: sums of constant-base exponentials. Each term reduces to
+// coeff·exp(rate·x); commensurate rates substitute u=exp(r₀x) (a polynomial in
+// u), two incommensurate rates use the ratio method. Previously returned [].
+TEST_CASE("solve: sum of constant-base exponentials (SOLVE-EXPBASE-SUM-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto px = [&](int a) { return pow(integer(a), x); };
+    // Incommensurate bases (ratio method): 2^x − 3^x = 0 → 0; 5^x − 2^x = 0 → 0.
+    REQUIRE(set_equal(solve(px(2) - px(3), x), {"0"}));
+    REQUIRE(set_equal(solve(px(5) - px(2), x), {"0"}));
+    // Commensurate (polynomial in u = 2^x): 2^(2x) − 5·2^x + 4 → {0, 2}.
+    REQUIRE(set_equal(
+        solve(pow(integer(2), integer(2) * x)
+                  - integer(5) * px(2) + integer(4),
+              x),
+        {"0", "2"}));
+    // 2^(x+1) − 8 → 2; product of bases 2^x·3^x − 6 = 6^x − 6 → 1.
+    REQUIRE(set_equal(solve(pow(integer(2), x + integer(1)) - integer(8), x),
+                      {"2"}));
+    REQUIRE(set_equal(solve(px(2) * px(3) - integer(6), x), {"1"}));
+    // No real solution: 2^x − 3^x + something with negative ratio handled by the
+    // ratio sign check — 4^x − 2^(x+1) → 1.
+    REQUIRE(set_equal(
+        solve(pow(integer(4), x) - pow(integer(2), x + integer(1)), x), {"1"}));
 }
 
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to

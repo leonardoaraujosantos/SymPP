@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EXPBASE-SUM-1 — sums of constant-base exponentials returned `[]`
+- **Problem:** `solve(2^x − 3^x)`, `solve(2^(2x) − 5·2^x + 4)`,
+  `solve(2^(x+1) − 8)`, `solve(2^x·3^x − 6)` returned `[]`. The existing
+  constant-base solver handled only a single `a^x = c`; sums of several
+  exponential terms (possibly with different bases) were unhandled.
+- **Fix:** added `solve_const_base_exp_sum` in `src/solvers/solve.cpp`. Each
+  term reduces to `coeff·exp(rate·x)` with `rate = Σ pⱼ·log(aⱼ)`. After
+  combining equal rates: **(A)** when every rate is an integer multiple of a
+  common `r₀`, substitute `u = exp(r₀·x)` → a polynomial in `u`
+  (`2^(2x)−5·2^x+4 → u²−5u+4`); **(B)** with two incommensurate rates,
+  `d₁·exp(r₁x)+d₂·exp(r₂x)=0 ⇒ x = log(−d₂/d₁)/(r₁−r₂)` when `−d₂/d₁ > 0`. Only
+  real roots are kept (positive `u`). Pure `exp(…)` equations are deferred to
+  `solve_exp_sum` so its complex (period-`2πi`) roots survive.
+- **Verified:** `2^x−3^x → 0`, `5^x−2^x → 0`, `2^(2x)−5·2^x+4 → {0,2}`,
+  `2^(x+1)−8 → 2`, `2^x·3^x−6 → 1`, `4^x−2^(x+1) → 1`, `9^x−3^(x+1) → 1`,
+  `4^x−2 → 1/2`, `2^(2x)−8 → 3/2` — all match SymPy.
+- **Regression test:** `SOLVE-EXPBASE-SUM-1` in `tests/solvers/solve_test.cpp`;
+  the `SOLVE-EXPBASE-1` "stays unsolved" assertions for `4^x−2` and `2^(2x)−8`
+  were updated (they now solve).
+
 ### SOLVE-LOGSUM-1 — `solve(log(x)+log(x−1))` returned `[]`
 - **Problem:** equations with a *sum* of logarithms — `log(x)+log(x−1)`,
   `log(x)+log(x+1)−log(6)`, `2·log(x)−log(x+2)` — returned `[]`. The existing
