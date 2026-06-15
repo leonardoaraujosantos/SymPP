@@ -16,6 +16,33 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-DEF-2 / LIMIT-LOG-1 — `∫₀^∞ 1/(1+x⁴) = nan` (log/atan antiderivative at ∞)
+- **Problem:** `∫₀^∞ 1/(1+x⁴)` returned `nan` instead of `π√2/4`. Its
+  antiderivative has `log(A) − log(B)` and `atan(arg)` terms; at the upper limit
+  the logs gave `∞ − ∞` and the `atan` arguments stayed unevaluated. Two root
+  causes:
+  1. **Infinity arithmetic:** `oo + √2` did not collapse to `oo` — the `Add`
+     infinity pre-pass only absorbed numeric *literals*, not closed real
+     constants like `√2` or `π`. So `atan(½·(2x+√2)·√2)|_{x=∞}` kept an
+     unevaluated `oo + √2` and never reached `atan(∞) = π/2`.
+  2. **Limit engine:** no log-continuity or log-combination at `∞`, so
+     `limit(log(x+1) − log(x))` was `nan` instead of `0`.
+- **Fix:**
+  - `src/core/add.cpp`: the `±∞` pre-pass now absorbs any finite *real constant*
+    (`is_number` or no free symbols + `is_real`), so `oo + √2 = oo`,
+    `oo + π = oo`; `oo + x` (symbolic) is still kept.
+  - `src/calculus/limit.cpp`: added `try_log_limit` — log-continuity
+    (`limit(log g) = log(lim g)`), `∞ − ∞` log-combination (factor a common κ so
+    `Σ cᵢ·log gᵢ = κ·log(∏ gᵢ^(cᵢ/κ))` with a single rational argument), and
+    atan-continuity (`limit(atan g) = atan(lim g)`), applied before direct
+    substitution.
+- **Verified:** `∫₀^∞ 1/(1+x⁴) = π√2/4`, `∫₀^∞ 1/(x⁴+x²+1) = π√3/6`,
+  `∫₁^∞ 1/(x(x+1)) = log 2`; `limit(log(x+1) − log x) = 0`,
+  `limit(log(x²+x+1) − log(x²−x+1)) = 0`, `limit(atan(2x+1)) = π/2` — all match
+  SymPy.
+- **Regression tests:** `INT-DEF-2` in `tests/integrals/integrate_test.cpp` and
+  `LIMIT-LOG-1` in `tests/calculus/series_limit_test.cpp`.
+
 ### SIMP-CXDIV-1 — `simplify((1+I)/(1-I))` left the complex quotient unreduced
 - **Problem:** `simplify((1+I)/(1−I))` returned `(1+I)·(1−I)⁻¹` instead of `I`;
   `simplify(1/(1+I))` stayed `(1+I)⁻¹` instead of `1/2 − I/2`. Complex *products*

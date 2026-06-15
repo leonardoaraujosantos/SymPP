@@ -584,6 +584,83 @@ struct Growth {
     return val;
 }
 
+// Resolve logarithms at the target.
+//   (a) limit(log(g)) = log(limit g)   for a positive-finite or +∞ inner limit;
+//   (b) Σ cᵢ·log(gᵢ) + rest: factor a common κ so every cᵢ/κ is an integer,
+//       giving κ·log(∏ gᵢ^(cᵢ/κ)) with a single (rational) argument — this
+//       resolves the ∞ − ∞ between logs, e.g. log(x+1) − log(x) → 0 and the
+//       log terms of the ∫1/(1+x⁴) antiderivative at ∞.
+[[nodiscard]] std::optional<Expr> try_log_limit(const Expr& expr,
+                                                const Expr& var,
+                                                const Expr& target, int depth) {
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    if (is_log(expr)) {
+        Expr gl = limit_impl(expr->args()[0], var, target, depth + 1);
+        if (gl == S::Infinity()) return S::Infinity();
+        if (!is_nan(gl) && !is_infinity(gl)
+            && is_positive(gl) == std::optional<bool>{true}) {
+            return simplify(log(gl));
+        }
+        return std::nullopt;
+    }
+    // atan is continuous on the extended reals (atan(±∞) = ±π/2), so
+    // limit(atan(g)) = atan(limit g) whenever the inner limit is determinate.
+    if (expr->type_id() == TypeId::Function
+        && static_cast<const Function&>(*expr).function_id() == FunctionId::Atan
+        && expr->args().size() == 1) {
+        Expr gl = limit_impl(expr->args()[0], var, target, depth + 1);
+        if (!is_nan(gl)) return simplify(atan(gl));
+        return std::nullopt;
+    }
+    if (expr->type_id() != TypeId::Add) return std::nullopt;
+    auto as_clog =
+        [&](const Expr& t) -> std::optional<std::pair<Expr, Expr>> {  // (g, c)
+        if (is_log(t)) return std::make_pair(t->args()[0], Expr{S::One()});
+        if (t->type_id() == TypeId::Mul) {
+            Expr inner;
+            std::vector<Expr> coeff;
+            for (const auto& f : t->args()) {
+                if (!inner && is_log(f)) {
+                    inner = f->args()[0];
+                    continue;
+                }
+                if (has(f, var)) return std::nullopt;
+                coeff.push_back(f);
+            }
+            if (inner) return std::make_pair(inner, mul(std::move(coeff)));
+        }
+        return std::nullopt;
+    };
+    std::vector<std::pair<Expr, Expr>> logs;
+    std::vector<Expr> rest;
+    for (const auto& t : expr->args()) {
+        if (auto lp = as_clog(t)) logs.push_back(std::move(*lp));
+        else rest.push_back(t);
+    }
+    if (logs.size() < 2) return std::nullopt;
+    const Expr& kappa = logs[0].second;
+    if (kappa == S::Zero()) return std::nullopt;
+    std::vector<Expr> factors;
+    for (const auto& [g, c] : logs) {
+        Expr ratio = simplify(c * pow(kappa, integer(-1)));
+        if (ratio->type_id() != TypeId::Integer
+            || !static_cast<const Integer&>(*ratio).fits_long()) {
+            return std::nullopt;  // coefficients not commensurate
+        }
+        factors.push_back(pow(g, ratio));
+    }
+    Expr combined = mul(kappa, log(mul(std::move(factors))));
+    rest.push_back(combined);
+    Expr val = limit_impl(add(std::move(rest)), var, target, depth + 1);
+    if (is_nan(val)) return std::nullopt;
+    return val;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -633,6 +710,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         if (auto v = try_power_form(expr, var, target, depth)) return *v;
     }
 
+    // Continuity of atan/log: limit(f(g)) = f(limit g). Done before direct
+    // substitution, which can leave atan(<unevaluated ∞ expression>) — e.g. the
+    // atan terms of the ∫1/(1+x⁴) antiderivative at ∞.
+    if (depth < 12 && expr->type_id() == TypeId::Function) {
+        if (auto v = try_log_limit(expr, var, target, depth)) return *v;
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
@@ -668,6 +752,8 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                     return *v;
                 }
             }
+            // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
+            if (auto v = try_log_limit(expr, var, target, depth)) return *v;
             // Linearity over a sum: when every term has a determinate finite
             // limit, the limit is their sum. Direct substitution gives nan when
             // a single term is an ∞·0 product (e.g. the antiderivative

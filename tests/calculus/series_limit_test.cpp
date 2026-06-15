@@ -393,6 +393,32 @@ TEST_CASE("limit: conjugate of a radical difference (LIMIT-CONJUGATE-1)",
     REQUIRE(limit(x + sq(pow(x, integer(2)) + integer(1)), x, oo) == oo);
 }
 
+// LIMIT-LOG-1: logarithms at ∞ — log-continuity (limit(log g) = log(lim g)),
+// the ∞ − ∞ between logs (log(x+1) − log(x) → 0, via combining), and
+// atan-continuity (limit(atan g) = atan(lim g) = π/2). Also exercises the
+// supporting infinity-arithmetic fix (oo + √2 = oo). Previously returned nan.
+TEST_CASE("limit: logarithms and atan at infinity (LIMIT-LOG-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // ∞ − ∞ between logs.
+    REQUIRE(limit(log(x + integer(1)) - log(x), x, oo) == S::Zero());
+    REQUIRE(limit(log(sq(x) + x + integer(1)) - log(sq(x) - x + integer(1)), x,
+                  oo)
+            == S::Zero());
+    // log(2x) − log(x) = log 2.
+    REQUIRE(oracle.equivalent(
+        limit(log(integer(2) * x) - log(x), x, oo)->str(), "log(2)"));
+    // atan-continuity: atan(2x+1) → π/2.
+    REQUIRE(oracle.equivalent(limit(atan(integer(2) * x + integer(1)), x, oo)
+                                  ->str(),
+                              "pi/2"));
+    // Infinity absorbs a finite real constant: oo + √2 = oo (not oo + √2).
+    REQUIRE(S::Infinity() + pow(integer(2), rational(1, 2)) == S::Infinity());
+}
+
 TEST_CASE("limit: 0*oo and oo/oo forms at oo",
           "[6][limit][infinity][oracle][regression]") {
     auto& oracle = Oracle::instance();

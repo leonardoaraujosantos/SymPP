@@ -2028,6 +2028,36 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
             == rational(1, 3));
 }
 
+// INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
+// that individually diverge at ∞ but combine to a finite limit. The upper-bound
+// evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the
+// atan(arg→∞) = π/2 terms (supported by the oo + √2 = oo arithmetic fix).
+// ∫₀^∞ 1/(1+x⁴) = π√2/4 used to come back as nan.
+TEST_CASE("integrate: improper integrals with log/atan antiderivatives (INT-DEF-2)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    // ∫₀^∞ 1/(1+x⁴) = π√2/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(integer(1) + pow(x, integer(4)), integer(-1)), x,
+                  S::Zero(), oo)
+            ->str(),
+        "sqrt(2)*pi/4"));
+    // ∫₀^∞ 1/(x⁴+x²+1) = π√3/6.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(4)) + pow(x, integer(2)) + integer(1),
+                      integer(-1)),
+                  x, S::Zero(), oo)
+            ->str(),
+        "sqrt(3)*pi/6"));
+    // ∫₁^∞ 1/(x(x+1)) = log 2 (a pure ∞ − ∞ between logs).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x * (x + integer(1)), integer(-1)), x, integer(1), oo)
+            ->str(),
+        "log(2)"));
+}
+
 // INT-IMPROPER-1: improper rational functions (deg numerator ≥ deg denominator)
 // over a LINEAR denominator used to come back unevaluated. try_rational does the
 // polynomial division, but when apart left the proper remainder as a single
