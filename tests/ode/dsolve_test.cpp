@@ -563,3 +563,38 @@ TEST_CASE("dsolve: unified order-detecting entry point (DSOLVE-UNIFIED-1)",
     // Third order, constant coefficient.
     REQUIRE(satisfies(yppp - yp));
 }
+
+// DSOLVE-RESONANCE-1: a forcing term that is itself a homogeneous solution
+// (resonance). The complex basis e^(±iβx) made the cyclic exp·trig integrator in
+// variation of parameters divide by a²+g² = 0, producing zoo. Emitting the real
+// cos/sin basis for complex-conjugate roots fixes it; the particular solution
+// carries the expected x·(…) resonance factor.
+TEST_CASE("dsolve: resonant forcing and real-form complex roots (DSOLVE-RESONANCE-1)",
+          "[11][dsolve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto ypp = diff(y, x, 2);
+    auto yppp = diff(y, x, 3);
+    auto satisfies = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        REQUIRE(sol->str().find("zoo") == std::string::npos);  // no garbage
+        Expr r = subs(ode, yppp, diff(sol, x, 3));
+        r = subs(r, ypp, diff(sol, x, 2));
+        r = subs(r, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return oracle.equivalent(simplify(expand(r))->str(), "0");
+    };
+    // Resonant forcing: sin x / cos x solve y'' + y = 0; sin 2x solves y'' + 4y.
+    REQUIRE(satisfies(ypp + y - sin(x)));
+    REQUIRE(satisfies(ypp + y - cos(x)));
+    REQUIRE(satisfies(ypp + integer(4) * y - sin(integer(2) * x)));
+    // Non-resonant complex roots still solve (and now in real cos/sin form).
+    REQUIRE(satisfies(ypp + y - exp(x)));
+    REQUIRE(satisfies(ypp + integer(4) * y));  // y'' + 4y = 0
+    // Real cos/sin form, not complex exponentials.
+    REQUIRE(dsolve(ypp + integer(4) * y, y, x)->str().find("I") ==
+            std::string::npos);
+}

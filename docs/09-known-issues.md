@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### DSOLVE-RESONANCE-1 — `dsolve(y″ + y = sin x)` returned garbage with `zoo`
+- **Problem:** a second-order constant-coefficient ODE whose forcing term is
+  itself a homogeneous solution (resonance) — `y″ + y = sin x`, `y″ + 4y = sin 2x`
+  — produced garbage like `… + zoo·I·cos(x) + zoo·sin(x)`. Variation of parameters
+  used the *complex* basis `e^(±iβx)`, and the cyclic exp·trig integrator
+  `∫e^(ax)sin(gx) = e^(ax)(a·sin − g·cos)/(a²+g²)` divides by `a²+g²`, which is `0`
+  for `a = −i, g = 1` at resonance → `zoo`.
+- **Fix:** in `src/ode/dsolve.cpp`, both `order2_basis` and `dsolve_constant_coeff`
+  now emit the **real** basis `e^(αx)cos(βx), e^(αx)sin(βx)` for a complex-conjugate
+  root pair `α ± βi` (paired via `simplify(rootⱼ − conj) == 0`, robust to nested
+  radical roots), instead of complex exponentials. The real basis keeps the
+  variation-of-parameters integrals real, so the `x·(…)` resonance factor falls out
+  correctly, and the homogeneous solution now matches SymPy's `C₁cos + C₂sin` form.
+- **Verified:** `y″ + y = sin x` → residual 0 (particular part carries `−x·cos x/2`),
+  `y″ + y = cos x`, `y″ + 4y = sin 2x` all residual 0 with no `zoo`; `y″ + 4y = 0`
+  → `C₀cos 2x + C₁sin 2x` (real, no `I`); `y‴ − y = 0` →
+  `e^(−x/2)(C₁cos(√3x/2) + C₂sin(√3x/2)) + C₀eˣ`, matching SymPy.
+- **Regression test:** `DSOLVE-RESONANCE-1` in `tests/ode/dsolve_test.cpp`.
+
 ### INT-ABS-DEF-1 — definite integral of `|x|` returned garbage `−Integral(1,−1) + Integral(1,1)`
 - **Problem:** definite integrals of integrands containing `abs`/`sign` —
   `∫_{-1}^1 |x|`, `∫_0^π |cos x|`, `∫_{-1}^1 (|x|+x²)` — produced garbage. These

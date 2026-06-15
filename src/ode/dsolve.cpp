@@ -540,13 +540,56 @@ Expr dsolve_constant_coeff(const std::vector<Expr>& coeffs, const Expr& x) {
     }
     int cnt = 0;
     Expr y = S::Zero();
-    for (const auto& [root, mult] : grouped) {
+    std::vector<bool> consumed(grouped.size(), false);
+    auto real_poly = [&](std::size_t mult) {
         Expr poly_x = S::Zero();
         for (std::size_t k = 0; k < mult; ++k) {
-            Expr C = fresh_constant(cnt);
-            poly_x = poly_x + C * pow(x, integer(static_cast<long>(k)));
+            poly_x = poly_x
+                     + fresh_constant(cnt) * pow(x, integer(static_cast<long>(k)));
         }
-        y = y + poly_x * exp(mul(root, x));
+        return poly_x;
+    };
+    for (std::size_t gi = 0; gi < grouped.size(); ++gi) {
+        if (consumed[gi]) continue;
+        const Expr& root = grouped[gi].first;
+        const std::size_t mult = grouped[gi].second;
+        Expr beta = simplify(im(root));
+        if (beta == S::Zero()) {
+            y = y + real_poly(mult) * exp(mul(root, x));  // real root
+            consumed[gi] = true;
+            continue;
+        }
+        // Complex root α ± βi: pair with its conjugate and emit the real form
+        // e^(αx)·Σ xᵏ (Cₖ cos(βx) + Dₖ sin(βx)) instead of complex exponentials —
+        // matching SymPy, and avoiding the a²+g² = 0 division that the cyclic
+        // exp·trig integrator hits during variation of parameters at resonance.
+        Expr alpha = simplify(re(root));
+        Expr conj = simplify(alpha - mul(S::I(), beta));
+        std::size_t gj = grouped.size();
+        for (std::size_t j = gi + 1; j < grouped.size(); ++j) {
+            if (!consumed[j] && grouped[j].second == mult
+                && simplify(grouped[j].first - conj) == S::Zero()) {
+                gj = j;
+                break;
+            }
+        }
+        if (gj == grouped.size()) {
+            y = y + real_poly(mult) * exp(mul(root, x));  // no conjugate partner
+            consumed[gi] = true;
+            continue;
+        }
+        Expr wx = mul(beta, x);
+        Expr trig_part = S::Zero();
+        for (std::size_t k = 0; k < mult; ++k) {
+            Expr C = fresh_constant(cnt);
+            Expr D = fresh_constant(cnt);
+            trig_part = trig_part
+                        + pow(x, integer(static_cast<long>(k)))
+                              * (C * cos(wx) + D * sin(wx));
+        }
+        y = y + exp(mul(alpha, x)) * trig_part;
+        consumed[gi] = true;
+        consumed[gj] = true;
     }
     return y;
 }
@@ -614,6 +657,15 @@ order2_basis(const std::vector<Expr>& coeffs, const Expr& x) {
         Expr y1 = exp(roots[0] * x);
         Expr y2 = x * exp(roots[0] * x);
         return {y1, y2};
+    }
+    // Complex conjugate pair α ± βi → the real basis e^(αx)cos(βx), e^(αx)sin(βx).
+    // The complex basis e^(±iβx) makes the cyclic exp·trig integrator divide by
+    // a²+g² = 0 at resonance (e.g. y″+y = sin x), producing zoo.
+    Expr beta = simplify(im(roots[0]));
+    if (!(beta == S::Zero())) {
+        Expr alpha = simplify(re(roots[0]));
+        Expr ea = exp(mul(alpha, x));
+        return {ea * cos(mul(beta, x)), ea * sin(mul(beta, x))};
     }
     return {exp(roots[0] * x), exp(roots[1] * x)};
 }
