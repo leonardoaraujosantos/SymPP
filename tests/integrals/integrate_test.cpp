@@ -1091,6 +1091,34 @@ TEST_CASE("integrate: ∫exp(x^2) dx = sqrt(pi)*erfi(x)/2",
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// INT-GAUSSMOMENT-1: polynomial × Gaussian ∫P(x)·exp(c·x²) dx — the Gaussian
+// moments. Reduces ∫xⁿ·exp(c·x²) by parts to ∫exp(c·x²) (erf/erfi, even n) and
+// ∫x·exp(c·x²) = exp(c·x²)/(2c) (odd n). Without it ∫x²·exp(−x²) was unevaluated,
+// and the improper ∫₀^∞ x²·exp(−x²) produced garbage. Verified by diff-back.
+TEST_CASE("integrate: polynomial times Gaussian → erf moments (INT-GAUSSMOMENT-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    auto g = exp(mul(S::NegativeOne(), pow(x, integer(2))));  // exp(−x²)
+    REQUIRE(db(pow(x, integer(2)) * g));               // even: erf moment
+    REQUIRE(db(pow(x, integer(3)) * g));               // odd: elementary
+    REQUIRE(db(pow(x, integer(4)) * g));
+    REQUIRE(db((pow(x, integer(2)) + integer(1)) * g));  // mixed polynomial
+    REQUIRE(db(pow(x, integer(2)) * exp(pow(x, integer(2)))));  // positive c → erfi
+    // The known closed form for the canonical second moment.
+    REQUIRE(oracle.equivalent(integrate(pow(x, integer(2)) * g, x)->str(),
+                              "-x*exp(-x**2)/2 + sqrt(pi)*erf(x)/4"));
+    // Improper second moment: ∫₀^∞ x²·exp(−x²) = √π/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * g, x, S::Zero(), S::Infinity())->str(),
+        "sqrt(pi)/4"));
+}
+
 // INT-GAUSS-PARAM-1: the Gaussian with a symbolic positive coefficient —
 // ∫exp(−a·x²) = √π·erf(√a·x)/(2√a), ∫exp(a·x²) = √π·erfi(√a·x)/(2√a). try_gaussian
 // already branched on is_negative/is_positive; a leftover rational-only gate

@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAUSSMOMENT-1 — `∫x²·exp(−x²)` (polynomial × Gaussian) was unevaluated
+- **Problem:** `∫x²·exp(−x²)` and every `∫P(x)·exp(c·x²)` with a non-constant
+  polynomial `P` were left unevaluated (`Integral(…)` marker). SymPP integrated the
+  bare Gaussian `∫exp(−x²) = √π·erf(x)/2` but had no rule for the Gaussian
+  *moments*. The improper form was worse: `∫₀^∞ x²·exp(−x²)` evaluated the missing
+  antiderivative at the bounds and emitted garbage `−Integral(0,0) + Integral(nan, ∞)`.
+- **Fix:** added `try_poly_times_gaussian` in `src/integrals/integrate.cpp`
+  (dispatched just before `try_gaussian`). It isolates the `exp(c·x²)` factor
+  (pure quadratic exponent, provable-sign `c`) and a polynomial residual, then
+  integrates each monomial via the by-parts reduction
+  `∫xⁿ·exp(c·x²) = xⁿ⁻¹·exp(c·x²)/(2c) − (n−1)/(2c)·∫xⁿ⁻²·exp(c·x²)`, bottoming out
+  at `∫exp(c·x²)` (erf/erfi) for even `n` and `∫x·exp(c·x²) = exp(c·x²)/(2c)` for
+  odd `n`. Covers negative `c` (erf) and positive `c` (erfi).
+- **Verified:** `∫x²·exp(−x²) = −x·exp(−x²)/2 + √π·erf(x)/4`, `∫x³·exp(−x²)`,
+  `∫x⁴·exp(−x²)`, `∫(x²+1)·exp(−x²)`, `∫x²·exp(x²)` (erfi) — all diff-back exactly to
+  the integrand; the improper `∫₀^∞ x²·exp(−x²) = √π/4`, matching SymPy.
+- **Regression test:** `INT-GAUSSMOMENT-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### LIMIT-EXPPOLY-1 — `lim x²·(2/3)^x` and polynomial × exponential-ratio returned `nan`
 - **Problem:** `lim_{x→∞} x²·(2/3)^x` (= 0), `x³·2^x/3^x` (= 0), `x²/2^x` (= 0),
   `x²·3^x/2^x` (= ∞) returned `nan`. The generic product/L'Hôpital path closed a

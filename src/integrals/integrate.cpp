@@ -450,6 +450,11 @@ namespace {
 // rational leading coefficient.
 [[nodiscard]] std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·exp(c·x²) dx for a polynomial P and a pure-quadratic exponent c·x² — the
+// Gaussian moments. Reduces ∫xⁿ·exp(c·x²) by parts to lower powers, bottoming out
+// at ∫exp(c·x²) (erf/erfi) for even n and ∫x·exp(c·x²) = exp(c·x²)/(2c) for odd n.
+[[nodiscard]] std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var);
+
 // ∫ sin(c·x)/x = Si(c·x), ∫ cos(c·x)/x = Ci(c·x), ∫ exp(c·x)/x = Ei(c·x) — the
 // special-integral functions, for a monomial argument c·x (no constant term).
 [[nodiscard]] std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var);
@@ -568,6 +573,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_reciprocal_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_poly_times_gaussian(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -2603,6 +2611,76 @@ std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& v
                - integer(k - 1) * c * prev)
               / (integer(k) * a);
     return simplify(lead * Jk);
+}
+
+std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+
+    // Isolate the exp(quadratic) factor; the rest must be a polynomial in var.
+    Expr expfac;
+    std::vector<Expr> rest;
+    for (const auto& f : expr->args()) {
+        if (!expfac && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                expfac = f;
+                continue;
+            }
+        }
+        rest.push_back(f);
+    }
+    if (!expfac || rest.empty()) return std::nullopt;
+
+    // Exponent must be a pure quadratic c·x² (no linear/constant term — those need
+    // completing the square, out of scope, as in try_gaussian).
+    const auto& efn = static_cast<const Function&>(*expfac);
+    Poly ep(expand(efn.args()[0]), var);
+    if (ep.degree() != 2) return std::nullopt;
+    if (!(ep.coeffs()[0] == S::Zero()) || !(ep.coeffs()[1] == S::Zero())) {
+        return std::nullopt;
+    }
+    Expr c = ep.coeffs()[2];
+    // The erf/erfi base case needs a provable sign for c (numeric is fine).
+    const bool c_neg = is_negative(c) == true;
+    const bool c_pos = is_positive(c) == true;
+    if (!c_neg && !c_pos) return std::nullopt;
+
+    // The remaining factor must be a polynomial in var with var-free coefficients.
+    Expr poly_part = mul(std::move(rest));
+    Poly pp(expand(poly_part), var);
+    for (const auto& cc : pp.coeffs()) {
+        if (depends_on(cc, var)) return std::nullopt;
+    }
+
+    Expr two_c = mul(integer(2), c);
+    // ∫xⁿ·exp(c·x²) dx by the parts reduction
+    //   ∫xⁿ e^{cx²} = xⁿ⁻¹ e^{cx²}/(2c) − (n−1)/(2c) · ∫xⁿ⁻² e^{cx²},
+    // bottoming out at n = 0 (erf/erfi) and n = 1 (exp(c·x²)/(2c)).
+    auto moment = [&](auto&& self, long n) -> Expr {
+        if (n == 0) {
+            if (c_neg) {
+                Expr a = mul(S::NegativeOne(), c);  // a = −c > 0
+                Expr sa = sqrt(a);
+                return sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa);
+            }
+            Expr sa = sqrt(c);
+            return sqrt(S::Pi()) * erfi(sa * var) / (integer(2) * sa);
+        }
+        if (n == 1) return expfac / two_c;
+        Expr head = pow(var, integer(n - 1)) * expfac / two_c;
+        Expr tail = integer(n - 1) / two_c * self(self, n - 2);
+        return head - tail;
+    };
+
+    const long deg = static_cast<long>(pp.degree());
+    std::vector<Expr> terms;
+    for (long k = 0; k <= deg; ++k) {
+        const Expr& ak = pp.coeffs()[static_cast<std::size_t>(k)];
+        if (ak == S::Zero()) continue;
+        terms.push_back(mul(ak, moment(moment, k)));
+    }
+    if (terms.empty()) return std::nullopt;
+    return simplify(add(std::move(terms)));
 }
 
 std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
