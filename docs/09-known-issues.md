@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-TRIGSQ-POWER-1 — `∫sin²(x)/xⁿ` and squared-trig over a power were unevaluated
+- **Problem:** `∫sin²(x)/x²`, `∫cos²(x)/x`, `∫sin²(x)/x³`, … were left unevaluated.
+  `try_trig_reduction` applied the half-angle identity only to a *standalone*
+  `sin²(u)`, not to a `sin²(u)/cos²(u)` factor inside a product.
+- **Fix:** in `src/integrals/integrate.cpp`, `try_trig_reduction` now also rewrites
+  a `sin²(u)`/`cos²(u)` factor in a `Mul` via the half-angle identity
+  (`sin²(u) = (1−cos 2u)/2`) and recurses: the integrand becomes `(1∓cos 2u)/(2·rest)`,
+  which the linearity + `Si/Ci` power-reduction paths (`INT-EXPINT-POWER-1`) close.
+  Gated to fire only when the remaining factors are non-trig (a power of `x`, an
+  exponential, …) so a pure trig × trig product like `sin³·cos²` keeps its dedicated
+  `sin^m·cos^n` closed form (which the rewrite would otherwise hijack into a messier
+  result — a regression caught and fixed).
+- **Verified:** `∫sin²(x)/x² = Si(2x) + cos(2x)/(2x) − 1/(2x)`, `∫cos²(x)/x²`,
+  `∫sin²(x)/x = log(x)/2 − Ci(2x)/2`, `∫cos²(x)/x`, `∫sin²(x)/x³`, `∫sin²(2x)/x²` —
+  all diff-back to the integrand, matching SymPy; `∫sin³·cos²` keeps
+  `cos⁵/5 − cos³/3`, and standalone `∫sin²(x)` is unchanged.
+- **Regression test:** extended `INT-EXPINT-POWER-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-EXPINT-POWER-1 — `∫sin(x)/x²` and `∫f(c·x)/xⁿ` (n ≥ 2) were unevaluated
 - **Problem:** `∫sin(x)/x²`, `∫cos(x)/x²`, `∫exp(x)/x²`, `∫sin(x)/x³`, … were left
   unevaluated. SymPP closed `∫f(c·x)/x = Si/Ci/Ei` (the n = 1 special-integral

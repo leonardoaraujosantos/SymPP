@@ -1535,6 +1535,61 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
         }
     }
 
+    // A sin²(u) / cos²(u) factor inside a product: rewrite via the half-angle
+    // identity and recurse. Closes ∫sin²(x)/xⁿ = ∫(1−cos 2x)/(2xⁿ), which the
+    // linearity + Si/Ci power-reduction paths then integrate (the standalone
+    // Pow block above only handles a bare sin²(u)).
+    if (expr->type_id() == TypeId::Mul) {
+        Expr half_angle;  // (1∓cos 2u)/2 replacing one trig-square factor
+        std::vector<Expr> rest;
+        for (const auto& f : expr->args()) {
+            if (!half_angle && f->type_id() == TypeId::Pow
+                && f->args()[1] == integer(2)
+                && f->args()[0]->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f->args()[0]);
+                const FunctionId fid = fn.function_id();
+                if (fn.args().size() == 1
+                    && (fid == FunctionId::Sin || fid == FunctionId::Cos)) {
+                    const Expr& u = fn.args()[0];
+                    auto aff = as_affine(u, var);
+                    if (aff && !(aff->first == S::Zero())) {
+                        half_angle = (fid == FunctionId::Sin)
+                                         ? (integer(1) - cos(integer(2) * u))
+                                               / integer(2)
+                                         : (integer(1) + cos(integer(2) * u))
+                                               / integer(2);
+                        continue;
+                    }
+                }
+            }
+            rest.push_back(f);
+        }
+        // Only rewrite when the remaining factors are non-trig (a power of x, an
+        // exponential, …). A trig × trig product (e.g. sin³·cos²) is better served
+        // by the dedicated sin^m·cos^n integrator, so leave it for that path.
+        auto is_trig = [](const Expr& f) -> bool {
+            const Expr& base =
+                f->type_id() == TypeId::Pow ? f->args()[0] : f;
+            if (base->type_id() != TypeId::Function) return false;
+            switch (static_cast<const Function&>(*base).function_id()) {
+                case FunctionId::Sin: case FunctionId::Cos:
+                case FunctionId::Tan: case FunctionId::Cot:
+                case FunctionId::Sec: case FunctionId::Csc:
+                case FunctionId::Sinh: case FunctionId::Cosh:
+                case FunctionId::Tanh: case FunctionId::Coth:
+                case FunctionId::Sech: case FunctionId::Csch:
+                    return true;
+                default:
+                    return false;
+            }
+        };
+        if (half_angle && !rest.empty()
+            && std::none_of(rest.begin(), rest.end(), is_trig)) {
+            Expr r = integrate(expand(half_angle * mul(rest)), var);
+            if (!is_integral_marker(r)) return r;
+        }
+    }
+
     // sin(p)cos(q) → (sin(p+q) + sin(p-q))/2 — product-to-sum.
     if (expr->type_id() == TypeId::Mul) {
         Expr sin_arg, cos_arg;

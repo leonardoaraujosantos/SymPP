@@ -1745,6 +1745,18 @@ TEST_CASE("integrate: ∫f(c·x)/x^n reduces to Si/Ci/Ei (INT-EXPINT-POWER-1)",
     // n = 1 base cases still close to the bare special-integral functions.
     REQUIRE(oracle.equivalent(integrate(sin(x) / x, x)->str(), "Si(x)"));
     REQUIRE(oracle.equivalent(integrate(cos(x) / x, x)->str(), "Ci(x)"));
+    // Squared trig over a power: the half-angle identity reduces sin²/cos² to a
+    // (1∓cos 2x)/2 form, then the linear + Si/Ci paths close it.
+    REQUIRE(db(pow(sin(x), integer(2)) / pow(x, integer(2))));  // Si(2x)+…
+    REQUIRE(db(pow(cos(x), integer(2)) / pow(x, integer(2))));
+    REQUIRE(db(pow(sin(x), integer(2)) / x));                  // Ci-form
+    REQUIRE(db(pow(cos(x), integer(2)) / x));
+    REQUIRE(db(pow(sin(x), integer(2)) / pow(x, integer(3))));
+    // A pure trig × trig product is NOT hijacked by the half-angle rewrite — it
+    // keeps the clean sin^m·cos^n closed form.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(3)) * pow(cos(x), integer(2)), x)->str(),
+        "cos(x)**5/5 - cos(x)**3/3"));
 }
 
 // ----- ∫ of a special-integral function by parts (regression, EXPINT-BYPARTS)
