@@ -469,6 +469,83 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
+    // Dirichlet beta Σ_{k=0}^∞ (−1)^k/(2k+1)^s: β(1) = π/4 (Leibniz), β(2) =
+    // Catalan's constant. Higher s have no elementary closed form (SymPy returns a
+    // polylog), so only s ∈ {1, 2} are recognized. A (−1)^(a·k+b) factor with odd
+    // a is (−1)^k up to the sign (−1)^b; a leading constant multiplies through.
+    if (lo == S::Zero() && hi->type_id() == TypeId::Infinity) {
+        Expr sign_exp;
+        long s = 0;
+        bool have_sign = false;
+        bool have_base = false;
+        Expr coeff = S::One();
+        bool ok = true;
+        std::vector<Expr> factors;
+        if (expr->type_id() == TypeId::Mul) {
+            for (const auto& f : expr->args()) factors.push_back(f);
+        } else {
+            factors.push_back(expr);
+        }
+        for (const auto& f : factors) {
+            if (f->type_id() == TypeId::Pow && f->args()[0] == integer(-1)
+                && has(f->args()[1], var)) {
+                if (have_sign) { ok = false; break; }
+                sign_exp = f->args()[1];
+                have_sign = true;
+            } else if (f->type_id() == TypeId::Pow
+                       && f->args()[1]->type_id() == TypeId::Integer
+                       && has(f->args()[0], var)) {
+                // base must be the odd-denominator affine 2·var + 1.
+                const auto& ze = static_cast<const Integer&>(*f->args()[1]);
+                if (have_base || !ze.fits_long() || ze.to_long() >= 0) {
+                    ok = false;
+                    break;
+                }
+                try {
+                    Poly pb(expand(f->args()[0]), var);
+                    if (pb.degree() == 1 && pb.coeffs()[0] == S::One()
+                        && pb.coeffs()[1] == integer(2)) {
+                        s = -ze.to_long();
+                        have_base = true;
+                    } else {
+                        ok = false;
+                        break;
+                    }
+                } catch (const std::exception&) {
+                    ok = false;
+                    break;
+                }
+            } else if (!has(f, var)) {
+                coeff = mul(coeff, f);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && have_sign && have_base && (s == 1 || s == 2)) {
+            try {
+                Poly pe(expand(sign_exp), var);
+                if (pe.degree() == 1
+                    && pe.coeffs()[1]->type_id() == TypeId::Integer
+                    && pe.coeffs()[0]->type_id() == TypeId::Integer) {
+                    const long a = static_cast<const Integer&>(*pe.coeffs()[1])
+                                       .to_long();
+                    const long b = static_cast<const Integer&>(*pe.coeffs()[0])
+                                       .to_long();
+                    if (a % 2 != 0) {
+                        Expr sign_b = (b % 2 == 0) ? S::One() : S::NegativeOne();
+                        Expr val = (s == 1)
+                                       ? Expr{S::Pi() / integer(4)}
+                                       : S::Catalan();
+                        return simplify(mul(mul(coeff, sign_b), val));
+                    }
+                }
+            } catch (const std::exception&) {
+                // not a clean affine sign exponent — fall through
+            }
+        }
+    }
+
     // Exponential series Σ_{k=lo}^∞ r^k/k! = e^r (e.g. Σ 1/k! = e,
     // Σ x^k/k! = e^x, Σ 2^k/k! = e²). Convergent for every r.
     if (auto r = sum_exponential_series(expr, var, lo, hi)) return *r;

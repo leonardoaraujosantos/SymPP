@@ -1020,6 +1020,46 @@ TEST_CASE("summation: alternating p-series → Dirichlet eta (SUM-ALT-PSERIES-1)
         summation(pow(k, integer(-2)), k, integer(1), oo)->str(), "pi**2/6"));
 }
 
+// SUM-DIRICHLET-BETA-1: the Dirichlet beta series Σ_{k=0}^∞ (−1)^k/(2k+1)^s.
+// β(1) = π/4 (Leibniz), β(2) = Catalan's constant. Higher s have no elementary
+// closed form (SymPy returns a polylog), so only s ∈ {1, 2} are closed; others
+// stay an unevaluated Sum.
+TEST_CASE("summation: Dirichlet beta β(1)=π/4, β(2)=Catalan (SUM-DIRICHLET-BETA-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    auto altk = pow(integer(-1), k);
+    auto odd = integer(2) * k + integer(1);
+    // β(1) = Σ (−1)^k/(2k+1) = π/4.
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(odd, integer(-1)), k, S::Zero(), oo)->str(),
+        "pi/4"));
+    // Shifted sign flips it: Σ (−1)^(k+1)/(2k+1) = −π/4.
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(-1), k + integer(1)) * pow(odd, integer(-1)), k,
+                  S::Zero(), oo)->str(),
+        "-pi/4"));
+    // A leading constant multiplies through: Σ 2(−1)^k/(2k+1) = π/2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(2) * altk * pow(odd, integer(-1)), k, S::Zero(), oo)
+            ->str(),
+        "pi/2"));
+    // β(2) = Σ (−1)^k/(2k+1)² = Catalan's constant.
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(odd, integer(-2)), k, S::Zero(), oo)->str(),
+        "Catalan"));
+    // β(3) has no elementary form recognized here — stays an unevaluated Sum.
+    REQUIRE(summation(altk * pow(odd, integer(-3)), k, S::Zero(), oo)
+                ->str()
+                .find("Sum(") != std::string::npos);
+    // A non-(2k+1) odd-step denominator is not Dirichlet beta — left unevaluated.
+    REQUIRE(summation(altk * pow(integer(3) * k + integer(1), integer(-1)), k,
+                      S::Zero(), oo)
+                ->str()
+                .find("Sum(") != std::string::npos);
+}
+
 // SUM-EXP-1: the exponential series Σ_{k=0}^∞ r^k/k! = e^r (and its shifted /
 // scaled forms). Converges for every r, so no convergence test is needed.
 TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",

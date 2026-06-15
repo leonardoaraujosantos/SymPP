@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-DIRICHLET-BETA-1 — `Σ (−1)^k/(2k+1)` (Leibniz) stayed unevaluated
+- **Problem:** the Dirichlet beta series `Σ_{k=0}^∞ (−1)^k/(2k+1)^s` returned an
+  unevaluated `Sum`. The Leibniz series `Σ(−1)^k/(2k+1) = π/4` and
+  `Σ(−1)^k/(2k+1)² = Catalan` are clean closed forms SymPy produces.
+- **Fix:** added a Dirichlet-beta branch in `src/calculus/summation.cpp` (next to
+  the alternating p-series). For a summand `C·(−1)^(a·k+b)·(2k+1)^(−s)` (`a` odd,
+  `b` integer, base verified to be exactly `2·var+1`) over `k = 0…∞`, it returns
+  `π/4` for `s = 1` and Catalan's constant for `s = 2`, with the sign `(−1)^b` and
+  leading constant multiplied through. Higher `s` (no elementary form — SymPy
+  gives a polylog) are left unevaluated.
+- **Verified:** `Σ(−1)^k/(2k+1) = π/4`, `Σ(−1)^(k+1)/(2k+1) = −π/4`,
+  `Σ 2(−1)^k/(2k+1) = π/2`, `Σ(−1)^k/(2k+1)² = Catalan`, matching SymPy; `s = 3`
+  and non-`(2k+1)` denominators (`3k+1`) stay unevaluated; the alternating
+  k-denominator (eta) series and all other sums unchanged.
+- **Regression test:** `SUM-DIRICHLET-BETA-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### SUM-ALT-PSERIES-1 — `Σ (−1)^k/k` and alternating p-series stayed unevaluated
 - **Problem:** the alternating p-series `Σ_{k=1}^∞ (−1)^k/k^s` — `Σ(−1)^k/k = −log 2`,
   `Σ(−1)^k/k² = −π²/12`, `Σ(−1)^k/k³ = −¾ζ(3)` — returned an unevaluated `Sum`.
