@@ -1119,6 +1119,31 @@ TEST_CASE("integrate: polynomial times Gaussian → erf moments (INT-GAUSSMOMENT
         "sqrt(pi)/4"));
 }
 
+// INT-GAUSSSHIFT-1: a Gaussian with a linear term ∫P(x)·exp(a·x²+b·x+c), b ≠ 0.
+// Completing the square via u = x + b/(2a) reduces it to a pure Gaussian/moment in
+// u. Without it ∫exp(−(x−1)²), ∫exp(−x²+x), ∫x·exp(−(x−1)²) were unevaluated.
+TEST_CASE("integrate: Gaussian with linear term via completing the square (INT-GAUSSSHIFT-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // exp(−(x−1)²) = exp(−x²+2x−1).
+    REQUIRE(db(exp(mul(S::NegativeOne(), pow(x - integer(1), integer(2))))));
+    // exp(−x²+x): a non-monic shift x₀ = 1/2, constant e^(1/4).
+    REQUIRE(db(exp(mul(S::NegativeOne(), pow(x, integer(2))) + x)));
+    // x·exp(−(x−1)²): polynomial residual under the shift → erf moment.
+    REQUIRE(db(x * exp(mul(S::NegativeOne(), pow(x - integer(1), integer(2))))));
+    // Positive leading coefficient → erfi.
+    REQUIRE(db(exp(pow(x, integer(2)) + x)));
+    // General a≠1: exp(−2x²+3x−1).
+    REQUIRE(db(exp(mul(integer(-2), pow(x, integer(2))) + integer(3) * x
+                   - integer(1))));
+}
+
 // INT-GAUSS-PARAM-1: the Gaussian with a symbolic positive coefficient —
 // ∫exp(−a·x²) = √π·erf(√a·x)/(2√a), ∫exp(a·x²) = √π·erfi(√a·x)/(2√a). try_gaussian
 // already branched on is_negative/is_positive; a leftover rational-only gate

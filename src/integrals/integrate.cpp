@@ -455,6 +455,11 @@ namespace {
 // at ∫exp(c·x²) (erf/erfi) for even n and ∫x·exp(c·x²) = exp(c·x²)/(2c) for odd n.
 [[nodiscard]] std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·exp(a·x²+b·x+c) dx with a linear term (b ≠ 0) — completes the square via
+// the shift u = x + b/(2a) so the exponent becomes pure-quadratic in u, then
+// delegates to the Gaussian/moment rules. Closes ∫exp(−(x−1)²), ∫x·exp(−x²+x), …
+[[nodiscard]] std::optional<Expr> try_shifted_gaussian(const Expr& expr, const Expr& var);
+
 // ∫ sin(c·x)/x = Si(c·x), ∫ cos(c·x)/x = Ci(c·x), ∫ exp(c·x)/x = Ei(c·x) — the
 // special-integral functions, for a monomial argument c·x (no constant term).
 [[nodiscard]] std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var);
@@ -576,6 +581,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_poly_times_gaussian(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_shifted_gaussian(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
@@ -2611,6 +2619,74 @@ std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& v
                - integer(k - 1) * c * prev)
               / (integer(k) * a);
     return simplify(lead * Jk);
+}
+
+std::optional<Expr> try_shifted_gaussian(const Expr& expr, const Expr& var) {
+    // Isolate the exp factor; the remaining factors (if any) must be polynomial.
+    Expr expfac;
+    std::vector<Expr> rest;
+    auto is_exp1 = [](const Expr& f) -> const Function* {
+        if (f->type_id() != TypeId::Function) return nullptr;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            return &fn;
+        }
+        return nullptr;
+    };
+    if (is_exp1(expr)) {
+        expfac = expr;  // bare exp(quadratic), P = 1
+    } else if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!expfac && is_exp1(f)) {
+                expfac = f;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!expfac) return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+
+    // Exponent must be a genuine quadratic a·x²+b·x+c with a linear term (b ≠ 0).
+    // A pure quadratic (b = 0) is try_gaussian / try_poly_times_gaussian's job.
+    const auto& efn = static_cast<const Function&>(*expfac);
+    Poly ep(expand(efn.args()[0]), var);
+    if (ep.degree() != 2) return std::nullopt;
+    Expr a = ep.coeffs()[2];
+    Expr b = ep.coeffs()[1];
+    Expr c = ep.coeffs()[0];
+    if (b == S::Zero()) return std::nullopt;
+    if (depends_on(a, var) || depends_on(b, var) || depends_on(c, var)) {
+        return std::nullopt;
+    }
+
+    // The residual factor must be polynomial in var (with var-free coefficients).
+    Expr poly_part = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    if (!rest.empty() || !(poly_part == S::One())) {
+        try {
+            Poly pp(expand(poly_part), var);
+            for (const auto& cc : pp.coeffs()) {
+                if (depends_on(cc, var)) return std::nullopt;
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+
+    // Complete the square: a·x²+b·x+c = a·(x−x₀)² + K, x₀ = −b/(2a),
+    // K = c − b²/(4a). Substitute u = x − x₀ so exp becomes e^K·exp(a·u²), a pure
+    // Gaussian — then let integrate() apply the moment/erf rules in u.
+    Expr x0 = mul(S::NegativeOne(), b) / (integer(2) * a);
+    Expr K = simplify(c - pow(b, integer(2)) / (integer(4) * a));
+    Expr u = symbol("__shifted_gauss_u");
+    Expr u_to_x = u + x0;                       // x = u + x₀
+    Expr shifted_poly = subs(poly_part, var, u_to_x);
+    Expr shifted = exp(K) * shifted_poly * exp(a * pow(u, integer(2)));
+
+    Expr R = integrate(shifted, u);
+    if (is_integral_marker(R)) return std::nullopt;
+    return simplify(subs(R, u, var - x0));       // u = x − x₀
 }
 
 std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var) {

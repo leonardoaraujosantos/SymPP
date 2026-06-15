@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAUSSSHIFT-1 — `∫exp(−(x−1)²)` and Gaussians with a linear term were unevaluated
+- **Problem:** `∫exp(−(x−1)²)`, `∫exp(−x²+x)`, `∫x·exp(−(x−1)²)` and every
+  `∫P(x)·exp(a·x²+b·x+c)` with a non-zero linear term (`b ≠ 0`) were left
+  unevaluated. The Gaussian rules (`try_gaussian`, `try_poly_times_gaussian`)
+  require a *pure*-quadratic exponent (`b = c = 0`); a linear term needs completing
+  the square first, which nothing did.
+- **Fix:** added `try_shifted_gaussian` in `src/integrals/integrate.cpp`
+  (dispatched just before `try_gaussian`). It isolates the `exp(quadratic)` factor
+  and a polynomial residual, completes the square
+  `a·x²+b·x+c = a·(x−x₀)² + K` with `x₀ = −b/(2a)`, `K = c − b²/(4a)`, substitutes
+  `u = x − x₀` (so the exponent becomes the pure Gaussian `e^K·exp(a·u²)`), and
+  delegates back to `integrate()` in `u` — reusing the moment/erf rules — before
+  back-substituting. The recursion terminates because the shifted exponent has
+  `b = 0`, so it never re-enters `try_shifted_gaussian`.
+- **Verified:** `∫exp(−(x−1)²) = √π·erf(x−1)/2`, `∫exp(−x²+x) = √π·e^(1/4)·erf(x−1/2)/2`,
+  `∫x·exp(−(x−1)²)`, `∫exp(x²+x)` (erfi), `∫exp(−2x²+3x−1)` — all diff-back exactly
+  to the integrand, matching SymPy; pure-quadratic cases unchanged.
+- **Regression test:** `INT-GAUSSSHIFT-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-GAUSSMOMENT-1 — `∫x²·exp(−x²)` (polynomial × Gaussian) was unevaluated
 - **Problem:** `∫x²·exp(−x²)` and every `∫P(x)·exp(c·x²)` with a non-constant
   polynomial `P` were left unevaluated (`Integral(…)` marker). SymPP integrated the
