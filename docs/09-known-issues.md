@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### SERIES-COMPOSE-1 — `series(log(sin x / x))` stayed unexpanded
+- **Problem:** the Taylor series of a composite `f(g(x))` whose inner `g` is finite
+  but non-simple at the expansion point — e.g. `g = sin(x)/x`, with its `1/x`
+  factor — was not produced. `taylor_series` differentiates `f(g)` directly and
+  evaluates each derivative via a `limit`; for such `g` those derivative-limits
+  get hard (`lim (log(sin x/x))'' = nan`), so the Taylor path bailed and
+  `series(log(sin x / x))` returned the input unexpanded. (This was the underlying
+  cause worked around in `LIMIT-POWFORM-COMPOSITE-1`.) Single-function bases like
+  `log(cos x)` worked because their derivatives stay simple.
+- **Fix:** added `try_composition_series` in `src/calculus/series.cpp` (between the
+  Taylor and Laurent paths). It expands the inner `g` to a series, expands the
+  outer `f(t)` about the constant `c = g(x₀)` (where `f` is a single function the
+  Taylor path handles), and substitutes `(t − c) → (g_series − c)` — which has
+  positive valuation, so only finitely many terms reach a given order — then
+  truncates. A genuine singularity (`log x`, `c = 0` where the outer Taylor fails)
+  still stays unexpanded.
+- **Verified:** `series(log(sin x / x)) = −x²/6 − x⁴/180`,
+  `series(log(sinh x / x)) = x²/6 − x⁴/180`, matching SymPy; `log x` unexpanded;
+  ordinary and single-function series (`exp`, `sin`, `log(cos x)`, `cot`, …)
+  unchanged.
+- **Regression test:** `SERIES-COMPOSE-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### LIMIT-POWFORM-COMPOSITE-1 — `(sin x / x)^(1/x²)` returned `nan` instead of `e^(−1/6)`
 - **Problem:** `1^∞` limits whose base tends to 1 through a *composite* expression —
   `(sin x / x)^(1/x²) → e^(−1/6)`, `(tan x / x)^(1/x²) → e^(1/3)` — returned `nan`.

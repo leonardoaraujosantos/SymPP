@@ -16,6 +16,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
@@ -208,12 +209,66 @@ namespace {
     return add(std::move(terms));
 }
 
+// Series of a composite f(g(x)) by composition, for an outer single-argument
+// function f and an inner g that is analytic at x₀ with a finite value g(x₀)=c.
+// taylor_series differentiates f(g) directly and evaluates each derivative via a
+// limit; for a g built from a removable form (e.g. sin(x)/x, with its 1/x factor)
+// those derivative-limits get hard and return nan, so the Taylor path bails on
+// log(sin x / x). Composition sidesteps that: expand g to a series, expand f about
+// the constant c (where f is a single function the Taylor path handles), and
+// substitute (t−c) → (g_series − c), which has positive valuation so only finitely
+// many terms reach a given order.
+[[nodiscard]] std::optional<Expr> try_composition_series(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& x0,
+                                                         std::size_t n) {
+    if (expr->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*expr);
+    if (fn.args().size() != 1) return std::nullopt;
+    const Expr& g = fn.args()[0];
+    if (!has(g, var)) return std::nullopt;
+
+    // Inner series: g must be analytic at x₀ (an ordinary Taylor expansion).
+    auto gs = taylor_series(g, var, x0, n);
+    if (!gs) return std::nullopt;
+    Expr c = subs(*gs, var, x0);          // g(x₀), the expansion centre for f
+    if (is_non_finite(c)) return std::nullopt;
+
+    // Outer series of f(t) about t = c — f is a single function, the case the
+    // Taylor path handles. (For log(t) at c = 0 this returns nullopt, so a genuine
+    // singularity such as log(x) stays unexpanded.)
+    Expr t = symbol("__series_compose_t");
+    Expr ft = subs(expr, g, t);
+    if (has(ft, var)) return std::nullopt;  // g didn't factor out cleanly
+    auto outer = taylor_series(ft, t, c, n);
+    if (!outer) return std::nullopt;
+
+    // Compose: (t − c) ← (g_series − c), then drop terms of order ≥ n in (x − x₀).
+    Expr u = expand(*gs - c);
+    Expr composed = expand(subs(*outer, t, add(c, u)));
+    Expr dx = symbol("__series_compose_dx");
+    Expr shifted = expand(subs(composed, var, add(x0, dx)));
+    Poly p(shifted, dx);
+    std::vector<Expr> terms;
+    const long deg = static_cast<long>(p.degree());
+    for (long i = 0; i <= deg && i < static_cast<long>(n); ++i) {
+        const Expr& ci = p.coeffs()[static_cast<std::size_t>(i)];
+        if (ci == S::Zero()) continue;
+        terms.push_back(mul(ci, pow(var - x0, integer(i))));
+    }
+    if (terms.empty()) return Expr{S::Zero()};
+    return add(std::move(terms));
+}
+
 }  // namespace
 
 Expr series(const Expr& expr, const Expr& var, const Expr& x0, std::size_t n) {
     if (n == 0) return S::Zero();
     // Analytic functions expand as an ordinary Taylor polynomial.
     if (auto t = taylor_series(expr, var, x0, n)) return *t;
+    // A composite f(g) whose direct Taylor derivatives hit hard limits — e.g.
+    // log(sin x / x) — expands by composing the inner and outer series.
+    if (auto c = try_composition_series(expr, var, x0, n)) return *c;
     // A pole (cot, csc, 1/sin, …) yields a Laurent series via power-series
     // division; genuine singularities (log x) stay unexpanded, matching SymPy.
     if (auto l = try_laurent_series(expr, var, x0, n)) return *l;

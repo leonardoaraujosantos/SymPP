@@ -79,6 +79,31 @@ TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
                               "1 + x + x**2/2 + x**3/6"));
 }
 
+// SERIES-COMPOSE-1: a composite f(g(x)) whose inner g is finite-but-non-simple at
+// 0 (e.g. g = sin(x)/x with its 1/x factor). Differentiating f(g) directly leaves
+// each Taylor coefficient as a hard 0/0 limit that returns nan, so log(sin x / x)
+// stayed unexpanded. Composing the inner and outer series resolves it.
+TEST_CASE("series: composition of f(g(x)) with a removable inner (SERIES-COMPOSE-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, S::NegativeOne()); };
+    // log(sin x / x) = −x²/6 − x⁴/180 − …
+    REQUIRE(oracle.equivalent(
+        series(log(sin(x) * inv(x)), x, zero, 6)->str(),
+        "-x**2/6 - x**4/180"));
+    // log(sinh x / x) = x²/6 − x⁴/180 + …
+    REQUIRE(oracle.equivalent(
+        series(log(sinh(x) * inv(x)), x, zero, 6)->str(),
+        "x**2/6 - x**4/180"));
+    // A genuine singularity (log x) is still left unexpanded by composition.
+    REQUIRE(series(log(x), x, zero, 6) == log(x));
+    // Single-function composites that already worked are unchanged.
+    REQUIRE(oracle.equivalent(series(log(cos(x)), x, zero, 6)->str(),
+                              "-x**2/2 - x**4/12"));
+}
+
 // SERIES-LAURENT-1: functions with a pole at 0 (cot, csc, coth, csch, 1/sin,
 // csc², 1/(eˣ−1)) expand to a Laurent series. The engine rewrites reciprocal
 // trig/hyperbolic to sin/cos ratios and divides the numerator and denominator
