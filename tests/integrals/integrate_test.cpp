@@ -1916,6 +1916,11 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     REQUIRE(db(pow(integer(3) + integer(5) * cos(x), integer(-1))));  // a²<b²: log
     REQUIRE(db(pow(integer(2) - cos(x), integer(-1))));               // negated b
     REQUIRE(db(pow(integer(1) + sin(x), integer(-1))));               // a=b: rational
+    // Degenerate a=b for cosine: ∫1/(1+cos x) = tan(x/2). together() leaves the
+    // half-angle denominator un-cancelled here (it collapses to a constant only
+    // after full cancellation), which previously made try_rational emit zoo·log 2;
+    // cancel() reduces it first.
+    REQUIRE(db(pow(integer(1) + cos(x), integer(-1))));               // a=b: tan(x/2)
     REQUIRE(db(pow(integer(4) + integer(5) * sin(x), integer(-1))));  // a²<b²
     REQUIRE(db(pow(integer(2) + cos(x) + sin(x), integer(-1))));      // sin+cos
     // The dedicated integrators still win for simple trig (not Weierstrass).

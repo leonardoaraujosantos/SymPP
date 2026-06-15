@@ -2056,8 +2056,13 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     // affine trig argument like sin(2x), or exp/log of var) — bail.
     if (depends_on(e, var)) return std::nullopt;
 
-    // dx = 2/(1+t²) dt; bring to a single fraction.
-    Expr integrand = together(e * integer(2) / one_pt2);
+    // dx = 2/(1+t²) dt; bring to a single fraction and cancel to lowest terms.
+    // together() alone can leave a nested, non-reduced denominator: for
+    // 1/(1+cos x) the half-angle denominator collapses to a constant only after
+    // cancellation, and feeding the un-reduced form to integrate() makes
+    // try_rational misparse the denominator and emit garbage (zoo·log 2 instead
+    // of tan(x/2)). cancel() reduces the rational to lowest terms first.
+    Expr integrand = cancel(e * integer(2) / one_pt2, t);
 
     // A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would hand
     // `integrate` a non-elementary algebraic integral that can loop — bail.

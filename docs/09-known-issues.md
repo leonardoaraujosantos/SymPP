@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-WEIERSTRASS-DEGEN-1 — `∫1/(1+cos x)` returned garbage `zoo·log 2`
+- **Problem:** `∫1/(1+cos x)` returned `zoo·log(2)` instead of `tan(x/2)`. The
+  half-angle (Weierstrass) substitution `t = tan(x/2)` maps `1/(1+cos x)` to the
+  constant integrand `1`, but `try_weierstrass` used `together()` to form the
+  substituted integrand, and for this degenerate `a=b` case `together()` left a
+  nested, non-reduced denominator `((1−t²)/(1+t²) + 1)·(1+t²)` — which only
+  collapses to the constant `2` after full cancellation. Handing that un-reduced
+  form to `integrate()` made `try_rational` misparse the denominator and emit
+  `zoo`. (`1/(2+cos x)`, `1/(1−cos x)`, `1/(1±sin x)` etc. reduce cleanly under
+  `together` and were unaffected.)
+- **Fix:** in `src/integrals/integrate.cpp`, `try_weierstrass` now builds the
+  integrand with `cancel(e·2/(1+t²), t)` instead of bare `together(...)`,
+  reducing the rational to lowest terms before integration. The
+  `has_trig_power_of` early-return still backstops the runaway-on-trig-powers
+  case that motivated `together`.
+- **Verified:** `∫1/(1+cos x) = tan(x/2)` (diff-back is exactly `1/(1+cos x)`,
+  matches SymPy); all other `∫1/(a+b·cos x)`, `∫1/(a+b·sin x)` cases unchanged.
+- **Regression test:** added the `a=b` cosine case to the Weierstrass oracle
+  diff-back set in `tests/integrals/integrate_test.cpp` (INT-33).
+
 ### INT-QUADLOG-PARAM-1 — `∫1/(a²−x²)` unevaluated for symbolic coefficients
 - **Problem:** `∫1/(a²−x²)` and `∫1/(x²−a²)` (negative-discriminant quadratics,
   the log/atanh case) were unevaluated for symbolic positive coefficients. The
