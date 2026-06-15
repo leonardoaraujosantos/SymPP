@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-ZEROPROD-1 — `solve(x²·eˣ − eˣ)` returned `[]`; `eˣ·(x²−4)` gave a spurious `zoo`
+- **Problem:** Equations that factor into a polynomial × transcendental were
+  mis-solved. `x²·eˣ − eˣ` returned `[]` (the common `eˣ` is not polynomial, so the
+  Poly path could not see `eˣ·(x²−1)`); `eˣ·(x²−4)` returned `[2, −2, zoo]` — the
+  spurious `zoo` from solving the never-zero factor `eˣ = 0`; and `x·cos(x)`
+  returned only `[0]` because `solve_poly` read it as a degree-1 polynomial whose
+  coefficient happened to be `cos(x)`.
+- **Fix:** added `solve_zero_product` in `src/solvers/solve.cpp`. A product (or an
+  `Add` with a common factor, found by intersecting the per-term factor maps)
+  vanishes iff one factor does, so it solves each factor recursively and unions
+  the roots — skipping factors that can never be zero (`is_never_zero`: `exp(·)`
+  and nonzero constants) and denominator factors (negative powers, whose zeros are
+  poles excluded from the surviving roots). It runs ahead of `solve_poly` when a
+  function/radical of the variable is present (so the partial polynomial reading
+  no longer wins) and again after, for the common-factor `Add` case.
+- **Verified:** `x²·eˣ − eˣ → {1,−1}`, `eˣ·(x²−4) → {2,−2}` (no `zoo`),
+  `x²·sin x − sin x → {0,π,1,−1}`, `x³·eˣ − x·eˣ → {0,1,−1}`,
+  `x·cos x → {0,π/2,3π/2}`, `sin x·(x−1) → {0,1,π}`,
+  `eˣ·(x²−1)·(x−3) → {1,−1,3}` — all matching SymPy; the removable-pole case
+  `(x²−1)/(x−1) → {−1}` and plain polynomials are unchanged.
+- **Regression test:** `SOLVE-ZEROPROD-1` in `tests/solvers/solve_test.cpp`.
+
 ### INT-GAUSSSHIFT-1 — `∫exp(−(x−1)²)` and Gaussians with a linear term were unevaluated
 - **Problem:** `∫exp(−(x−1)²)`, `∫exp(−x²+x)`, `∫x·exp(−(x−1)²)` and every
   `∫P(x)·exp(a·x²+b·x+c)` with a non-zero linear term (`b ≠ 0`) were left

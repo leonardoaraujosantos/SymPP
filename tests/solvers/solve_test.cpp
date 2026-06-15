@@ -698,6 +698,53 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
                       {"0", "pi/2", "pi", "3*pi/2"}));
 }
 
+// SOLVE-ZEROPROD-1: zero-product over factors that mix polynomial and
+// transcendental parts, including an Add with a common factor. solve_poly reads
+// x·cos(x) as a linear polynomial with coefficient cos(x) (partial root {0}), and
+// the common-factor Add x²·eˣ − eˣ as non-polynomial ({}). Zero-product solves
+// each factor and unions, skipping the never-zero eˣ (which also removes the
+// spurious zoo that solving eˣ = 0 injected).
+TEST_CASE("solve: zero-product with transcendental factors (SOLVE-ZEROPROD-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // Add with a common eˣ factor: eˣ·(x²−1). eˣ never zero → roots of x²−1.
+    REQUIRE(set_equal(
+        solve(pow(x, integer(2)) * exp(x) - exp(x), x), {"1", "-1"}));
+    // Mul with a never-zero factor: no spurious zoo from eˣ = 0.
+    REQUIRE(set_equal(
+        solve(exp(x) * (pow(x, integer(2)) - integer(4)), x), {"2", "-2"}));
+    // Common factor that IS solvable (sin): both it and the cofactor contribute.
+    REQUIRE(set_equal(solve(pow(x, integer(2)) * sin(x) - sin(x), x),
+                      {"0", "pi", "1", "-1"}));
+    // Common x·eˣ factor: x³·eˣ − x·eˣ = x·eˣ·(x²−1).
+    REQUIRE(set_equal(
+        solve(pow(x, integer(3)) * exp(x) - x * exp(x), x), {"0", "1", "-1"}));
+    // Polynomial × trig product, complete root set (solve_poly gave only {0}).
+    REQUIRE(set_equal(solve(x * cos(x), x), {"0", "pi/2", "3*pi/2"}));
+    REQUIRE(set_equal(solve(sin(x) * (x - integer(1)), x), {"0", "1", "pi"}));
+    // Several factors, mixed: eˣ·(x²−1)·(x−3).
+    REQUIRE(set_equal(
+        solve(exp(x) * (pow(x, integer(2)) - integer(1)) * (x - integer(3)), x),
+        {"1", "-1", "3"}));
+}
+
 // SOLVE-TRIG-PHASE-1: solve() of a trig equation whose argument carries an
 // additive phase — sin(x+1), cos(2x+π/3), tan(x+1) — inverts the inner function
 // and solves the affine argument B·x+P=θ for x=(θ−P)/B. Previously these

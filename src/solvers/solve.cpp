@@ -1343,6 +1343,139 @@ solve_rational(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// A factor that can never be zero contributes no roots to a zero-product: exp(·)
+// is nonzero over all of ℂ, as is any nonzero constant.
+[[nodiscard]] bool is_never_zero(const Expr& f) {
+    if (f->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp) return true;
+    }
+    if (is_number(f) && !(f == S::Zero())) return true;
+    return false;
+}
+
+// Zero-product: a product vanishes iff one of its factors does. Solve each factor
+// (recursively, via full solve) and union the roots, skipping factors that can
+// never be zero (exp(·)) and denominator factors (negative powers). Handles an
+// explicit Mul, and an Add with a common factor — x²·eˣ − eˣ = eˣ·(x²−1) — that
+// the polynomial path cannot see through (eˣ is not polynomial). Without this such
+// equations returned [] and a Mul like eˣ·(x²−4) emitted a spurious zoo from
+// solving eˣ = 0.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_zero_product(const Expr& expr, const Expr& var) {
+    std::vector<Expr> factors;  // factors whose =0 we solve and union
+
+    // Split a term into base→exponent (positive integer powers folded together).
+    auto term_factors = [](const Expr& t) {
+        std::vector<std::pair<Expr, long>> fs;
+        auto add_one = [&](const Expr& f) {
+            Expr base = f;
+            long e = 1;
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*f->args()[1]);
+                if (z.fits_long() && z.to_long() > 0) {
+                    e = z.to_long();
+                    base = f->args()[0];
+                }
+            }
+            for (auto& p : fs) {
+                if (p.first == base) { p.second += e; return; }
+            }
+            fs.push_back({base, e});
+        };
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) add_one(f);
+        } else {
+            add_one(t);
+        }
+        return fs;
+    };
+
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else if (expr->type_id() == TypeId::Add) {
+        const auto& terms = expr->args();
+        if (terms.size() < 2) return std::nullopt;
+        // Common factors = intersection of the per-term factor maps (min power).
+        auto common = term_factors(terms[0]);
+        for (std::size_t i = 1; i < terms.size() && !common.empty(); ++i) {
+            auto tf = term_factors(terms[i]);
+            std::vector<std::pair<Expr, long>> next;
+            for (const auto& [b, e] : common) {
+                for (const auto& [b2, e2] : tf) {
+                    if (b2 == b) { next.push_back({b, std::min(e, e2)}); break; }
+                }
+            }
+            common = std::move(next);
+        }
+        bool has_var_common = false;
+        for (const auto& [b, e] : common) {
+            if (has(b, var)) has_var_common = true;
+        }
+        if (!has_var_common) return std::nullopt;
+        // Cofactor = Σ (term ÷ ∏ commonᵢ): subtract the common exponents per term.
+        std::vector<Expr> cofactor_terms;
+        for (const auto& t : terms) {
+            auto tf = term_factors(t);
+            std::vector<Expr> remaining;
+            for (const auto& [b, e] : tf) {
+                long ce = 0;
+                for (const auto& [cb, cee] : common) {
+                    if (cb == b) { ce = cee; break; }
+                }
+                const long left = e - ce;
+                if (left > 0) {
+                    remaining.push_back(left == 1 ? b : pow(b, integer(left)));
+                }
+            }
+            cofactor_terms.push_back(remaining.empty() ? Expr{S::One()}
+                                                       : mul(remaining));
+        }
+        for (const auto& [b, e] : common) factors.push_back(b);
+        factors.push_back(add(cofactor_terms));
+    } else {
+        return std::nullopt;
+    }
+
+    if (factors.size() < 2) return std::nullopt;
+    std::vector<Expr> roots;
+    std::vector<Expr> denoms;  // bases of negative-power (denominator) factors
+    bool progressed = false;
+    for (const auto& f : factors) {
+        if (!has(f, var)) continue;        // constant factor: no roots
+        if (is_never_zero(f)) { progressed = true; continue; }
+        // A denominator factor (negative power) is never a root, and its zeros are
+        // poles that must be excluded from the numerator roots below.
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*f->args()[1]).is_negative()) {
+            denoms.push_back(f->args()[0]);
+            progressed = true;
+            continue;
+        }
+        if (f == expr) return std::nullopt;  // no reduction — avoid infinite loop
+        progressed = true;
+        for (const auto& r : solve(f, var)) {
+            if (std::none_of(roots.begin(), roots.end(),
+                             [&](const Expr& u) { return u == r; })) {
+                roots.push_back(r);
+            }
+        }
+    }
+    if (!progressed) return std::nullopt;
+    // Drop poles: a numerator root that also vanishes a denominator factor is not
+    // a solution ((x²−1)/(x−1) = 0 has root −1 only, not the cancelled pole 1).
+    if (!denoms.empty()) {
+        std::erase_if(roots, [&](const Expr& r) {
+            return std::any_of(denoms.begin(), denoms.end(), [&](const Expr& d) {
+                return simplify(subs(d, var, r)) == S::Zero();
+            });
+        });
+    }
+    return roots;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
@@ -1353,6 +1486,15 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         const auto& r = static_cast<const Relational&>(*expr);
         if (r.kind() == RelKind::Eq) return solve(r.lhs() - r.rhs(), var);
         return {};
+    }
+    // A product with a transcendental/radical factor (x·cos x, eˣ·(x²−4)) is
+    // mis-read by solve_poly as a polynomial in var whose "coefficients" are the
+    // functions, yielding only a partial root set. Zero-product over the factors
+    // is complete, so prefer it when a function/radical of var is present.
+    if (has_function_of_var(expr, var) || has_radical_of_var(expr, var)) {
+        if (auto zp = solve_zero_product(expr, var); zp && !zp->empty()) {
+            return *zp;
+        }
     }
     // Expand first so a factored polynomial reaches the Poly machinery:
     // solve((x-1)*(x-2)) was empty because Poly couldn't build from the Mul.
@@ -1377,6 +1519,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         roots = std::move(distinct);
     }
     if (!roots.empty()) return roots;
+    // Zero-product: a Mul, or an Add with a common factor (x²·eˣ − eˣ), vanishes
+    // iff a factor does. Solve each factor, skipping the never-zero ones (eˣ) —
+    // this also removes the spurious zoo that solving eˣ = 0 would inject.
+    if (auto zp = solve_zero_product(expr, var); zp) return *zp;
     // Rational equation (1/x + … = 0): clear the denominator and solve the
     // numerator, dropping pole roots. The polynomial path above can't build a
     // Poly from a negative-power term, so these reach here empty.
