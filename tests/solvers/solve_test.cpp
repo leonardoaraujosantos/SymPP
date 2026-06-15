@@ -354,6 +354,49 @@ TEST_CASE("solve: polynomial in a radical x^(1/d) (SOLVE-RADPOLY-1)",
     REQUIRE(set_equal(solve(pow(x, integer(2)) - integer(4), x), {"2", "-2"}));
 }
 
+// SOLVE-RADISOLATE-1: a single square root √(g(x)) of a non-trivial radicand
+// appearing linearly — isolate and square, then filter the extraneous root the
+// squaring introduces (numerically, since denesting √((3−√5)/2) symbolically is
+// beyond simplify). solve_radical_poly only handles a polynomial in x^(1/d) of
+// the bare variable, so these previously returned [].
+TEST_CASE("solve: single √(g(x)) by isolate-and-square (SOLVE-RADISOLATE-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto sq = [&](const Expr& g) { return pow(g, rational(1, 2)); };
+    // √(x+1) − x + 1 = 0 → x = 3 (x = 0 extraneous).
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - x + integer(1), x), {"3"}));
+    // √(2x+3) − x = 0 → x = 3 (x = −1 extraneous).
+    REQUIRE(set_equal(solve(sq(integer(2) * x + integer(3)) - x, x), {"3"}));
+    // √(x²+1) − x − 1 = 0 → x = 0.
+    REQUIRE(set_equal(
+        solve(sq(pow(x, integer(2)) + integer(1)) - x - integer(1), x), {"0"}));
+    // √(x+1) + x = 0 → x = (1−√5)/2 (the (1+√5)/2 branch is extraneous).
+    REQUIRE(set_equal(solve(sq(x + integer(1)) + x, x), {"1/2 - sqrt(5)/2"}));
+    // √(x+1) − x − 1 = 0 → x = −1, 0.
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - x - integer(1), x), {"-1", "0"}));
+    // No real solution: √(x+1) + 2 = 0 (a positive root would be needed).
+    REQUIRE(solve(sq(x + integer(1)) + integer(2), x).empty());
+    // The radical = constant case still works.
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - integer(2), x), {"3"}));
+}
+
 // SOLVE-EXPBASE-1: constant-base exponential a^x = c (a^x is a Pow with a
 // numeric base, so it skips the exp/log transcendental path) → x = log(c)/log(a),
 // with an exact integer exponent when c is a power of a (2^x=8 → 3). Restricted

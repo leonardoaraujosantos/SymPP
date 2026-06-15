@@ -1223,6 +1223,86 @@ solve_radical_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve an equation with a single square root of a var-dependent radicand,
+// √(g(x)) appearing linearly — e.g. √(x+1) − x + 1 = 0. Isolate the radical and
+// square: writing the equation as A(x)·√(g) + B(x) = 0 (A, B radical-free), the
+// squared form A²·g − B² = 0 is a plain polynomial equation; its roots are
+// filtered back through the original to drop the extraneous ones introduced by
+// squaring (the √(g) = +B/A branch). Complements solve_radical_poly, which only
+// handles a polynomial in x^(1/d) of the bare variable.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_radical_isolate(const Expr& expr, const Expr& var) {
+    // Collect the distinct √(g) subexpressions (exponent exactly 1/2) of var.
+    std::vector<Expr> sqrts;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (!has(e, var)) return;
+        if (e->type_id() == TypeId::Pow
+            && e->args()[1]->type_id() == TypeId::Rational
+            && static_cast<const Rational&>(*e->args()[1]).value()
+                   == mpq_class(1, 2)) {
+            if (std::none_of(sqrts.begin(), sqrts.end(),
+                             [&](const Expr& s) { return s == e; })) {
+                sqrts.push_back(e);
+            }
+            return;  // do not descend into the radicand
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (sqrts.size() != 1) return std::nullopt;  // one radical only
+    const Expr& s = sqrts[0];
+    const Expr& g = s->args()[0];
+
+    // Linearize in the radical: √(g) → w. The result must be radical-free and
+    // degree 1 in w, i.e. A·w + B with A, B radical-free polynomials in x.
+    Expr w = symbol("__rad_w");
+    Expr ew = subs(expr, s, w);
+    if (has_radical_of_var(ew, var)) return std::nullopt;  // nested/other radical
+    Expr A;
+    Expr B;
+    try {
+        Poly p(expand(ew), w);
+        if (p.degree() != 1) return std::nullopt;
+        B = p.coeffs()[0];
+        A = p.coeffs()[1];
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+
+    // A·√(g) = −B  ⇒  A²·g − B² = 0.
+    Expr eq = expand(mul(mul(A, A), g) - mul(B, B));
+    if (eq == S::Zero()) return std::nullopt;  // underdetermined
+    // Keep only candidates that satisfy the *original* equation, dropping the
+    // extraneous roots squaring introduces. Verify numerically — a symbolic
+    // check can't denest forms like √((3−√5)/2) = (√5−1)/2 — and fall back to the
+    // symbolic test only when the root doesn't evaluate to a concrete Float.
+    auto satisfies = [&](const Expr& r) -> bool {
+        Expr resid = simplify(subs(expr, var, r));
+        if (resid == S::Zero()) return true;
+        Expr v = evalf(resid, 40);
+        if (v == S::Zero()) return true;  // collapsed to an exact 0
+        if (v->type_id() == TypeId::Float) {
+            try {
+                return std::fabs(std::stod(v->str())) < 1e-20;
+            } catch (...) {
+                // inconclusive — reject (squaring only ever adds roots)
+            }
+        }
+        return false;
+    };
+    std::vector<Expr> roots;
+    for (const auto& r : solve(eq, var)) {
+        if (has(r, var)) continue;
+        if (!satisfies(r)) continue;
+        if (std::none_of(roots.begin(), roots.end(),
+                         [&](const Expr& u) { return u == r; })) {
+            roots.push_back(r);
+        }
+    }
+    if (roots.empty()) return std::nullopt;
+    return roots;
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -1556,6 +1636,8 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         if (auto lw = solve_lambert(expr, var); lw && !lw->empty()) return *lw;
         if (auto rp = solve_radical_poly(expr, var); rp && !rp->empty())
             return *rp;
+        if (auto ri = solve_radical_isolate(expr, var); ri && !ri->empty())
+            return *ri;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;

@@ -16,6 +16,26 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-RADISOLATE-1 — `solve(√(x+1) − x + 1)` and single-radical equations returned `[]`
+- **Problem:** equations with a single square root of a non-trivial radicand
+  appearing linearly — `√(x+1) − x + 1 = 0`, `√(2x+3) − x = 0`, `√(x+1) + x = 0`,
+  `√(x²+1) − x − 1 = 0` — returned `[]`. `solve_radical_poly` only handles a
+  polynomial in `x^(1/d)` of the *bare* variable, so a radical of an affine /
+  quadratic argument fell through.
+- **Fix:** added `solve_radical_isolate` in `src/solvers/solve.cpp`. It detects a
+  lone `√(g(x))`, linearizes the equation in it (`A·√g + B = 0`, `A, B`
+  radical-free), squares to the polynomial `A²·g − B² = 0`, solves that, and
+  filters the roots back through the *original* equation to drop the extraneous
+  ones introduced by squaring. The filter is **numeric** (`evalf`, accepting an
+  exact `0` or `|·| < 1e-20`): a symbolic check can't denest forms like
+  `√((3−√5)/2) = (√5−1)/2`, which would wrongly reject the valid root.
+- **Verified:** `√(x+1) − x + 1 → {3}`, `√(2x+3) − x → {3}`,
+  `√(x²+1) − x − 1 → {0}`, `√(x+1) + x → {(1−√5)/2}` (the `(1+√5)/2` branch
+  correctly dropped), `√(x+1) − x − 1 → {−1, 0}`, all matching SymPy; no-solution
+  cases (`√(x+1) + 2`) stay `[]`; `√(x+1) − 2 → {3}` and `x − √x − 2 → {4}`
+  unchanged.
+- **Regression test:** `SOLVE-RADISOLATE-1` in `tests/solvers/solve_test.cpp`.
+
 ### INT-LOGSUB-1 — `∫cos(log x)`, `∫log(log x)/x` and log-composite integrands were unevaluated
 - **Problem:** integrands built from `log(x)` — `∫cos(log x)`, `∫sin(log x)`,
   `∫cos(2·log x)`, `∫log(log x)/x` — were left unevaluated, though each is
