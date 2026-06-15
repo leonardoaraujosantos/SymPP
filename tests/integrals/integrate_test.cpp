@@ -305,6 +305,11 @@ TEST_CASE("integrate: arctan over a symbolic-coefficient quadratic (INT-ARCTAN-P
     chk(pow(pow(x, integer(2)) + a, integer(-1)), {{a, integer(3)}});
     chk(pow(a * pow(x, integer(2)) + b, integer(-1)),
         {{a, integer(2)}, {b, integer(5)}});
+    // Negative discriminant (Δ = 4a² > 0) → the log form: 1/(a²−x²), 1/(x²−a²).
+    chk(pow(pow(a, integer(2)) - pow(x, integer(2)), integer(-1)),
+        {{a, integer(3)}});
+    chk(pow(pow(x, integer(2)) - pow(a, integer(2)), integer(-1)),
+        {{a, integer(3)}});
     // is_positive propagates through an even power and a positive coefficient.
     REQUIRE(is_positive(integer(4) * pow(a, integer(2))) == true);
 }

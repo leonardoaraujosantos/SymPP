@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-QUADLOG-PARAM-1 — `∫1/(a²−x²)` unevaluated for symbolic coefficients
+- **Problem:** `∫1/(a²−x²)` and `∫1/(x²−a²)` (negative-discriminant quadratics,
+  the log/atanh case) were unevaluated for symbolic positive coefficients. The
+  log branch of `try_arctan_quadratic` carried a `rational_coeffs` gate, even
+  though it already requires `is_positive(Δ)` (Δ = b²−4ac).
+- **Fix:** in `src/integrals/integrate.cpp`, dropped the `rational_coeffs` gate
+  on the log branch; it fires whenever the discriminant is *provably negative*
+  (Δ provably positive), e.g. `1/(a²−x²)` with `a > 0` (Δ = 4a²). Completes the
+  parametric quadratic-integral family with `INT-ARCTAN-PARAM-1`.
+- **Verified:** `∫1/(a²−x²) = log((a+x)/(x−a))/(2a)`,
+  `∫1/(x²−a²)` — diff-back verified at concrete positive values; numeric
+  quadratics and the arctan branch are unchanged.
+- **Regression test:** extended `INT-ARCTAN-PARAM-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-GAUSS-PARAM-1 — parametric Gaussian `∫exp(−a·x²)` unevaluated
 - **Problem:** `∫exp(−a·x²)` and `∫exp(a·x²)` were unevaluated for a symbolic
   positive coefficient — `try_gaussian` already branched on `is_negative`/

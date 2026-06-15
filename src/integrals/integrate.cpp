@@ -2207,7 +2207,8 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     // by try_rational (which runs first); irrational roots reach here, where the
     // partial-fraction logs carry √Δ (Δ = b²−4ac = −D):
     //   ∫ 1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)] / √Δ.
-    if (!rational_coeffs) return std::nullopt;
+    // Fires for symbolic coefficients too when Δ is provably positive
+    // (e.g. 1/(a²−x²), a > 0 → log((a+x)/(x−a))/(2a)).
     Expr delta = simplify(mul(S::NegativeOne(), disc));  // b² − 4ac > 0
     if (is_positive(delta) != true) return std::nullopt;
     Expr root_delta = sqrt(delta);
