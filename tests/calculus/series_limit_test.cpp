@@ -827,6 +827,30 @@ TEST_CASE("summation: telescoping rational sums (SUM-TELESCOPE-1)",
     // bogus closed form.
     auto pole = summation(pow(k * (k - one), integer(-1)), k, one, n);
     REQUIRE(pole->str().find("Sum(") != std::string::npos);
+    // SUM-TELESCOPE-DIFF-1: an explicit difference g(k) − g(k+1) telescopes to
+    // g(lo) − g(hi+1), even when neither term sums on its own — the check runs
+    // before the linearity split that would otherwise separate them. Also closes
+    // factorial differences the rational path can't.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-1)) - pow(k + one, integer(-1)), k, one, n)
+            ->str(),
+        "1 - 1/(n+1)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(factorial(k), integer(-1))
+                      - pow(factorial(k + one), integer(-1)),
+                  k, one, n)->str(),
+        "1 - 1/factorial(n+1)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)) - pow(k + one, integer(-2)), k, one, n)
+            ->str(),
+        "1 - 1/(n+1)**2"));
+    // A non-telescoping difference (1/2^k − 1/3^k, both geometric) is unaffected:
+    // it falls through to the geometric handlers (sum to 1/2).
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2), mul(S::NegativeOne(), k))
+                      - pow(integer(3), mul(S::NegativeOne(), k)),
+                  k, one, S::Infinity())->str(),
+        "1/2"));
 }
 
 // SUM-BINOMIAL-1: the binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. A summand

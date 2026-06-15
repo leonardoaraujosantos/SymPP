@@ -375,6 +375,25 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Single-term range (hi == lo): Σ_{k=a}^{a} f(k) = f(a).
     if (hi == lo) return simplify(subs(expr, var, lo));
 
+    // Explicit telescoping difference: a 2-term Add g(k) − g(k+1) sums to
+    // g(lo) − g(hi+1). Checked before the linearity split, which would otherwise
+    // separate it into two non-closing sums. Closes Σ(1/k − 1/(k+1)) = 1−1/(n+1),
+    // Σ(1/k! − 1/(k+1)!), Σ(1/k² − 1/(k+1)²).
+    if (expr->type_id() == TypeId::Add && expr->args().size() == 2) {
+        const Expr& t0 = expr->args()[0];
+        const Expr& t1 = expr->args()[1];
+        Expr g;
+        if (simplify(t1 + subs(t0, var, var + integer(1))) == S::Zero()) {
+            g = t0;  // expr = g(k) − g(k+1)
+        } else if (simplify(t0 + subs(t1, var, var + integer(1)))
+                   == S::Zero()) {
+            g = t1;
+        }
+        if (g) {
+            return simplify(subs(g, var, lo) - subs(g, var, hi + integer(1)));
+        }
+    }
+
     // Linearity: split Add into separate sums.
     if (expr->type_id() == TypeId::Add) {
         std::vector<Expr> partial;

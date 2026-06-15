@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-TELESCOPE-DIFF-1 — `Σ(1/k − 1/(k+1))` (explicit telescoping difference) was unevaluated
+- **Problem:** an explicit telescoping difference `Σ(g(k) − g(k+1))` was not
+  recognized: `Σ(1/k − 1/(k+1))`, `Σ(1/k! − 1/(k+1)!)`, `Σ(1/k² − 1/(k+1)²)` all
+  returned an unevaluated `Sum`. Linearity split the Add into two sums, neither of
+  which has a closed form (harmonic / factorial), so the telescoping was lost. (The
+  existing telescoping handler only sees the *combined* rational form like
+  `1/(k(k+1))`.)
+- **Fix:** in `src/calculus/summation.cpp`, a 2-term Add is checked for the pattern
+  `g(k) − g(k+1)` (via `t1 + g(k+1) == 0`) *before* the linearity split, returning
+  `g(lo) − g(hi+1)`. This also closes factorial differences the rational
+  partial-fraction path can't.
+- **Verified:** `Σ(1/k − 1/(k+1)) = 1 − 1/(n+1)`, `Σ(1/k! − 1/(k+1)!) = 1 − 1/(n+1)!`,
+  `Σ(1/k² − 1/(k+1)²) = 1 − 1/(n+1)²`, matching SymPy; a non-telescoping difference
+  (`1/2^k − 1/3^k`, both geometric) is unaffected (falls through to the geometric
+  handlers, → 1/2).
+- **Regression test:** extended `SUM-TELESCOPE-1` in
+  `tests/calculus/series_limit_test.cpp`.
+
 ### SUM-BINOMIAL-1 — `Σ_{k=0}^n C(n,k)` (binomial theorem) stayed unevaluated
 - **Problem:** binomial-theorem sums `Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ` were unevaluated:
   `Σ C(n,k) = 2ⁿ`, `Σ(−1)ᵏC(n,k) = 0`, `Σ2ᵏC(n,k) = 3ⁿ`, `ΣxᵏC(n,k) = (1+x)ⁿ`, and
