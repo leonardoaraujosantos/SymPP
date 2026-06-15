@@ -1951,6 +1951,18 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     // But trig to the FIRST power inside a polynomial denominator still works.
     REQUIRE(integrate(pow(integer(1) + tan(x), integer(-1)), x)->str()
                 .find("Integral(") == std::string::npos);
+    // Numerator-bearing rational trig: cos(x)/(1+cos x) = x − tan(x/2), returned
+    // as −tan(x/2) + 2·atan(tan x/2). The half-angle substitution leaves a nested
+    // fraction in the denominator (1 + (1−t²)/(1+t²)); flatten_ratio must reduce
+    // it so the integral closes instead of bailing. SymPy's simplify can't reduce
+    // the derivative form symbolically, so diff-back is verified numerically.
+    {
+        Expr e = cos(x) * pow(integer(1) + cos(x), integer(-1));
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr residual = subs(diff(F, x) - e, x, rational(1, 2));
+        REQUIRE(std::abs(std::stod(oracle.evalf(residual->str()))) < 1e-9);
+    }
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------

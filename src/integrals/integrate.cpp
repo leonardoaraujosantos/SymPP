@@ -2027,6 +2027,68 @@ std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
     return false;
 }
 
+namespace {
+// Recursively combine a finite rational expression into a single numerator /
+// denominator pair, descending into the bases of integer powers so that nested
+// fractions flatten. The library as_numer_denom() deliberately does NOT recurse
+// into a Pow base (doing so globally perturbs the limit engine when a base
+// carries infinities). Here the Weierstrass-substituted integrand is a finite
+// rational function of t, so the recursion is safe — and necessary: for
+// numerator-bearing integrands like cos(x)/(1+cos x) the half-angle denominator
+// is itself a fraction (1 + (1−t²)/(1+t²)) that together()/cancel() leave
+// un-reduced, which then makes try_rational emit garbage.
+struct FlatRatio { Expr num; Expr den; };
+[[nodiscard]] FlatRatio flatten_ratio(const Expr& e) {
+    if (!e) return {S::One(), S::One()};
+    switch (e->type_id()) {
+        case TypeId::Mul: {
+            std::vector<Expr> nums, dens;
+            for (const auto& a : e->args()) {
+                auto r = flatten_ratio(a);
+                nums.push_back(r.num);
+                dens.push_back(r.den);
+            }
+            return {mul(std::move(nums)), mul(std::move(dens))};
+        }
+        case TypeId::Add: {
+            std::vector<FlatRatio> parts;
+            parts.reserve(e->args().size());
+            for (const auto& a : e->args()) parts.push_back(flatten_ratio(a));
+            Expr den = S::One();
+            for (const auto& p : parts) den = mul(den, p.den);
+            // Common denom = product of part denoms; cancel() reduces afterwards.
+            std::vector<Expr> terms;
+            terms.reserve(parts.size());
+            for (std::size_t i = 0; i < parts.size(); ++i) {
+                Expr cof = S::One();
+                for (std::size_t j = 0; j < parts.size(); ++j) {
+                    if (j != i) cof = mul(cof, parts[j].den);
+                }
+                terms.push_back(mul(parts[i].num, cof));
+            }
+            return {add(std::move(terms)), den};
+        }
+        case TypeId::Pow: {
+            const Expr& base = e->args()[0];
+            const Expr& ex = e->args()[1];
+            if (ex->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*ex);
+                if (z.fits_long()) {
+                    auto br = flatten_ratio(base);
+                    const long k = z.to_long();
+                    if (k < 0) return {pow(br.den, integer(-k)),
+                                       pow(br.num, integer(-k))};
+                    if (k > 0) return {pow(br.num, ex), pow(br.den, ex)};
+                }
+            }
+            return {e, S::One()};
+        }
+        default:
+            return {e, S::One()};
+    }
+}
+}  // namespace
+
 std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
     // Exclude integrands with a trig function raised to a power — their
@@ -2056,13 +2118,14 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     // affine trig argument like sin(2x), or exp/log of var) — bail.
     if (depends_on(e, var)) return std::nullopt;
 
-    // dx = 2/(1+t²) dt; bring to a single fraction and cancel to lowest terms.
-    // together() alone can leave a nested, non-reduced denominator: for
-    // 1/(1+cos x) the half-angle denominator collapses to a constant only after
-    // cancellation, and feeding the un-reduced form to integrate() makes
-    // try_rational misparse the denominator and emit garbage (zoo·log 2 instead
-    // of tan(x/2)). cancel() reduces the rational to lowest terms first.
-    Expr integrand = cancel(e * integer(2) / one_pt2, t);
+    // dx = 2/(1+t²) dt. Flatten the (possibly nested) rational into a single
+    // numerator/denominator pair, then cancel to lowest terms. together()/cancel
+    // alone leave nested fractions inside a Pow base un-reduced — e.g. for
+    // 1/(1+cos x) and cos(x)/(1+cos x) the half-angle denominator is itself a
+    // fraction 1 + (1−t²)/(1+t²) — and feeding the un-reduced form to integrate()
+    // makes try_rational misparse the denominator and emit garbage (zoo).
+    FlatRatio fr = flatten_ratio(e * integer(2) / one_pt2);
+    Expr integrand = cancel(fr.num / fr.den, t);
 
     // A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would hand
     // `integrate` a non-elementary algebraic integral that can loop — bail.

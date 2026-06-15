@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-WEIERSTRASS-NUM-1 — `∫cos(x)/(1+cos x)` and numerator-bearing rational trig unevaluated
+- **Problem:** `∫cos(x)/(1+cos x)` (SymPy: `x − tan(x/2)`) was left unevaluated.
+  Same root cause as `INT-WEIERSTRASS-DEGEN-1`, but worse: with a non-constant
+  numerator the half-angle substitution produces an integrand whose denominator
+  is itself a fraction `1 + (1−t²)/(1+t²)` *inside a `Pow` base*. Neither
+  `together()` nor `cancel()` descends into a `Pow` base, so the integrand stayed
+  a nested fraction and `try_rational` could not integrate it → unevaluated
+  marker.
+- **Fix:** in `src/integrals/integrate.cpp`, added a file-local `flatten_ratio`
+  helper that recursively decomposes a finite rational expression into a single
+  numerator/denominator pair, descending into integer-power bases
+  (`(p/q)^(−k) = q^k/p^k`). `try_weierstrass` now flattens the substituted
+  integrand with it before `cancel()`. The recursion is deliberately *not* added
+  to the library `as_numer_denom()` — doing so globally perturbs the limit engine
+  when a base carries infinities (e.g. `limit((1+a/x)^x) = e^a`); the
+  Weierstrass-substituted integrand is always a finite rational function of `t`,
+  so the local helper is both safe and sufficient.
+- **Verified:** `∫cos(x)/(1+cos x) = −tan(x/2) + 2·atan(tan x/2) = x − tan(x/2)`
+  (diff-back numerically exact; matches SymPy `x − tan(x/2)`);
+  `∫(2+cos x)/(1+cos x) = x + tan(x/2)`. All prior `∫1/(a+b·cos x)` cases unchanged.
+- **Regression test:** numeric diff-back block added to the Weierstrass test
+  (INT-33) in `tests/integrals/integrate_test.cpp`.
+
 ### INT-WEIERSTRASS-DEGEN-1 — `∫1/(1+cos x)` returned garbage `zoo·log 2`
 - **Problem:** `∫1/(1+cos x)` returned `zoo·log(2)` instead of `tan(x/2)`. The
   half-angle (Weierstrass) substitution `t = tan(x/2)` maps `1/(1+cos x)` to the
@@ -27,10 +50,11 @@ truth and links the issue number.
   `zoo`. (`1/(2+cos x)`, `1/(1−cos x)`, `1/(1±sin x)` etc. reduce cleanly under
   `together` and were unaffected.)
 - **Fix:** in `src/integrals/integrate.cpp`, `try_weierstrass` now builds the
-  integrand with `cancel(e·2/(1+t²), t)` instead of bare `together(...)`,
-  reducing the rational to lowest terms before integration. The
-  `has_trig_power_of` early-return still backstops the runaway-on-trig-powers
-  case that motivated `together`.
+  integrand by flattening it to a single numerator/denominator with the
+  `flatten_ratio` helper (see `INT-WEIERSTRASS-NUM-1`) and then `cancel()`-ing to
+  lowest terms, instead of bare `together(...)`. The `has_trig_power_of`
+  early-return still backstops the runaway-on-trig-powers case that motivated
+  `together`.
 - **Verified:** `∫1/(1+cos x) = tan(x/2)` (diff-back is exactly `1/(1+cos x)`,
   matches SymPy); all other `∫1/(a+b·cos x)`, `∫1/(a+b·sin x)` cases unchanged.
 - **Regression test:** added the `a=b` cosine case to the Weierstrass oracle
