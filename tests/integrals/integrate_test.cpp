@@ -1995,6 +1995,16 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     // A non-elementary case (no polynomial factor) stays an unevaluated marker.
     REQUIRE(integrate(pow(atan(x), integer(2)), x)->str().find("Integral(")
             != std::string::npos);
+    // INT-INVTRIG-SQRT-SQ-1: the √-derivative inverse functions f² (asin/acos/
+    // asinh/acosh). A dv = P(x)/√(quadratic) is admitted, and a numeric diff-back
+    // guards the broadened recursion (it once produced a wrong factor before the
+    // try_x_over_sqrt_quadratic coefficient bug was fixed). ∫asin² =
+    // x·asin² − 2x + 2√(1−x²)·asin.
+    REQUIRE(db(pow(asin(x), integer(2))));        // bare asin²
+    REQUIRE(db(pow(acos(x), integer(2))));
+    REQUIRE(db(pow(asinh(x), integer(2))));
+    REQUIRE(db(x * pow(asin(x), integer(2))));     // x·asin²
+    REQUIRE(db(pow(asin(x), integer(3))));         // asin³
 }
 
 TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)",

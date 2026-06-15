@@ -1251,6 +1251,43 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
+    // Standalone f(affine)^n (n ≥ 2) for a whitelisted inverse function f: by
+    // parts u = f^n, dv = dx, v = x → ∫f^n = x·f^n − ∫x·(f^n)'. The residual is the
+    // polynomial × f^(n−1) case the Mul block recurses on; closes ∫asin(x)².
+    if (expr->type_id() == TypeId::Pow
+        && expr->args()[1]->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*expr->args()[1]).is_positive()
+        && expr->args()[0]->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*expr->args()[0]);
+        if (is_by_parts_fn(fn.function_id()) && fn.args().size() == 1
+            && as_affine(fn.args()[0], var)) {
+            Expr remaining = integrate(expand(var * diff(expr, var)), var);
+            if (!contains_integral_marker(remaining)) {
+                Expr result = expand(var * expr - remaining);
+                // Numeric diff-back: verify before returning (the residual recurses
+                // through several integrators).
+                Expr resid = diff(result, var) - expr;
+                int checks = 0;
+                int bad = 0;
+                for (int num : {3, 7, 13, 19}) {
+                    Expr val =
+                        evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+                    if (val->type_id() != TypeId::Float) continue;
+                    double dd = 0.0;
+                    try {
+                        dd = std::stod(val->str());
+                    } catch (...) {
+                        continue;
+                    }
+                    if (!std::isfinite(dd)) continue;
+                    ++checks;
+                    if (std::fabs(dd) > 1e-6) ++bad;
+                }
+                if (!(checks > 0 && bad > 0)) return result;
+            }
+        }
+    }
+
     // Standalone log(affine)^n (n ≥ 2): by parts with u = log^n, dv = dx, v = x.
     //   ∫ log^n dx = x·log^n − ∫ x·(log^n)' dx.
     // For log(c·x) the remaining x·(log^n)' collapses to n·log^(n-1), so it
@@ -1465,7 +1502,41 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
             // ∫x·atan² needs (its parts residual is x²·atan/(1+x²)). The marker
             // guard bails on anything that doesn't reduce.
             const bool rational_rest = rational_deriv && is_rational_in(rest, var);
-            if (is_polynomial_in(rest, var) || neg_power || rational_rest) {
+            // For asin/acos/asinh/acosh (f' = 1/√(quadratic)), admit a dv of the
+            // form P(x)/√(quadratic): ∫P/√Q closes and the residual ∫v·f' = ∫v/√Q
+            // again has this shape — so ∫x·asin² closes. (P·Q^(−1/2), P polynomial,
+            // Q quadratic.) The diff-back self-check below catches any mis-step.
+            const bool sqrt_deriv =
+                fid == FunctionId::Asin || fid == FunctionId::Acos
+                || fid == FunctionId::Asinh || fid == FunctionId::Acosh;
+            auto is_poly_over_sqrt_quad = [&](const Expr& r) -> bool {
+                std::vector<Expr> facs;
+                if (r->type_id() == TypeId::Mul) {
+                    for (const auto& f : r->args()) facs.push_back(f);
+                } else {
+                    facs.push_back(r);
+                }
+                Expr poly_acc = S::One();
+                bool found_sqrt = false;
+                for (const auto& f : facs) {
+                    if (!found_sqrt && f->type_id() == TypeId::Pow
+                        && f->args()[1]->type_id() == TypeId::Rational
+                        && static_cast<const Rational&>(*f->args()[1]).value()
+                               == mpq_class(-1, 2)
+                        && depends_on(f->args()[0], var)) {
+                        try {
+                            Poly q(expand(f->args()[0]), var);
+                            if (q.degree() == 2) { found_sqrt = true; continue; }
+                        } catch (const std::exception&) {
+                        }
+                    }
+                    poly_acc = mul(poly_acc, f);
+                }
+                return found_sqrt && is_polynomial_in(poly_acc, var);
+            };
+            const bool sqrt_rest = sqrt_deriv && is_poly_over_sqrt_quad(rest);
+            if (is_polynomial_in(rest, var) || neg_power || rational_rest
+                || sqrt_rest) {
                 Expr v = integrate(rest, var);
                 if (!contains_marker(v)) {
                     // expand so a residual like (x − atan x)/(1+x²) distributes
@@ -1474,7 +1545,29 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                     Expr remaining =
                         integrate(expand(v * diff(fn_factor, var)), var);
                     if (!contains_marker(remaining)) {
-                        return expand(fn_factor * v - remaining);
+                        Expr result = expand(fn_factor * v - remaining);
+                        // Numeric diff-back: the broadened gates (rational / √Q dv)
+                        // recurse through several integrators; verify d/dx == the
+                        // integrand so a mis-step fails to a marker, not a wrong
+                        // answer.
+                        Expr resid = diff(result, var) - expr;
+                        int checks = 0;
+                        int bad = 0;
+                        for (int num : {3, 7, 13, 19}) {
+                            Expr val = evalf(
+                                simplify(subs(resid, var, rational(num, 29))), 30);
+                            if (val->type_id() != TypeId::Float) continue;
+                            double dd = 0.0;
+                            try {
+                                dd = std::stod(val->str());
+                            } catch (...) {
+                                continue;
+                            }
+                            if (!std::isfinite(dd)) continue;
+                            ++checks;
+                            if (std::fabs(dd) > 1e-6) ++bad;
+                        }
+                        if (!(checks > 0 && bad > 0)) return result;
                     }
                 }
             }

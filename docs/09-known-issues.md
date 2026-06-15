@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-INVTRIG-SQRT-SQ-1 — `∫asin(x)²` and √-derivative inverse-function squares were unevaluated
+- **Problem:** `∫asin(x)²` (= `x·asin² − 2x + 2√(1−x²)·asin`), `∫x·asin(x)²`,
+  `∫acos²`, `∫asinh²`, `∫asin³` were unevaluated, though elementary. (An earlier
+  attempt returned *wrong* answers — blocked by the `try_x_over_sqrt_quadratic`
+  coefficient bug, fixed in `INT-XSQRTQUAD-NUM-1`.)
+- **Fix:** in `src/integrals/integrate.cpp`, extended the inverse-trig by-parts to
+  the √-derivative functions (asin/acos/asinh/acosh): the standalone block now
+  handles a bare power `f^n` (`u = f^n`, `dv = dx`), and the Mul block admits a
+  `dv = P(x)/√(quadratic)` (so the residual `∫P/√Q` and its recursion close). Each
+  return is gated by a **numeric diff-back self-check** — the broadened recursion
+  threads several integrators, so verifying `d/dx == integrand` ensures any
+  remaining mis-step fails to a clean marker rather than a wrong answer.
+- **Verified:** `∫asin² = x·asin² − 2x + 2√(1−x²)·asin`, `∫x·asin²`, `∫acos²`,
+  `∫asinh²`, `∫asin³` — all matching SymPy exactly; the non-elementary `∫atan²`
+  bare stays an unevaluated marker.
+- **Regression test:** extended `INT-32` in `tests/integrals/integrate_test.cpp`.
+
 ### INT-XSQRTQUAD-NUM-1 — `∫asin(x)/√(1−x²)` returned the wrong `asin(x)²` (should be `asin²/2`)
 - **Problem:** a *wrong* (not merely unevaluated) answer: `∫asin(x)/√(1−x²) → asin(x)²`
   (correct is `asin²/2` — a factor-of-2 error), `∫asin²/√ → asin³`, `∫acos/√ → acos·asin`.
