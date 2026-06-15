@@ -448,6 +448,11 @@ namespace {
 // inverse-trig/hyperbolic by-parts integrals reduce to.
 [[nodiscard]] std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·√(a·x²+b·x+c) dx for a polynomial P — rewrite P·√Q = (P·Q)/√Q and hand
+// the polynomial-over-√(quadratic) result to the reduction above. Closes the
+// even-power cases (∫x²·√(1−x²), ∫x⁴·√(1−x²)) that the u = Q substitution misses.
+[[nodiscard]] std::optional<Expr> try_poly_times_sqrt_quadratic(const Expr& expr, const Expr& var);
+
 // ∫ P(x)/√(a·x²+b·x+c) dx for a polynomial P of degree ≥ 2, via the reduction
 // ∫xᵏ/√Q = [xᵏ⁻¹√Q − (k−1)c·∫xᵏ⁻²/√Q]/(k·a) (pure quadratic; a linear term is
 // removed first by completing the square). Closes ∫x²/√(1−x²) and the
@@ -593,6 +598,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_reciprocal_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_poly_times_sqrt_quadratic(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_const_base_exp_integral(expr, var); r.has_value()) {
@@ -2628,6 +2636,48 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     }
     // a < 0, c ≤ 0 (radicand has no positive region) and c == 0 fall through.
     return std::nullopt;
+}
+
+std::optional<Expr> try_poly_times_sqrt_quadratic(const Expr& expr,
+                                                  const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Isolate a (quadratic)^(m/2) factor with odd m > 0; the rest is the polynomial.
+    Expr sqrt_factor;
+    Expr quad;
+    long half_pow = 0;  // m in (quadratic)^(m/2)
+    std::vector<Expr> rest;
+    for (const auto& f : expr->args()) {
+        if (!sqrt_factor && f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Rational
+            && depends_on(f->args()[0], var)) {
+            const auto& r = static_cast<const Rational&>(*f->args()[1]).value();
+            if (r.get_den() == 2 && r.get_num() > 0
+                && (r.get_num() % 2) == 1 && r.get_num().fits_slong_p()) {
+                try {
+                    Poly q(expand(f->args()[0]), var);
+                    if (q.degree() == 2) {
+                        sqrt_factor = f;
+                        quad = f->args()[0];
+                        half_pow = r.get_num().get_si();
+                        continue;
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        rest.push_back(f);
+    }
+    if (!sqrt_factor || rest.empty()) return std::nullopt;
+    Expr poly_part = mul(std::move(rest));
+    if (!is_polynomial_in(poly_part, var)) return std::nullopt;
+
+    // P·Q^(m/2) = (P·Q^((m+1)/2)) / √Q  (m odd ⇒ (m+1)/2 integer), a polynomial
+    // over √Q that the reduction handler closes.
+    Expr q_power = pow(quad, integer((half_pow + 1) / 2));
+    Expr rewritten = expand(poly_part * q_power) * pow(quad, rational(-1, 2));
+    Expr r = integrate(rewritten, var);
+    if (is_integral_marker(r)) return std::nullopt;
+    return simplify(r);
 }
 
 std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var) {

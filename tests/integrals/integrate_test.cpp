@@ -592,6 +592,32 @@ TEST_CASE("integrate: ∫sqrt(x^2-1) dx = x*sqrt(x^2-1)/2 - log(x+sqrt(x^2-1))/2
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
 }
 
+// INT-POLYSQRTQUAD-1: ∫P(x)·√(quadratic) for an even-power P. The u = Q
+// substitution closes odd powers (∫x·√(1−x²)), but even powers fell through;
+// rewriting P·√Q = (P·Q)/√Q routes them to the polynomial-over-√(quadratic)
+// reduction. Verified by diff-back.
+TEST_CASE("integrate: polynomial × sqrt(quadratic) (INT-POLYSQRTQUAD-1)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    auto sq = [&](const Expr& q) { return pow(q, rational(1, 2)); };
+    auto omx2 = integer(1) - pow(x, integer(2));
+    REQUIRE(db(pow(x, integer(2)) * sq(omx2)));           // ∫x²·√(1−x²)
+    REQUIRE(db(pow(x, integer(4)) * sq(omx2)));           // ∫x⁴·√(1−x²)
+    REQUIRE(db(pow(x, integer(2))
+               * sq(integer(4) - pow(x, integer(2)))));    // non-unit radicand
+    // Higher half-power: ∫x²·(1−x²)^(3/2).
+    REQUIRE(db(pow(x, integer(2)) * pow(omx2, rational(3, 2))));
+    // Odd-power and bare-radical cases keep their existing (cleaner) forms.
+    REQUIRE(oracle.equivalent(integrate(x * sq(omx2), x)->str(),
+                              "-(1-x**2)**(3/2)/3"));
+}
+
 // ----- Polynomial × (linear)^rational via u-sub (regression, INT-21) ---------
 // ∫P(x)·(a·x+b)^r dx (r a non-integer rational) used to fall through. The
 // substitution u = a·x+b turns it into Σ cₖ·u^(k+r), integrated term-by-term.

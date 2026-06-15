@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-POLYSQRTQUAD-1 — `∫x²·√(1−x²)` (even power × √quadratic) was unevaluated
+- **Problem:** `∫xⁿ·√(1−x²)` for *even* n — `∫x²·√(1−x²)`, `∫x⁴·√(1−x²)`,
+  `∫x²·√(4−x²)` — was left unevaluated. The `u = Q` substitution closes the odd
+  powers (`∫x·√(1−x²) = −(1−x²)^(3/2)/3`) but not the even ones.
+- **Fix:** added `try_poly_times_sqrt_quadratic` in `src/integrals/integrate.cpp`
+  (dispatched after the u-substitution handlers, so odd powers keep their cleaner
+  form). It detects `P(x)·(quadratic)^(m/2)` with odd `m`, rewrites
+  `P·Q^(m/2) = (P·Q^((m+1)/2))/√Q` — a polynomial over `√Q` — and hands it to the
+  existing polynomial-over-√(quadratic) reduction.
+- **Verified:** `∫x²·√(1−x²)`, `∫x⁴·√(1−x²)`, `∫x²·√(4−x²)`, `∫x²·(1−x²)^(3/2)` all
+  diff-back to the integrand, matching SymPy; the odd-power `∫x·√(1−x²)` and bare
+  `∫√(1−x²)` keep their existing forms.
+- **Regression test:** `INT-POLYSQRTQUAD-1` in `tests/integrals/integrate_test.cpp`.
+
 ### LIMIT-LOGSUMEXP-1 — `(2^x+3^x)^(1/x) = 3` and log-of-exponential-sum limits failed
 - **Problem:** limits of `log` of an exponential-dominated sum returned `nan` or
   an unevaluated ∞-arithmetic mess: `x − log(cosh x) = log 2`,
