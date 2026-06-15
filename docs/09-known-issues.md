@@ -16,6 +16,27 @@ truth and links the issue number.
 
 ## Fixed
 
+### DSOLVE-SEPARABLE-NONLIN-1 — `dsolve(y′ = y²)` and nonlinear separable ODEs were unsolved
+- **Problem:** separable equations `y′ = f(x)·g(y)` with a non-trivial `g(y)` —
+  `y′ = y²`, `y′ = √y`, `y′ = x·y²`, `y′ = 1 + y²` — returned an unevaluated
+  `Dsolve(…)` marker. `try_separate` decided x-dependence with `has(rhs, x)`, but
+  the dependent variable is the *function application* `y(x)`, which literally
+  contains the symbol `x` — so `has(y², x)` was wrongly `true` and separation
+  failed for every autonomous/`g(y)`-only right-hand side.
+- **Fix:** in `src/ode/dsolve.cpp`, `try_separate` now tests x-dependence with `y`
+  replaced by a fresh atom (`has(subs(·, y, u), x)` — "depends on x with y held
+  fixed"). The explicit-form `solve` fallback also swaps `y(x)` for a plain symbol
+  so `solve`'s inverters can isolate `y`. `dsolve_separable` is moved *after* the
+  linear/Bernoulli/homogeneous methods, which give cleaner closed forms for the
+  equations they recognize (the logistic stays explicit), so separation only
+  fills the gaps it uniquely covers.
+- **Verified:** `y′ = y² → −1/(x+C)`, `y′ = x·y² → −2/(x²+C)`, `y′ = √y → ((x+C)/2)²`
+  (residuals 0, matching SymPy); `y′ = 1+y²`, `y′ = y²−1` are now solved (implicitly
+  via atan/log, since `solve` can't invert against a symbolic RHS) rather than
+  unevaluated; the logistic `y′ = y(1−y)` stays explicit and all existing dsolve
+  results are unchanged.
+- **Regression test:** `DSOLVE-SEPARABLE-NONLIN-1` in `tests/ode/dsolve_test.cpp`.
+
 ### DSOLVE-RESONANCE-1 — `dsolve(y″ + y = sin x)` returned garbage with `zoo`
 - **Problem:** a second-order constant-coefficient ODE whose forcing term is
   itself a homogeneous solution (resonance) — `y″ + y = sin x`, `y″ + 4y = sin 2x`

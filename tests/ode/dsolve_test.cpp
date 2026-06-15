@@ -598,3 +598,36 @@ TEST_CASE("dsolve: resonant forcing and real-form complex roots (DSOLVE-RESONANC
     REQUIRE(dsolve(ypp + integer(4) * y, y, x)->str().find("I") ==
             std::string::npos);
 }
+
+// DSOLVE-SEPARABLE-NONLIN-1: separable equations y' = f(x)·g(y) where the
+// dependent variable y is the function application y(x). The x-dependence test
+// in try_separate previously used has(rhs, x), which saw the x *inside* y(x), so
+// autonomous/nonlinear separable equations (y' = y², √y, x·y²) fell through.
+// Testing x-dependence with y held fixed fixes it; the explicit-form solve falls
+// back to a symbol so y can be isolated.
+TEST_CASE("dsolve: nonlinear separable equations (DSOLVE-SEPARABLE-NONLIN-1)",
+          "[11][dsolve][separable][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto residual = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        Expr r = subs(ode, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return simplify(expand(r));
+    };
+    // y' = y² → y = −1/(x+C); y' = x·y² → y = −2/(x²+C).
+    REQUIRE(oracle.equivalent(residual(yp - pow(y, integer(2)))->str(), "0"));
+    REQUIRE(oracle.equivalent(residual(yp - x * pow(y, integer(2)))->str(), "0"));
+    // Autonomous with a numeric constant term: y' = 1 + y² is solved (implicitly
+    // via atan, since solve() can't invert atan against a symbolic RHS) — the
+    // point is it no longer returns an unevaluated Dsolve marker.
+    REQUIRE(dsolve(yp - integer(1) - pow(y, integer(2)), y, x)->str().rfind(
+                "Dsolve(", 0) != 0);
+    // The linear/Bernoulli paths still win where they give a cleaner closed form:
+    // the logistic y' = y(1−y) stays explicit (not an implicit log form).
+    Expr logistic = dsolve(yp - y * (integer(1) - y), y, x);
+    REQUIRE(logistic->str().find("log(") == std::string::npos);
+}

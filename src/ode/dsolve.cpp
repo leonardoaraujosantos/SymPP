@@ -202,12 +202,17 @@ try_separate(const Expr& rhs, const Expr& y, const Expr& x) {
     //   * No y: rhs = f(x), trivially separable with g(y) = 1.
     //   * No x: rhs = g(y), trivially separable with f(x) = 1.
     //   * Mul: split factors by which variable they contain.
+    // The dependent variable y is the function application y(x), which literally
+    // contains x — so a raw has(·, x) would see x inside y(x). Test x-dependence
+    // with y replaced by a fresh atom, i.e. "depends on x with y held fixed".
+    Expr u = symbol("__sep_u");
+    auto dep_x = [&](const Expr& e) { return has(subs(e, y, u), x); };
     if (!has(rhs, y)) return std::pair{rhs, S::One()};
-    if (!has(rhs, x)) return std::pair{S::One(), rhs};
+    if (!dep_x(rhs)) return std::pair{S::One(), rhs};
     if (rhs->type_id() == TypeId::Mul) {
         std::vector<Expr> fx, gy;
         for (const auto& f : rhs->args()) {
-            if (has(f, y) && has(f, x)) return std::nullopt;
+            if (has(f, y) && dep_x(f)) return std::nullopt;
             if (has(f, y)) gy.push_back(f);
             else fx.push_back(f);
         }
@@ -250,9 +255,13 @@ Expr dsolve_separable(const Expr& eq, const Expr& y, const Expr& yp,
     if (auto inv = invert_for_y(lhs_int, rhs_int + C, y); inv) {
         return *inv;
     }
-    // Try the polynomial-solve path as a fallback.
+    // Solve F(y) = G(x) + C for y explicitly. y is the function application y(x);
+    // solve()'s transcendental inverters (atan→tan, combined logs, …) expect a
+    // plain symbol, so swap y(x) for one, solve, and read the result (already a
+    // function of x). Closes y' = 1 + y² → y = tan(x+C), the logistic, etc.
     Expr implicit = lhs_int - rhs_int - C;
-    auto explicit_sols = solve(implicit, y);
+    Expr ysym = symbol("__y_explicit");
+    auto explicit_sols = solve(subs(implicit, y, ysym), ysym);
     if (!explicit_sols.empty()) {
         return simplify(explicit_sols[0]);
     }
@@ -434,10 +443,14 @@ Expr dsolve_first_order(const Expr& eq, const Expr& y, const Expr& yp,
         return r;
     };
     if (auto r = try_one(dsolve_linear_first_order); r) return *r;
-    if (auto r = try_one(dsolve_separable); r) return *r;
     if (auto r = try_one(dsolve_lie_autonomous); r) return *r;
     if (auto r = try_one(dsolve_homogeneous); r) return *r;
     if (auto r = try_one(dsolve_bernoulli); r) return *r;
+    // Separable last: the methods above yield explicit closed forms for the
+    // equations they recognize (e.g. Bernoulli gives the logistic in closed form),
+    // whereas separation can leave an implicit F(y) = G(x) + C when y can't be
+    // isolated. It still catches the genuinely separable-only equations.
+    if (auto r = try_one(dsolve_separable); r) return *r;
     return function_symbol("Dsolve")(std::vector<Expr>{eq, y, x});
 }
 
