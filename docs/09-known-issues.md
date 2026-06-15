@@ -26,16 +26,20 @@ truth and links the issue number.
   cause worked around in `LIMIT-POWFORM-COMPOSITE-1`.) Single-function bases like
   `log(cos x)` worked because their derivatives stay simple.
 - **Fix:** added `try_composition_series` in `src/calculus/series.cpp` (between the
-  Taylor and Laurent paths). It expands the inner `g` to a series, expands the
-  outer `f(t)` about the constant `c = g(x₀)` (where `f` is a single function the
-  Taylor path handles), and substitutes `(t − c) → (g_series − c)` — which has
-  positive valuation, so only finitely many terms reach a given order — then
-  truncates. A genuine singularity (`log x`, `c = 0` where the outer Taylor fails)
-  still stays unexpanded.
+  Taylor and Laurent paths). It expands the inner `g` with the full `series()`
+  engine (so an inner that itself needs Laurent division, e.g. `tan x / x`, still
+  expands), requires `g` analytic at `x₀` (`c = g(x₀)` finite — which rejects a
+  genuine pole like `csc x` whose inner series diverges), expands the outer about
+  the constant `c`, and substitutes `(t − c) → (g_series − c)` — positive
+  valuation, so only finitely many terms reach a given order — then truncates. The
+  outer operation is a single-argument function `f` *or* a power `g^p` with a
+  var-free exponent (covers `√(tan x / x)`). A genuine singularity (`log x`, `√x`,
+  where the outer Taylor at `c = 0` fails) still stays unexpanded.
 - **Verified:** `series(log(sin x / x)) = −x²/6 − x⁴/180`,
-  `series(log(sinh x / x)) = x²/6 − x⁴/180`, matching SymPy; `log x` unexpanded;
-  ordinary and single-function series (`exp`, `sin`, `log(cos x)`, `cot`, …)
-  unchanged.
+  `series(log(sinh x / x)) = x²/6 − x⁴/180`, `series(log(tan x / x)) = x²/3 + 7x⁴/90`,
+  `series(√(tan x / x)) = 1 + x²/6 + 19x⁴/360`, matching SymPy; `log x` / `√x`
+  unexpanded; the `csc²(x)` Laurent series and ordinary/single-function series
+  (`exp`, `sin`, `log(cos x)`, `cot`, …) unchanged.
 - **Regression test:** `SERIES-COMPOSE-1` in
   `tests/calculus/series_limit_test.cpp`.
 

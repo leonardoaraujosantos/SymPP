@@ -97,8 +97,26 @@ TEST_CASE("series: composition of f(g(x)) with a removable inner (SERIES-COMPOSE
     REQUIRE(oracle.equivalent(
         series(log(sinh(x) * inv(x)), x, zero, 6)->str(),
         "x**2/6 - x**4/180"));
+    // Inner that itself needs the Laurent-division path (tan x / x), composed
+    // through log and through a power: log(tan x/x) = x²/3 + 7x⁴/90,
+    // √(tan x/x) = 1 + x²/6 + 19x⁴/360.
+    REQUIRE(oracle.equivalent(
+        series(log(tan(x) * inv(x)), x, zero, 6)->str(),
+        "x**2/3 + 7*x**4/90"));
+    REQUIRE(oracle.equivalent(
+        series(pow(tan(x) * inv(x), rational(1, 2)), x, zero, 6)->str(),
+        "1 + x**2/6 + 19*x**4/360"));
+    // A power g^p with a removable inner (√(sin x/x)).
+    REQUIRE(oracle.equivalent(
+        series(pow(sin(x) * inv(x), rational(1, 2)), x, zero, 6)->str(),
+        "1 - x**2/12 + x**4/1440"));
     // A genuine singularity (log x) is still left unexpanded by composition.
     REQUIRE(series(log(x), x, zero, 6) == log(x));
+    // √x stays a branch point (outer Taylor at c = 0 fails).
+    REQUIRE(series(pow(x, rational(1, 2)), x, zero, 6) == pow(x, rational(1, 2)));
+    // Composition must not hijack a genuine pole: csc²(x) keeps its Laurent term.
+    REQUIRE(oracle.equivalent(series(pow(csc(x), integer(2)), x, zero, 6)->str(),
+                              "1/x**2 + 1/3 + x**2/15 + 2*x**4/189"));
     // Single-function composites that already worked are unchanged.
     REQUIRE(oracle.equivalent(series(log(cos(x)), x, zero, 6)->str(),
                               "-x**2/2 - x**4/12"));

@@ -222,42 +222,58 @@ namespace {
                                                          const Expr& var,
                                                          const Expr& x0,
                                                          std::size_t n) {
-    if (expr->type_id() != TypeId::Function) return std::nullopt;
-    const auto& fn = static_cast<const Function&>(*expr);
-    if (fn.args().size() != 1) return std::nullopt;
-    const Expr& g = fn.args()[0];
+    // The outer operation is either a single-argument function f, or a power
+    // g^p with a var-free exponent (the function t ↦ t^p, e.g. √(tan x / x)).
+    Expr g;
+    if (expr->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*expr);
+        if (fn.args().size() != 1) return std::nullopt;
+        g = fn.args()[0];
+    } else if (expr->type_id() == TypeId::Pow) {
+        if (has(expr->args()[1], var)) return std::nullopt;  // exponent must be const
+        g = expr->args()[0];
+    } else {
+        return std::nullopt;
+    }
     if (!has(g, var)) return std::nullopt;
 
-    // Inner series: g must be analytic at x₀ (an ordinary Taylor expansion).
-    auto gs = taylor_series(g, var, x0, n);
-    if (!gs) return std::nullopt;
-    Expr c = subs(*gs, var, x0);          // g(x₀), the expansion centre for f
+    // Inner series via the full engine, so a removable pole that needs the
+    // Laurent-division path (e.g. tan(x)/x) still expands. The result must be
+    // analytic at x₀: a polynomial in (x − x₀) with a finite value c = g(x₀).
+    Expr gs = series(g, var, x0, n);
+    // g must be analytic at x₀: c = g(x₀) finite. Evaluating the *expanded* series
+    // distinguishes a removable form (tan x / x → 1) from a genuine pole (csc x,
+    // whose Laurent series → ∞ here), where composition must not apply.
+    Expr c = subs(gs, var, x0);
     if (is_non_finite(c)) return std::nullopt;
+    try {
+        // Outer series of f(t) about t = c — f is a single function, the case the
+        // Taylor path handles. (For log(t) at c = 0 this returns nullopt, so a
+        // genuine singularity such as log(x) stays unexpanded.)
+        Expr t = symbol("__series_compose_t");
+        Expr ft = subs(expr, g, t);
+        if (has(ft, var)) return std::nullopt;  // g didn't factor out cleanly
+        auto outer = taylor_series(ft, t, c, n);
+        if (!outer) return std::nullopt;
 
-    // Outer series of f(t) about t = c — f is a single function, the case the
-    // Taylor path handles. (For log(t) at c = 0 this returns nullopt, so a genuine
-    // singularity such as log(x) stays unexpanded.)
-    Expr t = symbol("__series_compose_t");
-    Expr ft = subs(expr, g, t);
-    if (has(ft, var)) return std::nullopt;  // g didn't factor out cleanly
-    auto outer = taylor_series(ft, t, c, n);
-    if (!outer) return std::nullopt;
-
-    // Compose: (t − c) ← (g_series − c), then drop terms of order ≥ n in (x − x₀).
-    Expr u = expand(*gs - c);
-    Expr composed = expand(subs(*outer, t, add(c, u)));
-    Expr dx = symbol("__series_compose_dx");
-    Expr shifted = expand(subs(composed, var, add(x0, dx)));
-    Poly p(shifted, dx);
-    std::vector<Expr> terms;
-    const long deg = static_cast<long>(p.degree());
-    for (long i = 0; i <= deg && i < static_cast<long>(n); ++i) {
-        const Expr& ci = p.coeffs()[static_cast<std::size_t>(i)];
-        if (ci == S::Zero()) continue;
-        terms.push_back(mul(ci, pow(var - x0, integer(i))));
+        // Compose: (t − c) ← (g_series − c), then drop terms of order ≥ n.
+        Expr u = expand(gs - c);
+        Expr composed = expand(subs(*outer, t, add(c, u)));
+        Expr dx = symbol("__series_compose_dx");
+        Expr shifted = expand(subs(composed, var, add(x0, dx)));
+        Poly p(shifted, dx);
+        std::vector<Expr> terms;
+        const long deg = static_cast<long>(p.degree());
+        for (long i = 0; i <= deg && i < static_cast<long>(n); ++i) {
+            const Expr& ci = p.coeffs()[static_cast<std::size_t>(i)];
+            if (ci == S::Zero()) continue;
+            terms.push_back(mul(ci, pow(var - x0, integer(i))));
+        }
+        if (terms.empty()) return Expr{S::Zero()};
+        return add(std::move(terms));
+    } catch (const std::exception&) {
+        return std::nullopt;  // inner/composed not an analytic polynomial in var
     }
-    if (terms.empty()) return Expr{S::Zero()};
-    return add(std::move(terms));
 }
 
 }  // namespace
