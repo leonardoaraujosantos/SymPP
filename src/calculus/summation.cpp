@@ -310,6 +310,65 @@ namespace {
 
 }  // namespace
 
+// The binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. Matches a summand
+// binomial(n,var)·base^(a·var+b) (the geometric factor optional) over k = 0…n,
+// where n is exactly the binomial's first argument, and returns
+// const·base^b·(1 + base^a)ⁿ. Covers Σ C(n,k) = 2ⁿ, Σ(−1)ᵏC(n,k) = 0,
+// Σ 2ᵏC(n,k) = 3ⁿ, Σ xᵏC(n,k) = (1+x)ⁿ.
+[[nodiscard]] std::optional<Expr> sum_binomial_theorem(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& lo,
+                                                       const Expr& hi) {
+    if (!(lo == S::Zero())) return std::nullopt;
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    bool have_binom = false;
+    Expr ratio = S::One();       // ∏ base^a from the geometric factors
+    Expr prefactor = S::One();   // ∏ base^b
+    Expr coeff = S::One();
+    for (const auto& f : factors) {
+        if (!have_binom && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Binomial
+                && fn.args().size() == 2 && fn.args()[1] == var
+                && fn.args()[0] == hi) {
+                have_binom = true;
+                continue;
+            }
+        }
+        // base^(a·var+b): a constant base raised to a linear exponent in var.
+        if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+            && has(f->args()[1], var)) {
+            try {
+                Poly pe(expand(f->args()[1]), var);
+                if (pe.degree() != 1) return std::nullopt;
+                const Expr& a = pe.coeffs()[1];
+                const Expr& b = pe.coeffs()[0];
+                if (has(a, var) || has(b, var)) return std::nullopt;
+                ratio = mul(ratio, pow(f->args()[0], a));
+                prefactor = mul(prefactor, pow(f->args()[0], b));
+                continue;
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+            continue;
+        }
+        return std::nullopt;  // a var factor that isn't the binomial or geometric
+    }
+    if (!have_binom) return std::nullopt;
+    Expr base_sum = simplify(integer(1) + ratio);
+    // (1 + r)ⁿ, with (1−1)ⁿ = 0 for the alternating sum (n ≥ 1).
+    Expr power = (base_sum == S::Zero()) ? Expr{S::Zero()} : pow(base_sum, hi);
+    return simplify(mul(mul(coeff, prefactor), power));
+}
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
 
@@ -339,6 +398,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             return mul(mul(std::move(const_factors)), inner);
         }
     }
+
+    // Binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ.
+    if (auto bt = sum_binomial_theorem(expr, var, lo, hi)) return *bt;
 
     // A product or power that expands to a sum — e.g. k·(k+1) → k²+k,
     // (k+1)² → k²+2k+1, (k+1)·2ᵏ → k·2ᵏ+2ᵏ — isn't matched by the closed forms

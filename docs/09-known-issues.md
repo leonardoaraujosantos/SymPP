@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-BINOMIAL-1 — `Σ_{k=0}^n C(n,k)` (binomial theorem) stayed unevaluated
+- **Problem:** binomial-theorem sums `Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ` were unevaluated:
+  `Σ C(n,k) = 2ⁿ`, `Σ(−1)ᵏC(n,k) = 0`, `Σ2ᵏC(n,k) = 3ⁿ`, `ΣxᵏC(n,k) = (1+x)ⁿ`, and
+  even the concrete `Σ_{k=0}^5 C(5,k) = 32`.
+- **Fix:** added `sum_binomial_theorem` in `src/calculus/summation.cpp`. For a
+  summand `const·binomial(n,k)·base^(a·k+b)` over `k = 0…n` — where `n` is exactly
+  the binomial's first argument and the geometric factor is optional — it returns
+  `const·base^b·(1 + base^a)ⁿ`, with `(1−1)ⁿ = 0` for the alternating case.
+- **Verified:** `Σ C(n,k) = 2ⁿ`, `Σ(−1)ᵏC(n,k) = 0`, `Σ2ᵏC(n,k) = 3ⁿ` (which SymPy
+  itself leaves unevaluated), `ΣxᵏC(n,k) = (1+x)ⁿ`, `Σ_{k=0}^5 C(5,k) = 32`; a
+  mismatched argument `Σ C(m,k)` over `k=0…n` is correctly left unevaluated.
+- **Regression test:** `SUM-BINOMIAL-1` in `tests/calculus/series_limit_test.cpp`.
+
 ### LIMIT-ESSENTIAL-PT-1 — `lim_{x→0} x/(exp(1/x)−1)` returned `nan`
 - **Problem:** limits at a finite point with an *essential* singularity —
   `exp(−1/x²) → 0`, `x/(exp(1/x)−1) → 0`, `x²/(exp(1/x²)−1) → 0` — returned `nan`.

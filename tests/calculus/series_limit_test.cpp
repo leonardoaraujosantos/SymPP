@@ -829,6 +829,33 @@ TEST_CASE("summation: telescoping rational sums (SUM-TELESCOPE-1)",
     REQUIRE(pole->str().find("Sum(") != std::string::npos);
 }
 
+// SUM-BINOMIAL-1: the binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. A summand
+// binomial(n,k)·base^(a·k+b) (geometric factor optional), where n is exactly the
+// binomial's first arg, closes to const·base^b·(1+base^a)ⁿ.
+TEST_CASE("summation: binomial theorem Σ C(n,k)·r^k (SUM-BINOMIAL-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto x = symbol("x");
+    auto z = S::Zero();
+    // Σ C(n,k) = 2ⁿ; Σ (−1)^k C(n,k) = 0; Σ 2^k C(n,k) = 3ⁿ; Σ x^k C(n,k)=(1+x)ⁿ.
+    REQUIRE(oracle.equivalent(summation(binomial(n, k), k, z, n)->str(), "2**n"));
+    REQUIRE(summation(pow(integer(-1), k) * binomial(n, k), k, z, n)
+            == S::Zero());
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2), k) * binomial(n, k), k, z, n)->str(), "3**n"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(x, k) * binomial(n, k), k, z, n)->str(), "(1 + x)**n"));
+    // A concrete upper bound: Σ_{k=0}^5 C(5,k) = 32.
+    REQUIRE(summation(binomial(integer(5), k), k, z, integer(5)) == integer(32));
+    // Mismatched binomial argument (binomial(m,k) with upper bound n) does NOT
+    // apply the theorem — left unevaluated.
+    auto m = symbol("m");
+    REQUIRE(summation(binomial(m, k), k, z, n)->str().find("Sum(")
+            != std::string::npos);
+}
+
 TEST_CASE("summation: constant Σ c from 1 to n → c*n",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();
