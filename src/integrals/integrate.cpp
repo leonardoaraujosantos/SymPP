@@ -2177,25 +2177,28 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     const Expr& b = p.coeffs()[1];
     const Expr& a = p.coeffs()[2];
 
-    // Need rational coefficients to decide irreducibility from the sign of the
-    // discriminant. Symbolic coefficients (e.g. 1/(k²+x²)) are out of scope.
-    if (is_rational(a) != true || is_rational(b) != true
-        || is_rational(c) != true) {
-        return std::nullopt;
-    }
+    // The branch is chosen from the sign of the discriminant. Rational
+    // coefficients let us decide it directly; symbolic coefficients are allowed
+    // only when the discriminant is *provably* positive (e.g. 1/(x²+a²) with
+    // a > 0 → atan(x/a)/a), matching SymPy under positivity assumptions. When
+    // the sign can't be decided the integral is left unevaluated.
+    const bool rational_coeffs = is_rational(a) == true
+                                 && is_rational(b) == true
+                                 && is_rational(c) == true;
 
     // D = 4ac − b². D > 0 ⇒ no real roots ⇒ arctangent. D = 0 ⇒ a repeated
     // real root. D < 0 ⇒ distinct real roots, which try_rational splits into
     // logs, so leave those alone.
     Expr disc = integer(4) * a * c - b * b;
 
-    if (disc == S::Zero()) {
+    if (rational_coeffs && disc == S::Zero()) {
         // a·x² + b·x + c = a·(x − r)², r = −b/(2a):
         //   ∫ 1/(a·(x − r)²) dx = −2/(2a·x + b).
         return integer(-2) / (integer(2) * a * var + b);
     }
     if (is_positive(disc) == true) {
-        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D.
+        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D. Works for
+        // symbolic coefficients too (e.g. 1/(x²+a²), a > 0).
         Expr root_d = sqrt(disc);
         Expr arg = (integer(2) * a * var + b) / root_d;
         return simplify(integer(2) * atan(arg) / root_d);
@@ -2204,6 +2207,7 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     // by try_rational (which runs first); irrational roots reach here, where the
     // partial-fraction logs carry √Δ (Δ = b²−4ac = −D):
     //   ∫ 1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)] / √Δ.
+    if (!rational_coeffs) return std::nullopt;
     Expr delta = simplify(mul(S::NegativeOne(), disc));  // b² − 4ac > 0
     if (is_positive(delta) != true) return std::nullopt;
     Expr root_delta = sqrt(delta);

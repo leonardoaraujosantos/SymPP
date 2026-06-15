@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-ARCTAN-PARAM-1 / MUL-POS-1 — `∫1/(x²+a²)` unevaluated; `is_positive(4·a²)` unknown
+- **Problem:** `∫1/(x²+a²)` (and `∫1/(x²+a)`, `∫1/(ax²+b)`) came back unevaluated
+  for symbolic positive coefficients — `try_arctan_quadratic` required *rational*
+  coefficients. Relaxing that exposed a second bug: `is_positive(4·a²)` returned
+  *unknown* even for `a > 0`, although `is_positive(4·a)` and `is_positive(a²)`
+  were both `true`.
+- **Fix:**
+  - `src/core/mul.cpp`: the `Positive`/`Negative` handlers now classify each
+    factor via its own `Positive`/`Negative` (both imply nonzero), instead of
+    requiring `Negative` plus a separate `Nonzero` gate. A factor like `a²`
+    (positive, but with unknown `Nonzero`) now counts correctly, so
+    `is_positive(4·a²) = true`.
+  - `src/integrals/integrate.cpp`: `try_arctan_quadratic` accepts symbolic
+    coefficients, firing the arctan branch only when the discriminant is
+    *provably positive* (matching SymPy under positivity assumptions). The
+    `disc = 0` and log branches stay restricted to rational coefficients.
+- **Verified:** `∫1/(x²+a²) = atan(x/a)/a`, `∫1/(x²+a) = atan(x/√a)/√a`,
+  `∫1/(ax²+b) = atan(x√(a/b))/√(ab)` (all for positive parameters, diff-back
+  verified at concrete values); numeric quadratics are unchanged, and a generic
+  (unsigned) parameter is conservatively left unevaluated.
+- **Regression test:** `INT-ARCTAN-PARAM-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-DEF-2 / LIMIT-LOG-1 — `∫₀^∞ 1/(1+x⁴) = nan` (log/atan antiderivative at ∞)
 - **Problem:** `∫₀^∞ 1/(1+x⁴)` returned `nan` instead of `π√2/4`. Its
   antiderivative has `log(A) − log(B)` and `atan(arg)` terms; at the upper limit

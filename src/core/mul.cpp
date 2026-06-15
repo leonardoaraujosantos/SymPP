@@ -156,27 +156,27 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
 
         // Sign of product = parity of negative factors, given all are nonzero
         // and real.
-        case AssumptionKey::Positive: {
-            if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
-            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
-            int neg = 0;
-            for (const auto& a : args_) {
-                auto v = a->ask(AssumptionKey::Negative);
-                if (!v.has_value()) return std::nullopt;
-                if (*v) ++neg;
-            }
-            return (neg % 2) == 0;
-        }
+        case AssumptionKey::Positive:
         case AssumptionKey::Negative: {
             if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
-            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
+            // Each factor must have a definite sign (positive or negative); both
+            // imply nonzero. Asking Positive as well as Negative lets a factor
+            // like a² (positive for a ≠ 0, but whose Negative/Nonzero may be
+            // unknown) count as a known-positive factor.
             int neg = 0;
             for (const auto& a : args_) {
-                auto v = a->ask(AssumptionKey::Negative);
-                if (!v.has_value()) return std::nullopt;
-                if (*v) ++neg;
+                if (a->ask(AssumptionKey::Positive) == std::optional<bool>{true}) {
+                    continue;
+                }
+                if (a->ask(AssumptionKey::Negative) == std::optional<bool>{true}) {
+                    ++neg;
+                    continue;
+                }
+                return std::nullopt;  // sign (or zeroness) of a factor unknown
             }
-            return (neg % 2) == 1;
+            const bool product_negative = (neg % 2) == 1;
+            return k == AssumptionKey::Negative ? product_negative
+                                                : !product_negative;
         }
 
         // Nonneg/nonpos product require sign analysis with potential zeros;

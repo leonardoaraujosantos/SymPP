@@ -6,7 +6,9 @@
 #include <string>
 
 #include <sympp/calculus/diff.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
@@ -274,6 +276,37 @@ TEST_CASE("integrate: ∫1/(4x^2+9) dx = atan(2x/3)/6",
     auto den = integer(4) * pow(x, integer(2)) + integer(9);
     auto r = integrate(pow(den, integer(-1)), x);
     REQUIRE(oracle.equivalent(r->str(), "atan(2*x/3)/6"));
+}
+
+// INT-ARCTAN-PARAM-1: ∫1/(quadratic) with SYMBOLIC positive coefficients —
+// ∫1/(x²+a²) = atan(x/a)/a (a > 0), ∫1/(ax²+b) = atan(x√(a/b))/√(ab). Fires only
+// when the discriminant is provably positive, matching SymPy under positivity
+// assumptions. Relies on the Mul-positivity fix (is_positive(4·a²) = true).
+TEST_CASE("integrate: arctan over a symbolic-coefficient quadratic (INT-ARCTAN-PARAM-1)",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    auto b = symbol("b", AssumptionMask{}.set_positive(true));
+    // Symbolic antiderivatives carry an (a > 0)-branch (√(4a²) = 2a), which the
+    // oracle can't reduce without assumptions — so verify after substituting
+    // concrete positive values for the parameters.
+    auto chk = [&](const Expr& integrand, const ExprMap<Expr>& sub) {
+        auto F = integrate(integrand, x);
+        INFO("integrand: " << integrand->str() << "  F: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr Fc = xreplace(F, sub);
+        Expr ic = xreplace(integrand, sub);
+        REQUIRE(oracle.equivalent(diff(Fc, x)->str(), ic->str()));
+    };
+    // 1/(x²+a²), 1/(x²+a), 1/(a·x²+b).
+    chk(pow(pow(x, integer(2)) + pow(a, integer(2)), integer(-1)),
+        {{a, integer(2)}});
+    chk(pow(pow(x, integer(2)) + a, integer(-1)), {{a, integer(3)}});
+    chk(pow(a * pow(x, integer(2)) + b, integer(-1)),
+        {{a, integer(2)}, {b, integer(5)}});
+    // is_positive propagates through an even power and a positive coefficient.
+    REQUIRE(is_positive(integer(4) * pow(a, integer(2))) == true);
 }
 
 TEST_CASE("integrate: ∫1/(x^2+2x+5) dx = atan((x+1)/2)/2 (completed square)",
