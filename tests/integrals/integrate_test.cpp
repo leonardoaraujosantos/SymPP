@@ -1643,6 +1643,33 @@ TEST_CASE("integrate: ∫x*cosh(2x+1) dx (parts with affine)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-RECIPTRIG-PARTS-1: ∫x·sec²(x) = ∫x/cos²(x) and the reciprocal-square trig /
+// hyperbolic family, by parts with v = ∫target tabulated (∫1/cos² = tan, etc.).
+// The by-parts target whitelist was widened to negative integer powers; a
+// recursive marker check bails on odd reciprocal powers (∫x/cos x is
+// non-elementary) instead of returning a partial Integral(...) garbage.
+TEST_CASE("integrate: polynomial × reciprocal-square trig by parts (INT-RECIPTRIG-PARTS-1)",
+          "[7][integrate][parts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(x / pow(cos(x), integer(2))));   // ∫x·sec²x = x·tan x + log cos x
+    REQUIRE(db(x / pow(sin(x), integer(2))));   // ∫x·csc²x = −x·cot x + log sin x
+    REQUIRE(db(x / pow(cosh(x), integer(2))));  // ∫x·sech²x = x·tanh x − log cosh x
+    REQUIRE(db(x / pow(sinh(x), integer(2))));  // ∫x·csch²x
+    // Non-elementary odd reciprocal power (∫x/cos x) must stay an unevaluated
+    // marker, not a partial garbage answer with embedded Integral(...) terms.
+    REQUIRE(integrate(x / cos(x), x)->str().find("Integral(") != std::string::npos);
+    // Positive-power and bare cases are unchanged.
+    REQUIRE(oracle.equivalent(diff(integrate(x * pow(cos(x), integer(2)), x),
+                                   x)->str(),
+                              (x * pow(cos(x), integer(2)))->str()));
+}
+
 // INT-14: ∫log(x)^n and ∫poly·log(x)^n fell through to the unevaluated
 // Integral — by parts only handled a single (power-1) log factor. log^n now
 // integrates by repeated parts (u = log^n, dv = rest dx), recursing down to

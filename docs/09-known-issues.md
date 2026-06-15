@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-RECIPTRIG-PARTS-1 — `∫x·sec²(x)` (= `∫x/cos²x`) and reciprocal-square trig were unevaluated
+- **Problem:** `∫x/cos²(x)` (= `∫x·sec²x = x·tan x + log cos x`) and the family
+  `∫x/sin²x`, `∫x/cosh²x`, `∫x/sinh²x` were left unevaluated. The polynomial × trig
+  by-parts whitelist (`is_byparts_target`) only accepted *positive* integer powers
+  of sin/cos/sinh/cosh, so a reciprocal (negative) power never matched — even though
+  the antiderivative of the target (`∫1/cos² = tan`, …) is tabulated.
+- **Fix:** in `src/integrals/integrate.cpp`, widened the whitelist to any non-zero
+  integer power. Because an *odd* reciprocal power (e.g. `sec = 1/cos`) gives a
+  non-elementary `∫v·u'` whose result is an `Add` with buried `Integral(...)` terms,
+  the marker check was made **recursive** so the block bails to a clean marker
+  instead of returning partial garbage.
+- **Verified:** `∫x/cos²x = x·tan x + log cos x`, `∫x/sin²x`, `∫x/cosh²x`,
+  `∫x/sinh²x` all diff-back to the integrand, matching SymPy; the non-elementary
+  `∫x/cos x` stays an unevaluated marker (no garbage); positive-power cases
+  (`∫x·cos²x`) unchanged.
+- **Regression test:** `INT-RECIPTRIG-PARTS-1` in
+  `tests/integrals/integrate_test.cpp`.
+
 ### INT-POLYSQRTQUAD-1 — `∫x²·√(1−x²)` (even power × √quadratic) was unevaluated
 - **Problem:** `∫xⁿ·√(1−x²)` for *even* n — `∫x²·√(1−x²)`, `∫x⁴·√(1−x²)`,
   `∫x²·√(4−x²)` — was left unevaluated. The `u = Q` substitution closes the odd

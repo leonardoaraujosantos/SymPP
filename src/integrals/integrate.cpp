@@ -1420,19 +1420,21 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
-    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) — or a positive
+    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) — or a non-zero
     // integer power of sin/cos/sinh/cosh(affine), whose antiderivative integrate
     // already supplies — and the rest forming a non-trivial polynomial u. The
     // polynomial is differentiated down each step, so the recursion terminates
     // (the depth guard backs it up); sinh/cosh don't cycle the way exp·sin/cos
-    // does. This closes ∫x·cos²(x), ∫x·sin³(x), ∫x·cosh²(x), etc.
+    // does. This closes ∫x·cos²(x), ∫x·sin³(x), ∫x·cosh²(x), and the reciprocal
+    // powers ∫x·sec²(x) = ∫x/cos²(x) (the ∫target = tan etc. is tabulated; the
+    // marker guard below bails when an odd reciprocal power like sec doesn't
+    // yield an elementary ∫v·u').
     auto is_byparts_target = [&](const Expr& f) -> bool {
         const Function* fn = nullptr;
         if (f->type_id() == TypeId::Function) {
             fn = &static_cast<const Function&>(*f);
         } else if (f->type_id() == TypeId::Pow
                    && f->args()[1]->type_id() == TypeId::Integer
-                   && static_cast<const Integer&>(*f->args()[1]).is_positive()
                    && f->args()[0]->type_id() == TypeId::Function) {
             fn = &static_cast<const Function&>(*f->args()[0]);
         }
@@ -1467,15 +1469,30 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
     // which is non-elementary — bail to the marker instead of looping.
     if (!is_polynomial_in(u, var)) return std::nullopt;
 
+    // A marker may be buried in a sum (e.g. an odd reciprocal power like sec,
+    // whose ∫v·u' is non-elementary, leaves Integral(...) terms inside an Add) —
+    // check recursively, not just the top node, so we bail instead of returning a
+    // partial garbage answer.
+    auto contains_marker = [](const Expr& e) {
+        bool found = false;
+        auto rec = [&](auto&& self, const Expr& x) -> void {
+            if (found) return;
+            if (is_integral_marker(x)) { found = true; return; }
+            for (const auto& a : x->args()) self(self, a);
+        };
+        rec(rec, e);
+        return found;
+    };
+
     Expr v = integrate(target, var);
-    if (is_integral_marker(v)) return std::nullopt;
+    if (contains_marker(v)) return std::nullopt;
 
     Expr du = diff(u, var);
     // expand so a product like (x/2 + sin(2x)/4)·2x distributes into a sum the
     // linearity path can integrate term by term (else it stays a Mul·Add that no
     // single strategy matches — e.g. ∫x²·cos²(x)).
     Expr remaining = integrate(expand(v * du), var);
-    if (is_integral_marker(remaining)) return std::nullopt;
+    if (contains_marker(remaining)) return std::nullopt;
 
     return u * v - remaining;
 }
