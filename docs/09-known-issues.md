@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-CXDIV-1 — `simplify((1+I)/(1-I))` left the complex quotient unreduced
+- **Problem:** `simplify((1+I)/(1−I))` returned `(1+I)·(1−I)⁻¹` instead of `I`;
+  `simplify(1/(1+I))` stayed `(1+I)⁻¹` instead of `1/2 − I/2`. Complex *products*
+  expand, but `simplify` never rationalized a complex denominator. (The previous
+  iteration fixed `re`/`im`; this fixes the bare `simplify`.)
+- **Fix:** exposed `rationalize_complex` (`include/sympp/functions/miscellaneous.hpp`)
+  and applied it in `simplify` right after the initial `expand`. Since a
+  rationalized quotient can be *larger* than the input (`1/(1+I)` → `1/2 − I/2`),
+  the anti-bloat guard now exempts the case where a complex denominator was
+  removed — mirroring the existing surd-denominator exemption.
+- **Verified:** `(1+I)/(1−I) → I`, `1/(1+I) → 1/2 − I/2`,
+  `(2+3I)/(1+I) → 5/2 + I/2`, `I/(2−I) → −1/5 + 2I/5`,
+  `(3+4I)/(1+2I) → 11/5 − 2I/5` — all match SymPy; real rational functions
+  (`(x²−1)/(x−1) → x+1`) and the anti-bloat guarantee (`(x+1)³` stays factored)
+  are unchanged, and a symbolic complex denominator (`1/(x−I)`) is conservatively
+  left alone.
+- **Regression test:** `SIMP-CXDIV-1` in `tests/simplify/simplify_test.cpp`
+  (`[5][simplify][complex][oracle][regression]`).
+
 ### REIM-CXDIV-1 — `re`/`im` of an expression with a complex denominator stayed unevaluated
 - **Problem:** `re((1+I)/(1−I))` and `im((1+I)/(1−I))` returned an unevaluated
   `re(...)`/`im(...)` instead of `0` and `1`. Complex *products* already expand

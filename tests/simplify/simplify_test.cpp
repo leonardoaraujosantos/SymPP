@@ -116,6 +116,31 @@ TEST_CASE("simplify: genuine reductions still fire under the guard (SIMP-4)",
     REQUIRE(oracle.equivalent(s->str(), "(exp(x) - 1)/(exp(x/2) + 1)"));
 }
 
+// SIMP-CXDIV-1: simplify rationalizes a complex denominator, reducing a complex
+// quotient to a+bI. The anti-bloat guard is exempted when a complex denominator
+// is removed (so 1/(1+I) → 1/2 − I/2 survives despite being larger).
+TEST_CASE("simplify: complex denominators rationalize (SIMP-CXDIV-1)",
+          "[5][simplify][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    REQUIRE(oracle.equivalent(
+        simplify((integer(1) + I) / (integer(1) - I))->str(), "I"));
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(1) + I, integer(-1)))->str(), "1/2 - I/2"));
+    REQUIRE(oracle.equivalent(
+        simplify((integer(2) + integer(3) * I) / (integer(1) + I))->str(),
+        "5/2 + I/2"));
+    REQUIRE(oracle.equivalent(simplify(I / (integer(2) - I))->str(),
+                              "-1/5 + 2*I/5"));
+    // A real rational function is unaffected (no spurious rationalization).
+    REQUIRE(oracle.equivalent(
+        simplify((pow(x, integer(2)) - integer(1)) / (x - integer(1)))->str(),
+        "x + 1"));
+    REQUIRE(simplify(pow(x + integer(1), integer(3)))
+            == pow(x + integer(1), integer(3)));
+}
+
 TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
           "[5][simplify][assumptions][regression]") {
     auto xp = symbol("x", AssumptionMask{}.set_positive(true));

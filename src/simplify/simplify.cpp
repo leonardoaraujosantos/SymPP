@@ -78,6 +78,22 @@ namespace {
     return false;
 }
 
+// True if e contains a complex denominator — Pow(d, negative) whose base d
+// carries the imaginary unit. A rationalized result (no such denominator) is
+// preferred even when larger, so the anti-bloat guard exempts it.
+[[nodiscard]] bool has_complex_denominator(const Expr& e) {
+    if (e->type_id() == TypeId::Pow
+        && e->args()[1]->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*e->args()[1]).is_negative()
+        && has(e->args()[0], S::I())) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_complex_denominator(a)) return true;
+    }
+    return false;
+}
+
 // True iff `e` is a rational function in its symbols — built only from
 // numbers, symbols, +, *, and integer powers. cancel()/Poly() can loop
 // forever on transcendental subexpressions (e.g. sin(x)), so simplify()
@@ -154,8 +170,9 @@ Expr simplify(const Expr& e) {
     if (!e) return e;
     // 1. Canonical form.
     Expr canon = re_canonicalize(e);
-    // 2. Expand to flush nested products.
-    Expr current = expand(canon);
+    // 2. Expand to flush nested products, then rationalize complex denominators
+    //    ((1+I)/(1-I) → I, 1/(1+I) → 1/2 − I/2).
+    Expr current = expand(rationalize_complex(expand(canon)));
     // 3. Apply pattern-based simplifiers. Each is a no-op when the input
     //    doesn't match its pattern, so chaining is safe; ordering only
     //    affects which form we land on when multiple rules could apply.
@@ -212,7 +229,11 @@ Expr simplify(const Expr& e) {
         // Exception: a rationalized surd denominator is the preferred canonical
         // form even when larger. Only fall back to canon when current did not
         // remove a surd denominator that canon still carries.
-        if (!(has_surd_denominator(canon) && !has_surd_denominator(current))) {
+        const bool removed_surd =
+            has_surd_denominator(canon) && !has_surd_denominator(current);
+        const bool removed_cx =
+            has_complex_denominator(canon) && !has_complex_denominator(current);
+        if (!removed_surd && !removed_cx) {
             return canon;
         }
     }
