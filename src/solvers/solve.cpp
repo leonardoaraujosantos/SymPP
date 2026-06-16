@@ -1013,31 +1013,42 @@ solve_lambert(const Expr& expr, const Expr& var) {
     // term and a single exp/log(var) term (each coefficient 1).
     if (expr->type_id() == TypeId::Add) {
         Expr c = S::Zero();
+        Expr a = S::Zero();  // coefficient of the bare-var term a·var
         bool have_var = false, have_trans = false, trans_is_exp = false;
         bool ok = true;
         for (const auto& t : expr->args()) {
             if (!has(t, var)) {
-                c = (c == S::Zero()) ? t : add({c, t});
-            } else if (t == var && !have_var) {
+                c = add({c, t});
+                continue;
+            }
+            // A bare-var term a·var with a var-free (a is recovered as t/var).
+            Expr q = simplify(mul(t, pow(var, integer(-1))));
+            if (!has(q, var) && !have_var) {
+                a = q;
                 have_var = true;
-            } else if (auto id = as_exp_or_log_of_var(t, var);
-                       id && !have_trans) {
+                continue;
+            }
+            // The single exp(var) or log(var) term (unit coefficient, argument var).
+            if (auto id = as_exp_or_log_of_var(t, var); id && !have_trans) {
                 have_trans = true;
                 trans_is_exp = (*id == FunctionId::Exp);
-            } else {
-                ok = false;
-                break;
+                continue;
             }
+            ok = false;
+            break;
         }
-        if (ok && have_var && have_trans) {
-            Expr negc = simplify(mul(S::NegativeOne(), c));  // −c
+        if (ok && have_var && have_trans && !(a == S::Zero())) {
+            Expr inv_a = pow(a, integer(-1));
+            Expr cc = simplify(mul(c, inv_a));  // c/a
             if (trans_is_exp) {
-                // var + e^var + c = 0 → var = −c − W(e^(−c)).
-                return std::vector<Expr>{
-                    simplify(negc - lambertw(exp(negc)))};
+                // a·var + e^var + c = 0 → var = −W(e^(−c/a)/a) − c/a.
+                Expr z = simplify(mul(exp(mul(S::NegativeOne(), cc)), inv_a));
+                return std::vector<Expr>{simplify(
+                    mul(S::NegativeOne(), lambertw(z)) + mul(S::NegativeOne(), cc))};
             }
-            // var + log(var) + c = 0 → var = W(e^(−c)).
-            return std::vector<Expr>{simplify(lambertw(exp(negc)))};
+            // a·var + log(var) + c = 0 → var = W(a·e^(−c))/a.
+            Expr z = simplify(mul(a, exp(mul(S::NegativeOne(), c))));
+            return std::vector<Expr>{simplify(mul(lambertw(z), inv_a))};
         }
     }
 

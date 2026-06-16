@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-LAMBERT-2 — `solve(eˣ = x + 2)` returned `[]`
+- **Problem:** the additive Lambert-W solver required the bare-`var` term to have a
+  unit coefficient (`t == var`), so `eˣ − x − 2 = 0` (coefficient −1 on `x`) fell
+  through and `solve` returned `[]`, even though SymPy gives `−2 − W(−e⁻²)`. The same
+  blocked `eˣ − 2x − 1`, `2x + eˣ`, `2x + log(x)`, …
+- **Fix:** generalized the additive branch of `solve_lambert`
+  (`src/solvers/solve.cpp`) to a free coefficient `a` on the var term (recovered as
+  `t/var`): `a·var + eᵛᵃʳ + c = 0 → var = −W(e^(−c/a)/a) − c/a`, and the log analogue
+  `a·var + log(var) + c = 0 → var = W(a·e^(−c))/a`. The unit-coefficient cases are the
+  `a = 1` special case, so existing results (`x + eˣ − 1 → 0`, `x + log(x) − 1 → 1`)
+  are unchanged. Matches SymPy across `eˣ − x − 2`, `2x + eˣ`, `2x + log(x)`, etc.
+
 ### SUM-ARITH-PSERIES-1 — `Σ1/(2k−1)² = π²/8` and arithmetic p-series were unevaluated
 - **Problem:** the p-series handler only recognized `1/kˢ` (base exactly the index),
   so the classic Basel relatives `Σ1/(2k−1)²=π²/8`, `Σ1/(2k)²=π²/24`, `Σ1/(2k−1)⁴=π⁴/96`

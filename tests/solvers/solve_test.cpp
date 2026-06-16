@@ -316,6 +316,21 @@ TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
     // Additive-exp: x + eˣ + c → −c − W(e^(−c)); x+eˣ−1 auto-evaluates to 0.
     REQUIRE(set_equal(solve(x + exp(x), x), {"-LambertW(1)"}));
     REQUIRE(set_equal(solve(x + exp(x) - integer(1), x), {"0"}));
+    // SOLVE-LAMBERT-2: a non-unit coefficient on the bare-var term, a·var + eᵛᵃʳ + c
+    // → var = −W(e^(−c/a)/a) − c/a (and the log analogue → W(a·e^(−c))/a). Covers
+    // eˣ = x + 2, i.e. eˣ − x − 2, which previously returned [].
+    // eˣ − x − 2 → −2 − W(−e^(−2)).
+    REQUIRE(set_equal(solve(exp(x) - x - integer(2), x),
+                      {"-2 - LambertW(-exp(-2))"}));
+    // eˣ − x → −W(−1).
+    REQUIRE(set_equal(solve(exp(x) - x, x), {"-LambertW(-1)"}));
+    // 2x + eˣ → −W(1/2).
+    REQUIRE(set_equal(solve(integer(2) * x + exp(x), x), {"-LambertW(1/2)"}));
+    // eˣ − 2x − 1 → −1/2 − W(−e^(−1/2)/2).
+    REQUIRE(set_equal(solve(exp(x) - integer(2) * x - integer(1), x),
+                      {"-1/2 - LambertW(-exp(-1/2)/2)"}));
+    // Generalized additive-log: 2x + log(x) → W(2)/2.
+    REQUIRE(set_equal(solve(integer(2) * x + log(x), x), {"LambertW(2)/2"}));
 }
 
 // SOLVE-RADPOLY-1: solve() of a polynomial in a radical x^(1/d) — e.g.
