@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-TANSEC-1 — `∫tan³(x)·sec(x)` and tan^m·sec^n products were unevaluated
+- **Problem:** `∫tan³·sec`, `∫tan²·sec`, `∫tan³·sec³` and the cot/csc analogues
+  were unevaluated. `∫tan·sec³` worked (heurisch with `u = sec`), but higher tan
+  powers need `tan² = sec²−1`, which heurisch doesn't apply.
+- **Fix:** added `try_tan_sec_product` in `src/integrals/integrate.cpp` (dispatched
+  after the pure sec/csc-power handler). For `tan(g)^m·sec(g)^n` (g affine): when
+  `m` is odd, `u = sec(g)` turns it into a polynomial `(u²−1)^((m−1)/2)·u^(n−1)`;
+  when `m` is even, `tan^m = (sec²−1)^(m/2)` is expanded to pure sec powers and
+  reduced via `try_sec_csc_power`. The cot/csc analogue carries the `d(csc) =
+  −csc·cot` sign.
+- **Verified:** `∫tan³·sec = sec³/3 − sec`, `∫tan²·sec`, `∫tan³·sec³`, `∫tan²·sec²`,
+  `∫cot³·csc`, `∫cot²·csc` — all diff-back to the integrand, matching SymPy; the
+  existing `∫tan·sec³` is unchanged.
+- **Regression test:** `INT-TANSEC-1` in `tests/integrals/integrate_test.cpp`.
+
 ### INT-PROD2SUM-1 — `∫sin(2x)·sin(3x)` and sin·sin / cos·cos products were unevaluated
 - **Problem:** `∫sin(2x)·sin(3x)`, `∫cos(2x)·cos(5x)`, `∫cos x·cos 2x·cos 3x`,
   `∫x·sin 2x·cos 3x` were unevaluated. The product-to-sum block in

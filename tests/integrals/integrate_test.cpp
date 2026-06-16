@@ -258,6 +258,32 @@ TEST_CASE("integrate: ∫1/cos(3x)^2 dx = tan(3x)/3",
     REQUIRE(oracle.equivalent(r->str(), "tan(3*x)/3"));
 }
 
+// INT-TANSEC-1: ∫tan^m·sec^n (and cot^m·csc^n). m odd → u = sec; m even → rewrite
+// tan²=sec²−1 to pure sec powers. ∫tan³·sec = sec³/3 − sec, etc. Verified by
+// diff-back at sample points (the closed forms keep sec/tan that SymPy's
+// simplify won't reduce against the integrand symbolically).
+TEST_CASE("integrate: tan^m·sec^n products (INT-TANSEC-1)",
+          "[7][integrate][trig][regression]") {
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(2, 5), rational(3, 7), rational(-1, 4)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::fabs(d) > 1e-7) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(pow(tan(x), integer(3)) * sec(x)));         // m odd
+    REQUIRE(db(pow(tan(x), integer(2)) * sec(x)));         // m even → sec powers
+    REQUIRE(db(tan(x) * pow(sec(x), integer(3))));         // m=1
+    REQUIRE(db(pow(tan(x), integer(3)) * pow(sec(x), integer(3))));
+    REQUIRE(db(pow(tan(x), integer(2)) * pow(sec(x), integer(2))));
+    REQUIRE(db(pow(cot(x), integer(3)) * csc(x)));         // cot/csc analogue
+    REQUIRE(db(pow(cot(x), integer(2)) * csc(x)));
+}
+
 // ----- Polynomial × log integration by parts (regression, INT-4) -------------
 // ∫xⁿ·log(ax+b) dx fell through: by-parts only used sin/cos/exp as the dv
 // factor, never log. Now u = log(ax+b), dv = poly dx. Verified by the oracle

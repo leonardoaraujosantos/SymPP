@@ -373,6 +373,11 @@ namespace {
 // case (INT-24) and n=2 the trig-reduction square (INT-25).
 [[nodiscard]] std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var);
 
+// ∫ tan(g)^m·sec(g)^n dx (and the cot/csc analogue), g affine. m odd ⇒ u = sec(g)
+// turns it into a polynomial in u; m even ⇒ rewrite tan²=sec²−1 to pure sec
+// powers and reduce via try_sec_csc_power. Closes ∫tan³·sec, ∫tan²·sec, …
+[[nodiscard]] std::optional<Expr> try_tan_sec_product(const Expr& expr, const Expr& var);
+
 // ∫ sech(g)^n / csch(g)^n dx (n ≥ 3 integer, g affine) — the hyperbolic analogue
 // of try_sec_csc_power. The Pythagorean sign differs (coth²−csch²=1 vs
 // csc²−cot²=1), so the csch rest term is subtracted:
@@ -543,6 +548,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_sec_csc_power(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_tan_sec_product(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sech_csch_power(expr, var); r.has_value()) {
@@ -1978,6 +1986,73 @@ std::optional<Expr> try_tanh_coth_power(const Expr& expr, const Expr& var) {
     Expr rest = integrate(pow(base, integer(n - 2)), var);
     if (is_integral_marker(rest)) return std::nullopt;
     return rest - first;
+}
+
+std::optional<Expr> try_tan_sec_product(const Expr& expr, const Expr& var) {
+    struct Pair { FunctionId tan_id; FunctionId sec_id; };
+    for (const Pair pr : {Pair{FunctionId::Tan, FunctionId::Sec},
+                          Pair{FunctionId::Cot, FunctionId::Csc}}) {
+        // Parse expr as tan(g)^m · sec(g)^n (same affine g; m,n ≥ 0 integers).
+        Expr g;
+        long m = 0;
+        long n = 0;
+        bool ok = true;
+        bool have_g = false;
+        std::vector<Expr> factors;
+        if (expr->type_id() == TypeId::Mul) {
+            for (const auto& f : expr->args()) factors.push_back(f);
+        } else {
+            factors.push_back(expr);
+        }
+        for (const auto& f : factors) {
+            Expr base = f;
+            long k = 1;
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*f->args()[1]);
+                if (!z.is_positive() || !z.fits_long()) { ok = false; break; }
+                k = z.to_long();
+                base = f->args()[0];
+            }
+            if (base->type_id() != TypeId::Function) { ok = false; break; }
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.args().size() != 1) { ok = false; break; }
+            const FunctionId id = bfn.function_id();
+            if (id != pr.tan_id && id != pr.sec_id) { ok = false; break; }
+            if (have_g && !(g == bfn.args()[0])) { ok = false; break; }
+            g = bfn.args()[0];
+            have_g = true;
+            if (id == pr.tan_id) m += k; else n += k;
+        }
+        if (!ok || !have_g || (m == 0 && n == 0)) continue;
+        auto aff = as_affine(g, var);
+        if (!aff || aff->first == S::Zero()) continue;
+        const Expr& a = aff->first;
+        Expr sec_g = (pr.sec_id == FunctionId::Sec) ? sec(g) : csc(g);
+
+        if (m % 2 == 1 && n >= 1) {
+            // u = sec(g): tan^m·sec^n = (sec²−1)^((m−1)/2)·sec^(n−1)·(sec·tan),
+            // and d(sec) = sec·tan·g' (d(csc) = −csc·cot·g'). → polynomial in u.
+            Expr u = symbol("__tansec_u");
+            Expr poly_u = expand(pow(u * u - integer(1), integer((m - 1) / 2))
+                                 * pow(u, integer(n - 1)));
+            Expr anti = integrate(poly_u, u);
+            if (is_integral_marker(anti)) continue;
+            Expr sign = (pr.tan_id == FunctionId::Cot) ? S::NegativeOne()
+                                                       : S::One();
+            return simplify(mul(sign, subs(anti, u, sec_g)) / a);
+        }
+        if (m % 2 == 0 && m > 0) {
+            // tan^m = (sec²−1)^(m/2): expand to pure sec powers, integrate those.
+            Expr rewritten = pow(pow(sec_g, integer(2)) - integer(1),
+                                 integer(m / 2))
+                             * pow(sec_g, integer(n));
+            Expr r = integrate(expand(rewritten), var);
+            if (is_integral_marker(r)) continue;
+            return r;
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var) {
