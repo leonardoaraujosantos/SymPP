@@ -191,6 +191,25 @@ TEST_CASE("Abs: pulls out a numeric coefficient", "[3d][abs][oracle][regression]
                               "2*Abs(x*y)"));
 }
 
+// ABS-EXP-1: |exp(z)| = exp(re(z)). With re() evaluating the imaginary part, this
+// yields the unit modulus |exp(I·x)| = 1 for real x (re(I·x) = 0), the general
+// |exp(x)| = exp(re(x)), and |exp(I·x)| = exp(−im(x)) for a complex x. Matches SymPy.
+TEST_CASE("Abs: |exp(z)| = exp(re(z)) (ABS-EXP-1)",
+          "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto xr = symbol("x", AssumptionMask{}.set_real(true));
+    auto x = symbol("x");  // generic
+    auto I = S::I();
+    // Real argument under I → unit modulus.
+    REQUIRE(abs(exp(mul(I, xr))) == integer(1));
+    REQUIRE(abs(exp(mul(integer(2), mul(I, xr)))) == integer(1));
+    // Generic complex argument → exp(re) / exp(-im).
+    REQUIRE(oracle.equivalent(abs(exp(x))->str(), "exp(re(x))"));
+    REQUIRE(oracle.equivalent(abs(exp(mul(I, x)))->str(), "exp(-im(x))"));
+    // Real argument (no I) stays a positive exponential.
+    REQUIRE(oracle.equivalent(abs(exp(xr))->str(), "exp(x)"));
+}
+
 TEST_CASE("Abs: pulls out positive/negative symbolic factors (ASSUME-5)",
           "[3d][abs][assumptions][regression]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));

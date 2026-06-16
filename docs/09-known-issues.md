@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### ABS-EXP-1 — `|exp(I·x)|` was not reduced (unit modulus of a complex exponential)
+- **Problem:** `abs(exp(z))` was left unevaluated for a non-real argument, so `|exp(I·x)|`
+  with `x` real stayed `Abs(exp(I·x))` instead of `1`, and the generic `|exp(x)|`,
+  `|exp(I·x)|` did not expand. SymPy returns `1`, `exp(re(x))`, `exp(−im(x))`.
+- **Fix:** added `|exp(z)| = exp(re(z))` to the `abs()` builder in
+  `src/functions/miscellaneous.cpp`. Because `re()` already evaluates the imaginary part
+  (`re(I·x) = 0` for real `x`, `re(I·x) = −im(x)` generally), this one rule covers all
+  cases: `|exp(I·x)| = 1` for real `x`, `|exp(x)| = exp(re(x))`, and `|exp(I·x)| =
+  exp(−im(x))` for complex `x`. Matches SymPy.
+
 ### TRIG-IMAG-1 — `cos(I·x)`, `sin(I·x)`, … kept their imaginary argument unevaluated
 - **Problem:** SymPP did not apply the imaginary-argument identities, so `cos(I·x)`,
   `sin(I·x)`, `tan(I·x)` and the hyperbolic mirrors stayed as written, and downstream

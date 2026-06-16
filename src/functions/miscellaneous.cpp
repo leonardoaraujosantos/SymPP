@@ -209,6 +209,15 @@ Expr abs(const Expr& arg) {
         return arg;
     }
 
+    // |exp(z)| = exp(re(z)). With re() already evaluating the imaginary part, this
+    // gives the unit modulus |exp(I·x)| = 1 for real x (re(I·x) = 0), the general
+    // |exp(x)| = exp(re(x)), and |exp(I·x)| = exp(−im(x)) for a complex x. SymPy
+    // does the same.
+    if (arg->type_id() == TypeId::Function
+        && static_cast<const Function&>(*arg).function_id() == FunctionId::Exp) {
+        return exp(re(arg->args()[0]));
+    }
+
     // Complex number a + b·I with rational parts → sqrt(a² + b²) (the modulus).
     // Covers Abs(I) = 1, Abs(b·I) = |b|, Abs(3 + 4·I) = 5, etc.
     if (auto z = rational_complex(arg); z.has_value() && z->second != S::Zero()) {
