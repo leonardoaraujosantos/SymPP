@@ -636,6 +636,11 @@ Expr tan(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         return tan(rest);
     }
+    // Co-function at a half-period shift: tan(rest + (m/2)π) = −cot(rest) for any
+    // odd m (π-periodic, so the sign is m-independent). tan(π/2 − x) = cot(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        return mul(S::NegativeOne(), cot(rest));
+    }
 
     // Odd: tan(-x) = -tan(x)
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -680,6 +685,11 @@ Expr cot(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         return cot(rest);
     }
+    // Co-function at a half-period shift: cot(rest + (m/2)π) = −tan(rest) for any
+    // odd m. cot(π/2 − x) = tan(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        return mul(S::NegativeOne(), tan(rest));
+    }
     // Odd: cot(-x) = -cot(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Cot>(*pos));
@@ -714,6 +724,12 @@ Expr sec(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         bool odd = mpz_odd_p(c.get_num_mpz_t());
         return odd ? mul(S::NegativeOne(), sec(rest)) : sec(rest);
+    }
+    // Co-function at a half-period shift (period 2π): sec(rest + (m/2)π) =
+    // −csc(rest) for m ≡ 1 (mod 4), +csc(rest) for m ≡ 3. sec(π/2 − x) = csc(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+        return (m4 == 1) ? mul(S::NegativeOne(), csc(rest)) : csc(rest);
     }
     // Even: sec(-x) = sec(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -751,6 +767,12 @@ Expr csc(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         bool odd = mpz_odd_p(c.get_num_mpz_t());
         return odd ? mul(S::NegativeOne(), csc(rest)) : csc(rest);
+    }
+    // Co-function at a half-period shift (period 2π): csc(rest + (m/2)π) =
+    // +sec(rest) for m ≡ 1 (mod 4), −sec(rest) for m ≡ 3. csc(π/2 − x) = sec(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+        return (m4 == 1) ? sec(rest) : mul(S::NegativeOne(), sec(rest));
     }
     // Odd: csc(-x) = -csc(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-COFUNC-1 — `tan(π/2−x)` did not fold to `cot(x)` (half-period co-functions)
+- **Problem:** the `tan`/`cot`/`sec`/`csc` builders reduced an *integer*-π shift
+  (`c.get_den()==1`) but not a *half*-period shift (`(m/2)·π`, `m` odd), so the co-function
+  identities `tan(π/2−x)`, `cot(π/2±x)`, `sec(π/2±x)`, `csc(π/2±x)` stayed unevaluated where
+  SymPy returns `cot(x)`, `∓tan(x)`, `∓csc(x)`, `±sec(x)`. (An old test even asserted the
+  miss, on the false premise "SymPP has no cot".)
+- **Fix:** added the `c.get_den()==2` case to all four builders in
+  `src/functions/trigonometric.cpp`, mirroring the existing `sin`/`cos` co-function block.
+  `tan`/`cot` are π-periodic so the sign is `m`-independent: `tan(rest+(m/2)π) = −cot(rest)`,
+  `cot(rest+(m/2)π) = −tan(rest)`. `sec`/`csc` are 2π-periodic so the sign follows `m mod 4`:
+  `sec → ∓csc`, `csc → ±sec`. The `rest`'s own parity (e.g. `rest=−x`) is handled by the
+  target builder, so `tan(π/2−x) → −cot(−x) → cot(x)`. Matches SymPy.
+
 ### CHANGE-OF-BASE-1 — `2^(log x/log 2)` did not collapse to `x`
 - **Problem:** a change-of-base exponential `a^(log b / log a)` (i.e. `a^(log_a b)`) was left
   unevaluated — `2^(log x/log 2)`, `3^(2·log x/log 3)`, `x^(log y/log x)` stayed as powers
