@@ -2836,3 +2836,31 @@ TEST_CASE("integrate: even numerator over biquadratic (INT-BIQUAD-NUM-1)",
         REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
     }
 }
+
+// INT-SINCOS-QUOT-1: ∫ sinᵐ(x)cosⁿ(x) dx for a sin/cos quotient (one negative
+// power) with at least one ODD exponent, e.g. ∫cos²/sin, ∫sin³/cos², ∫cos²/sin³.
+// The substitution u=sin(x) (cos odd) or u=cos(x) (sin odd) makes the integrand
+// rational in u, which the rational path closes; previously all unevaluated.
+// Verified by differentiating back.
+TEST_CASE("integrate: sin/cos quotients with an odd power (INT-SINCOS-QUOT-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sc = [&](long m, long n) {
+        return pow(sin(x), integer(m)) * pow(cos(x), integer(n));
+    };
+    const std::vector<Expr> integrands = {
+        sc(-1, 2),  // cos²/sin
+        sc(2, -1),  // sin²/cos
+        sc(3, -1),  // sin³/cos
+        sc(-1, 3),  // cos³/sin
+        sc(3, -2),  // sin³/cos²
+        sc(-3, 2),  // cos²/sin³
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}

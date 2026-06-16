@@ -357,6 +357,10 @@ namespace {
 // polynomial; both even → half-angle reduction, recursing via integrate.
 [[nodiscard]] std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var);
 
+// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient with one odd exponent (u-sub → rational).
+[[nodiscard]] std::optional<Expr> try_sin_cos_quotient(const Expr& expr,
+                                                       const Expr& var);
+
 // ∫ tan(g)^n dx (n ≥ 2 integer, g affine) via the reduction
 // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
 [[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
@@ -551,6 +555,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_tan_sec_product(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_sin_cos_quotient(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sech_csch_power(expr, var); r.has_value()) {
@@ -1851,7 +1858,7 @@ struct SinCosPowers { Expr g; long m; long n; };
             const Expr& e = f->args()[1];
             if (e->type_id() != TypeId::Integer) return false;
             const auto& z = static_cast<const Integer&>(*e);
-            if (!z.is_positive() || !z.fits_long()) return false;
+            if (z.is_zero() || !z.fits_long()) return false;
             k = z.to_long();
             base = f->args()[0];
         }
@@ -1872,7 +1879,8 @@ struct SinCosPowers { Expr g; long m; long n; };
     } else if (!take(expr)) {
         return std::nullopt;
     }
-    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    const long deg = (m < 0 ? -m : m) + (n < 0 ? -n : n);
+    if (!g || deg == 0 || deg > 24) return std::nullopt;
     return SinCosPowers{g, m, n};
 }
 
@@ -1884,6 +1892,7 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     const Expr& g = parsed->g;
     const long m = parsed->m;
     const long n = parsed->n;
+    if (m < 0 || n < 0) return std::nullopt;  // quotients: try_sin_cos_quotient
     auto aff = as_affine(g, var);
     if (!aff || aff->first == S::Zero()) return std::nullopt;
     const Expr& a = aff->first;  // dg/dx
@@ -1917,6 +1926,68 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     Expr c2 = (integer(1) + cos(two_g)) / integer(2);
     Expr rewritten = pow(s2, integer(m / 2)) * pow(c2, integer(n / 2));
     return integrate(expand(rewritten), var);
+}
+
+// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient (m<0 or n<0) with at least one ODD
+// exponent. Substituting u=sin(g) (n odd) or u=cos(g) (m odd) turns the integrand
+// into a RATIONAL function of u, which integrate()/try_rational closes. Covers
+// ∫cos²/sin, ∫sin²/cos, ∫sin³/cos, ∫cos³/sin, ∫sin³/cos², ∫cos²/sin³, …
+// Both-even quotients (e.g. cos⁴/sin²) need a half-angle pass and are left alone.
+std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
+    auto parsed = parse_sin_cos_powers(expr);
+    if (!parsed) return std::nullopt;
+    const Expr& g = parsed->g;
+    const long m = parsed->m;
+    const long n = parsed->n;
+    if (m >= 0 && n >= 0) return std::nullopt;  // positives: try_trig_power
+    const bool m_odd = (m % 2) != 0;
+    const bool n_odd = (n % 2) != 0;
+    if (!m_odd && !n_odd) return std::nullopt;  // both even: needs half-angle
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;  // dg/dx
+
+    Expr u = symbol("_u_trigquot");
+    Expr result;
+    if (n_odd) {
+        // u = sin(g): cosⁿ = cos·(1−u²)^k, cos·dx = du/a.
+        const long k = (n - 1) / 2;
+        Expr integrand = pow(u, integer(m))
+                         * pow(integer(1) - pow(u, integer(2)), integer(k));
+        Expr anti = integrate(integrand, u);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = subs(anti, u, sin(g)) / a;
+    } else {
+        // m odd: u = cos(g): sinᵐ = sin·(1−u²)^k, sin·dx = −du/a.
+        const long k = (m - 1) / 2;
+        Expr integrand = pow(integer(1) - pow(u, integer(2)), integer(k))
+                         * pow(u, integer(n));
+        Expr anti = integrate(integrand, u);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = mul(S::NegativeOne(), subs(anti, u, cos(g))) / a;
+    }
+
+    // Numeric diff-back: the rational sub-integral recurses through several
+    // integrators; verify d/dx == the integrand so a mis-step fails to a
+    // marker, not a wrong answer.
+    Expr resid = diff(result, var) - expr;
+    int checks = 0;
+    int bad = 0;
+    for (int num : {3, 7, 13, 19}) {
+        Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+        if (val->type_id() != TypeId::Float) continue;
+        double dd = 0.0;
+        try {
+            dd = std::stod(val->str());
+        } catch (...) {
+            continue;
+        }
+        if (!std::isfinite(dd)) continue;
+        ++checks;
+        if (std::fabs(dd) > 1e-6) ++bad;
+    }
+    if (checks == 0 || bad > 0) return std::nullopt;
+    return expand(result);
 }
 
 std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
@@ -2169,7 +2240,8 @@ namespace {
     } else if (!take(expr)) {
         return std::nullopt;
     }
-    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    const long deg = (m < 0 ? -m : m) + (n < 0 ? -n : n);
+    if (!g || deg == 0 || deg > 24) return std::nullopt;
     return SinCosPowers{g, m, n};
 }
 

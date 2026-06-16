@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-SINCOS-QUOT-1 — `∫cos²/sin`, `∫sin³/cos²` and sin/cos quotients were unevaluated
+- **Problem:** sin/cos quotients such as `∫cos²/sin`, `∫sin²/cos`, `∫sin³/cos`,
+  `∫cos³/sin`, `∫sin³/cos²`, `∫cos²/sin³` all returned unevaluated. `try_trig_power`
+  had the right `u = sin`/`u = cos` substitution machinery but `parse_sin_cos_powers`
+  only accepted non-negative exponents, so every quotient fell through.
+- **Fix:** `parse_sin_cos_powers` now accepts negative integer exponents (the degree
+  guard uses `|m|+|n|`), and a new `try_sin_cos_quotient` in
+  `src/integrals/integrate.cpp` (dispatched after `try_tan_sec_product`) handles the
+  quotient case. When at least one exponent is odd, substituting `u = sin(g)` (cos
+  odd) or `u = cos(g)` (sin odd) turns the integrand into a *rational* function of
+  `u`, which `try_rational` closes. A numeric diff-back self-check gates the result,
+  so a mis-step fails to a marker rather than a wrong answer. `try_trig_power` keeps
+  its positive-only path (an early `m<0||n<0` guard) so existing sec/csc/tan handlers
+  are not shadowed. Both-even quotients (e.g. `cos⁴/sin²`) need a half-angle pass and
+  are still left unevaluated.
+
 ### INT-TANSEC-1 — `∫tan³(x)·sec(x)` and tan^m·sec^n products were unevaluated
 - **Problem:** `∫tan³·sec`, `∫tan²·sec`, `∫tan³·sec³` and the cot/csc analogues
   were unevaluated. `∫tan·sec³` worked (heurisch with `u = sec`), but higher tan
