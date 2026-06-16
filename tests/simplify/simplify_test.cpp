@@ -1475,3 +1475,36 @@ TEST_CASE("simplify: log ratio of commensurate integers (SIMPLIFY-LOGRATIO-1)",
                                   ->str(),
                               "3*x"));
 }
+
+// CHANGE-OF-BASE-1: base^(num·log(base)⁻¹) = exp(num), so a change-of-base
+// exponential a^(log b / log a) collapses to b (and the coefficient k carries:
+// a^(k·log b/log a) = bᵏ). Closes 2^(log x/log 2) → x, x^(log y/log x) → y.
+TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // 2^(log x / log 2) = x ; 10^(log x / log 10) = x.
+    REQUIRE(simplify(pow(integer(2), mul(log(x), inv(log(integer(2)))))) == x);
+    REQUIRE(simplify(pow(integer(10), mul(log(x), inv(log(integer(10)))))) == x);
+    // Coefficient in the exponent: 3^(2·log x / log 3) = x².
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(3),
+                     mul({integer(2), log(x), inv(log(integer(3)))})))->str(),
+        "x**2"));
+    // Symbolic base: x^(log y / log x) = y.
+    REQUIRE(simplify(pow(x, mul(log(y), inv(log(x))))) == y);
+    // Numeric cross-base: 5^(log 7 / log 5) = 7.
+    REQUIRE(simplify(pow(integer(5),
+                         mul(log(integer(7)), inv(log(integer(5)))))) ==
+            integer(7));
+    // Non-log exponent: 2^(x / log 2) = exp(x).
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(2), mul(x, inv(log(integer(2))))))->str(),
+        "exp(x)"));
+    // No misfire: a log(base) *factor* (not 1/log(base)) is left alone.
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(2), mul(log(x), log(integer(2)))))->str(),
+        "2**(log(2)*log(x))"));
+}

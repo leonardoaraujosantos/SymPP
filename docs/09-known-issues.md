@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### CHANGE-OF-BASE-1 — `2^(log x/log 2)` did not collapse to `x`
+- **Problem:** a change-of-base exponential `a^(log b / log a)` (i.e. `a^(log_a b)`) was left
+  unevaluated — `2^(log x/log 2)`, `3^(2·log x/log 3)`, `x^(log y/log x)` stayed as powers
+  where SymPy returns `x`, `x²`, `y`.
+- **Fix:** added `change_of_base_pow` to the `simplify` pipeline (`src/simplify/simplify.cpp`).
+  Since `base^e = exp(e·log base)`, an exponent carrying a `log(base)⁻¹` factor cancels it:
+  `base^(num·log(base)⁻¹) = exp(num)`, and a `num` of the form `k·log b` then folds to `bᵏ`
+  at construction. The `log(base)` must be a genuine `Log` node (guards against `base = E`,
+  where `log = 1`). `2^(log x/log 2) → x`, `3^(2·log x/log 3) → x²`, `x^(log y/log x) → y`,
+  `2^(x/log 2) → exp(x)`. A `log(base)` *factor* (not its reciprocal) is left alone.
+  Matches SymPy.
+
 ### MOD-DIVIDEND-REDUCE-1 — `Mod(x+5,3)` did not reduce its numeric constant
 - **Problem:** `mod()` evaluated a fully numeric `Mod` and handled the structural
   identities (`Mod(0,q)`, `Mod(x,x)`, `Mod(n,1)`), but left a symbolic dividend's numeric

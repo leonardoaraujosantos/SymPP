@@ -167,6 +167,7 @@ namespace {
 [[nodiscard]] Expr log_ratio(const Expr& e);
 [[nodiscard]] Expr sign_abs_mul(const Expr& e);
 [[nodiscard]] Expr abs_mul_combine(const Expr& e);
+[[nodiscard]] Expr change_of_base_pow(const Expr& e);
 
 }  // namespace
 
@@ -189,6 +190,7 @@ Expr simplify(const Expr& e) {
     current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
     current = pow_of_pow(current);
+    current = change_of_base_pow(current);
     current = combsimp(current);
     current = gammasimp(current);
     current = radsimp(current);
@@ -663,6 +665,47 @@ template <typename NodeFn>
 }
 
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
+
+// Change-of-base exponential: base^(num·log(base)⁻¹) = exp(num). Since
+// base^e = exp(e·log base), an exponent carrying a 1/log(base) factor cancels it,
+// leaving exp(num); a num of the form k·log(b) then folds to bᵏ. Closes
+// 2^(log x/log 2) → x, 3^(2·log x/log 3) → x², x^(log y/log x) → y.
+[[nodiscard]] Expr change_of_base_pow_node(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return e;
+    const Expr& base = e->args()[0];
+    const Expr& exponent = e->args()[1];
+    // log(base) must be a genuine Log node — not folded to a number (e.g. base = E
+    // gives log = 1, which would make the 1/log(base) factor vanish spuriously).
+    Expr lb = log(base);
+    if (lb->type_id() != TypeId::Function
+        || static_cast<const Function&>(*lb).function_id() != FunctionId::Log) {
+        return e;
+    }
+    const Expr inv_lb = pow(lb, S::NegativeOne());
+    Expr num;
+    if (exponent == inv_lb) {
+        num = S::One();
+    } else if (exponent->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        bool found = false;
+        for (const auto& f : exponent->args()) {
+            if (!found && f == inv_lb) {
+                found = true;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!found) return e;
+        num = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    } else {
+        return e;
+    }
+    return exp(num);  // exp(log b)=b, exp(k·log b)=bᵏ fold at construction
+}
+
+Expr change_of_base_pow(const Expr& e) {
+    return apply_recursive(e, change_of_base_pow_node);
+}
 
 Expr radical_coeff(const Expr& e) {
     return apply_recursive(e, radical_coeff_node);
