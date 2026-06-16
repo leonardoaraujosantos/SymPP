@@ -116,6 +116,43 @@ TEST_CASE("solve: cubic via rational-root deflation", "[10][solve][oracle]") {
     }
 }
 
+// SOLVE-CPLXFORM-1: complex polynomial roots are returned distributed as a + b·I,
+// not as the ½·(…) prefactor form Cardano/the quadratic formula build internally.
+// Asserts the exact string so it would fail on the un-normalized output.
+TEST_CASE("solve: complex roots in distributed a+b*I form (SOLVE-CPLXFORM-1)",
+          "[10][solve][regression]") {
+    auto x = symbol("x");
+    auto str_set = [](const std::vector<Expr>& got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && got[i]->str() == w) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // x² − 2x + 5 = 0 → 1 ± 2I (was ½·(4I+2) before normalization).
+    REQUIRE(str_set(solve(pow(x, integer(2)) - integer(2) * x + integer(5), x),
+                    {"2*I + 1", "-2*I + 1"}));
+    // x⁴ + 4 = 0 → the four Gaussian roots ±1 ± I.
+    REQUIRE(str_set(solve(pow(x, integer(4)) + integer(4), x),
+                    {"I + 1", "-I + 1", "I - 1", "-I - 1"}));
+    // Cardano complex pair: x³ − 8 = 0 → 2, −1 ± √3·I.
+    REQUIRE(str_set(
+        solve(pow(x, integer(3)) - integer(8), x),
+        {"2", "I*3**(1/2) - 1", "-I*3**(1/2) - 1"}));
+    // Real roots are untouched (golden ratio stays exact, just distributed).
+    REQUIRE(str_set(solve(pow(x, integer(2)) - x - integer(1), x),
+                    {"1/2*5**(1/2) + 1/2", "-1/2*5**(1/2) + 1/2"}));
+}
+
 // ----- transcendental solve (regression, issue #11 / SOLVE-1) ----------------
 // solve() used to be polynomial-only and returned [] for equations that
 // solveset solves via the _invert chain (log/exp/sinh/…). It now falls back

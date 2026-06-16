@@ -1747,6 +1747,15 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     std::erase_if(roots, [&](const Expr& r) {
         return r->type_id() != TypeId::RootOf && has(r, var);
     });
+    // Normalize each root to distributed form. Cardano/quadratic emit a complex
+    // root as ½·(−1 ± I·√3) etc.; expand distributes the rational prefactor so it
+    // reads as the a + b·I that SymPy returns (−1 + √3·I), and collapses the
+    // factor-of-2 (½·(2·I − 2) → I − 1). Applied before dedup so forms that only
+    // differ by distribution collapse to one. A RootOf carries its defining poly
+    // and must stay intact.
+    for (auto& r : roots) {
+        if (r->type_id() != TypeId::RootOf) r = expand(r);
+    }
     // Deduplicate: solve_poly emits a root once per factor, so a repeated factor
     // ((x+2)² , x²·(x−1)) yields duplicates. SymPy's solve returns the distinct
     // solution set, so collapse structurally-equal roots (order preserved).

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-CPLXFORM-1 — complex polynomial roots came back as `½·(…)` not `a + b·I`
+- **Problem:** Cardano (and the quadratic formula) build a complex root as a rational
+  prefactor times a sum — `½·(2·I − 2)`, `1/16·(4·I·√3 − 4)` — and `solve` returned it
+  undistributed. The values were correct but read nothing like SymPy's `−1 + I`,
+  `−1 + √3·I`. `solve(x³−8)` gave `[2, ½·(2I√3−2), …]` where SymPy gives `[2, −1+√3·I, …]`.
+- **Fix:** in `src/solvers/solve.cpp`, after the var-filter and before dedup, map each
+  root through `expand` (RootOf exempt — it embeds its defining polynomial). `expand`
+  distributes the rational prefactor and collapses the factor of two, so a complex root
+  reads as `a + b·I` and a real root as its distributed surd (`½·√5 + ½`). Done before
+  dedup so roots differing only by distribution collapse to one. All solve tests assert by
+  numeric `oracle.equivalent`, so no value changes — only the surface form, now matching
+  SymPy. `x²−2x+5 → 1 ± 2I`, `x⁴+4 → ±1 ± I`, `x³−8 → 2, −1 ± √3·I`.
+
 ### SUM-SHIFT-1 — infinite sums starting at an index ≠ 1 missed the closed-form handlers
 - **Problem:** most closed-form `summation` handlers (arithmetic p-series, ζ, cotangent)
   key on `lo == 1`. So the *standard* odd p-series written from zero,
