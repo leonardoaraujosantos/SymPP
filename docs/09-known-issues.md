@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-TELESCOPE-3 — `Σ(2k+1)/(k²(k+1)²)=1` (repeated-root telescoping) was unevaluated
+- **Problem:** rational summands that telescope only after partial fractions —
+  `(2k+1)/(k²(k+1)²) = 1/k² − 1/(k+1)²`, `(3k²+3k+1)/(k³(k+1)³) = 1/k³ − 1/(k+1)³` —
+  were unevaluated. The explicit-difference check sees `g(k)−g(k+1)` only when the
+  summand is already written that way, and `telescope_rational` skips repeated roots.
+- **Fix:** in `src/calculus/summation.cpp`, before the expand-and-recurse, `apart()`
+  the rational summand; if it becomes a 2-term `g(k) − g(k+1)`, return the telescoping
+  closed form `g(lo) − g(hi+1)`. A pole guard (no integer root of the denominator
+  ≥ `lo`, plus a finite-endpoint check) prevents a bogus singular value when a pole
+  lies in the range (`Σ_{k=1} 1/(k(k−1))` stays unevaluated; `Σ_{k=2}` now closes to 1).
+  A residual ζ part (`1/(k²(k+1)) → −1/k+1/(k+1)+1/k²`, a 3-term apart) falls through.
+
 ### SOLVE-RADISOLATE-2 — `solve(√x + √(x+1) = 3)` returned `[]`
 - **Problem:** the isolate-and-square radical solver handled exactly **one** square
   root, so equations with two — `√x + √(x+1) = 3` (→ 16/9), `√(2x+1) − √x = 1`

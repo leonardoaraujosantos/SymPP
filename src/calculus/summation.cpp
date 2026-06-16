@@ -697,6 +697,79 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // structure ((k²−1)/(k+1)! telescopes as a whole, not term by term).
     if (auto r = sum_factorial_telescope(expr, var, lo, hi)) return *r;
 
+    // Repeated-root rational that telescopes after partial fractions: e.g.
+    // (2k+1)/(k²(k+1)²) = 1/k² − 1/(k+1)², (3k²+3k+1)/(k³(k+1)³) = 1/k³ − 1/(k+1)³.
+    // apart() exposes the g(k) − g(k+1) form that the explicit-difference check at the
+    // top misses on the combined fraction (and telescope_rational skips for repeated
+    // roots). Must run before the expand-and-recurse below, which would split the
+    // numerator into non-telescoping pieces. Only the clean 2-term case is taken; a
+    // residual ζ part (1/(k²(k+1)) → −1/k+1/(k+1)+1/k², a 3-term apart) falls through.
+    if (expr->type_id() == TypeId::Mul || expr->type_id() == TypeId::Pow) {
+        try {
+            Expr a = apart(expr, var);
+            if (a->type_id() == TypeId::Add && a->args().size() == 2) {
+                const Expr& t0 = a->args()[0];
+                const Expr& t1 = a->args()[1];
+                Expr g;
+                if (simplify(t1 + subs(t0, var, var + integer(1))) == S::Zero()) {
+                    g = t0;
+                } else if (simplify(t0 + subs(t1, var, var + integer(1)))
+                           == S::Zero()) {
+                    g = t1;
+                }
+                // Pole guard: an integer root of the summand's denominator that is
+                // ≥ lo lies in the range, making the summand undefined; the
+                // telescoping formula would otherwise emit a bogus singular value.
+                bool safe = bool(g);
+                if (safe) {
+                    Expr denom = S::One();
+                    std::vector<Expr> facs =
+                        expr->type_id() == TypeId::Mul
+                            ? std::vector<Expr>(expr->args().begin(),
+                                                expr->args().end())
+                            : std::vector<Expr>{expr};
+                    for (const auto& f : facs) {
+                        if (f->type_id() == TypeId::Pow
+                            && f->args()[1]->type_id() == TypeId::Integer
+                            && static_cast<const Integer&>(*f->args()[1])
+                                   .is_negative()) {
+                            const long e2 = -static_cast<const Integer&>(
+                                                 *f->args()[1])
+                                                 .to_long();
+                            denom = mul(denom, pow(f->args()[0], integer(e2)));
+                        }
+                    }
+                    if (has(denom, var)) {
+                        try {
+                            Poly pd(expand(denom), var);
+                            for (const auto& r : pd.roots()) {
+                                if (r->type_id() != TypeId::Integer) continue;
+                                if (is_positive(simplify(lo - r))
+                                    != std::optional<bool>{true}) {
+                                    safe = false;  // root ≥ lo: pole in range
+                                    break;
+                                }
+                            }
+                        } catch (const std::exception&) {
+                            // denominator roots not resolvable — keep it safe-ish:
+                            // verify the endpoints are finite below.
+                        }
+                    }
+                }
+                if (safe) {
+                    Expr res = simplify(subs(g, var, lo)
+                                        - subs(g, var, hi + integer(1)));
+                    if (res->type_id() != TypeId::ComplexInfinity
+                        && res->type_id() != TypeId::NaN && !has(res, var)) {
+                        return res;
+                    }
+                }
+            }
+        } catch (const std::exception&) {
+            // not a rational function — fall through.
+        }
+    }
+
     // A product or power that expands to a sum — e.g. k·(k+1) → k²+k,
     // (k+1)² → k²+2k+1, (k+1)·2ᵏ → k·2ᵏ+2ᵏ — isn't matched by the closed forms
     // below. Expand and recurse so linearity splits it into terms each of which

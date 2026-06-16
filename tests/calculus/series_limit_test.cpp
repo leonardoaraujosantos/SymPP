@@ -915,6 +915,47 @@ TEST_CASE("summation: higher-degree telescoping rationals (SUM-TELESCOPE-2)",
         "n*(n+3)/(4*(n+1)*(n+2))"));
 }
 
+// SUM-TELESCOPE-3: a repeated-root rational that telescopes after partial fractions,
+// (k+1)^j − k^j over k^j(k+1)^j = 1/k^j − 1/(k+1)^j. apart() exposes the g(k)−g(k+1)
+// form the explicit-difference check misses on the combined fraction. Closes
+// Σ(2k+1)/(k²(k+1)²)=1 and Σ(3k²+3k+1)/(k³(k+1)³)=1; previously unevaluated. A
+// residual ζ part (1/(k²(k+1)) → π²/6−1) is a 3-term apart and stays unevaluated.
+TEST_CASE("summation: repeated-root telescoping via apart (SUM-TELESCOPE-3)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto one = integer(1);
+    const Expr oo = S::Infinity();
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    auto cube = [&](const Expr& e) { return pow(e, integer(3)); };
+    // Σ_{k=1}^∞ (2k+1)/(k²(k+1)²) = 1.
+    REQUIRE(oracle.equivalent(
+        summation((integer(2) * k + one)
+                      * pow(sq(k) * sq(k + one), integer(-1)),
+                  k, one, oo)
+            ->str(),
+        "1"));
+    // Σ_{k=1}^∞ (3k²+3k+1)/(k³(k+1)³) = 1.
+    REQUIRE(oracle.equivalent(
+        summation((integer(3) * sq(k) + integer(3) * k + one)
+                      * pow(cube(k) * cube(k + one), integer(-1)),
+                  k, one, oo)
+            ->str(),
+        "1"));
+    // Finite form: Σ_{k=1}^n (2k+1)/(k²(k+1)²) = 1 − 1/(n+1)².
+    REQUIRE(oracle.equivalent(
+        summation((integer(2) * k + one)
+                      * pow(sq(k) * sq(k + one), integer(-1)),
+                  k, one, n)
+            ->str(),
+        "1 - 1/(n+1)**2"));
+    // A residual-ζ case must NOT be given a bogus telescoping value (stays a Sum).
+    REQUIRE(summation(pow(sq(k) * (k + one), integer(-1)), k, one, oo)
+                ->str()
+                .find("Sum(") != std::string::npos);
+}
+
 // SUM-FACT-TELESCOPE-1: Σ P(k)/(k+m)! with deg P ≥ 1 — Gosper for a factorial
 // denominator. The antidifference g(k)=Q(k)/(k+m−1)! exists iff Q(k)(k+m)−Q(k+1)=P(k)
 // is consistent (a constant numerator like 1/(k+1)! → e−2 is not telescoping and
