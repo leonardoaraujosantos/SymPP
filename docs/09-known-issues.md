@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### ILAPLACE-REPQUAD-1 — `iL{N(s)/(s²+a²)²}` was unevaluated (repeated irreducible quadratic)
+- **Problem:** the inverse Laplace handled simple poles and the irreducible quadratic
+  `(αs+β)/((s−a)²+b²)`, but a *repeated* irreducible quadratic denominator
+  `(s²+a²)²` (which SymPP expands to a quartic, e.g. `s²/(8s²+s⁴+16)`) had no handler:
+  `s/(s²+4)²`, `1/(s²+1)²`, `s/(s²+1)²`, `(s²−1)/(s²+1)²` all returned an unevaluated
+  `InverseLaplaceTransform(…)`. This is the inverse of the LAPLACE-TMULT-1 rule
+  (`L{t·sin/t·cos}` lands exactly on these), so the pair was asymmetric.
+- **Fix:** added `inverse_laplace_repeated_quad` in `src/integrals/transforms.cpp`,
+  dispatched before the generic `inverse_laplace_term`. It splits `F = N·D^(-1)` with `D`
+  a quartic, builds `Poly(expand(D), s)`, requires the odd coefficients to vanish and the
+  even ones to form a perfect square `(s²+a²)²` (`a²=p/2`, `a²²==q`, `a²>0`), then
+  decomposes the degree-≤2 numerator over the three basis inverses
+  `iL{1/(s²+a²)²}=(sin at − a·t·cos at)/(2a³)`, `iL{s/(s²+a²)²}=t·sin at/(2a)`,
+  `iL{s²/(s²+a²)²}=sin at/(2a)+t·cos at/2`. `s/(s²+4)²→t·sin 2t/4`,
+  `1/(s²+1)²→(sin t−t·cos t)/2`, `(s²−1)/(s²+1)²→t·cos t`. Matches SymPy.
+
 ### LAPLACE-TMULT-1 — `L{t·cos t}` was unevaluated (multiplication-by-tⁿ rule)
 - **Problem:** the Laplace transform handled `tⁿ` and the s-shift `L{e^(at)·g}=G(s−a)`,
   so `t·e^t` worked, but `t·cos t`, `t·sin t`, `t²·cos t`, `t·sinh t` (a `t` factor times
