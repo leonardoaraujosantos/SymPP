@@ -915,6 +915,39 @@ TEST_CASE("summation: higher-degree telescoping rationals (SUM-TELESCOPE-2)",
         "n*(n+3)/(4*(n+1)*(n+2))"));
 }
 
+// SUM-FACT-TELESCOPE-1: Σ P(k)/(k+m)! with deg P ≥ 1 — Gosper for a factorial
+// denominator. The antidifference g(k)=Q(k)/(k+m−1)! exists iff Q(k)(k+m)−Q(k+1)=P(k)
+// is consistent (a constant numerator like 1/(k+1)! → e−2 is not telescoping and
+// stays unevaluated). Closes Σk/(k+1)!=1 and Σ(k²−1)/(k+1)!=1; previously left a
+// partially-split unevaluated Sum. Matches SymPy.
+TEST_CASE("summation: factorial telescoping Σ P(k)/(k+m)! (SUM-FACT-TELESCOPE-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto one = integer(1);
+    const Expr oo = S::Infinity();
+    auto inv_fact = [&](const Expr& a) {
+        return pow(factorial(a), integer(-1));
+    };
+    // Σ_{k=1}^∞ k/(k+1)! = 1.
+    REQUIRE(oracle.equivalent(
+        summation(k * inv_fact(k + one), k, one, oo)->str(), "1"));
+    // Σ_{k=1}^∞ (k²−1)/(k+1)! = 1 (telescopes as a whole, not term by term).
+    REQUIRE(oracle.equivalent(
+        summation((pow(k, integer(2)) - one) * inv_fact(k + one), k, one, oo)
+            ->str(),
+        "1"));
+    // Finite form: Σ_{k=1}^n k/(k+1)! = 1 − 1/(n+1)!.
+    REQUIRE(oracle.equivalent(
+        summation(k * inv_fact(k + one), k, one, n)->str(),
+        "1 - 1/factorial(n+1)"));
+    // A non-telescoping numerator (constant) is NOT given a bogus closed form —
+    // Σ 1/(k+1)! is e−2, which this handler must reject (stays unevaluated here).
+    REQUIRE(summation(inv_fact(k + one), k, one, oo)->str().find("Sum(")
+            != std::string::npos);
+}
+
 // SUM-BINOMIAL-1: the binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. A summand
 // binomial(n,k)·base^(a·k+b) (geometric factor optional), where n is exactly the
 // binomial's first arg, closes to const·base^b·(1+base^a)ⁿ.

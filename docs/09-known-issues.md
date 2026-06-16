@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-FACT-TELESCOPE-1 — `Σ k/(k+1)! = 1` (factorial telescoping) was unevaluated
+- **Problem:** sums like `Σ_{k=1}^∞ k/(k+1)! = 1` and `Σ (k²−1)/(k+1)! = 1` were left as
+  a partially-split unevaluated `Sum`. The exponential-series handler only matches a
+  `k!` denominator (`Σ P(k)/k!`), and the generic expand-and-recurse splits the
+  numerator — destroying the telescoping structure (these telescope as a whole, not
+  term by term).
+- **Fix:** added `sum_factorial_telescope` in `src/calculus/summation.cpp` — Gosper's
+  algorithm specialized to a factorial denominator `(k+m)!`. The antidifference, if it
+  exists, is `g(k) = Q(k)/(k+m−1)!` with `P(k)/(k+m)! = g(k) − g(k+1)`; multiplying by
+  `(k+m)!` gives the polynomial identity `Q(k)·(k+m) − Q(k+1) = P(k)`, solved top-down
+  for `Q` of degree `deg(P)−1`. The constant-term equation is a consistency check that
+  fails for non-telescoping terms (`1/(k+1)! → e−2` is left unevaluated, correctly).
+  The sum is then `g(lo) − g(hi+1)` (`g(∞)=0`). Dispatched before the expand-and-recurse
+  so the numerator stays intact. Handles infinite and finite ranges
+  (`Σ_{k=1}^n k/(k+1)! = 1 − 1/(n+1)!`). Matches SymPy.
+
 ### SOLVE-LAMBERT-2 — `solve(eˣ = x + 2)` returned `[]`
 - **Problem:** the additive Lambert-W solver required the bare-`var` term to have a
   unit coefficient (`t == var`), so `eˣ − x − 2 = 0` (coefficient −1 on `x`) fell

@@ -401,6 +401,110 @@ namespace {
     return simplify(mul(mul(coeff, prefactor), power));
 }
 
+// Σ_{k=lo}^{hi} c·P(k)/(k+m)! for a polynomial P of degree ≥ 1 and integer m ≥ 0 —
+// Gosper's algorithm specialized to a factorial denominator. The antidifference, if
+// it exists, is g(k) = Q(k)/(k+m−1)! with P(k)/(k+m)! = g(k) − g(k+1); multiplying
+// by (k+m)! gives the polynomial identity Q(k)·(k+m) − Q(k+1) = P(k). Q has degree
+// deg(P)−1 and is solved top-down; the constant-term equation is a consistency check
+// that fails for non-telescoping terms (1/(k+1)! → e−2, handled elsewhere). The sum
+// is then g(lo) − g(hi+1) (g(∞)=0 since the factorial dominates Q). Closes
+// Σ_{k=1}^∞ k/(k+1)! = 1, Σ (k²−1)/(k+1)! = 1, …
+[[nodiscard]] std::optional<Expr> sum_factorial_telescope(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (lo->type_id() != TypeId::Integer
+        || !static_cast<const Integer&>(*lo).fits_long()
+        || static_cast<const Integer&>(*lo).is_negative()) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr cst = S::One();
+    std::vector<Expr> poly_factors;
+    long m = 0;
+    bool have_fact = false;
+    for (const auto& f : factors) {
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Factorial
+                && fn.args().size() == 1) {
+                if (have_fact) return std::nullopt;  // (…!)^(-2) etc.
+                Expr mm = simplify(fn.args()[0] + mul(S::NegativeOne(), var));
+                if (has(mm, var) || mm->type_id() != TypeId::Integer
+                    || !static_cast<const Integer&>(*mm).fits_long()) {
+                    return std::nullopt;  // factorial arg not var + integer
+                }
+                m = static_cast<const Integer&>(*mm).to_long();
+                if (m < 0) return std::nullopt;
+                have_fact = true;
+                continue;
+            }
+            return std::nullopt;  // some other reciprocal function of var
+        }
+        if (!has(f, var)) {
+            cst = mul(cst, f);
+            continue;
+        }
+        poly_factors.push_back(f);  // numerator polynomial part
+    }
+    if (!have_fact || poly_factors.empty()) return std::nullopt;
+    // g(lo) needs (lo+m−1)! defined.
+    if (static_cast<const Integer&>(*lo).to_long() + m - 1 < 0) return std::nullopt;
+
+    std::vector<Expr> p;  // P coefficients, ascending
+    try {
+        Poly pp(expand(mul(poly_factors)), var);
+        for (const auto& cc : pp.coeffs()) {
+            if (has(cc, var)) return std::nullopt;
+            p.push_back(cc);
+        }
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    const long d = static_cast<long>(p.size()) - 1;  // deg P
+    if (d < 1) return std::nullopt;  // constant numerator is not this telescoping
+
+    // Solve Q(k)·(k+m) − Q(k+1) = P(k), Q of degree d−1, top-down:
+    //   q_{d-1} = p_d ;  q_{t-1} = p_t − (m−1)·q_t + Σ_{j=t+1}^{d-1} C(j,t)·q_j .
+    std::vector<Expr> q(static_cast<std::size_t>(d), Expr{S::Zero()});
+    q[static_cast<std::size_t>(d - 1)] = p[static_cast<std::size_t>(d)];
+    for (long t = d - 1; t >= 1; --t) {
+        Expr s = p[static_cast<std::size_t>(t)];
+        s = s + mul(integer(-(m - 1)), q[static_cast<std::size_t>(t)]);
+        for (long j = t + 1; j <= d - 1; ++j) {
+            s = s + mul(binomial(integer(j), integer(t)),
+                        q[static_cast<std::size_t>(j)]);
+        }
+        q[static_cast<std::size_t>(t - 1)] = simplify(s);
+    }
+    // Consistency: m·q_0 − Σ_{j} q_j == p_0.
+    Expr lhs0 = mul(integer(m), q[0]);
+    for (long j = 0; j <= d - 1; ++j) {
+        lhs0 = lhs0 + mul(S::NegativeOne(), q[static_cast<std::size_t>(j)]);
+    }
+    if (simplify(lhs0 + mul(S::NegativeOne(), p[0])) != S::Zero()) {
+        return std::nullopt;  // not telescoping in this form
+    }
+
+    auto g = [&](const Expr& k) {
+        std::vector<Expr> terms;
+        for (long j = 0; j <= d - 1; ++j) {
+            terms.push_back(
+                mul(q[static_cast<std::size_t>(j)], pow(k, integer(j))));
+        }
+        return mul(add(std::move(terms)),
+                   pow(factorial(k + integer(m - 1)), integer(-1)));
+    };
+    Expr result = (hi->type_id() == TypeId::Infinity)
+                      ? g(lo)
+                      : (g(lo) + mul(S::NegativeOne(), g(hi + integer(1))));
+    return simplify(mul(cst, result));
+}
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
 
@@ -452,6 +556,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ.
     if (auto bt = sum_binomial_theorem(expr, var, lo, hi)) return *bt;
+
+    // Factorial telescoping Σ P(k)/(k+m)! (deg P ≥ 1) — must run before the
+    // expand-and-recurse below, which would split P(k) and destroy the telescoping
+    // structure ((k²−1)/(k+1)! telescopes as a whole, not term by term).
+    if (auto r = sum_factorial_telescope(expr, var, lo, hi)) return *r;
 
     // A product or power that expands to a sum — e.g. k·(k+1) → k²+k,
     // (k+1)² → k²+2k+1, (k+1)·2ᵏ → k·2ᵏ+2ᵏ — isn't matched by the closed forms
