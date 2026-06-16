@@ -2864,3 +2864,30 @@ TEST_CASE("integrate: sin/cos quotients with an odd power (INT-SINCOS-QUOT-1)",
         REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
     }
 }
+
+// INT-SINCOS-QUOT-2: ∫ sinᵐ(x)cosⁿ(x) dx for a sin/cos quotient with BOTH exponents
+// even, e.g. ∫cos⁴/sin², ∫cos²/sin² (=cot²), ∫sin⁴/cos². The substitution t=tan(x)
+// makes the integrand rational in t, which the rational path closes; previously all
+// unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: even/even sin/cos quotients (INT-SINCOS-QUOT-2)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sc = [&](long m, long n) {
+        return pow(sin(x), integer(m)) * pow(cos(x), integer(n));
+    };
+    const std::vector<Expr> integrands = {
+        sc(-2, 4),  // cos⁴/sin²
+        sc(-2, 2),  // cos²/sin² = cot²
+        sc(4, -2),  // sin⁴/cos²
+        sc(-4, 2),  // cos²/sin⁴
+        sc(2, -4),  // sin²/cos⁴
+        sc(-2, 6),  // cos⁶/sin²
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}

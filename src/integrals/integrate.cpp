@@ -1928,11 +1928,11 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     return integrate(expand(rewritten), var);
 }
 
-// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient (m<0 or n<0) with at least one ODD
-// exponent. Substituting u=sin(g) (n odd) or u=cos(g) (m odd) turns the integrand
-// into a RATIONAL function of u, which integrate()/try_rational closes. Covers
-// ∫cos²/sin, ∫sin²/cos, ∫sin³/cos, ∫cos³/sin, ∫sin³/cos², ∫cos²/sin³, …
-// Both-even quotients (e.g. cos⁴/sin²) need a half-angle pass and are left alone.
+// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient (m<0 or n<0). With at least one ODD
+// exponent, substituting u=sin(g) (n odd) or u=cos(g) (m odd) makes the integrand
+// rational in u. With BOTH exponents even, t=tan(g) makes it rational in t. Either
+// way integrate()/try_rational closes it. Covers ∫cos²/sin, ∫sin³/cos², ∫cos²/sin³,
+// ∫cos⁴/sin², ∫cos²/sin², ∫sin⁴/cos², …
 std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
     auto parsed = parse_sin_cos_powers(expr);
     if (!parsed) return std::nullopt;
@@ -1942,14 +1942,23 @@ std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
     if (m >= 0 && n >= 0) return std::nullopt;  // positives: try_trig_power
     const bool m_odd = (m % 2) != 0;
     const bool n_odd = (n % 2) != 0;
-    if (!m_odd && !n_odd) return std::nullopt;  // both even: needs half-angle
     auto aff = as_affine(g, var);
     if (!aff || aff->first == S::Zero()) return std::nullopt;
     const Expr& a = aff->first;  // dg/dx
 
     Expr u = symbol("_u_trigquot");
     Expr result;
-    if (n_odd) {
+    if (!m_odd && !n_odd) {
+        // Both even: t = tan(g). sinᵐcosⁿ dx = (1/a)·tᵐ/(1+t²)^((m+n)/2+1) dt,
+        // rational in t. (Positive both-even is handled by try_trig_power.)
+        Expr t = symbol("_t_trigquot");
+        const long p = (m + n) / 2 + 1;  // power of (1+t²) in the denominator
+        Expr integrand = pow(t, integer(m))
+                         * pow(integer(1) + pow(t, integer(2)), integer(-p));
+        Expr anti = integrate(integrand, t);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = subs(anti, t, tan(g)) / a;
+    } else if (n_odd) {
         // u = sin(g): cosⁿ = cos·(1−u²)^k, cos·dx = du/a.
         const long k = (n - 1) / 2;
         Expr integrand = pow(u, integer(m))
@@ -1967,14 +1976,19 @@ std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
         result = mul(S::NegativeOne(), subs(anti, u, cos(g))) / a;
     }
 
-    // Numeric diff-back: the rational sub-integral recurses through several
-    // integrators; verify d/dx == the integrand so a mis-step fails to a
-    // marker, not a wrong answer.
-    Expr resid = diff(result, var) - expr;
+    // Diff-back self-check: the rational sub-integral recurses through several
+    // integrators; verify d/dx == the integrand so a mis-step fails to a marker,
+    // not a wrong answer. An exactly-zero residual is the best possible outcome.
+    Expr resid = simplify(diff(result, var) - expr);
+    if (resid == S::Zero()) return expand(result);
     int checks = 0;
     int bad = 0;
     for (int num : {3, 7, 13, 19}) {
         Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+        if (val == S::Zero()) {
+            ++checks;
+            continue;
+        }
         if (val->type_id() != TypeId::Float) continue;
         double dd = 0.0;
         try {

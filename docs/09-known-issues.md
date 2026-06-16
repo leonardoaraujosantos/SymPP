@@ -29,8 +29,20 @@ truth and links the issue number.
   `u`, which `try_rational` closes. A numeric diff-back self-check gates the result,
   so a mis-step fails to a marker rather than a wrong answer. `try_trig_power` keeps
   its positive-only path (an early `m<0||n<0` guard) so existing sec/csc/tan handlers
-  are not shadowed. Both-even quotients (e.g. `cos⁴/sin²`) need a half-angle pass and
-  are still left unevaluated.
+  are not shadowed. (Both-even quotients such as `cos⁴/sin²` are handled by
+  INT-SINCOS-QUOT-2 below.)
+
+### INT-SINCOS-QUOT-2 — even/even sin/cos quotients (`∫cos⁴/sin²`, `∫cos²/sin²`) were unevaluated
+- **Problem:** sin/cos quotients with *both* exponents even — `∫cos⁴/sin²`,
+  `∫cos²/sin²` (=`∫cot²`), `∫sin⁴/cos²`, `∫cos²/sin⁴`, … — were unevaluated. The odd
+  case (INT-SINCOS-QUOT-1) substitutes `u=sin`/`u=cos`, but with both powers even that
+  leaves a `√` and never rationalizes.
+- **Fix:** extended `try_sin_cos_quotient` with a both-even branch using `t=tan(g)`:
+  `sinᵐcosⁿ dx = (1/a)·tᵐ/(1+t²)^((m+n)/2+1) dt`, which is rational in `t` for even
+  `m,n`, so `try_rational` closes it. The same numeric diff-back gate applies; it now
+  also accepts an exactly-zero residual (`simplify(diff−integrand)==0`), which had been
+  mis-counted as "unverifiable" and wrongly rejected some correct antiderivatives.
+  Results carry an `atan(tan(x))` term (a valid antiderivative; SymPy renders it `x`).
 
 ### INT-TANSEC-1 — `∫tan³(x)·sec(x)` and tan^m·sec^n products were unevaluated
 - **Problem:** `∫tan³·sec`, `∫tan²·sec`, `∫tan³·sec³` and the cot/csc analogues
