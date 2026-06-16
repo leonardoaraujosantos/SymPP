@@ -35,6 +35,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -44,9 +45,54 @@ namespace {
 // Polynomial-only root finder. This is the original solve() body; it is
 // kept separate so solveset()'s internal fallback can use it WITHOUT
 // re-entering the transcendental solveset path below (which would recurse).
+// Largest polynomial degree for which the RootOf supplement runs factor_list.
+// Kronecker factorization is exponential in degree, so cap it to keep solve()
+// responsive; beyond this, an unsolvable polynomial still returns its radical
+// roots (possibly empty) rather than risking a pathological factorization.
+constexpr std::size_t kRootOfFactorDegreeCap = 12;
+
 [[nodiscard]] std::vector<Expr> solve_poly(const Expr& expr, const Expr& var) {
     Poly p(expr, var);
-    return p.roots();
+    std::vector<Expr> roots = p.roots();
+    // The closed-form solver covers factors of degree <= 4 (Cardano/Ferrari) plus
+    // rational roots of higher-degree factors. An irreducible factor of degree
+    // >= 5 is not solvable by radicals, so roots() leaves it unrepresented and
+    // solve() would return an empty list — implying "no solutions" for e.g.
+    // x^5 - x - 1, which has five. When roots are missing, represent each such
+    // factor's real roots as RootOf (rendered CRootOf(poly, k), as SymPy does).
+    // Complex roots of these factors are not yet representable (RootOf is
+    // real-root-only) and are left out — a known partial-parity limitation.
+    //
+    // Gated on degree to avoid paying for factorization on the common low-degree
+    // path (and to bound the exponential Kronecker cost): only attempt this when
+    // the polynomial is degree 5..cap and the radical solver left roots missing.
+    const std::size_t pdeg = p.degree();
+    if (pdeg < 5 || pdeg > kRootOfFactorDegreeCap || roots.size() >= pdeg) {
+        return roots;
+    }
+    try {
+        const FactorList fl = factor_list(p);
+        for (const auto& [factor, mult] : fl.factors) {
+            (void)mult;  // distinct roots only; multiplicity adds no new solution
+            const std::size_t deg = factor.degree();
+            if (deg < 5) continue;  // already handled by the radical solver
+            const Expr fexpr = factor.as_expr();
+            for (std::size_t k = 0; k < deg; ++k) {
+                Expr r = root_of(fexpr, var, k);
+                // try_evalf returns nullopt past the last real root: stop there.
+                if (!static_cast<const RootOf&>(*r).try_evalf(20).has_value()) {
+                    break;
+                }
+                if (std::none_of(roots.begin(), roots.end(),
+                                 [&](const Expr& u) { return u == r; })) {
+                    roots.push_back(std::move(r));
+                }
+            }
+        }
+    } catch (...) {
+        // Factorization/RootOf failure: fall back to the radical roots alone.
+    }
+    return roots;
 }
 
 // Does `expr` contain a function (log, exp, sin, …) that depends on `var`?
@@ -1584,8 +1630,11 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // A genuine solution x = c must be free of x. solve_poly treats a
     // var-dependent "coefficient" (e.g. exp(x) in x·exp(x) − 1) as constant and
     // can hand back a rearrangement such as x = exp(x)**(-1); discard any
-    // candidate that still contains var rather than return a non-solution.
-    std::erase_if(roots, [&](const Expr& r) { return has(r, var); });
+    // candidate that still contains var rather than return a non-solution. A
+    // RootOf is exempt: it legitimately embeds the defining polynomial in var.
+    std::erase_if(roots, [&](const Expr& r) {
+        return r->type_id() != TypeId::RootOf && has(r, var);
+    });
     // Deduplicate: solve_poly emits a root once per factor, so a repeated factor
     // ((x+2)² , x²·(x−1)) yields duplicates. SymPy's solve returns the distinct
     // solution set, so collapse structurally-equal roots (order preserved).

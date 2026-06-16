@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-ROOTOF-1 — `solve(x⁵−x−1)` returned `[]` (claiming "no solutions")
+- **Problem:** an irreducible polynomial of degree ≥5 is not solvable by radicals,
+  so the closed-form solver (Cardano/Ferrari for ≤4, rational roots above) produced
+  nothing and `solve()` returned an empty list — implying *no solutions* for, e.g.,
+  `x⁵−x−1` (which has a real root ≈1.1673) or `2x⁵−10x+5` (three real roots). An
+  empty list is a silently wrong answer, worse than an unevaluated result.
+- **Fix:** `solve_poly` (`src/solvers/solve.cpp`) now supplements the radical roots:
+  when the polynomial is degree 5..12 and roots are missing, it `factor_list`s and,
+  for each irreducible factor of degree ≥5, emits `RootOf(factor, var, k)` (rendered
+  `CRootOf(poly, k)`, matching SymPy) for each real root — detected by `try_evalf`
+  returning a value (it yields `nullopt` past the last real root). The degree window
+  avoids paying for (exponential Kronecker) factorization on the common low-degree
+  path and bounds worst-case cost. The `solve()` post-filter that drops var-dependent
+  candidates now exempts `RootOf`, which legitimately embeds its defining polynomial.
+- **Known limitation (partial parity):** SymPP's `RootOf` is **real-root-only**, so
+  the *complex* roots of these factors are not yet returned (SymPy returns all via
+  `CRootOf`). A polynomial with only complex roots (e.g. `x⁶+x+1`) still yields `[]`.
+  Complex-root isolation is the planned follow-up (SOLVE-ROOTOF-2).
+
 ### INT-TRIGPROD-1 — `∫sin²(x)cos(2x)` and trig products of mixed arguments were unevaluated
 - **Problem:** products of sin/cos powers whose arguments are not all equal —
   `∫sin²(x)cos(2x)`, `∫cos²(x)cos(2x)`, `∫sin²(x)sin(2x)`, `∫sin³(x)cos(2x)`,

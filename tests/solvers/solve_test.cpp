@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -15,9 +16,11 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/matrices/matrix.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/solvers/solve.hpp>
 
 #include "oracle/oracle.hpp"
@@ -1480,4 +1483,67 @@ TEST_CASE("nonlinsolve_groebner: 2-variable polynomial system",
     auto sols = nonlinsolve_groebner(
         {x * y - integer(1), x + y - integer(3)}, {x, y});
     REQUIRE(!sols.empty());
+}
+
+// SOLVE-ROOTOF-1: an irreducible polynomial of degree >= 5 is not solvable by
+// radicals, so the closed-form solver left it unrepresented and solve() returned
+// an empty list — implying "no solutions" for x^5 - x - 1, which has a real root
+// near 1.1673. solve() now supplements with RootOf (rendered CRootOf) for the
+// real roots of such factors. Each returned root is checked numerically by
+// substituting its high-precision value back into the polynomial.
+TEST_CASE("solve: irreducible quintic returns real CRootOf (SOLVE-ROOTOF-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+
+    // x^5 - x - 1: one real root, four complex (the real one is represented).
+    {
+        Expr p = pow(x, integer(5)) - x - integer(1);
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 1);
+        REQUIRE(roots[0]->type_id() == TypeId::RootOf);
+        auto v = static_cast<const RootOf&>(*roots[0]).try_evalf(30);
+        REQUIRE(v.has_value());
+        // p(root) ≈ 0
+        Expr resid = subs(p, x, *v);
+        auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                 {"expr", resid->str()},
+                                 {"prec", 40},
+                                 {"tol", 20}});
+        REQUIRE(resp.ok);
+        REQUIRE(resp.raw.at("result").get<bool>());
+    }
+
+    // 2*x^5 - 10*x + 5: three real roots, all returned as CRootOf.
+    {
+        Expr p = integer(2) * pow(x, integer(5)) - integer(10) * x + integer(5);
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 3);
+        for (const auto& r : roots) {
+            REQUIRE(r->type_id() == TypeId::RootOf);
+            auto v = static_cast<const RootOf&>(*r).try_evalf(30);
+            REQUIRE(v.has_value());
+            Expr resid = subs(p, x, *v);
+            auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                     {"expr", resid->str()},
+                                     {"prec", 40},
+                                     {"tol", 20}});
+            REQUIRE(resp.ok);
+            REQUIRE(resp.raw.at("result").get<bool>());
+        }
+    }
+
+    // Mixed: (x - 2)·(x^5 - x - 1) keeps the rational root and adds the CRootOf.
+    {
+        Expr p = (x - integer(2)) * (pow(x, integer(5)) - x - integer(1));
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 2);
+        bool has_two = false, has_rootof = false;
+        for (const auto& r : roots) {
+            if (r == integer(2)) has_two = true;
+            if (r->type_id() == TypeId::RootOf) has_rootof = true;
+        }
+        REQUIRE(has_two);
+        REQUIRE(has_rootof);
+    }
 }
