@@ -23,6 +23,7 @@
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
@@ -725,6 +726,49 @@ namespace {
     return simplify(hi_sum);
 }
 
+// Σ_{k=1}^∞ c/(a·k²+b) for a var-free quadratic denominator with no linear term
+// and B = b/a > 0 (so the summand has no real pole). The classic Mittag-Leffler /
+// cotangent result Σ_{k=1}^∞ 1/(k²+B) = (π·√B·coth(π·√B) − 1)/(2B). Apart can't
+// reach it (the poles are an irreducible-quadratic conjugate pair, not rational),
+// so it would otherwise stay unevaluated. Closes Σ1/(n²+1), Σ1/(n²+4), …
+[[nodiscard]] std::optional<Expr> sum_inverse_quadratic(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (lo != S::One() || hi->type_id() != TypeId::Infinity) return std::nullopt;
+
+    // Peel a var-free coefficient c off a (a·k²+b)^(-1) reciprocal factor.
+    Expr coeff = S::One();
+    const Expr* recip = nullptr;
+    std::vector<Expr> factors =
+        expr->type_id() == TypeId::Mul
+            ? std::vector<Expr>(expr->args().begin(), expr->args().end())
+            : std::vector<Expr>{expr};
+    for (const auto& f : factors) {
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (!recip && f->type_id() == TypeId::Pow
+                   && f->args()[1] == S::NegativeOne()) {
+            recip = &f;
+        } else {
+            return std::nullopt;  // a second var-bearing factor — not this form
+        }
+    }
+    if (!recip) return std::nullopt;
+
+    Poly den((*recip)->args()[0], var);
+    if (den.degree() != 2) return std::nullopt;
+    const auto& dc = den.coeffs();  // [b, lin, a]
+    if (has(dc[0], var) || has(dc[2], var)) return std::nullopt;  // opaque coeffs
+    if (!(dc[1] == S::Zero())) return std::nullopt;                // no linear term
+
+    // B = b/a must be a positive number for the real-coth closed form.
+    Expr B = simplify(dc[0] / dc[2]);
+    if (is_positive(B) != std::optional<bool>{true}) return std::nullopt;
+
+    Expr sq = sqrt(B);
+    Expr value = (S::Pi() * sq * coth(S::Pi() * sq) - integer(1)) / (integer(2) * B);
+    return simplify(coeff * value / dc[2]);
+}
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
 
@@ -1231,6 +1275,10 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
     if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;
+
+    // Σ c/(a·k²+b) with b/a > 0 — irreducible-quadratic denominator (cotangent
+    // closed form). Checked before apart, which can't split the complex poles.
+    if (auto r = sum_inverse_quadratic(expr, var, lo, hi)) return *r;
 
     // General convergent rational sum: apart into a ζ part (j ≥ 2 poles) and a
     // telescoping part (j = 1 poles). Closes Σ1/(k²(k+1)) = π²/6 − 1.

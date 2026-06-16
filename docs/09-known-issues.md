@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-INVQUAD-1 — `Σ_{n=1}^∞ 1/(n²+b)` was unevaluated (irreducible-quadratic denominator)
+- **Problem:** convergent rational sums went through `apart`, which only splits
+  denominators with rational roots. For an irreducible quadratic denominator with a
+  positive constant — `Σ 1/(n²+1)`, `Σ 1/(n²+4)`, `Σ 1/(2n²+1)` — the poles are a
+  complex-conjugate pair, so `apart` is a no-op and the sum stayed an unevaluated
+  `Sum(…)`. SymPy returns the cotangent closed form (`-1/2 + π·coth(π)/2`, …).
+- **Fix:** added `sum_inverse_quadratic` in `src/calculus/summation.cpp`, dispatched
+  before the `apart` path. It peels a var-free coefficient `c` off a `(a·n²+b)^(-1)`
+  factor, builds `Poly(denom, n)`, requires the linear term to vanish and
+  `B = b/a > 0`, then returns the Mittag-Leffler / cotangent result
+  `Σ_{n=1}^∞ 1/(n²+B) = (π·√B·coth(π·√B) − 1)/(2B)`, scaled by `c/a`. The `B > 0`
+  guard keeps it off the `cot`/digamma cases (`n²−a²`) and off true p-series (`b=0`,
+  still ζ). `Σ1/(n²+1)=(π·coth π−1)/2`, `Σ1/(n²+4)=−1/8+π·coth(2π)/4`. Matches SymPy.
+
 ### ILAPLACE-REPQUAD-1 — `iL{N(s)/(s²+a²)²}` was unevaluated (repeated irreducible quadratic)
 - **Problem:** the inverse Laplace handled simple poles and the irreducible quadratic
   `(αs+β)/((s−a)²+b²)`, but a *repeated* irreducible quadratic denominator

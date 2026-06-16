@@ -1418,6 +1418,37 @@ TEST_CASE("summation: arithmetic-argument p-series (SUM-ARITH-PSERIES-1)",
         summation(pow(odd, integer(-3)), k, one, oo)->str(), "7*zeta(3)/8"));
 }
 
+// SUM-INVQUAD-1: Σ_{k=1}^∞ c/(a·k²+b) with b/a > 0 — irreducible-quadratic
+// denominator, the cotangent closed form Σ 1/(k²+B) = (π√B·coth(π√B) − 1)/(2B).
+// apart can't split the complex-conjugate poles, so it was previously unevaluated.
+TEST_CASE("summation: inverse irreducible quadratic → coth (SUM-INVQUAD-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto oo = S::Infinity();
+    auto one = integer(1);
+    auto den = [&](int a, int b) {
+        return pow(integer(a) * pow(n, integer(2)) + integer(b), S::NegativeOne());
+    };
+    // Σ 1/(n²+1) = (π·coth π − 1)/2 = −1/2 + π·coth(π)/2.
+    REQUIRE(oracle.equivalent(summation(den(1, 1), n, one, oo)->str(),
+                              "-1/2 + pi*coth(pi)/2"));
+    // Σ 1/(n²+4) = −1/8 + π·coth(2π)/4.
+    REQUIRE(oracle.equivalent(summation(den(1, 4), n, one, oo)->str(),
+                              "-1/8 + pi*coth(2*pi)/4"));
+    // Leading constant scales through: Σ 3/(n²+1) = −3/2 + 3π·coth(π)/2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * den(1, 1), n, one, oo)->str(),
+        "-3/2 + 3*pi*coth(pi)/2"));
+    // Leading n² coefficient: Σ 1/(2n²+1) = −1/2 + √2·π·coth(√2·π/2)/4.
+    REQUIRE(oracle.equivalent(
+        summation(den(2, 1), n, one, oo)->str(),
+        "-1/2 + sqrt(2)*pi*coth(sqrt(2)*pi/2)/4"));
+    // No regression: a true p-series (b=0) still closes to π²/6, not coth.
+    REQUIRE(oracle.equivalent(
+        summation(pow(n, integer(-2)), n, one, oo)->str(), "pi**2/6"));
+}
+
 // SUM-DIRICHLET-BETA-1: the Dirichlet beta series Σ_{k=0}^∞ (−1)^k/(2k+1)^s.
 // β(1) = π/4 (Leibniz), β(2) = Catalan's constant. Higher s have no elementary
 // closed form (SymPy returns a polylog), so only s ∈ {1, 2} are closed; others
