@@ -573,6 +573,9 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
     // General coefficient: √(4x²+x) − 2x → 1/4.
     REQUIRE(limit(sq(integer(4) * x2 + x) - integer(2) * x, x, oo)
             == rational(1, 4));
+    // Larger linear term: √(x²+2x) − x → 1 (also guards try_algebraic_inf's
+    // leading-term path, which must stay silent — no stray diagnostics).
+    REQUIRE(limit(sq(x2 + integer(2) * x) - x, x, oo) == S::One());
     // LIMIT-NROOT-INF: the conjugate generalizes from √ to an n-th root via
     // u − v = (uⁿ − vⁿ)/Σ u^(n−1−i)vⁱ. (x³+x²)^(1/3) − x → 1/3, (x⁴+x³)^(1/4) − x →
     // 1/4, the two-cube-root difference (x³+x²)^(1/3) − (x³−x²)^(1/3) → 2/3, and a

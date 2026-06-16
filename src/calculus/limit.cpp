@@ -956,9 +956,6 @@ struct Growth {
     if (target->type_id() != TypeId::Infinity) return std::nullopt;  // +∞ only
     if (!has_var_radical(expr, var)) return std::nullopt;
     auto lead = leading_pos_inf(expr, var, 0);
-    std::fprintf(stderr, "DBG alginf expr=%s lead=%s\n", expr->str().c_str(),
-                 lead ? (lead->first->str() + " | " + lead->second->str()).c_str()
-                      : "NULLOPT");
     if (!lead) return std::nullopt;
     const Expr& c = lead->first;
     const Expr& d = lead->second;

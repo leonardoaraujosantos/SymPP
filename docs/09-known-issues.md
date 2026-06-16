@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-DBG-1 — a debug `fprintf` leaked to stderr on every radical limit at +∞
+- **Problem:** `try_algebraic_inf` in `src/calculus/limit.cpp` (the leading-asymptotic-term
+  evaluator for `√`-difference limits at `+∞`) carried a leftover
+  `std::fprintf(stderr, "DBG alginf …")` from its development. Every algebraic limit at
+  infinity — `x − √(x²−x)`, `√(x²+x) − x`, … — printed a diagnostic line to stderr. The
+  computed value was correct; only the stray output was wrong. SymPy emits nothing.
+- **Fix:** removed the `fprintf` (and its now-unused transitive `<cstdio>` reliance). The
+  handler is unchanged otherwise; the existing `LIMIT-RADICAL-INF-1` regression block plus
+  a new `√(x²+2x) − x → 1` case keep the value path covered.
+
 ### EXPAND-TRIG-HYP-1 — `expand_trig(sinh(x+y))` left hyperbolic functions unexpanded
 - **Problem:** `expand_trig` expanded the circular trio (sin/cos/tan angle-addition and
   multiple angles) but returned `sinh`/`cosh`/`tanh` of a sum or multiple angle
