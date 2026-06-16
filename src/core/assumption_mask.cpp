@@ -32,7 +32,9 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Nonnegative: {
-            // x >= 0  ⇔  positive ∨ zero
+            // A directly-declared nonnegative fact takes precedence; otherwise
+            // x >= 0  ⇔  positive ∨ zero.
+            if (nonnegative) return nonnegative;
             if (positive == true) return true;
             if (zero == true) return true;
             if (negative == true) return false;
@@ -40,6 +42,7 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Nonpositive: {
+            if (nonpositive) return nonpositive;
             if (negative == true) return true;
             if (zero == true) return true;
             if (positive == true) return false;
@@ -68,27 +71,20 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
             zero = !value;
             break;
         case AssumptionKey::Nonnegative:
-            if (value) {
-                negative = false;
-            } else {
-                negative = true;
-                zero = false;
-            }
+            // Store as a primary fact; close_assumptions() derives the rest
+            // (real, negative=false, and positive/zero once the other is known).
+            nonnegative = value;
             break;
         case AssumptionKey::Nonpositive:
-            if (value) {
-                positive = false;
-            } else {
-                positive = true;
-                zero = false;
-            }
+            nonpositive = value;
             break;
     }
 }
 
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
-           && !finite && !even && !odd && !complex_ && !imaginary;
+           && !nonnegative && !nonpositive && !finite && !even && !odd
+           && !complex_ && !imaginary;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -106,6 +102,8 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(positive));
     mix(encode(negative));
     mix(encode(zero));
+    mix(encode(nonnegative));
+    mix(encode(nonpositive));
     mix(encode(finite));
     mix(encode(even));
     mix(encode(odd));
@@ -116,8 +114,8 @@ std::size_t AssumptionMask::hash() const noexcept {
 
 AssumptionMask close_assumptions(AssumptionMask m) noexcept {
     // Apply implications until fixpoint. The rules are simple enough that
-    // two passes suffice; we run three for safety.
-    for (int pass = 0; pass < 3; ++pass) {
+    // three passes suffice; we run four for safety.
+    for (int pass = 0; pass < 4; ++pass) {
         // positive => real, finite, nonzero (zero=false), negative=false
         if (m.positive == true) {
             if (!m.real) m.real = true;
@@ -143,6 +141,39 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.negative) m.negative = false;
             if (!m.even) m.even = true;
             if (!m.odd) m.odd = false;
+        }
+        // nonnegative (x ≥ 0) / nonpositive (x ≤ 0), declarable in their own right.
+        // Consistency with the sign primaries: positive ∨ zero ⇒ nonnegative,
+        // negative ∨ zero ⇒ nonpositive, and the strict signs exclude the opposite.
+        if (m.positive == true && !m.nonnegative) m.nonnegative = true;
+        if (m.zero == true && !m.nonnegative) m.nonnegative = true;
+        if (m.negative == true && !m.nonpositive) m.nonpositive = true;
+        if (m.zero == true && !m.nonpositive) m.nonpositive = true;
+        if (m.positive == true && !m.nonpositive) m.nonpositive = false;
+        if (m.negative == true && !m.nonnegative) m.nonnegative = false;
+        // nonnegative ⇒ real, finite, ¬negative; with the sign pinned it refines
+        // to positive (x ≠ 0) or zero (x not positive).
+        if (m.nonnegative == true) {
+            if (!m.real) m.real = true;
+            if (!m.finite) m.finite = true;
+            if (!m.negative) m.negative = false;
+            if (m.zero == false && !m.positive) m.positive = true;
+            if (m.positive == false && !m.zero) m.zero = true;
+            if (m.nonpositive == true && !m.zero) m.zero = true;  // ≥0 ∧ ≤0 ⇒ =0
+        }
+        if (m.nonnegative == false && m.real == true && !m.negative) {
+            m.negative = true;  // real ∧ ¬(≥0) ⇒ < 0
+        }
+        if (m.nonpositive == true) {
+            if (!m.real) m.real = true;
+            if (!m.finite) m.finite = true;
+            if (!m.positive) m.positive = false;
+            if (m.zero == false && !m.negative) m.negative = true;
+            if (m.negative == false && !m.zero) m.zero = true;
+            if (m.nonnegative == true && !m.zero) m.zero = true;
+        }
+        if (m.nonpositive == false && m.real == true && !m.positive) {
+            m.positive = true;  // real ∧ ¬(≤0) ⇒ > 0
         }
         // even => integer; odd => integer, nonzero; even/odd are mutually exclusive;
         // a known integer that is not even is odd (and vice versa).
@@ -172,13 +203,16 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         if (m.rational == true) {
             if (!m.real) m.real = true;
         }
-        // ¬real implies ¬rational, ¬integer, ¬positive, ¬negative, ¬zero
+        // ¬real implies ¬rational, ¬integer, ¬positive, ¬negative, ¬zero,
+        // ¬nonnegative, ¬nonpositive (the order predicates are defined on ℝ).
         if (m.real == false) {
             if (!m.rational) m.rational = false;
             if (!m.integer) m.integer = false;
             if (!m.positive) m.positive = false;
             if (!m.negative) m.negative = false;
             if (!m.zero) m.zero = false;
+            if (!m.nonnegative) m.nonnegative = false;
+            if (!m.nonpositive) m.nonpositive = false;
         }
         // ¬rational => ¬integer, ¬zero
         if (m.rational == false) {

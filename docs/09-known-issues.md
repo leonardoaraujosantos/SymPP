@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-NONNEG-1 — `nonnegative`/`nonpositive` could not be declared (silently lost)
+- **Problem:** `AssumptionMask` stored only the *primary* sign facts (positive, negative,
+  zero); `nonnegative`/`nonpositive` were derived (positive∨zero / negative∨zero) but had
+  no field, so `set(Nonnegative, true)` only recorded `negative=false` — which doesn't
+  reconstruct nonnegativity. A symbol declared nonnegative reported `is_nonnegative →
+  None`, `is_real → None`, and `√(x²)` would not simplify to `x`. SymPy expresses this as
+  `Symbol('x', nonnegative=True)`.
+- **Fix:** added `nonnegative`/`nonpositive` as stored fields on `AssumptionMask`
+  (`include/sympp/core/assumption_mask.hpp`) with `set_nonnegative`/`set_nonpositive`/
+  `set_nonzero` builders, included in `hash()`/`empty()`. `close_assumptions`
+  (`src/core/assumption_mask.cpp`) gained the rules: `nonnegative ⇒ real ∧ finite ∧
+  ¬negative`, refining to `positive` (when `≠0`) or `zero` (when `¬positive`); the
+  primaries imply them back (`positive ⇒ nonnegative`, `negative ⇒ nonpositive`); the
+  strict signs exclude the opposite; and `¬real ⇒ ¬nonnegative ∧ ¬nonpositive`. The
+  change is additive — existing masks leave the new fields `nullopt`, so behavior is
+  unchanged. Declared nonnegativity now flows into simplification (`√(x²)→x`, `|x|→x`)
+  and the MATLAB `assume(x,"nonnegative")` facade. Matches SymPy.
+
 ### TRIG-ANGLE-ADD-2 — N-term angle addition; `dsolve(y''+4y=sin x)` had a messy particular solution
 - **Problem:** the angle-addition simplifier `sin(a)cos(b)±cos(a)sin(b)→sin(a±b)` only
   ran on a *two-term* Add. So a longer trig-product combination — e.g. the

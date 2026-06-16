@@ -19,11 +19,14 @@
 #include <sympp/core/integer.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/refine.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+#include <sympp/simplify/simplify.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -541,4 +544,53 @@ TEST_CASE("assumptions: imaginary / complex predicates (ASSUME-IMAG-1)",
     REQUIRE(is_imaginary(S::I() * xr + S::I() * yr) == T);
     REQUIRE(is_imaginary(xr + S::I() * yr) == F);
     REQUIRE(is_complex(xr + S::I() * yr) == T);
+}
+
+// ASSUME-NONNEG-1: nonnegative (x ≥ 0) and nonpositive (x ≤ 0) are declarable
+// primary facts, not just positive∨zero. Previously set(Nonnegative,true) only
+// recorded negative=false, losing the fact (is_nonnegative → None). Now they close
+// to real/finite, exclude the opposite strict sign, and refine to the strict sign
+// once the zero case is ruled in or out. Matches SymPy's nonnegative/nonpositive.
+TEST_CASE("AssumptionMask: declarable nonnegative / nonpositive (ASSUME-NONNEG-1)",
+          "[2a][assumptions]") {
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    auto x = symbol("x", AssumptionMask{}.set_nonnegative(true));
+    REQUIRE(is_nonnegative(x) == T);
+    REQUIRE(is_real(x) == T);
+    REQUIRE(is_negative(x) == F);
+    REQUIRE(is_positive(x) == U);   // could be 0
+    REQUIRE(is_zero(x) == U);
+
+    auto w = symbol("w", AssumptionMask{}.set_nonpositive(true));
+    REQUIRE(is_nonpositive(w) == T);
+    REQUIRE(is_real(w) == T);
+    REQUIRE(is_positive(w) == F);
+
+    // Refinement: nonnegative ∧ nonzero ⇒ positive; nonnegative ∧ ¬positive ⇒ zero.
+    auto y = symbol("y", AssumptionMask{}.set_nonnegative(true).set_nonzero(true));
+    REQUIRE(is_positive(y) == T);
+
+    // Consistency with the primaries: positive ⇒ nonnegative, negative ⇒ nonpositive.
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    REQUIRE(is_nonnegative(p) == T);
+    REQUIRE(is_nonpositive(p) == F);
+
+    // Order predicates are defined on ℝ: imaginary ⇒ ¬nonnegative, ¬nonpositive.
+    auto i = symbol("i", AssumptionMask{}.set_imaginary(true));
+    REQUIRE(is_nonnegative(i) == F);
+    REQUIRE(is_nonpositive(i) == F);
+}
+
+// ASSUME-NONNEG-2: the declared nonnegativity flows into simplification —
+// √(x²) → x and |x| → x for x ≥ 0 (and the nonpositive analogues).
+TEST_CASE("simplify: uses declared nonnegative/nonpositive (ASSUME-NONNEG-2)",
+          "[2a][assumptions][simplify]") {
+    auto x = symbol("x", AssumptionMask{}.set_nonnegative(true));
+    auto w = symbol("w", AssumptionMask{}.set_nonpositive(true));
+    REQUIRE(simplify(pow(pow(x, integer(2)), rational(1, 2))) == x);
+    REQUIRE(simplify(abs(x)) == x);
+    REQUIRE(simplify(abs(w)) == mul(S::NegativeOne(), w));
 }
