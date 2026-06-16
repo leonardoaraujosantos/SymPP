@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-RECIP-INF-1 — asymptotic limits at ∞ with a transcendental subleading term
+- **Problem:** limits at +∞ whose value comes from a subleading asymptotic term —
+  `x − x²·log(1+1/x) → 1/2`, `x²(1−cos(1/x)) → 1/2`, `x·(e^(1/x)−1) → 1`,
+  `x²(e^(1/x)−1−1/x) → 1/2` — returned `nan`. The direct ∞ methods (polynomial leading
+  term, conjugate, `try_algebraic_inf`, L'Hôpital) all abandon them.
+- **Fix:** added a reciprocal-substitution fallback in `src/calculus/limit.cpp` (after
+  L'Hôpital, for ±∞ targets only): substitute `x = ±1/t` to map the limit to `t → 0`,
+  where the series/L'Hôpital machinery applies (e.g. `x²(1−cos 1/x) → (1−cos t)/t²`).
+  The candidate is accepted only after a **numeric convergence check** — sampling the
+  original at `x = 10³, 10⁶, 10⁹`, requiring the diff to not diverge and the largest
+  sample to land within `1e-4` — so a one-sided/two-sided mismatch or a wrong `t`-limit
+  cannot slip through (it leaves such cases `nan` rather than guessing). Also: L'Hôpital
+  returning a `nan` value no longer short-circuits this fallback. (Algebraic n-th-root
+  differences like `(x³+x²)^(1/3)−x` whose *substituted* form `(1/t³+1/t²)^(1/3)−1/t`
+  still doesn't resolve at `t→0` remain a follow-up.) Matches SymPy.
+
 ### ASSUME-MULSIGN-1 / ASSUME-REALFINITE-1 — last assumption-propagation gaps vs SymPy
 - **Problem:** a 39-query SymPP-vs-SymPy assumption battery left two genuine gaps
   (the others were SymPP being *more* correct — `Abs(x)` is always real/nonnegative,

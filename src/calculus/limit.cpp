@@ -1,6 +1,8 @@
 #include <sympp/calculus/limit.hpp>
 
+#include <cmath>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -1305,8 +1307,61 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
-        // substitution collapses to 0 or nan).
-        if (auto v = lhopital(expr, var, target)) return *v;
+        // substitution collapses to 0 or nan). A nan result is not an answer —
+        // fall through to the reciprocal substitution rather than returning it.
+        if (auto v = lhopital(expr, var, target); v && !is_nan(*v)) return *v;
+
+        // Reciprocal substitution for a limit at ±∞: x = ±1/t maps it to t → 0,
+        // where the series / L'Hôpital machinery resolves the asymptotic-expansion
+        // forms the direct ∞ methods abandon — cube-root (and general n-th-root)
+        // differences (x³+x²)^(1/3)−x → 1/3, and 0·∞ / ∞−∞ with a transcendental
+        // subleading term: x²(1−cos 1/x) → 1/2, x − x²·log(1+1/x) → 1/2. The
+        // candidate is accepted only after a numeric check against the original at
+        // large x, so a one-sided/two-sided mismatch (or a wrong t-limit) cannot
+        // slip through.
+        if (is_infinity(target) && depth < 8 && has(expr, var)) {
+            const Expr sgn = target->type_id() == TypeId::Infinity
+                                 ? S::One()
+                                 : S::NegativeOne();
+            Expr tt = symbol("__lim_recip_t");
+            Expr sub = subs(expr, var, mul(sgn, pow(tt, integer(-1))));
+            Expr cand = limit_impl(sub, tt, S::Zero(), depth + 1);
+            if (!is_nan(cand) && !is_infinity(cand) && !has(cand, tt)
+                && cand->type_id() != TypeId::ComplexInfinity) {
+                Expr cv = evalf(cand, 30);
+                if (cv->type_id() == TypeId::Float) {
+                    double cvd = 0.0;
+                    bool parsed = false;
+                    try {
+                        cvd = std::stod(cv->str());
+                        parsed = true;
+                    } catch (...) {
+                    }
+                    // Sample at increasing magnitudes and require convergence to
+                    // cand: the diff must shrink and the largest sample land very
+                    // close. A wrong candidate keeps an O(1) offset and is rejected;
+                    // the loose-to-tight ladder tolerates slow (∼1/x) convergence.
+                    bool ok = parsed;
+                    double prev = 1e300;
+                    int checks = 0;
+                    for (long xv : {1000L, 1000000L, 1000000000L}) {
+                        if (!ok) break;
+                        Expr at = evalf(
+                            simplify(subs(expr, var, mul(sgn, integer(xv)))), 40);
+                        if (at->type_id() != TypeId::Float) { ok = false; break; }
+                        try {
+                            const double d = std::fabs(std::stod(at->str()) - cvd);
+                            if (!(d <= prev + 1e-12)) ok = false;  // must not diverge
+                            prev = d;
+                            ++checks;
+                        } catch (...) {
+                            ok = false;
+                        }
+                    }
+                    if (ok && checks == 3 && prev < 1e-4) return cand;
+                }
+            }
+        }
     }
     // Essential singularity at a finite point (exp(1/x), 1/x² at 0): substitute
     // u = 1/(x − a) and take u → ±∞; the two one-sided limits agree iff the

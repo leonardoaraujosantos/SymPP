@@ -575,6 +575,35 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
             == rational(1, 4));
 }
 
+// LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental
+// subleading term, resolved by the reciprocal substitution x = 1/t → t → 0 (where
+// the series/L'Hôpital machinery applies), guarded by a numeric convergence check
+// so a wrong t-limit cannot slip through. x − x²·log(1+1/x) → 1/2,
+// x²(1−cos(1/x)) → 1/2, x·(eˣ⁻¹... ) etc. Previously returned nan. Matches SymPy.
+TEST_CASE("limit: reciprocal-substitution asymptotics at infinity (LIMIT-RECIP-INF-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto inv = [&](const Expr& e) { return pow(e, integer(-1)); };
+    // x − x²·log(1+1/x) → 1/2.
+    REQUIRE(limit(x - pow(x, integer(2)) * log(integer(1) + inv(x)), x, oo)
+            == rational(1, 2));
+    // x²·(1 − cos(1/x)) → 1/2.
+    REQUIRE(limit(pow(x, integer(2)) * (integer(1) - cos(inv(x))), x, oo)
+            == rational(1, 2));
+    // x·(e^(1/x) − 1) → 1.
+    REQUIRE(limit(x * (exp(inv(x)) - integer(1)), x, oo) == S::One());
+    // x²·(e^(1/x) − 1 − 1/x) → 1/2.
+    REQUIRE(limit(pow(x, integer(2))
+                      * (exp(inv(x)) - integer(1) - inv(x)),
+                  x, oo)
+            == rational(1, 2));
+    // Sanity: the fallback's numeric guard keeps determinate limits correct and
+    // does not invent a finite value where the true limit is infinite.
+    REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
+    REQUIRE(limit(x * sin(inv(x)), x, oo) == S::One());
+}
+
 // LIMIT-LOG-1: logarithms at ∞ — log-continuity (limit(log g) = log(lim g)),
 // the ∞ − ∞ between logs (log(x+1) − log(x) → 0, via combining), and
 // atan-continuity (limit(atan g) = atan(lim g) = π/2). Also exercises the
