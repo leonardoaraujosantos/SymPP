@@ -1690,6 +1690,56 @@ struct TwoTrigTerm {
     return e;
 }
 
+// Hyperbolic analogue of trig_double_angle_ratio_mul: sinh(2u) = 2·sinh(u)·cosh(u),
+// so sinh(2u)/sinh(u) → 2·cosh(u) and sinh(2u)/cosh(u) → 2·sinh(u) (and the
+// csch/sech forms). No sign flip — sinh(2u) factors as a sinh·cosh product just like
+// sin(2u). cosh(2u)/cosh(u) and sinh(3u)/sinh(u) are left alone, matching SymPy.
+[[nodiscard]] Expr hyp_double_angle_ratio_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& fi = args[i];
+        if (fi->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*fi).function_id() != FunctionId::Sinh) {
+            continue;
+        }
+        const Expr& a = fi->args()[0];  // the doubled angle
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i) continue;
+            // Denominator 1/sinh(u) or 1/cosh(u), as a negative power or csch/sech.
+            const Expr* den_fn = nullptr;
+            bool over_sinh = false;
+            if (args[j]->type_id() == TypeId::Pow
+                && args[j]->args()[1] == S::NegativeOne()
+                && args[j]->args()[0]->type_id() == TypeId::Function) {
+                den_fn = &args[j]->args()[0];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Sinh) over_sinh = true;
+                else if (id != FunctionId::Cosh) continue;
+            } else if (args[j]->type_id() == TypeId::Function) {
+                den_fn = &args[j];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Csch) over_sinh = true;
+                else if (id != FunctionId::Sech) continue;
+            } else {
+                continue;
+            }
+            const Expr& u = (*den_fn)->args()[0];
+            if (!(expand(a - integer(2) * u) == S::Zero())) continue;
+            Expr folded = over_sinh ? Expr{integer(2) * cosh(u)}
+                                    : Expr{integer(2) * sinh(u)};
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(std::move(folded));
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = trigsimp_angle_addition(cur);
@@ -1701,6 +1751,7 @@ struct TwoTrigTerm {
     cur = trig_double_angle_ratio_mul(cur);
     cur = trigsimp_mul(cur);
     cur = hyp_ratio_mul(cur);
+    cur = hyp_double_angle_ratio_mul(cur);
     return cur;
 }
 

@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### HYP-DBLRATIO-1 — `simplify(sinh(2x)/sinh(x))` did not reduce to `2·cosh(x)`
+- **Problem:** the circular double-angle ratio reduction (TRIG-DBLRATIO-1) had no
+  hyperbolic counterpart, so `sinh(2x)/sinh(x)`, `sinh(2x)/cosh(x)` and the `csch`/`sech`
+  forms stayed unevaluated where SymPy returns `2·cosh(x)` / `2·sinh(x)`.
+- **Fix:** added `hyp_double_angle_ratio_mul` in `src/simplify/simplify.cpp`, run in the
+  `trigsimp_node` Mul pipeline after `hyp_ratio_mul`. It mirrors the circular handler with
+  `sinh(2u) = 2·sinh(u)·cosh(u)` (no sign flip): for a `sinh(a)` factor it cancels a
+  `1/sinh(u)` or `1/cosh(u)` denominator (negative power or `csch`/`sech`) when `a = 2u`,
+  giving `sinh(2u)/sinh(u) → 2·cosh(u)`, `sinh(2u)/cosh(u) → 2·sinh(u)`. Coefficients carry
+  through and deeper doubling cancels one level (`sinh(4x)/sinh(2x) → 2·cosh(2x)`).
+  `cosh(2u)/cosh(u)` and `sinh(3u)/sinh(u)` are left alone, matching SymPy.
+
 ### EXPAND-LOG-FRACPOW-1 — `log(√x)` was not pulled to `log(x)/2` for a generic base
 - **Problem:** `expand`/`simplify` extracted `log(bᵉ) → e·log(b)` only when the base `b`
   was known positive. For a generic symbol, `log(√x)`, `log(x^(2/3))` stayed unexpanded,

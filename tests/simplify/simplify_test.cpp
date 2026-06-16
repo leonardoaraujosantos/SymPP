@@ -428,6 +428,41 @@ TEST_CASE("simplify: double-angle sine ratio (TRIG-DBLRATIO-1)",
         "sin(3*x)/sin(x)"));
 }
 
+// HYP-DBLRATIO-1: the hyperbolic analogue of TRIG-DBLRATIO-1. sinh(2u) =
+// 2·sinh(u)·cosh(u), so sinh(2u)/sinh(u) → 2cosh(u), sinh(2u)/cosh(u) → 2sinh(u)
+// (and the csch/sech forms), with no sign flip. cosh(2u)/cosh(u) and
+// sinh(3u)/sinh(u) are left alone, matching SymPy.
+TEST_CASE("simplify: double-angle sinh ratio (HYP-DBLRATIO-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // sinh(2x)/sinh(x) → 2cosh(x) ; sinh(2x)/cosh(x) → 2sinh(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * inv(sinh(x)))->str(), "2*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * inv(cosh(x)))->str(), "2*sinh(x)"));
+    // Coefficient carries through; deeper doubling cancels one level.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sinh(integer(2) * x) * inv(sinh(x)))->str(),
+        "6*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(4) * x) * inv(sinh(integer(2) * x)))->str(),
+        "2*cosh(2*x)"));
+    // csch/sech denominators fold identically.
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * csch(x))->str(), "2*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * sech(x))->str(), "2*sinh(x)"));
+    // Left alone (as SymPy does): cosh(2x)/cosh(x), sinh(3x)/sinh(x).
+    REQUIRE(oracle.equivalent(
+        simplify(cosh(integer(2) * x) * inv(cosh(x)))->str(),
+        "cosh(2*x)/cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(3) * x) * inv(sinh(x)))->str(),
+        "sinh(3*x)/sinh(x)"));
+}
+
 // TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
 // → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
 // unfolded before. A shared coefficient carries through, and the rewrite
