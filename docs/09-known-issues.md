@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-EXPBASE-SUM-2 — `solve(4ˣ−2ˣ−2)` returned `[]` (composite exponential base)
+- **Problem:** an exponential quadratic written with a *composite* base — `4ˣ−2ˣ−2=0`,
+  `9ˣ−4·3ˣ+3=0` — returned `[]`, even though `2^(2x)−5·2ˣ+4` (same base, scaled exponent)
+  solved. The `u = 2ˣ` substitution requires every base to be a power of a common base;
+  with bases `{4, 2}` the rate selection picked `log 4` as the unit, giving the
+  non-integer ratio `log 2 / log 4 = 1/2`, so the commensurate-rate path bailed.
+  (`simplify` doesn't reduce `log 4 / log 2 → 2`, so the rate comparison can't recover.)
+- **Fix:** `solve_const_base_exp_sum` (`src/solvers/solve.cpp`) now normalizes the bases
+  first: if every constant integer base is a power of the smallest one `b`, it rewrites
+  `aˣ = b^(k·x)` (`4ˣ → 2^(2x)`) and re-solves. The existing `u = bˣ` machinery then
+  closes it. `4ˣ−2ˣ−2 → 1`, `9ˣ−4·3ˣ+3 → {0,1}`, `16ˣ−6·4ˣ+8 → {1/2,1}`, matching
+  SymPy's real roots. (Some roots render as `log 4 / log 2`, value-correct but
+  unsimplified — the log-ratio reduction is a separate cosmetic gap.)
+
 ### ASSUME-NONNEG-1 — `nonnegative`/`nonpositive` could not be declared (silently lost)
 - **Problem:** `AssumptionMask` stored only the *primary* sign facts (positive, negative,
   zero); `nonnegative`/`nonpositive` were derived (positive∨zero / negative∨zero) but had

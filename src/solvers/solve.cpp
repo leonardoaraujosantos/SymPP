@@ -701,6 +701,62 @@ solve_const_base_exp_sum(const Expr& expr, const Expr& var) {
     scan(expr);
     if (!has_const_pow) return std::nullopt;
 
+    // Normalize commensurate integer bases to a common base, so a quadratic in 2^x
+    // written with 4^x = (2²)^x is recognized: if every constant integer base is a
+    // power of the smallest one b, rewrite a^e = b^(k·e). (4^x − 2^x − 2 →
+    // 2^(2x) − 2^x − 2, which the u = 2^x substitution below then closes.) This
+    // sidesteps needing log(4)/log(2) = 2, which simplify() does not compute.
+    {
+        std::vector<long> ibases;
+        std::function<void(const Expr&)> collect = [&](const Expr& e) {
+            if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+                && e->args()[0]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*e->args()[0]);
+                if (z.fits_long() && z.to_long() >= 2) ibases.push_back(z.to_long());
+            }
+            for (const auto& a : e->args()) collect(a);
+        };
+        collect(expr);
+        auto power_of = [](long b, long base) -> long {  // k with base^k == b, else 0
+            if (base < 2 || b < base) return b == 1 ? 0 : (b == base ? 1 : 0);
+            long k = 0;
+            long t = 1;
+            while (t < b) { t *= base; ++k; }
+            return t == b ? k : 0;
+        };
+        if (ibases.size() >= 2) {
+            const long bmin = *std::min_element(ibases.begin(), ibases.end());
+            const long bmax = *std::max_element(ibases.begin(), ibases.end());
+            bool ok = bmax > bmin;
+            for (long b : ibases) {
+                if (power_of(b, bmin) == 0) { ok = false; break; }
+            }
+            if (ok) {
+                ExprMap<Expr> repl;
+                std::function<void(const Expr&)> rw = [&](const Expr& e) {
+                    if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+                        && e->args()[0]->type_id() == TypeId::Integer) {
+                        const long b =
+                            static_cast<const Integer&>(*e->args()[0]).to_long();
+                        const long k = power_of(b, bmin);
+                        if (b > bmin && k > 1) {
+                            repl.emplace(e, pow(integer(bmin),
+                                               mul(integer(k), e->args()[1])));
+                        }
+                    }
+                    for (const auto& a : e->args()) rw(a);
+                };
+                rw(expr);
+                if (!repl.empty()) {
+                    Expr norm = xreplace(expr, repl);
+                    if (!(norm == expr)) {
+                        return solve_const_base_exp_sum(norm, var);
+                    }
+                }
+            }
+        }
+    }
+
     auto term_rate =
         [&](const Expr& term) -> std::optional<std::pair<Expr, Expr>> {
         Expr coeff = S::One();

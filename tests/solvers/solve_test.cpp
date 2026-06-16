@@ -544,6 +544,23 @@ TEST_CASE("solve: sum of constant-base exponentials (SOLVE-EXPBASE-SUM-1)",
     // ratio sign check — 4^x − 2^(x+1) → 1.
     REQUIRE(set_equal(
         solve(pow(integer(4), x) - pow(integer(2), x + integer(1)), x), {"1"}));
+    // SOLVE-EXPBASE-SUM-2: a composite base that is a power of another base
+    // (4 = 2², 9 = 3²) is normalized to the common base so the u-substitution fires.
+    // 4^x − 2^x − 2 = 0: with u = 2^x, u² − u − 2 = 0 → u = 2 → x = 1 (u = −1 rejected).
+    REQUIRE(set_equal(solve(px(4) - px(2) - integer(2), x), {"1"}));
+    // 9^x − 4·3^x + 3 → {0, 1}.
+    REQUIRE(set_equal(
+        solve(pow(integer(9), x) - integer(4) * pow(integer(3), x) + integer(3),
+              x),
+        {"0", "1"}));
+    // 4^x − 5·2^x + 4 → {0, 2}.
+    REQUIRE(set_equal(solve(px(4) - integer(5) * px(2) + integer(4), x),
+                      {"0", "2"}));
+    // 16^x − 6·4^x + 8 → {1/2, 1} (u = 2^x, u⁴ − 6u² + 8 = 0).
+    REQUIRE(set_equal(
+        solve(pow(integer(16), x) - integer(6) * pow(integer(4), x) + integer(8),
+              x),
+        {"1/2", "1"}));
 }
 
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
