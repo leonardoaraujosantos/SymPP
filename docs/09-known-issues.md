@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SOLVE-RADISOLATE-2 — `solve(√x + √(x+1) = 3)` returned `[]`
+- **Problem:** the isolate-and-square radical solver handled exactly **one** square
+  root, so equations with two — `√x + √(x+1) = 3` (→ 16/9), `√(2x+1) − √x = 1`
+  (→ 0, 4), `√(x−1) + √(x+4) = 5` (→ 5) — returned `[]`.
+- **Fix:** `solve_radical_isolate` (`src/solvers/solve.cpp`) now also accepts two
+  radicals. Writing `expr = A1·√g1 + A2·√g2 + P` (A1, A2, P radical-free), it isolates
+  and squares once — `A1²·g1 = A2²·g2 + 2·A2·P·√g2 + P²` — leaving a single radical
+  that the same path (size 1) then clears. Candidates are filtered against the
+  *original* equation (numeric back-substitution) to drop the roots squaring
+  introduces. A √g1·√g2 cross term or radical-dependent coefficient falls through.
+  Matches SymPy.
+
 ### SUM-COSH-SINH-1 — `Σ x^(2k)/(2k)! = cosh x` (even/odd factorial series) was unevaluated
 - **Problem:** the exponential-series handler matched only a `k!` denominator, so the
   even/odd bisection of the exponential series — `Σ z^(2k)/(2k)! = cosh z`,

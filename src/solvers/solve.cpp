@@ -1308,10 +1308,81 @@ solve_radical_isolate(const Expr& expr, const Expr& var) {
         for (const auto& a : e->args()) collect(a);
     };
     collect(expr);
-    if (sqrts.size() != 1) return std::nullopt;  // one radical only
+    if (sqrts.empty() || sqrts.size() > 2) return std::nullopt;
+
+    // Keep only candidates that satisfy the *original* equation, dropping the
+    // extraneous roots squaring introduces. Verify numerically — a symbolic check
+    // can't denest forms like √((3−√5)/2) = (√5−1)/2 — and fall back to the
+    // symbolic test only when the root doesn't evaluate to a concrete Float.
+    auto satisfies = [&](const Expr& r) -> bool {
+        Expr resid = simplify(subs(expr, var, r));
+        if (resid == S::Zero()) return true;
+        Expr v = evalf(resid, 40);
+        if (v == S::Zero()) return true;  // collapsed to an exact 0
+        if (v->type_id() == TypeId::Float) {
+            try {
+                return std::fabs(std::stod(v->str())) < 1e-20;
+            } catch (...) {
+                // inconclusive — reject (squaring only ever adds roots)
+            }
+        }
+        return false;
+    };
+    auto verified_roots =
+        [&](const Expr& poly_or_radical_eq) -> std::vector<Expr> {
+        std::vector<Expr> roots;
+        for (const auto& r : solve(poly_or_radical_eq, var)) {
+            if (has(r, var) || !satisfies(r)) continue;
+            if (std::none_of(roots.begin(), roots.end(),
+                             [&](const Expr& u) { return u == r; })) {
+                roots.push_back(r);
+            }
+        }
+        return roots;
+    };
+
+    if (sqrts.size() == 2) {
+        // Two radicals √g1, √g2: isolate one and square once, leaving a single
+        // radical the recursive solve (this same path, size 1) then clears.
+        // expr = A1·√g1 + A2·√g2 + P (A1, A2, P radical-free) ⇒
+        //   A1·√g1 = −(A2·√g2 + P) ⇒ A1²·g1 = A2²·g2 + 2·A2·P·√g2 + P².
+        Expr w1 = symbol("__rad_w1");
+        Expr w2 = symbol("__rad_w2");
+        Expr ew = subs(subs(expr, sqrts[0], w1), sqrts[1], w2);
+        if (has_radical_of_var(ew, var)) return std::nullopt;
+        Expr A1;
+        Expr A2;
+        Expr P;
+        try {
+            Poly p1(expand(ew), w1);
+            if (p1.degree() != 1) return std::nullopt;
+            A1 = p1.coeffs()[1];
+            Poly p2(expand(p1.coeffs()[0]), w2);  // P + A2·w2
+            if (p2.degree() != 1) return std::nullopt;
+            A2 = p2.coeffs()[1];
+            P = p2.coeffs()[0];
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+        // A1, A2, P must be free of both radical placeholders (no √g1·√g2 cross
+        // term, no radical-dependent coefficients).
+        if (has(A1, w1) || has(A1, w2) || has(A2, w1) || has(A2, w2)
+            || has(P, w1) || has(P, w2)) {
+            return std::nullopt;
+        }
+        const Expr& g1 = sqrts[0]->args()[0];
+        const Expr& g2 = sqrts[1]->args()[0];
+        Expr new_eq = expand(mul(mul(A1, A1), g1) - mul(mul(A2, A2), g2)
+                             - mul(P, P)
+                             - mul({integer(2), A2, P, sqrts[1]}));
+        if (new_eq == S::Zero()) return std::nullopt;
+        auto roots = verified_roots(new_eq);
+        if (roots.empty()) return std::nullopt;
+        return roots;
+    }
+
     const Expr& s = sqrts[0];
     const Expr& g = s->args()[0];
-
     // Linearize in the radical: √(g) → w. The result must be radical-free and
     // degree 1 in w, i.e. A·w + B with A, B radical-free polynomials in x.
     Expr w = symbol("__rad_w");
@@ -1331,33 +1402,7 @@ solve_radical_isolate(const Expr& expr, const Expr& var) {
     // A·√(g) = −B  ⇒  A²·g − B² = 0.
     Expr eq = expand(mul(mul(A, A), g) - mul(B, B));
     if (eq == S::Zero()) return std::nullopt;  // underdetermined
-    // Keep only candidates that satisfy the *original* equation, dropping the
-    // extraneous roots squaring introduces. Verify numerically — a symbolic
-    // check can't denest forms like √((3−√5)/2) = (√5−1)/2 — and fall back to the
-    // symbolic test only when the root doesn't evaluate to a concrete Float.
-    auto satisfies = [&](const Expr& r) -> bool {
-        Expr resid = simplify(subs(expr, var, r));
-        if (resid == S::Zero()) return true;
-        Expr v = evalf(resid, 40);
-        if (v == S::Zero()) return true;  // collapsed to an exact 0
-        if (v->type_id() == TypeId::Float) {
-            try {
-                return std::fabs(std::stod(v->str())) < 1e-20;
-            } catch (...) {
-                // inconclusive — reject (squaring only ever adds roots)
-            }
-        }
-        return false;
-    };
-    std::vector<Expr> roots;
-    for (const auto& r : solve(eq, var)) {
-        if (has(r, var)) continue;
-        if (!satisfies(r)) continue;
-        if (std::none_of(roots.begin(), roots.end(),
-                         [&](const Expr& u) { return u == r; })) {
-            roots.push_back(r);
-        }
-    }
+    auto roots = verified_roots(eq);
     if (roots.empty()) return std::nullopt;
     return roots;
 }

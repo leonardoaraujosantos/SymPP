@@ -415,6 +415,47 @@ TEST_CASE("solve: single √(g(x)) by isolate-and-square (SOLVE-RADISOLATE-1)",
     REQUIRE(set_equal(solve(sq(x + integer(1)) - integer(2), x), {"3"}));
 }
 
+// SOLVE-RADISOLATE-2: a sum/difference of TWO square roots, √g1 ± √g2 = c. Isolate
+// one radical and square once, leaving a single radical the same path then clears;
+// candidates are filtered against the original to drop the roots squaring adds.
+// Previously returned []. Matches SymPy.
+TEST_CASE("solve: two square roots by isolate-and-square (SOLVE-RADISOLATE-2)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto sq = [&](const Expr& g) { return pow(g, rational(1, 2)); };
+    // √x + √(x+1) = 3 → x = 16/9.
+    REQUIRE(set_equal(solve(sq(x) + sq(x + integer(1)) - integer(3), x),
+                      {"16/9"}));
+    // √(2x+1) − √x = 1 → x = 0, 4 (both valid).
+    REQUIRE(set_equal(
+        solve(sq(integer(2) * x + integer(1)) - sq(x) - integer(1), x),
+        {"0", "4"}));
+    // √(x−1) + √(x+4) = 5 → x = 5.
+    REQUIRE(set_equal(
+        solve(sq(x - integer(1)) + sq(x + integer(4)) - integer(5), x), {"5"}));
+    // √(x+1) − √(x−1) = 1 → x = 5/4.
+    REQUIRE(set_equal(
+        solve(sq(x + integer(1)) - sq(x - integer(1)) - integer(1), x),
+        {"5/4"}));
+}
+
 // SOLVE-EXPBASE-1: constant-base exponential a^x = c (a^x is a Pow with a
 // numeric base, so it skips the exp/log transcendental path) → x = log(c)/log(a),
 // with an exact integer exponent when c is a power of a (2^x=8 → 3). Restricted
