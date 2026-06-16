@@ -463,6 +463,35 @@ TEST_CASE("simplify: double-angle sinh ratio (HYP-DBLRATIO-1)",
         "sinh(3*x)/sinh(x)"));
 }
 
+// HYP-MUL-1: the hyperbolic analogue of the 2·sin·cos → sin(2x) product fold.
+// k·sinh(x)·cosh(x) → (k/2)·sinh(2x). As with the circular case, the bare
+// k = 1 fold (sinh·cosh → sinh(2x)/2) is undone by simplify's anti-bloat guard
+// but visible through trigsimp; a coefficient ≥ 2 survives simplify.
+TEST_CASE("simplify: sinh*cosh product fold (HYP-MUL-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // 2·sinh(x)·cosh(x) → sinh(2x) ; 6·sinh·cosh → 3·sinh(2x).
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * sinh(x) * cosh(x))->str(), "sinh(2*x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(integer(6) * sinh(x) * cosh(x))->str(), "3*sinh(2*x)"));
+    // Nested argument: sinh(2x)·cosh(2x) → sinh(4x)/2.
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * cosh(integer(2) * x))->str(),
+        "sinh(4*x)/2"));
+    // The bare pair folds at the trigsimp level (anti-bloat hides it in simplify).
+    REQUIRE(oracle.equivalent(trigsimp(sinh(x) * cosh(x))->str(),
+                              "sinh(2*x)/2"));
+    // No misfire: a mismatched argument or a squared factor is left intact.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * sinh(x) * cosh(symbol("y")))->str(),
+        "2*sinh(x)*cosh(y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cosh(x) * pow(sinh(x), integer(2)))->str(),
+        "cosh(x)*sinh(x)**2"));
+}
+
 // TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
 // → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
 // unfolded before. A shared coefficient carries through, and the rewrite

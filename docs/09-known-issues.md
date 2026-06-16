@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### HYP-MUL-1 — `2·sinh(x)·cosh(x)` did not fold to `sinh(2x)`
+- **Problem:** `trigsimp_mul` folded the circular product `k·sin(x)·cos(x) → (k/2)·sin(2x)`
+  but there was no hyperbolic counterpart, so `2·sinh(x)·cosh(x)`, `6·sinh(x)·cosh(x)`,
+  `sinh(2x)·cosh(2x)` stayed as products where SymPy returns `sinh(2x)`, `3·sinh(2x)`,
+  `sinh(4x)/2`.
+- **Fix:** added `hypsimp_mul` in `src/simplify/simplify.cpp`, run in the `trigsimp_node`
+  Mul pipeline, mirroring `trigsimp_mul` with `2·sinh(x)·cosh(x) = sinh(2x)` (no sign
+  change). It folds a same-argument `sinh·cosh` pair into `(k/2)·sinh(2·arg)` and leaves
+  mismatched arguments or squared factors untouched. As with the circular case, the bare
+  `k = 1` fold (`sinh·cosh → sinh(2x)/2`) is reverted by `simplify`'s anti-bloat guard but
+  is visible through `trigsimp`; a coefficient ≥ 2 survives `simplify`. Matches SymPy.
+
 ### HYP-DBLRATIO-1 — `simplify(sinh(2x)/sinh(x))` did not reduce to `2·cosh(x)`
 - **Problem:** the circular double-angle ratio reduction (TRIG-DBLRATIO-1) had no
   hyperbolic counterpart, so `sinh(2x)/sinh(x)`, `sinh(2x)/cosh(x)` and the `csch`/`sech`

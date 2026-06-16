@@ -1038,6 +1038,48 @@ struct CosDoubleTerm {
     return mul(std::move(rest));
 }
 
+// Hyperbolic analogue of trigsimp_mul: 2·sinh(x)·cosh(x) = sinh(2x), more
+// generally k·sinh(x)·cosh(x) → (k/2)·sinh(2x). Folds a same-argument sinh·cosh
+// pair in a Mul, leaving everything else untouched. (No sign change — sinh(2x)
+// factors as sinh·cosh just like sin(2x).)
+[[nodiscard]] Expr hypsimp_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    Expr sinh_arg = nullptr;
+    std::size_t sinh_idx = 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*f).function_id() == FunctionId::Sinh) {
+            sinh_arg = f->args()[0];
+            sinh_idx = i;
+            break;
+        }
+    }
+    if (!sinh_arg) return e;
+    std::size_t cosh_idx = args.size();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sinh_idx) continue;
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*f).function_id() == FunctionId::Cosh
+            && f->args()[0] == sinh_arg) {
+            cosh_idx = i;
+            break;
+        }
+    }
+    if (cosh_idx == args.size()) return e;
+    std::vector<Expr> rest;
+    rest.reserve(args.size() - 1);
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sinh_idx || i == cosh_idx) continue;
+        rest.push_back(args[i]);
+    }
+    rest.push_back(rational(1, 2));
+    rest.push_back(sinh(integer(2) * sinh_arg));
+    return mul(std::move(rest));
+}
+
 // Classify an Add term as a product of exactly two first-power sin/cos factors,
 // returning the coefficient and each factor's (is_sin, arg). Anything else — a
 // bare or squared trig, a third trig factor, or a leftover function in the
@@ -1752,6 +1794,7 @@ struct TwoTrigTerm {
     cur = trigsimp_mul(cur);
     cur = hyp_ratio_mul(cur);
     cur = hyp_double_angle_ratio_mul(cur);
+    cur = hypsimp_mul(cur);
     return cur;
 }
 
