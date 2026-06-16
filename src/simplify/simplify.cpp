@@ -166,6 +166,7 @@ namespace {
 [[nodiscard]] Expr radical_coeff(const Expr& e);
 [[nodiscard]] Expr log_ratio(const Expr& e);
 [[nodiscard]] Expr sign_abs_mul(const Expr& e);
+[[nodiscard]] Expr abs_mul_combine(const Expr& e);
 
 }  // namespace
 
@@ -181,6 +182,7 @@ Expr simplify(const Expr& e) {
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
     current = sign_abs_mul(current);
+    current = abs_mul_combine(current);
     current = powsimp(current);
     current = log_ratio(current);
     current = combine_exp(current);
@@ -701,6 +703,38 @@ Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
 }
 
 Expr sign_abs_mul(const Expr& e) { return apply_recursive(e, sign_abs_node); }
+
+// |a|·|b| = |a·b| (true for all complex a, b). Combine the Abs-bearing factors of
+// a Mul — Abs(u) and integer powers Abs(u)^k — into a single Abs of their product,
+// leaving non-Abs factors as a loose coefficient: |x|·|y| → |x·y|,
+// 2·|x|·|y| → 2·|x·y|, |x|²·|y| → |x²·y|, |x|/|y| → |x/y|. A lone Abs factor
+// (|x|, |x|²) is left untouched. Matches SymPy. Runs after sign_abs_mul so a
+// sign(u)·|u| pair has already cancelled to u and won't be re-wrapped.
+[[nodiscard]] Expr abs_mul_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto is_abs = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Abs;
+    };
+    std::vector<Expr> inside;  // the u^k pieces destined for one Abs(…)
+    std::vector<Expr> rest;
+    for (const auto& f : e->args()) {
+        if (is_abs(f)) {
+            inside.push_back(f->args()[0]);
+        } else if (f->type_id() == TypeId::Pow && is_abs(f->args()[0])
+                   && f->args()[1]->type_id() == TypeId::Integer) {
+            inside.push_back(pow(f->args()[0]->args()[0], f->args()[1]));
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (inside.size() < 2) return e;  // nothing to merge
+    rest.push_back(abs(mul(std::move(inside))));
+    return mul(std::move(rest));
+}
+
+Expr abs_mul_combine(const Expr& e) { return apply_recursive(e, abs_mul_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 

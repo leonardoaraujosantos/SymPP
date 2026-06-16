@@ -188,6 +188,34 @@ TEST_CASE("simplify: sign(u)*Abs(u) -> u (SIGN-ABS-1)",
     REQUIRE(simplify(sign(x))->str() == "sign(x)");
 }
 
+// ABS-MUL-1: |a|·|b| = |a·b| (true for all complex a, b). The Abs factors of a
+// product — including integer powers and reciprocals — merge into a single Abs
+// of the product, leaving non-Abs factors loose. A lone Abs is untouched. After
+// sign_abs cancellation, so sign(x)·|x|·|y| → x·|y|.
+TEST_CASE("simplify: Abs product combines |a|*|b| -> |a*b| (ABS-MUL-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto z = symbol("z");
+    REQUIRE(oracle.equivalent(simplify(abs(x) * abs(y))->str(), "Abs(x*y)"));
+    REQUIRE(oracle.equivalent(simplify(integer(2) * abs(x) * abs(y))->str(),
+                              "2*Abs(x*y)"));
+    REQUIRE(oracle.equivalent(simplify(abs(x) * abs(y) * abs(z))->str(),
+                              "Abs(x*y*z)"));
+    // Integer power and reciprocal Abs factors join the merge.
+    REQUIRE(oracle.equivalent(
+        simplify(pow(abs(x), integer(2)) * abs(y))->str(), "Abs(x**2*y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(abs(x) * pow(abs(y), integer(-1)))->str(), "Abs(x/y)"));
+    // General argument.
+    REQUIRE(oracle.equivalent(simplify(abs(x + integer(1)) * abs(y))->str(),
+                              "Abs((x + 1)*y)"));
+    // No misfire: a lone Abs (even a power) is left intact.
+    REQUIRE(simplify(abs(x))->str() == "Abs(x)");
+    REQUIRE(simplify(pow(abs(x), integer(2)))->str() == "Abs(x)**2");
+}
+
 TEST_CASE("simplify: combines exponential products (SIMP-2)",
           "[5][simplify][oracle][regression]") {
     auto& oracle = Oracle::instance();

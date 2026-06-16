@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### ABS-MUL-1 — `|x|·|y|` did not combine to `|x·y|`
+- **Problem:** the identity `|a|·|b| = |a·b|` (true for all complex `a`, `b`) was not
+  applied, so `|x|·|y|`, `2·|x|·|y|`, `|x|²·|y|` stayed as products of separate `Abs`
+  factors where SymPy returns `|x·y|`, `2·|x·y|`, `|x²·y|`.
+- **Fix:** added `abs_mul_combine` to the `simplify` pipeline (`src/simplify/simplify.cpp`),
+  right after `sign_abs_mul`. It gathers the `Abs`-bearing factors of a `Mul` — `Abs(u)`
+  and integer powers/reciprocals `Abs(u)^k` — and merges them into a single
+  `Abs(∏ u^k)`, leaving non-`Abs` factors as a loose coefficient: `|x|·|y| → |x·y|`,
+  `|x|²·|y| → |x²·y|`, `|x|/|y| → |x/y|`. A lone `Abs` factor (`|x|`, `|x|²`) is left
+  untouched. Ordered after `sign_abs_mul` so a `sign(u)·|u|` pair has already cancelled to
+  `u` and is not re-wrapped (`sign(x)·|x|·|y| → x·|y|`). Matches SymPy.
+
 ### SIGN-ABS-1 — `sign(x)·|x|` did not simplify to `x`
 - **Problem:** the polar-decomposition identity `sign(u)·|u| = u` was not applied, so
   `sign(x)·|x|`, `2·sign(x)·|x|`, `sign(x)·|x|·y` stayed as products where SymPy returns
