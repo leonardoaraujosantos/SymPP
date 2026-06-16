@@ -1,6 +1,7 @@
 #include <sympp/calculus/limit.hpp>
 
 #include <cmath>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <utility>
@@ -15,6 +16,7 @@
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
@@ -796,6 +798,25 @@ struct Growth {
     return false;
 }
 
+// LCM of the denominators of the fractional exponents over var-dependent bases —
+// the root order to raise a difference to so every radical clears (√ → 2, ∛ → 3,
+// a mix of √ and ∛ → 6). Returns 1 when there is no var-radical.
+[[nodiscard]] long radical_order(const Expr& e, const Expr& var) {
+    long n = 1;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Pow
+            && x->args()[1]->type_id() == TypeId::Rational
+            && has(x->args()[0], var)) {
+            const mpz_class den =
+                static_cast<const Rational&>(*x->args()[1]).value().get_den();
+            if (den.fits_slong_p()) n = std::lcm(n, den.get_si());
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
+
 // ∞ − ∞ involving a radical, resolved by the conjugate. For a two-term sum
 // t₁ + t₂ (one term a square root) whose direct limit is the indeterminate
 // ∞ − ∞: t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂). Squaring clears the radical and the
@@ -889,17 +910,34 @@ struct Growth {
             if (simplify(csum) != S::Zero()) {
                 return std::make_pair(simplify(csum), *maxdeg);
             }
-            // Leading terms cancel. For a two-term sum with a radical, the conjugate
-            // t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂) clears it; recurse on that form (no
-            // simplify on the quotient, which would rationalize straight back).
+            // Leading terms cancel. For a two-term sum u − v with a radical of order
+            // n, the n-th-root conjugate clears it:
+            //   u − v = (uⁿ − vⁿ) / Σ_{i=0}^{n-1} u^(n−1−i)·vⁱ.
+            // uⁿ, vⁿ raise the radicals to integer powers, so the numerator becomes
+            // radical-free; the denominator has no leading cancellation. Recurse on
+            // the quotient (no simplify — that would rationalize straight back).
+            // n = 2 is the classic √ conjugate; n = 3 handles (x³+x²)^(1/3) − x → 1/3.
             if (e->args().size() == 2 && has_var_radical(e, var)) {
-                const Expr& t1 = e->args()[0];
-                const Expr& t2 = e->args()[1];
-                Expr num = simplify(mul(t1, t1) + mul(S::NegativeOne(), mul(t2, t2)));
-                Expr den = simplify(t1 + mul(S::NegativeOne(), t2));
-                if (!(den == S::Zero()) && !has_var_radical(num, var)) {
-                    return leading_pos_inf(
-                        mul(num, pow(den, S::NegativeOne())), var, depth + 1);
+                const Expr u = e->args()[0];
+                const Expr v = mul(S::NegativeOne(), e->args()[1]);  // e = u − v
+                const long n = radical_order(e, var);
+                if (n >= 2 && n <= 6) {
+                    Expr num = simplify(pow(u, integer(n))
+                                        + mul(S::NegativeOne(), pow(v, integer(n))));
+                    if (!has_var_radical(num, var)) {
+                        std::vector<Expr> dterms;
+                        dterms.reserve(static_cast<std::size_t>(n));
+                        for (long i = 0; i < n; ++i) {
+                            dterms.push_back(
+                                mul(pow(u, integer(n - 1 - i)), pow(v, integer(i))));
+                        }
+                        Expr den = add(std::move(dterms));
+                        if (!(simplify(den) == S::Zero())) {
+                            return leading_pos_inf(
+                                mul(num, pow(den, S::NegativeOne())), var,
+                                depth + 1);
+                        }
+                    }
                 }
             }
             return std::nullopt;

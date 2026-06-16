@@ -573,6 +573,18 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
     // General coefficient: √(4x²+x) − 2x → 1/4.
     REQUIRE(limit(sq(integer(4) * x2 + x) - integer(2) * x, x, oo)
             == rational(1, 4));
+    // LIMIT-NROOT-INF: the conjugate generalizes from √ to an n-th root via
+    // u − v = (uⁿ − vⁿ)/Σ u^(n−1−i)vⁱ. (x³+x²)^(1/3) − x → 1/3, (x⁴+x³)^(1/4) − x →
+    // 1/4, the two-cube-root difference (x³+x²)^(1/3) − (x³−x²)^(1/3) → 2/3, and a
+    // leading coefficient (8x³+x²)^(1/3) − 2x → 1/12. Previously nan. Matches SymPy.
+    auto cbrt = [&](const Expr& e) { return pow(e, rational(1, 3)); };
+    auto x3 = pow(x, integer(3));
+    REQUIRE(limit(cbrt(x3 + x2) - x, x, oo) == rational(1, 3));
+    REQUIRE(limit(pow(pow(x, integer(4)) + x3, rational(1, 4)) - x, x, oo)
+            == rational(1, 4));
+    REQUIRE(limit(cbrt(x3 + x2) - cbrt(x3 - x2), x, oo) == rational(2, 3));
+    REQUIRE(limit(cbrt(integer(8) * x3 + x2) - integer(2) * x, x, oo)
+            == rational(1, 12));
 }
 
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental

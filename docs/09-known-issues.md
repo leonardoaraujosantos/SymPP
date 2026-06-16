@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-NROOT-INF — `(x³+x²)^(1/3) − x → 1/3` (n-th-root difference) returned nan
+- **Problem:** the leading-term conjugate in `leading_pos_inf` only handled *square*
+  roots (`t₁+t₂ = (t₁²−t₂²)/(t₁−t₂)`), so cube/fourth-root differences whose leading
+  terms cancel — `(x³+x²)^(1/3)−x`, `(x⁴+x³)^(1/4)−x`, `(x³+x²)^(1/3)−(x³−x²)^(1/3)` —
+  stayed `nan` (the square conjugate leaves the cube root in the numerator). The
+  reciprocal-substitution fallback also can't reach them (their substituted form
+  doesn't resolve at `t→0`).
+- **Fix:** generalized the conjugate in `src/calculus/limit.cpp` to the n-th root —
+  `u − v = (uⁿ − vⁿ)/Σ_{i=0}^{n-1} u^(n−1−i)·vⁱ`, with `n` the LCM of the radical
+  exponent denominators (new `radical_order` helper). `uⁿ`/`vⁿ` raise the radicals to
+  integer powers, clearing them from the numerator; the denominator has no leading
+  cancellation, so `leading_pos_inf` recurses cleanly. `n=2` is the original √ case.
+  `(x³+x²)^(1/3)−x → 1/3`, `(8x³+x²)^(1/3)−2x → 1/12`,
+  `(x³+x²)^(1/3)−(x³−x²)^(1/3) → 2/3`. Matches SymPy.
+
 ### LIMIT-RECIP-INF-1 — asymptotic limits at ∞ with a transcendental subleading term
 - **Problem:** limits at +∞ whose value comes from a subleading asymptotic term —
   `x − x²·log(1+1/x) → 1/2`, `x²(1−cos(1/x)) → 1/2`, `x·(e^(1/x)−1) → 1`,
