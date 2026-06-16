@@ -1270,10 +1270,29 @@ struct TwoTrigTerm {
         if (out.size() == 1) return out[0];
         return add(std::move(out));
     };
+    // Double-angle candidate, using sinh²x = (cosh 2x − 1)/2 and
+    // cosh²x = (cosh 2x + 1)/2:  a·sinh² + b·cosh² = (b − a)/2 + ((a + b)/2)·cosh 2x.
+    // Folds cosh²x + sinh²x → cosh 2x and the constant-mixed shapes
+    // 1 + 2·sinh²x, 2·cosh²x − 1 → cosh 2x (the loose constant absorbs into the Add).
+    auto double_angle = [&] {
+        std::vector<Expr> out = non_hyp;
+        Expr half = rational(1, 2);
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(half * (cp.cosh_c - cp.sinh_c));
+            Expr c_2x = half * (cp.sinh_c + cp.cosh_c);
+            if (!(c_2x == S::Zero())) {
+                out.push_back(c_2x * cosh(integer(2) * arg));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
     Expr sinh_form = build(true);
     Expr cosh_form = build(false);
     Expr best = count_leaves(cosh_form) < count_leaves(sinh_form)
                     ? cosh_form : sinh_form;
+    if (count_leaves(double_angle) < count_leaves(best)) best = double_angle;
     return count_leaves(best) < count_leaves(e) ? best : e;
 }
 

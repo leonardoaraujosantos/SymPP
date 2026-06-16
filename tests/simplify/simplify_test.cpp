@@ -562,6 +562,34 @@ TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
                      - integer(3) * pow(sinh(x), integer(2))) == integer(3));
 }
 
+// HYP-DBLADD-1: hyperbolic additive double-angle, the analogue of the circular
+// power-reduction fold. Using sinh²x = (cosh2x−1)/2, cosh²x = (cosh2x+1)/2:
+//   cosh²x + sinh²x → cosh 2x,  1 + 2·sinh²x → cosh 2x,  2·cosh²x − 1 → cosh 2x.
+// The Pythagorean shapes (cosh²−sinh², 1+sinh²) keep their smaller sinh²/cosh²
+// form — the double-angle candidate only wins on strictly fewer leaves.
+TEST_CASE("trigsimp: hyperbolic additive double-angle (HYP-DBLADD-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [](const Expr& e) { return pow(e, integer(2)); };
+    // cosh²x + sinh²x → cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(sq(cosh(x)) + sq(sinh(x)))->str(), "cosh(2*x)"));
+    // 1 + 2·sinh²x → cosh 2x ; 2·cosh²x − 1 → cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) + integer(2) * sq(sinh(x)))->str(), "cosh(2*x)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(2) * sq(cosh(x)) - integer(1))->str(), "cosh(2*x)"));
+    // Shared coefficient carries through: 3cosh²x + 3sinh²x → 3·cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * sq(cosh(x)) + integer(3) * sq(sinh(x)))->str(),
+        "3*cosh(2*x)"));
+    // Pythagorean shapes keep their smaller form (no double-angle takeover).
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) + sq(sinh(x)))->str(), "cosh(x)**2"));
+    REQUIRE(trigsimp(sq(cosh(x)) - sq(sinh(x))) == integer(1));
+}
+
 TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
           "[5][trigsimp][oracle][regression]") {
     auto& oracle = Oracle::instance();

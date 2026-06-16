@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### HYP-DBLADD-1 — `cosh²x + sinh²x` did not fold to `cosh(2x)`
+- **Problem:** `hypsimp_add` carried only the Pythagorean rewrites (`cosh²−sinh²=1`,
+  `1+sinh²=cosh²`), so the additive double-angle shapes stayed as written —
+  `cosh²x + sinh²x`, `1 + 2·sinh²x`, `2·cosh²x − 1` — where SymPy returns `cosh(2x)`. The
+  circular analogue (`cos²−sin² → cos 2x`, `1−2sin² → cos 2x`) already worked.
+- **Fix:** added a double-angle candidate to `hypsimp_add` in `src/simplify/simplify.cpp`,
+  mirroring the circular `double_angle_form`. Using `sinh²x = (cosh 2x − 1)/2` and
+  `cosh²x = (cosh 2x + 1)/2`, a bucket `a·sinh² + b·cosh²` becomes
+  `(b − a)/2 + ((a + b)/2)·cosh 2x`; the loose constant absorbs the `1 + 2·sinh²` /
+  `2·cosh² − 1` shapes. It joins the existing sinh-/cosh-Pythagorean candidates and wins
+  only on strictly fewer leaves, so `cosh² − sinh² → 1` and `1 + sinh² → cosh²` keep their
+  smaller form. `cosh²x + sinh²x → cosh 2x`, `3cosh² + 3sinh² → 3·cosh 2x`. Matches SymPy.
+
 ### HYP-MUL-1 — `2·sinh(x)·cosh(x)` did not fold to `sinh(2x)`
 - **Problem:** `trigsimp_mul` folded the circular product `k·sin(x)·cos(x) → (k/2)·sin(2x)`
   but there was no hyperbolic counterpart, so `2·sinh(x)·cosh(x)`, `6·sinh(x)·cosh(x)`,
