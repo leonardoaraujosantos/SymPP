@@ -393,6 +393,41 @@ TEST_CASE("trigsimp: power-reduction (1 ∓ cos 2x)/2 (TRIG-PWR)",
         "cos(2*x)"));
 }
 
+// TRIG-DBLRATIO-1: a double-angle sine over a single angle cancels —
+// sin(2u)/sin(u) → 2cos(u), sin(2u)/cos(u) → 2sin(u) (and the csc/sec forms),
+// matching SymPy's simplify. Only the doubled sine factors into one sin/cos
+// pair, so cos(2u)/cos(u) and sin(3u)/sin(u) are deliberately left alone.
+TEST_CASE("simplify: double-angle sine ratio (TRIG-DBLRATIO-1)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // sin(2x)/sin(x) → 2cos(x), sin(2x)/cos(x) → 2sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * inv(sin(x)))->str(), "2*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * inv(cos(x)))->str(), "2*sin(x)"));
+    // Coefficient carries through; deeper doubling cancels one level.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sin(integer(2) * x) * inv(sin(x)))->str(),
+        "6*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(4) * x) * inv(sin(integer(2) * x)))->str(),
+        "2*cos(2*x)"));
+    // csc/sec denominators fold identically.
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * csc(x))->str(), "2*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * sec(x))->str(), "2*sin(x)"));
+    // Left alone (as SymPy does): cos(2x)/cos(x), sin(3x)/sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(cos(integer(2) * x) * inv(cos(x)))->str(),
+        "cos(2*x)/cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(3) * x) * inv(sin(x)))->str(),
+        "sin(3*x)/sin(x)"));
+}
+
 // TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
 // → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
 // unfolded before. A shared coefficient carries through, and the rewrite

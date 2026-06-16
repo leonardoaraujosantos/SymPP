@@ -1637,6 +1637,59 @@ struct TwoTrigTerm {
     return count_leaves(rebuilt) < count_leaves(e) ? rebuilt : e;
 }
 
+// Cancel a double-angle sine against a single-angle sin/cos in the denominator,
+// matching SymPy's simplify: sin(2u) = 2·sin(u)·cos(u), so
+//   sin(2u)/sin(u) → 2·cos(u)   and   sin(2u)/cos(u) → 2·sin(u).
+// Only the doubled *sine* factors into a single sin/cos pair, so cos(2u)/cos(u)
+// and sin(3u)/sin(u) (which SymPy also leaves alone) are untouched. Runs after
+// trig_ratio_mul so a csc/sec denominator has already become sin/cos^(-1).
+[[nodiscard]] Expr trig_double_angle_ratio_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& fi = args[i];
+        if (fi->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*fi).function_id() != FunctionId::Sin) {
+            continue;
+        }
+        const Expr& a = fi->args()[0];  // the doubled angle
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i) continue;
+            // The denominator is 1/sin or 1/cos of u, written either as a negative
+            // power sin(u)^(-1)/cos(u)^(-1) or as the reciprocal csc(u)/sec(u).
+            const Expr* den_fn = nullptr;
+            bool over_sin = false;
+            if (args[j]->type_id() == TypeId::Pow
+                && args[j]->args()[1] == S::NegativeOne()
+                && args[j]->args()[0]->type_id() == TypeId::Function) {
+                den_fn = &args[j]->args()[0];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Sin) over_sin = true;
+                else if (id != FunctionId::Cos) continue;
+            } else if (args[j]->type_id() == TypeId::Function) {
+                den_fn = &args[j];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Csc) over_sin = true;
+                else if (id != FunctionId::Sec) continue;
+            } else {
+                continue;
+            }
+            const Expr& u = (*den_fn)->args()[0];
+            if (!(expand(a - integer(2) * u) == S::Zero())) continue;
+            Expr folded = over_sin ? Expr{integer(2) * cos(u)}
+                                   : Expr{integer(2) * sin(u)};
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(std::move(folded));
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = trigsimp_angle_addition(cur);
@@ -1645,6 +1698,7 @@ struct TwoTrigTerm {
     cur = trig_pyth_add(cur);
     cur = hyp_to_exp_add(cur);
     cur = trig_ratio_mul(cur);
+    cur = trig_double_angle_ratio_mul(cur);
     cur = trigsimp_mul(cur);
     cur = hyp_ratio_mul(cur);
     return cur;

@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-DBLRATIO-1 — `simplify(sin(2x)/sin(x))` did not reduce to `2·cos(x)`
+- **Problem:** `simplify` collapsed the *product* `2·sin(x)·cos(x) → sin(2x)` but not the
+  inverse *ratio*: `sin(2x)/sin(x)`, `sin(2x)/cos(x)`, and the `csc`/`sec` forms stayed
+  unevaluated. SymPy returns `2·cos(x)` / `2·sin(x)`.
+- **Fix:** added `trig_double_angle_ratio_mul` in `src/simplify/simplify.cpp`, run in the
+  `trigsimp_node` Mul pipeline (after `trig_ratio_mul`, before `trigsimp_mul`). For a
+  `sin(a)` factor it looks for a denominator `1/sin(u)`/`1/cos(u)` — written as a negative
+  power or as `csc(u)`/`sec(u)` — with `a = 2u` (checked via `expand(a − 2u) == 0`), and
+  folds the pair using `sin(2u) = 2·sin(u)·cos(u)`: `sin(2u)/sin(u) → 2·cos(u)`,
+  `sin(2u)/cos(u) → 2·sin(u)`. Only the doubled sine factors into a single sin/cos pair,
+  so `cos(2u)/cos(u)` and `sin(3u)/sin(u)` are left alone — exactly as SymPy does.
+  Coefficients carry through (`3·sin(2x)/sin(x) → 6·cos(x)`) and deeper doubling cancels
+  one level (`sin(4x)/sin(2x) → 2·cos(2x)`).
+
 ### SUM-INVQUAD-1 — `Σ_{n=1}^∞ 1/(n²+b)` was unevaluated (irreducible-quadratic denominator)
 - **Problem:** convergent rational sums went through `apart`, which only splits
   denominators with rational roots. For an irreducible quadratic denominator with a
