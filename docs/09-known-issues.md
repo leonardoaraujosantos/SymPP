@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-IMAG-1 — `cos(I·x)`, `sin(I·x)`, … kept their imaginary argument unevaluated
+- **Problem:** SymPP did not apply the imaginary-argument identities, so `cos(I·x)`,
+  `sin(I·x)`, `tan(I·x)` and the hyperbolic mirrors stayed as written, and downstream
+  `exp(I·x)+exp(−I·x)` stopped at `2·cosh(I·x)` instead of `2·cos(x)`. SymPy evaluates
+  these at construction.
+- **Fix:** added an `extract_i_factor` helper (in both `src/functions/trigonometric.cpp` and
+  `src/functions/hyperbolic.cpp`) that returns `y` when the argument has an overall
+  imaginary-unit factor `arg = I·y`, and wired the six eval rules:
+  `sin(I·y)=I·sinh(y)`, `cos(I·y)=cosh(y)`, `tan(I·y)=I·tanh(y)`, `sinh(I·y)=I·sin(y)`,
+  `cosh(I·y)=cos(y)`, `tanh(I·y)=I·tan(y)`. These hold for every complex `y`, so no
+  assumption is needed; the cross-calls (trig↔hyperbolic) need each TU to include the
+  other's header. A mixed real+imaginary argument (`cos(x+I·y)`) has no pure imaginary
+  factor and is left intact. `cos(I)=cosh(1)`, `sin(2·I·x)=I·sinh(2x)`,
+  `exp(I·x)+exp(−I·x)=2·cos(x)`. Matches SymPy.
+
 ### ABS-MUL-1 — `|x|·|y|` did not combine to `|x·y|`
 - **Problem:** the identity `|a|·|b| = |a·b|` (true for all complex `a`, `b`) was not
   applied, so `|x|·|y|`, `2·|x|·|y|`, `|x|²·|y|` stayed as products of separate `Abs`

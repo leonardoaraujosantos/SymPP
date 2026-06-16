@@ -19,6 +19,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/parsing/parser.hpp>
 
@@ -74,6 +75,28 @@ TEST_CASE("sin/cos: radical exact values match SymPy",
     REQUIRE(oracle.equivalent(cos(mul(rational(1, 6), pi))->str(), "sqrt(3)/2"));
     REQUIRE(oracle.equivalent(tan(mul(rational(1, 6), pi))->str(), "sqrt(3)/3"));
     REQUIRE(oracle.equivalent(cos(mul(rational(5, 6), pi))->str(), "-sqrt(3)/2"));
+}
+
+// TRIG-IMAG-1: imaginary-argument identities, applied at construction like SymPy.
+// sin(I·y)=I·sinh(y), cos(I·y)=cosh(y), tan(I·y)=I·tanh(y) and the hyperbolic
+// mirrors sinh(I·y)=I·sin(y), cosh(I·y)=cos(y), tanh(I·y)=I·tan(y). Hold for all
+// complex y, so no assumption is needed; a mixed real+imaginary argument is left.
+TEST_CASE("trig/hyperbolic: imaginary argument identities (TRIG-IMAG-1)",
+          "[3b][trig][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    REQUIRE(oracle.equivalent(sin(I * x)->str(), "I*sinh(x)"));
+    REQUIRE(oracle.equivalent(cos(I * x)->str(), "cosh(x)"));
+    REQUIRE(oracle.equivalent(tan(I * x)->str(), "I*tanh(x)"));
+    REQUIRE(oracle.equivalent(sinh(I * x)->str(), "I*sin(x)"));
+    REQUIRE(oracle.equivalent(cosh(I * x)->str(), "cos(x)"));
+    REQUIRE(oracle.equivalent(tanh(I * x)->str(), "I*tan(x)"));
+    // A coefficient on the imaginary part carries through; a bare I works too.
+    REQUIRE(oracle.equivalent(sin(integer(2) * I * x)->str(), "I*sinh(2*x)"));
+    REQUIRE(oracle.equivalent(cos(I)->str(), "cosh(1)"));
+    // A genuinely mixed argument is not a pure imaginary factor — left intact.
+    REQUIRE(cos(x + I * symbol("y"))->type_id() == TypeId::Function);
 }
 
 TEST_CASE("tan: pole at π/2 stays unevaluated",

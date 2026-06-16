@@ -19,10 +19,31 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
 namespace {
+
+// If `arg` has an overall factor of the imaginary unit — arg = I·y — return y,
+// else nullopt. Drives sinh(I·y) = I·sin(y), cosh(I·y) = cos(y),
+// tanh(I·y) = I·tan(y), which hold for every complex y.
+[[nodiscard]] std::optional<Expr> extract_i_factor(const Expr& arg) {
+    if (arg->type_id() == TypeId::ImaginaryUnit) return S::One();
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<Expr> rest;
+    bool found = false;
+    for (const auto& f : arg->args()) {
+        if (!found && f->type_id() == TypeId::ImaginaryUnit) {
+            found = true;
+            continue;
+        }
+        rest.push_back(f);
+    }
+    if (!found) return std::nullopt;
+    if (rest.empty()) return S::One();
+    return mul(std::move(rest));
+}
 
 // Detect a leading -1 factor on a Mul: -1 * rest. Returns the stripped tail
 // if so, std::nullopt otherwise.
@@ -280,6 +301,10 @@ Expr sinh(const Expr& arg) {
     if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
         return mul(*v, invsqrt(one_minus_x2(*v)));
     }
+    // sinh(I·y) = I·sin(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), sin(*y));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Sinh>(*pos));
     }
@@ -306,6 +331,10 @@ Expr cosh(const Expr& arg) {
     if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
         return invsqrt(one_minus_x2(*v));
     }
+    // cosh(I·y) = cos(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return cos(*y);
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return make<Cosh>(*pos);  // even
     }
@@ -329,6 +358,10 @@ Expr tanh(const Expr& arg) {
     // tanh(acosh(x)) = √(x−1)·√(x+1) / x.
     if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) {
         return mul(sqrt_x2_minus_1(*v), pow(*v, integer(-1)));
+    }
+    // tanh(I·y) = I·tan(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), tan(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Tanh>(*pos));
