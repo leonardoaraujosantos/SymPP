@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### TRIG-ANGLE-ADD-2 — N-term angle addition; `dsolve(y''+4y=sin x)` had a messy particular solution
+- **Problem:** the angle-addition simplifier `sin(a)cos(b)±cos(a)sin(b)→sin(a±b)` only
+  ran on a *two-term* Add. So a longer trig-product combination — e.g. the
+  variation-of-parameters particular solution of `y''+4y=sin(x)` — was left as a large
+  unsimplified mess rather than `sin(x)/3` (SymPy gives `C1 sin2x + C2 cos2x + sin(x)/3`).
+- **Fix:** in `src/simplify/simplify.cpp`, generalized `trigsimp_angle_addition` to an
+  Add of any size: it greedily collapses every collapsible pair of two-trig products
+  and lets `add()` collect the folded terms (so `1/12 sin x + 1/4 sin x → sin(x)/3`).
+  Also guarded `as_cos_double_term` so it no longer grabs `cos(2x)` out of a genuine
+  product `sin(x)·cos(2x)` (treating `sin(x)` as the coefficient and folding it into
+  `cos²−sin²`), which was mangling the Add before the angle-addition pass could run.
+  `dsolve` already simplifies its result, so the higher-order nonhomogeneous trig
+  solutions now come out clean (matching SymPy).
+
 ### SIMPLIFY-RADCOEFF-1 — `simplify(√(4a²))` didn't pull out the perfect square
 - **Problem:** SymPP factored perfect powers out of *pure-number* radicals (`√8 → 2√2`,
   auto-evaluated) but not when a symbolic factor was present: `√(4a²)`, `√(8x²)`,

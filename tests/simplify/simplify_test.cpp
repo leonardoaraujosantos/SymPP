@@ -423,6 +423,28 @@ TEST_CASE("trigsimp: angle-addition identities (TRIG-ANGLE-ADD-1)",
     // A lone product is not an Add and must be left alone (no spurious fold).
     REQUIRE(oracle.equivalent(simplify(sin(x) * cos(y))->str(),
                               "sin(x)*cos(y)"));
+    // TRIG-ANGLE-ADD-2: angle addition over an Add of MORE than two terms —
+    // collapse every collapsible pair, then collect. Reduces the messy
+    // variation-of-parameters particular solution of y'' + 4y = sin(x) to sin(x)/3.
+    auto two = integer(2);
+    auto three = integer(3);
+    auto sixth = rational(1, 6);
+    auto half = rational(1, 2);
+    // sin(3x)cos(2x) − cos(3x)sin(2x) → sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(three * x) * cos(two * x) - cos(three * x) * sin(two * x))
+            ->str(),
+        "sin(x)"));
+    // The four-term VoP form −½(−⅙sin3x+½sinx)cos2x + ½(−⅙cos3x+½cosx)sin2x → sin(x)/3.
+    Expr vop =
+        mul(rational(-1, 2),
+            mul(add(mul(mul(S::NegativeOne(), sixth), sin(three * x)),
+                    mul(half, sin(x))),
+                cos(two * x)))
+        + mul(half, mul(add(mul(mul(S::NegativeOne(), sixth), cos(three * x)),
+                            mul(half, cos(x))),
+                        sin(two * x)));
+    REQUIRE(oracle.equivalent(simplify(vop)->str(), "sin(x)/3"));
 }
 
 TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",

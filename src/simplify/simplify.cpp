@@ -798,10 +798,27 @@ struct CosDoubleTerm {
     if (term->type_id() == TypeId::Mul) {
         std::optional<Expr> arg;
         std::vector<Expr> coef_factors;
+        // A trig factor in the coefficient means this is a genuine trig product
+        // (sin(x)·cos(2x)), better folded by the angle-addition pass — folding the
+        // cos(2x) into cos²−sin² here would mangle it.
+        auto is_trig_bearing = [](const Expr& f) {
+            const Expr& b = f->type_id() == TypeId::Pow ? f->args()[0] : f;
+            if (b->type_id() != TypeId::Function) return false;
+            switch (static_cast<const Function&>(*b).function_id()) {
+                case FunctionId::Sin: case FunctionId::Cos:
+                case FunctionId::Tan: case FunctionId::Cot:
+                case FunctionId::Sec: case FunctionId::Csc:
+                    return true;
+                default:
+                    return false;
+            }
+        };
         for (const auto& f : term->args()) {
             if (auto g = cos_double_arg(f); g) {
                 if (arg) return std::nullopt;  // multiple — leave alone
                 arg = *g;
+            } else if (is_trig_bearing(f)) {
+                return std::nullopt;  // genuine product → leave for angle-addition
             } else {
                 coef_factors.push_back(f);
             }
@@ -999,50 +1016,71 @@ struct TwoTrigTerm {
 //   sin(a)cos(b) ± cos(a)sin(b) → sin(a ± b)
 //   cos(a)cos(b) ∓ sin(a)sin(b) → cos(a ± b)
 // A shared coefficient g carries through (g·… → g·sin/cos(…)).
-[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
-    if (e->type_id() != TypeId::Add || e->args().size() != 2) return e;
-    auto t1 = as_two_trig_term(e->args()[0]);
-    auto t2 = as_two_trig_term(e->args()[1]);
-    if (!t1 || !t2) return e;
+// Collapse two two-trig terms via a single angle-addition identity, returning the
+// folded coef·sin/cos(…) or nullopt when the pair doesn't combine.
+[[nodiscard]] std::optional<Expr> collapse_two_trig(const TwoTrigTerm& t1,
+                                                    const TwoTrigTerm& t2) {
     auto neg = [](const Expr& c) { return mul(S::NegativeOne(), c); };
-
-    const bool sc1 = t1->sin1 != t1->sin2;  // one sin, one cos
-    const bool sc2 = t2->sin1 != t2->sin2;
-    // sin(a±b): both terms are sin·cos.
+    const bool sc1 = t1.sin1 != t1.sin2;  // one sin, one cos
+    const bool sc2 = t2.sin1 != t2.sin2;
+    // sin(a±b): both terms are sin·cos, cross-paired.
     if (sc1 && sc2) {
-        Expr a = t1->sin1 ? t1->arg1 : t1->arg2;   // sin argument of term 1
-        Expr b = t1->sin1 ? t1->arg2 : t1->arg1;   // cos argument of term 1
-        Expr s2 = t2->sin1 ? t2->arg1 : t2->arg2;  // sin argument of term 2
-        Expr c2 = t2->sin1 ? t2->arg2 : t2->arg1;  // cos argument of term 2
-        if (!(s2 == b && c2 == a)) return e;       // must cross-pair
-        if (t1->coef == t2->coef) {
-            return mul(t1->coef, sin(add({a, b})));
-        }
-        if (t1->coef == neg(t2->coef)) {
-            return mul(t1->coef, sin(add({a, neg(b)})));
-        }
-        return e;
+        Expr a = t1.sin1 ? t1.arg1 : t1.arg2;   // sin argument of term 1
+        Expr b = t1.sin1 ? t1.arg2 : t1.arg1;   // cos argument of term 1
+        Expr s2 = t2.sin1 ? t2.arg1 : t2.arg2;  // sin argument of term 2
+        Expr c2 = t2.sin1 ? t2.arg2 : t2.arg1;  // cos argument of term 2
+        if (!(s2 == b && c2 == a)) return std::nullopt;
+        if (t1.coef == t2.coef) return mul(t1.coef, sin(add({a, b})));
+        if (t1.coef == neg(t2.coef)) return mul(t1.coef, sin(add({a, neg(b)})));
+        return std::nullopt;
     }
     // cos(a±b): one term is cos·cos, the other sin·sin, over the same arg pair.
-    const bool cc1 = !t1->sin1 && !t1->sin2, ss1 = t1->sin1 && t1->sin2;
-    const bool cc2 = !t2->sin1 && !t2->sin2, ss2 = t2->sin1 && t2->sin2;
+    const bool cc1 = !t1.sin1 && !t1.sin2, ss1 = t1.sin1 && t1.sin2;
+    const bool cc2 = !t2.sin1 && !t2.sin2, ss2 = t2.sin1 && t2.sin2;
     const TwoTrigTerm* cc = nullptr;
     const TwoTrigTerm* ss = nullptr;
-    if (cc1 && ss2) { cc = &*t1; ss = &*t2; }
-    else if (ss1 && cc2) { cc = &*t2; ss = &*t1; }
-    else return e;
+    if (cc1 && ss2) { cc = &t1; ss = &t2; }
+    else if (ss1 && cc2) { cc = &t2; ss = &t1; }
+    else return std::nullopt;
     const bool same_args =
         (cc->arg1 == ss->arg1 && cc->arg2 == ss->arg2)
         || (cc->arg1 == ss->arg2 && cc->arg2 == ss->arg1);
-    if (!same_args) return e;
+    if (!same_args) return std::nullopt;
     Expr a = cc->arg1, b = cc->arg2;
-    if (cc->coef == ss->coef) {
-        return mul(cc->coef, cos(add({a, neg(b)})));  // cos(a−b)
+    if (cc->coef == ss->coef) return mul(cc->coef, cos(add({a, neg(b)})));
+    if (cc->coef == neg(ss->coef)) return mul(cc->coef, cos(add({a, b})));
+    return std::nullopt;
+}
+
+// Angle-addition identities over an Add of any size: greedily collapse every
+// collapsible pair of two-trig products (sin·cos ± cos·sin → sin(a±b), etc.), then
+// let add() collect the folded terms. Reduces e.g. the variation-of-parameters
+// particular solution sin(3x)cos(2x) − cos(3x)sin(2x) + … down to sin(x)/3.
+[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
+    if (e->type_id() != TypeId::Add || e->args().size() < 2) return e;
+    std::vector<Expr> terms(e->args().begin(), e->args().end());
+    std::vector<std::optional<TwoTrigTerm>> parsed;
+    parsed.reserve(terms.size());
+    for (const auto& t : terms) parsed.push_back(as_two_trig_term(t));
+    std::vector<bool> used(terms.size(), false);
+    std::vector<Expr> out;
+    bool any = false;
+    for (std::size_t i = 0; i < terms.size(); ++i) {
+        if (used[i]) continue;
+        if (!parsed[i]) { out.push_back(terms[i]); continue; }
+        bool paired = false;
+        for (std::size_t j = i + 1; j < terms.size(); ++j) {
+            if (used[j] || !parsed[j]) continue;
+            if (auto folded = collapse_two_trig(*parsed[i], *parsed[j])) {
+                out.push_back(*folded);
+                used[i] = used[j] = paired = any = true;
+                break;
+            }
+        }
+        if (!paired) out.push_back(terms[i]);
     }
-    if (cc->coef == neg(ss->coef)) {
-        return mul(cc->coef, cos(add({a, b})));  // cos(a+b)
-    }
-    return e;
+    if (!any) return e;
+    return add(std::move(out));  // canonicalization collects the folded like terms
 }
 
 // Hyperbolic Pythagorean: a·sinh²(x) + b·cosh²(x) using cosh² − sinh² = 1.
