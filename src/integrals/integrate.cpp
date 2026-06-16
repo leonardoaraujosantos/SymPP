@@ -361,6 +361,10 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_sin_cos_quotient(const Expr& expr,
                                                        const Expr& var);
 
+// ∫ ∏ sin/cos(affineᵢ)^kᵢ dx (mixed arguments) via product-to-sum linearization.
+[[nodiscard]] std::optional<Expr> try_trig_product_expand(const Expr& expr,
+                                                          const Expr& var);
+
 // ∫ tan(g)^n dx (n ≥ 2 integer, g affine) via the reduction
 // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
 [[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
@@ -558,6 +562,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_sin_cos_quotient(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_trig_product_expand(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_sech_csch_power(expr, var); r.has_value()) {
@@ -1981,6 +1988,144 @@ std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
     // not a wrong answer. An exactly-zero residual is the best possible outcome.
     Expr resid = simplify(diff(result, var) - expr);
     if (resid == S::Zero()) return expand(result);
+    int checks = 0;
+    int bad = 0;
+    for (int num : {3, 7, 13, 19}) {
+        Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+        if (val == S::Zero()) {
+            ++checks;
+            continue;
+        }
+        if (val->type_id() != TypeId::Float) continue;
+        double dd = 0.0;
+        try {
+            dd = std::stod(val->str());
+        } catch (...) {
+            continue;
+        }
+        if (!std::isfinite(dd)) continue;
+        ++checks;
+        if (std::fabs(dd) > 1e-6) ++bad;
+    }
+    if (checks == 0 || bad > 0) return std::nullopt;
+    return expand(result);
+}
+
+// ∫ ∏ sin/cos(affineᵢ)^(kᵢ) dx — a product of sin/cos powers whose arguments are
+// affine in var but NOT all equal (e.g. sin²(x)·cos(2x), cos²(x)·cos(2x)). Product-
+// to-sum and power reduction linearize any such product into a sum of single
+// sin(affine)/cos(affine) terms, each of which the table integrates. Same-argument
+// products (sin^m·cos^n) are left to try_trig_power.
+std::optional<Expr> try_trig_product_expand(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<std::pair<FunctionId, Expr>> trigs;
+    Expr coeff = S::One();
+    auto add_factor = [&](const Expr& f) -> bool {
+        Expr base = f;
+        long k = 1;
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& e = f->args()[1];
+            if (e->type_id() != TypeId::Integer) return false;
+            const auto& z = static_cast<const Integer&>(*e);
+            if (!z.is_positive() || !z.fits_long() || z.to_long() > 24) return false;
+            k = z.to_long();
+            base = f->args()[0];
+        }
+        if (base->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*base);
+            const FunctionId id = fn.function_id();
+            if ((id == FunctionId::Sin || id == FunctionId::Cos)
+                && fn.args().size() == 1 && as_affine(fn.args()[0], var)) {
+                for (long i = 0; i < k; ++i)
+                    trigs.emplace_back(id, fn.args()[0]);
+                return true;
+            }
+        }
+        if (depends_on(f, var)) return false;  // non-trig var factor: not our job
+        coeff = coeff * f;
+        return true;
+    };
+    for (const auto& f : expr->args())
+        if (!add_factor(f)) return std::nullopt;
+    if (trigs.size() < 2 || trigs.size() > 16) return std::nullopt;
+    bool distinct = false;
+    for (size_t i = 1; i < trigs.size(); ++i)
+        if (!(trigs[i].second == trigs[0].second)) { distinct = true; break; }
+    if (!distinct) return std::nullopt;  // same-arg product: try_trig_power
+
+    auto make_trig = [](FunctionId id, const Expr& arg) -> Expr {
+        return id == FunctionId::Sin ? sin(arg) : cos(arg);
+    };
+    auto p2s = [](FunctionId f1, const Expr& a1, FunctionId f2,
+                  const Expr& a2) -> Expr {
+        Expr s = a1 + a2;
+        Expr d = a1 - a2;
+        if (f1 == FunctionId::Sin && f2 == FunctionId::Sin)
+            return (cos(d) - cos(s)) / integer(2);
+        if (f1 == FunctionId::Cos && f2 == FunctionId::Cos)
+            return (cos(d) + cos(s)) / integer(2);
+        if (f1 == FunctionId::Sin && f2 == FunctionId::Cos)
+            return (sin(s) + sin(d)) / integer(2);
+        return (sin(s) - sin(d)) / integer(2);  // Cos · Sin
+    };
+    // Split an additive term into a var-free coefficient and at most one sin/cos
+    // factor. Returns the trig count (0 or 1); -1 if a term unexpectedly carries
+    // two trig factors (a broken invariant — bail safely).
+    auto split = [](const Expr& term, Expr& c, FunctionId& fid, Expr& arg) -> int {
+        c = S::One();
+        int cnt = 0;
+        std::vector<Expr> fac = term->type_id() == TypeId::Mul
+                                    ? std::vector<Expr>(term->args().begin(),
+                                                        term->args().end())
+                                    : std::vector<Expr>{term};
+        for (const auto& f : fac) {
+            if (f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                const FunctionId id = fn.function_id();
+                if ((id == FunctionId::Sin || id == FunctionId::Cos)
+                    && fn.args().size() == 1) {
+                    if (++cnt > 1) return -1;
+                    fid = id;
+                    arg = fn.args()[0];
+                    continue;
+                }
+            }
+            c = c * f;
+        }
+        return cnt;
+    };
+
+    // Fold the factors pairwise into a linear combination of single sin/cos terms.
+    Expr lin = make_trig(trigs[0].first, trigs[0].second);
+    for (size_t i = 1; i < trigs.size(); ++i) {
+        Expr ex = expand(lin);
+        std::vector<Expr> terms = ex->type_id() == TypeId::Add
+                                      ? std::vector<Expr>(ex->args().begin(),
+                                                          ex->args().end())
+                                      : std::vector<Expr>{ex};
+        Expr next = S::Zero();
+        for (const auto& term : terms) {
+            Expr c;
+            FunctionId fid = FunctionId::Sin;
+            Expr arg;
+            const int cnt = split(term, c, fid, arg);
+            if (cnt < 0) return std::nullopt;
+            next = next + (cnt == 0
+                               ? c * make_trig(trigs[i].first, trigs[i].second)
+                               : c * p2s(fid, arg, trigs[i].first,
+                                         trigs[i].second));
+        }
+        lin = next;
+    }
+
+    Expr result = integrate(simplify(expand(coeff * lin)), var);
+    if (is_integral_marker(result) || contains_integral_marker(result))
+        return std::nullopt;
+
+    // Numeric diff-back guard: the product-to-sum fold is exact, but verify so any
+    // future regression fails to a marker rather than a wrong answer. (SymPy-style
+    // symbolic simplify can't always reduce a trig product, so sample numerically.)
+    Expr resid = diff(result, var) - expr;
     int checks = 0;
     int bad = 0;
     for (int num : {3, 7, 13, 19}) {

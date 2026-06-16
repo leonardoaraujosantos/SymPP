@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-TRIGPROD-1 — `∫sin²(x)cos(2x)` and trig products of mixed arguments were unevaluated
+- **Problem:** products of sin/cos powers whose arguments are not all equal —
+  `∫sin²(x)cos(2x)`, `∫cos²(x)cos(2x)`, `∫sin²(x)sin(2x)`, `∫sin³(x)cos(2x)`,
+  `∫sin²(2x)cos(x)` — were unevaluated. The single-factor product-to-sum
+  (`∫sin(x)cos(2x)`) worked, but `try_trig_reduction`'s Mul/half-angle branch
+  deliberately defers any trig×trig product, and `try_trig_power` only handles a
+  *same-argument* `sinᵐ·cosⁿ`, so mixed-argument products fell through.
+- **Fix:** added `try_trig_product_expand` in `src/integrals/integrate.cpp`
+  (dispatched after `try_sin_cos_quotient`). Any product of `sin/cos(affine)^k`
+  linearizes — by repeated product-to-sum and power reduction — into a sum of single
+  `sin(affine)`/`cos(affine)` terms (closed under ±/×2 of affine arguments), each of
+  which the table integrates. Gated to ≥2 factors with at least two *distinct*
+  arguments so same-argument products still go to `try_trig_power`. A high-precision
+  numeric diff-back guards the result. Note SymPy's own `simplify` can't reliably
+  reduce a trig product (`sin³(x)cos(2x)` etc.), so the regression test verifies by
+  numeric sampling via the oracle's `evalf_is_zero` rather than `equivalent`.
+
 ### INT-SINCOS-QUOT-1 — `∫cos²/sin`, `∫sin³/cos²` and sin/cos quotients were unevaluated
 - **Problem:** sin/cos quotients such as `∫cos²/sin`, `∫sin²/cos`, `∫sin³/cos`,
   `∫cos³/sin`, `∫sin³/cos²`, `∫cos²/sin³` all returned unevaluated. `try_trig_power`

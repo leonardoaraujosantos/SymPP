@@ -2891,3 +2891,38 @@ TEST_CASE("integrate: even/even sin/cos quotients (INT-SINCOS-QUOT-2)",
         REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
     }
 }
+
+// INT-TRIGPROD-1: ∫ ∏ sin/cos(affineᵢ)^kᵢ dx — a product of sin/cos powers whose
+// arguments are NOT all equal, e.g. ∫sin²(x)cos(2x), ∫sin³(x)cos(2x),
+// ∫sin²(2x)cos(x). Product-to-sum linearization reduces it to a sum of single
+// sin/cos terms the table integrates; previously all unevaluated. Verified by
+// high-precision numeric diff-back (SymPy's symbolic simplify can't reliably
+// reduce a trig product, so the standard oracle.equivalent check is unreliable).
+TEST_CASE("integrate: trig products with mixed arguments (INT-TRIGPROD-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        pow(sin(x), integer(2)) * cos(integer(2) * x),       // sin²(x)cos(2x)
+        pow(cos(x), integer(2)) * cos(integer(2) * x),       // cos²(x)cos(2x)
+        pow(sin(x), integer(2)) * sin(integer(2) * x),       // sin²(x)sin(2x)
+        pow(sin(x), integer(3)) * cos(integer(2) * x),       // sin³(x)cos(2x)
+        pow(sin(integer(2) * x), integer(2)) * cos(x),       // sin²(2x)cos(x)
+        sin(x) * cos(integer(2) * x),                        // sin(x)cos(2x)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (long num : {3, 7, 13, 19}) {
+            Expr at = subs(resid, x, rational(num, 29));
+            auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                     {"expr", at->str()},
+                                     {"prec", 40},
+                                     {"tol", 20}});
+            REQUIRE(resp.ok);
+            REQUIRE(resp.raw.at("result").get<bool>());
+        }
+    }
+}
