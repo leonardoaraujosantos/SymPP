@@ -124,7 +124,7 @@ namespace {
     std::vector<Expr> poly_factors;
     for (const auto& f : expr->args()) {
         if (!geo && f->type_id() == TypeId::Pow && !has(f->args()[0], var)
-            && is_number(f->args()[0]) && has(f->args()[1], var)) {
+            && has(f->args()[1], var)) {
             geo = f;
         } else {
             poly_factors.push_back(f);
@@ -136,7 +136,12 @@ namespace {
     Expr d = simplify(geo->args()[1] - c * var);
     if (has(d, var)) return std::nullopt;
     Expr ratio = pow(geo->args()[0], c);
-    if (!is_number(ratio) || ratio == S::One()) return std::nullopt;
+    // The ratio (and base) may be symbolic — e.g. Σ k·xᵏ = x(1−(n+1)xⁿ+n·xⁿ⁺¹)/(x−1)²,
+    // the generating-function identity. A finite sum yields a clean closed form; an
+    // infinite sum with a symbolic ratio fails the |r| < 1 convergence test below and
+    // is left unevaluated (rather than emitting x**oo terms). r = 1 has no closed
+    // form here (the poly·1ᵏ case is a power sum handled elsewhere).
+    if (ratio == S::One()) return std::nullopt;
     Expr prefactor = pow(geo->args()[0], d);
     // Coefficients of P (P_i = coeff of var^i); must be a clean polynomial.
     std::vector<Expr> pc;

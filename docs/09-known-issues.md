@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-POLYGEOM-SYM-1 — `Σ_{k=1}^n k·xᵏ` (symbolic ratio) was unevaluated
+- **Problem:** the polynomial × geometric closed form `Σ P(k)·rᵏ` was gated to a
+  *numeric* ratio (`Σk·2ᵏ` worked), so the generating-function identity
+  `Σ_{k=1}^n k·xᵏ = x(1−(n+1)xⁿ+n·xⁿ⁺¹)/(x−1)²` — and `Σk²·xᵏ`, `Σk·aᵏ`, … — stayed
+  unevaluated for a symbolic base.
+- **Fix:** `sum_poly_geometric` (`src/calculus/summation.cpp`) no longer requires the
+  geometric base/ratio to be a number — only that the base is var-free and the ratio
+  ≠ 1. The antidifference recurrence and finite boundary evaluation work unchanged
+  symbolically. A finite sum now yields the clean closed form (matching SymPy's
+  general branch; like finite geometric, no `x=1` Piecewise is emitted). An infinite
+  sum with a symbolic ratio fails the `|r| < 1` convergence test and is left
+  unevaluated rather than emitting `x**∞` terms — consistent with the existing
+  numeric-ratio convergence handling.
+
 ### SOLVE-ROOTOF-1 — `solve(x⁵−x−1)` returned `[]` (claiming "no solutions")
 - **Problem:** an irreducible polynomial of degree ≥5 is not solvable by radicals,
   so the closed-form solver (Cardano/Ferrari for ≤4, rational roots above) produced

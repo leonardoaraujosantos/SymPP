@@ -997,6 +997,41 @@ TEST_CASE("summation: infinite polynomial × geometric, |r| < 1 (SUM-POLYGEOM-IN
                 .find("Sum(") != std::string::npos);
 }
 
+// SUM-POLYGEOM-SYM-1: Σ_{k=1}^n P(k)·xᵏ for a SYMBOLIC ratio x — the generating-
+// function identity Σ k·xᵏ = x(1−(n+1)xⁿ+n·xⁿ⁺¹)/(x−1)². The poly·geometric closed
+// form was gated to a numeric base/ratio; it now applies symbolically for a finite
+// sum (matching SymPy's general branch). An infinite sum with a symbolic ratio fails
+// the |x| < 1 convergence test and is correctly left unevaluated (no x**∞ terms).
+TEST_CASE("summation: polynomial × geometric, symbolic ratio (SUM-POLYGEOM-SYM-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto x = symbol("x");
+    auto sum1n = [&](const Expr& e) { return summation(e, k, integer(1), n); };
+
+    // Σ_{k=1}^n k·xᵏ — verify against the closed form on concrete (n, x) samples.
+    auto s1 = sum1n(k * pow(x, k));
+    REQUIRE(s1->str().find("Sum(") == std::string::npos);
+    // n = 3: 1·x + 2·x² + 3·x³.
+    REQUIRE(oracle.equivalent(subs(s1, n, integer(3))->str(),
+                              "x + 2*x**2 + 3*x**3"));
+    // n = 4: + 4·x⁴.
+    REQUIRE(oracle.equivalent(subs(s1, n, integer(4))->str(),
+                              "x + 2*x**2 + 3*x**3 + 4*x**4"));
+
+    // Σ_{k=1}^n k²·xᵏ at n = 3: x + 4x² + 9x³.
+    auto s2 = sum1n(pow(k, integer(2)) * pow(x, k));
+    REQUIRE(s2->str().find("Sum(") == std::string::npos);
+    REQUIRE(oracle.equivalent(subs(s2, n, integer(3))->str(),
+                              "x + 4*x**2 + 9*x**3"));
+
+    // Infinite sum with a symbolic ratio stays unevaluated (convergence unknown).
+    REQUIRE(summation(k * pow(x, k), k, integer(1), S::Infinity())
+                ->str()
+                .find("Sum(") != std::string::npos);
+}
+
 // Regression: geometric detection used to require the exponent to be
 // *exactly* the summation variable, so Σ 2^(-k) (which canonicalizes to
 // base 2, exponent -k) and Σ 2^(2k) fell through and returned the summand
