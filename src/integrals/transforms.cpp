@@ -24,6 +24,7 @@
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -153,6 +154,40 @@ namespace {
                 return mul(cfac, shifted);
             }
             return std::nullopt;
+        }
+
+        // Multiplication by t^n: L{tⁿ·g(t)} = (−1)ⁿ·dⁿ/dsⁿ L{g(t)}. Split the
+        // (positive integer) powers of t from the rest g; if g transforms, repeatedly
+        // differentiate its transform. Closes t·cos t, t·sin t, t²·cos t, t·sinh t —
+        // the trig/hyperbolic families the s-shift (exp-only) does not reach.
+        {
+            long t_power = 0;
+            std::vector<Expr> nonpow;
+            for (const auto& vf : var_factors) {
+                if (vf == t) {
+                    t_power += 1;
+                    continue;
+                }
+                if (vf->type_id() == TypeId::Pow && vf->args()[0] == t
+                    && vf->args()[1]->type_id() == TypeId::Integer) {
+                    const auto& z = static_cast<const Integer&>(*vf->args()[1]);
+                    if (z.is_positive() && z.fits_long() && z.to_long() <= 20) {
+                        t_power += z.to_long();
+                        continue;
+                    }
+                }
+                nonpow.push_back(vf);
+            }
+            if (t_power > 0 && !nonpow.empty()) {
+                Expr g = mul(std::move(nonpow));
+                if (auto G = laplace_term(g, t, s); G.has_value()) {
+                    Expr d = *G;
+                    for (long i = 0; i < t_power; ++i) d = diff(d, s);
+                    Expr sign = (t_power % 2 == 0) ? Expr{S::One()}
+                                                   : Expr{S::NegativeOne()};
+                    return mul(cfac, simplify(mul(sign, d)));
+                }
+            }
         }
 
         // No exp factor — just pull out the constant and recurse on the rest.

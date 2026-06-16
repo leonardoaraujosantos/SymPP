@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LAPLACE-TMULT-1 — `L{t·cos t}` was unevaluated (multiplication-by-tⁿ rule)
+- **Problem:** the Laplace transform handled `tⁿ` and the s-shift `L{e^(at)·g}=G(s−a)`,
+  so `t·e^t` worked, but `t·cos t`, `t·sin t`, `t²·cos t`, `t·sinh t` (a `t` factor times
+  a trig/hyperbolic with no exponential) returned an unevaluated `LaplaceTransform(…)`.
+- **Fix:** added the multiplication-by-`t` rule in `src/integrals/transforms.cpp`:
+  `L{tⁿ·g(t)} = (−1)ⁿ·dⁿ/dsⁿ L{g(t)}`. In the Mul handler (no-exp path) it splits the
+  positive integer powers of `t` from the rest `g`, transforms `g`, and differentiates
+  its transform `n` times w.r.t. `s` (sign `(−1)ⁿ`). `L{t·cos t}=(s²−1)/(s²+1)²`,
+  `L{t·sin t}=2s/(s²+1)²`, `L{t·sinh t}=2s/(s²−1)²`, `L{t²·cos t}=(2s³−6s)/(s²+1)³`. The
+  exp cases still go through the s-shift; the two compose for `t·e^(at)·cos t`. Matches
+  SymPy.
+
 ### LIMIT-NROOT-INF — `(x³+x²)^(1/3) − x → 1/3` (n-th-root difference) returned nan
 - **Problem:** the leading-term conjugate in `leading_pos_inf` only handled *square*
   roots (`t₁+t₂ = (t₁²−t₂²)/(t₁−t₂)`), so cube/fourth-root differences whose leading
