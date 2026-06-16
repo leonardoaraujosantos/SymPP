@@ -1433,6 +1433,52 @@ TEST_CASE("summation: shifted exponential series Σ P(k)/(k+m)! (SUM-EXP-SHIFT-1
         summation((k + one) * inv_fact(k), k, S::Zero(), oo)->str(), "2*E"));
 }
 
+// SUM-COSH-SINH-1: the even/odd bisection of the exponential series. Σ z^(2k)/(2k)!
+// = cosh z and Σ z^(2k+1)/(2k+1)! = sinh z; with a (−1)^k sign they become cos z and
+// sin z. Previously unevaluated. A lower bound > 0 subtracts the head. Matches SymPy.
+TEST_CASE("summation: even/odd exponential series → cosh/sinh/cos/sin (SUM-COSH-SINH-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto x = symbol("x");
+    auto one = integer(1);
+    auto oo = S::Infinity();
+    auto two = integer(2);
+    auto inv_fact = [&](const Expr& a) {
+        return pow(factorial(a), integer(-1));
+    };
+    auto altk = pow(integer(-1), k);
+    auto even = two * k;          // 2k
+    auto odd = two * k + one;     // 2k+1
+    // Σ 1/(2k)! = cosh 1 ; Σ 1/(2k+1)! = sinh 1.
+    REQUIRE(oracle.equivalent(summation(inv_fact(even), k, S::Zero(), oo)->str(),
+                              "cosh(1)"));
+    REQUIRE(oracle.equivalent(summation(inv_fact(odd), k, S::Zero(), oo)->str(),
+                              "sinh(1)"));
+    // Σ x^(2k)/(2k)! = cosh x ; Σ x^(2k+1)/(2k+1)! = sinh x.
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, even), inv_fact(even)), k, S::Zero(), oo)->str(),
+        "cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, odd), inv_fact(odd)), k, S::Zero(), oo)->str(),
+        "sinh(x)"));
+    // Σ (−1)^k/(2k)! = cos 1 ; Σ (−1)^k x^(2k)/(2k)! = cos x.
+    REQUIRE(oracle.equivalent(
+        summation(mul(altk, inv_fact(even)), k, S::Zero(), oo)->str(), "cos(1)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul({altk, pow(x, even), inv_fact(even)}), k, S::Zero(), oo)
+            ->str(),
+        "cos(x)"));
+    // Σ (−1)^k x^(2k+1)/(2k+1)! = sin x.
+    REQUIRE(oracle.equivalent(
+        summation(mul({altk, pow(x, odd), inv_fact(odd)}), k, S::Zero(), oo)
+            ->str(),
+        "sin(x)"));
+    // Lower bound > 0 subtracts the head: Σ_{k=1}^∞ 1/(2k)! = cosh 1 − 1.
+    REQUIRE(oracle.equivalent(summation(inv_fact(even), k, one, oo)->str(),
+                              "cosh(1) - 1"));
+}
+
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).
 TEST_CASE("summation: single-term range substitutes the bound",
           "[6][summation][regression]") {

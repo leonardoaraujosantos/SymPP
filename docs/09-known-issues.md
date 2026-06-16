@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-COSH-SINH-1 — `Σ x^(2k)/(2k)! = cosh x` (even/odd factorial series) was unevaluated
+- **Problem:** the exponential-series handler matched only a `k!` denominator, so the
+  even/odd bisection of the exponential series — `Σ z^(2k)/(2k)! = cosh z`,
+  `Σ z^(2k+1)/(2k+1)! = sinh z`, and the `(−1)^k`-signed `cos z`/`sin z` — stayed
+  unevaluated (`Σ1/(2k)!`, `Σx^(2k)/(2k)!`, …).
+- **Fix:** added `sum_cosh_sinh_series` in `src/calculus/summation.cpp`. It recognizes
+  a `(2k+b)!` denominator (`b ∈ {0,1}`), an optional `(−1)^k` sign, and a numerator
+  `z^(2k+b)` (constant numerator → `z = 1`); the result is `cosh z`/`sinh z` (no sign,
+  by `b`) or `cos z`/`sin z` (with sign). A lower bound `lo > 0` subtracts the finite
+  head `Σ_{k=0}^{lo−1}`. Dispatched before the expand-and-recurse. Matches SymPy.
+
 ### SUM-EXP-SHIFT-1 — `Σ1/(k+1)! = e−2` and shifted-factorial e-sums were unevaluated
 - **Problem:** the exponential-series handler matched only a bare `k!` denominator, so
   the e-valued sums over a *shifted* factorial — `Σ1/(k+1)!=e−2`, `Σ(2k+1)/(k+1)!=e`,

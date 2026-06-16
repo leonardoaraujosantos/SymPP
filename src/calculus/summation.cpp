@@ -22,7 +22,9 @@
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/special.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -531,6 +533,110 @@ namespace {
     return simplify(mul(cst, result));
 }
 
+// Σ_{k=0}^∞ c·[(−1)^k]·z^(2k+b)/(2k+b)! for b ∈ {0,1} — the even/odd bisection of
+// the exponential series. Without the sign it gives cosh/sinh; with (−1)^k, cos/sin:
+//   Σ z^(2k)/(2k)!     = cosh z      Σ (−1)^k z^(2k)/(2k)!     = cos z
+//   Σ z^(2k+1)/(2k+1)! = sinh z      Σ (−1)^k z^(2k+1)/(2k+1)! = sin z
+// z is the numerator base (z = 1 when the numerator is constant); its exponent must
+// equal the factorial argument 2k+b. A lower bound lo > 0 subtracts the head terms.
+[[nodiscard]] std::optional<Expr> sum_cosh_sinh_series(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (hi->type_id() != TypeId::Infinity) return std::nullopt;
+    if (lo->type_id() != TypeId::Integer
+        || static_cast<const Integer&>(*lo).is_negative()
+        || !static_cast<const Integer&>(*lo).fits_long()) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr cst = S::One();
+    Expr base;       // z
+    Expr num_exp;    // exponent of the numerator base (must equal 2k+b)
+    Expr fact_arg;   // 2k + b
+    bool have_fact = false;
+    bool have_sign = false;
+    long b = 0;
+    for (const auto& f : factors) {
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Factorial
+                && fn.args().size() == 1) {
+                if (have_fact) return std::nullopt;
+                Poly pa(expand(fn.args()[0]), var);
+                if (pa.degree() != 1 || pa.coeffs()[1] != integer(2)) {
+                    return std::nullopt;  // need a (2k+b)! denominator
+                }
+                const Expr& bb = pa.coeffs()[0];
+                if (bb == S::Zero()) {
+                    b = 0;
+                } else if (bb == S::One()) {
+                    b = 1;
+                } else {
+                    return std::nullopt;
+                }
+                fact_arg = fn.args()[0];
+                have_fact = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        // (−1)^(a·k + c): an odd a gives (−1)^k; (−1)^c is a constant sign.
+        if (f->type_id() == TypeId::Pow && f->args()[0] == integer(-1)
+            && has(f->args()[1], var)) {
+            Poly ps(expand(f->args()[1]), var);
+            if (ps.degree() != 1
+                || ps.coeffs()[1]->type_id() != TypeId::Integer
+                || ps.coeffs()[0]->type_id() != TypeId::Integer) {
+                return std::nullopt;
+            }
+            const long a = static_cast<const Integer&>(*ps.coeffs()[1]).to_long();
+            const long c = static_cast<const Integer&>(*ps.coeffs()[0]).to_long();
+            if (a % 2 != 0) have_sign = !have_sign;  // toggle: (−1)^k present
+            if (((c % 2) + 2) % 2 == 1) cst = mul(cst, S::NegativeOne());
+            continue;
+        }
+        // z^(exponent in k), z var-free.
+        if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+            && has(f->args()[1], var)) {
+            if (base) return std::nullopt;
+            base = f->args()[0];
+            num_exp = f->args()[1];
+            continue;
+        }
+        if (!has(f, var)) {
+            cst = mul(cst, f);
+            continue;
+        }
+        return std::nullopt;  // an unrecognized var-dependent factor
+    }
+    if (!have_fact) return std::nullopt;
+
+    Expr z;
+    if (base) {
+        if (simplify(num_exp + mul(S::NegativeOne(), fact_arg)) != S::Zero()) {
+            return std::nullopt;  // numerator exponent ≠ factorial argument
+        }
+        z = base;
+    } else {
+        z = S::One();
+    }
+    Expr full = have_sign ? (b == 0 ? cos(z) : sin(z))
+                          : (b == 0 ? cosh(z) : sinh(z));
+    full = mul(cst, full);
+
+    const long L = static_cast<const Integer&>(*lo).to_long();
+    Expr head = S::Zero();
+    for (long kk = 0; kk < L; ++kk) {
+        head = add({head, subs(expr, var, integer(kk))});
+    }
+    return simplify(full + mul(S::NegativeOne(), head));
+}
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
 
@@ -582,6 +688,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ.
     if (auto bt = sum_binomial_theorem(expr, var, lo, hi)) return *bt;
+
+    // Even/odd-index exponential series Σ z^(2k+b)/(2k+b)! → cosh/sinh/cos/sin.
+    if (auto r = sum_cosh_sinh_series(expr, var, lo, hi)) return *r;
 
     // Factorial telescoping Σ P(k)/(k+m)! (deg P ≥ 1) — must run before the
     // expand-and-recurse below, which would split P(k) and destroy the telescoping
