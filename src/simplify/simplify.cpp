@@ -1719,7 +1719,9 @@ namespace {
     const auto& f = static_cast<const Function&>(*e);
     auto fid = f.function_id();
     if (fid != FunctionId::Sin && fid != FunctionId::Cos
-        && fid != FunctionId::Tan) return e;
+        && fid != FunctionId::Tan && fid != FunctionId::Sinh
+        && fid != FunctionId::Cosh && fid != FunctionId::Tanh)
+        return e;
     const Expr& arg = e->args()[0];
     // Split the argument into a + b, then apply the angle-addition formula.
     // Two sources of a split:
@@ -1759,16 +1761,36 @@ namespace {
     } else {
         return e;
     }
-    if (fid == FunctionId::Sin) {
-        return sin(a) * cos(b) + cos(a) * sin(b);
+    switch (fid) {
+        case FunctionId::Sin:
+            return sin(a) * cos(b) + cos(a) * sin(b);
+        case FunctionId::Cos:
+            return cos(a) * cos(b) - sin(a) * sin(b);
+        case FunctionId::Tan: {
+            // tan(a+b) = (tan a + tan b) / (1 − tan a · tan b).
+            Expr ta = tan(a);
+            Expr tb = tan(b);
+            return (ta + tb) / (integer(1) - ta * tb);
+        }
+        // Hyperbolic angle-addition mirrors the circular case but with the
+        // sign flips of the Osborn rule (a sinh·sinh product carries +1, not −1):
+        //   sinh(a+b) = sinh a cosh b + cosh a sinh b
+        //   cosh(a+b) = cosh a cosh b + sinh a sinh b
+        //   tanh(a+b) = (tanh a + tanh b) / (1 + tanh a · tanh b)
+        // Multiple angles (sinh(2x), cosh(3x), …) reduce through the same
+        // n·g = g + (n−1)·g split and the expand_trig fixpoint.
+        case FunctionId::Sinh:
+            return sinh(a) * cosh(b) + cosh(a) * sinh(b);
+        case FunctionId::Cosh:
+            return cosh(a) * cosh(b) + sinh(a) * sinh(b);
+        case FunctionId::Tanh: {
+            Expr ta = tanh(a);
+            Expr tb = tanh(b);
+            return (ta + tb) / (integer(1) + ta * tb);
+        }
+        default:
+            return e;
     }
-    if (fid == FunctionId::Cos) {
-        return cos(a) * cos(b) - sin(a) * sin(b);
-    }
-    // Tan(a+b) = (tan a + tan b) / (1 - tan a · tan b).
-    Expr ta = tan(a);
-    Expr tb = tan(b);
-    return (ta + tb) / (integer(1) - ta * tb);
 }
 
 }  // namespace

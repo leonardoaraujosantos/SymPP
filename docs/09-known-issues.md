@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### EXPAND-TRIG-HYP-1 — `expand_trig(sinh(x+y))` left hyperbolic functions unexpanded
+- **Problem:** `expand_trig` expanded the circular trio (sin/cos/tan angle-addition and
+  multiple angles) but returned `sinh`/`cosh`/`tanh` of a sum or multiple angle
+  untouched: `expand_trig(sinh(x+y))` stayed `sinh(x+y)` where SymPy gives
+  `sinh(x)·cosh(y) + cosh(x)·sinh(y)`. The hyperbolic angle-addition identities were
+  simply missing.
+- **Fix:** extended `expand_trig_node` in `src/simplify/simplify.cpp` to dispatch on
+  `Sinh`/`Cosh`/`Tanh` as well, reusing the existing Add / multiple-angle argument split
+  and adding the Osborn-rule formulas: `sinh(a+b)=sinh a·cosh b + cosh a·sinh b`,
+  `cosh(a+b)=cosh a·cosh b + sinh a·sinh b`, `tanh(a+b)=(tanh a+tanh b)/(1+tanh a·tanh b)`
+  (note the `+1` denominator, vs `−1` for `tan`). Multiple angles reduce through the same
+  `n·g = g + (n−1)·g` split and the `expand_trig` fixpoint: `sinh(2x)→2·sinh x·cosh x`,
+  `cosh(3x)→3·sinh²x·cosh x + cosh³x`. Matches SymPy up to identity equivalence.
+
 ### TRIG-DBLRATIO-1 — `simplify(sin(2x)/sin(x))` did not reduce to `2·cos(x)`
 - **Problem:** `simplify` collapsed the *product* `2·sin(x)·cos(x) → sin(2x)` but not the
   inverse *ratio*: `sin(2x)/sin(x)`, `sin(2x)/cos(x)`, and the `csc`/`sec` forms stayed

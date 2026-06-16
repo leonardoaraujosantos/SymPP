@@ -789,6 +789,36 @@ TEST_CASE("expand_trig: multiple angle sin/cos(n*x) (EXPAND-TRIG-MULTI-1)",
                               "(2*cos(x)**2 - 1)*cos(y) - 2*sin(x)*sin(y)*cos(x)"));
 }
 
+// EXPAND-TRIG-HYP-1: hyperbolic angle-addition and multiple-angle expansion.
+// expand_trig handled sin/cos/tan but left sinh/cosh/tanh untouched; now it
+// applies the Osborn-rule analogues (sinh(a+b) = sinh a cosh b + cosh a sinh b,
+// cosh(a+b) = cosh a cosh b + sinh a sinh b, the +1 tanh denominator), matching
+// SymPy up to identity equivalence.
+TEST_CASE("expand_trig: hyperbolic angle/multiple angle (EXPAND-TRIG-HYP-1)",
+          "[5][expand_trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(expand_trig(sinh(x + y))->str(),
+                              "sinh(x)*cosh(y) + cosh(x)*sinh(y)"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(x + y))->str(),
+                              "cosh(x)*cosh(y) + sinh(x)*sinh(y)"));
+    REQUIRE(oracle.equivalent(
+        expand_trig(tanh(x + y))->str(),
+        "(tanh(x) + tanh(y))/(1 + tanh(x)*tanh(y))"));
+    REQUIRE(oracle.equivalent(expand_trig(sinh(integer(2) * x))->str(),
+                              "2*sinh(x)*cosh(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(integer(2) * x))->str(),
+                              "sinh(x)**2 + cosh(x)**2"));
+    REQUIRE(oracle.equivalent(expand_trig(sinh(integer(3) * x))->str(),
+                              "sinh(x)**3 + 3*sinh(x)*cosh(x)**2"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(integer(3) * x))->str(),
+                              "3*sinh(x)**2*cosh(x) + cosh(x)**3"));
+    // Circular expansion is unaffected.
+    REQUIRE(oracle.equivalent(expand_trig(sin(x + y))->str(),
+                              "sin(x)*cos(y) + cos(x)*sin(y)"));
+}
+
 // ----- fu orchestrator ------------------------------------------------------
 
 TEST_CASE("fu: picks the smaller form between identity and trigsimp",
