@@ -1769,36 +1769,57 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
         }
     }
 
-    // sin(p)cos(q) → (sin(p+q) + sin(p-q))/2 — product-to-sum.
+    // Product-to-sum: collapse a product of two sin/cos factors of distinct
+    // var-dependent arguments p, q into a sum that linearity integrates —
+    //   sin p·cos q = (sin(p+q) + sin(p−q))/2
+    //   sin p·sin q = (cos(p−q) − cos(p+q))/2
+    //   cos p·cos q = (cos(p−q) + cos(p+q))/2
+    // and recurse on the rest (so cos x·cos 2x·cos 3x reduces pair by pair).
     if (expr->type_id() == TypeId::Mul) {
-        Expr sin_arg, cos_arg;
+        Expr arg1;
+        Expr arg2;
+        FunctionId id1 = FunctionId::Sin;
+        FunctionId id2 = FunctionId::Sin;
+        int found = 0;
         std::vector<Expr> rest;
         for (const auto& f : expr->args()) {
-            if (!sin_arg && f->type_id() == TypeId::Function) {
+            if (found < 2 && f->type_id() == TypeId::Function) {
                 const auto& fn = static_cast<const Function&>(*f);
-                if (fn.function_id() == FunctionId::Sin
-                    && fn.args().size() == 1) {
-                    sin_arg = f->args()[0];
-                    continue;
-                }
-            }
-            if (!cos_arg && f->type_id() == TypeId::Function) {
-                const auto& fn = static_cast<const Function&>(*f);
-                if (fn.function_id() == FunctionId::Cos
-                    && fn.args().size() == 1) {
-                    cos_arg = f->args()[0];
+                if ((fn.function_id() == FunctionId::Sin
+                     || fn.function_id() == FunctionId::Cos)
+                    && fn.args().size() == 1
+                    && depends_on(fn.args()[0], var)) {
+                    if (found == 0) {
+                        arg1 = fn.args()[0];
+                        id1 = fn.function_id();
+                    } else {
+                        arg2 = fn.args()[0];
+                        id2 = fn.function_id();
+                    }
+                    ++found;
                     continue;
                 }
             }
             rest.push_back(f);
         }
-        if (sin_arg && cos_arg
-            && depends_on(sin_arg, var) && depends_on(cos_arg, var)) {
-            Expr rewritten = (sin(sin_arg + cos_arg)
-                              + sin(sin_arg - cos_arg))
-                             / integer(2);
+        if (found == 2) {
+            const bool s1 = (id1 == FunctionId::Sin);
+            const bool s2 = (id2 == FunctionId::Sin);
+            Expr rewritten;
+            if (s1 && s2) {
+                rewritten = (cos(arg1 - arg2) - cos(arg1 + arg2)) / integer(2);
+            } else if (!s1 && !s2) {
+                rewritten = (cos(arg1 - arg2) + cos(arg1 + arg2)) / integer(2);
+            } else {
+                const Expr& sp = s1 ? arg1 : arg2;  // the sin argument
+                const Expr& cq = s1 ? arg2 : arg1;  // the cos argument
+                rewritten = (sin(sp + cq) + sin(sp - cq)) / integer(2);
+            }
             for (const auto& r : rest) rewritten = rewritten * r;
-            return integrate(rewritten, var);
+            // expand so the (cos±cos)/2 · rest product distributes into a sum that
+            // linearity integrates term by term (each remaining trig product then
+            // recurses) — needed for cos x·cos 2x·cos 3x and x·sin 2x·cos 3x.
+            return integrate(expand(rewritten), var);
         }
     }
     return std::nullopt;

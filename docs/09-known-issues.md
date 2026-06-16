@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-PROD2SUM-1 — `∫sin(2x)·sin(3x)` and sin·sin / cos·cos products were unevaluated
+- **Problem:** `∫sin(2x)·sin(3x)`, `∫cos(2x)·cos(5x)`, `∫cos x·cos 2x·cos 3x`,
+  `∫x·sin 2x·cos 3x` were unevaluated. The product-to-sum block in
+  `try_trig_reduction` only handled the `sin p·cos q` pairing, not `sin·sin` or
+  `cos·cos`, and only a single pair.
+- **Fix:** generalized the block to collapse the first two sin/cos factors of
+  distinct var-dependent arguments via the matching identity (`sin p·sin q =
+  (cos(p−q) − cos(p+q))/2`, `cos p·cos q = (cos(p−q) + cos(p+q))/2`,
+  `sin p·cos q = (sin(p+q) + sin(p−q))/2`), then `expand` and recurse — so a
+  three-way product reduces pair by pair and a polynomial factor distributes for
+  per-term integration.
+- **Verified:** `∫sin 2x·sin 3x = sin x/2 − sin 5x/10`, `∫cos 2x·cos 5x`,
+  `∫cos x·cos 2x·cos 3x`, `∫sin x·sin 2x·sin 3x`, `∫x·sin 2x·cos 3x` — all
+  diff-back to the integrand, matching SymPy; the existing `sin·cos` case unchanged.
+- **Regression test:** `INT-PROD2SUM-1` in `tests/integrals/integrate_test.cpp`.
+
 ### SUM-TELESCOPE-DIFF-1 — `Σ(1/k − 1/(k+1))` (explicit telescoping difference) was unevaluated
 - **Problem:** an explicit telescoping difference `Σ(g(k) − g(k+1))` was not
   recognized: `Σ(1/k − 1/(k+1))`, `Σ(1/k! − 1/(k+1)!)`, `Σ(1/k² − 1/(k+1)²)` all

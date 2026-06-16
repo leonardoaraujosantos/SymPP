@@ -1471,6 +1471,31 @@ TEST_CASE("integrate: ∫sin(2x)*cos(3x) dx product-to-sum",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-PROD2SUM-1: product-to-sum for sin·sin and cos·cos (not just sin·cos), and
+// for three-way products (reduced pair by pair). ∫sin(2x)·sin(3x), ∫cos·cos·cos,
+// ∫x·sin(2x)·cos(3x) close via the identities + linearity. Verified by diff-back.
+TEST_CASE("integrate: product-to-sum sin·sin, cos·cos, triple (INT-PROD2SUM-1)",
+          "[7][integrate][trig_reduction][regression]") {
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        // diff-back numerically (some forms keep cos² that SymPy's simplify
+        // won't reduce against the integrand symbolically).
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(2, 5), rational(7, 4), rational(11, 3)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::fabs(d) > 1e-7) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(sin(integer(2) * x) * sin(integer(3) * x)));   // sin·sin
+    REQUIRE(db(cos(integer(2) * x) * cos(integer(5) * x)));   // cos·cos
+    REQUIRE(db(cos(x) * cos(integer(2) * x) * cos(integer(3) * x)));  // triple cos
+    REQUIRE(db(sin(x) * sin(integer(2) * x) * sin(integer(3) * x)));  // triple sin
+    REQUIRE(db(x * sin(integer(2) * x) * cos(integer(3) * x)));  // with poly factor
+}
+
 // ----- Trig powers ∫sinᵐcosⁿ (INT-18) ----------------------------------------
 // Odd powers via u = sin/cos substitution; both-even via half-angle reduction.
 TEST_CASE("integrate: odd-power trig (sin³, cos³, cos⁵, sin³cos²)",
