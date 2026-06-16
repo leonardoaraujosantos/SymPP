@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### MINMAX-FLAT-1 — nested `Min`/`Max` did not flatten and ±∞ was not absorbed
+- **Problem:** `min`/`max` folded numerics and de-duplicated symbols but kept a nested
+  same-kind node (`Max(x, Max(y, z))`) un-flattened and treated `±∞` as an ordinary
+  symbol, so `Max(x, −∞)`, `Min(x, +∞)` stayed unevaluated. SymPy returns `Max(x, y, z)`,
+  `x`, `x`.
+- **Fix:** in `min_max_impl` (`src/functions/miscellaneous.cpp`): (1) splice the args of any
+  nested same-kind `Min`/`Max` into the parent before folding (bottom-up construction makes
+  one level sufficient), and (2) treat `±∞` as absorber/identity — `Max(…, +∞) = +∞` and
+  `−∞` is dropped as the identity (`Min` mirrors), with an all-identity fallback so
+  `Max(−∞, −∞) = −∞`. `Max(x, Max(y, z)) → Max(x, y, z)`, `Max(x, −∞) → x`,
+  `Max(x, +∞) → +∞`. Numeric folding and symbol dedup are unchanged. Matches SymPy.
+
 ### ABS-EXP-1 — `|exp(I·x)|` was not reduced (unit modulus of a complex exponential)
 - **Problem:** `abs(exp(z))` was left unevaluated for a non-real argument, so `|exp(I·x)|`
   with `x` real stayed `Abs(exp(I·x))` instead of `1`, and the generic `|exp(x)|`,

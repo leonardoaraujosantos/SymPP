@@ -556,3 +556,29 @@ TEST_CASE("min/max: oracle structural agreement", "[3h][minmax][oracle]") {
     REQUIRE(oracle.equivalent(min(integer(3), integer(7))->str(), "3"));
     REQUIRE(oracle.equivalent(max(integer(3), integer(7))->str(), "7"));
 }
+
+// MINMAX-FLAT-1: a nested same-kind Min/Max flattens, and ±∞ acts as the
+// absorber/identity — Max(x, Max(y, z)) → Max(x, y, z), Max(x, −∞) → x,
+// Max(x, +∞) → +∞ (Min mirrors). Matches SymPy.
+TEST_CASE("min/max: flatten nested + infinity identity (MINMAX-FLAT-1)",
+          "[3h][minmax][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto z = symbol("z");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    // Nested same-kind flattens to a single n-ary node.
+    REQUIRE(max(x, max(y, z))->args().size() == 3);
+    REQUIRE(min(min(x, y), z)->args().size() == 3);
+    REQUIRE(oracle.equivalent(max(x, max(y, z))->str(), "Max(x, y, z)"));
+    // ±∞ identity / absorber.
+    REQUIRE(max(x, noo) == x);
+    REQUIRE(min(x, oo) == x);
+    REQUIRE(max(x, oo) == oo);
+    REQUIRE(min(x, noo) == noo);
+    // Flatten and identity-drop compose: Max(x, Max(y, −∞)) → Max(x, y).
+    REQUIRE(oracle.equivalent(max(x, max(y, noo))->str(), "Max(x, y)"));
+    // Degenerate all-identity collapses to the identity element.
+    REQUIRE(max(noo, noo) == noo);
+}

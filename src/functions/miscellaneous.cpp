@@ -688,9 +688,38 @@ namespace {
 // keeping symbolic args as-is.
 template <bool IsMin>
 [[nodiscard]] Expr min_max_impl(std::vector<Expr> args) {
+    // Flatten a nested same-kind Min/Max: Max(x, Max(y, z)) → Max(x, y, z).
+    {
+        const FunctionId same = IsMin ? FunctionId::Min : FunctionId::Max;
+        std::vector<Expr> flat;
+        flat.reserve(args.size());
+        for (auto& a : args) {
+            if (a->type_id() == TypeId::Function
+                && static_cast<const Function&>(*a).function_id() == same) {
+                for (const auto& inner : a->args()) flat.push_back(inner);
+            } else {
+                flat.push_back(std::move(a));
+            }
+        }
+        args = std::move(flat);
+    }
+
     std::vector<Expr> non_numeric;
-    Expr extreme;  // running min or max numeric
+    Expr extreme;            // running min or max numeric
+    bool dropped_identity = false;  // saw the identity ±∞ (kept as fallback)
     for (auto& a : args) {
+        // Infinity identities/absorbers: Max(…, +∞) = +∞ and −∞ is its identity;
+        // Min mirrors. The identity is dropped but remembered so Max(−∞, −∞) = −∞.
+        if (a->type_id() == TypeId::Infinity) {
+            if constexpr (!IsMin) return S::Infinity();
+            dropped_identity = true;
+            continue;
+        }
+        if (a->type_id() == TypeId::NegativeInfinity) {
+            if constexpr (IsMin) return S::NegativeInfinity();
+            dropped_identity = true;
+            continue;
+        }
         if (is_number(a)) {
             if (!extreme) {
                 extreme = a;
@@ -722,9 +751,12 @@ template <bool IsMin>
     for (auto& a : non_numeric) out.push_back(std::move(a));
 
     if (out.empty()) {
-        // Empty Min/Max — by convention, undefined; SymPy raises. Return
-        // a NaN-equivalent? For now build the empty form to surface the
-        // misuse; callers rarely hit this with proper inputs.
+        // Everything collapsed to the dropped identity ±∞ (e.g. Max(−∞, −∞)).
+        if (dropped_identity) {
+            return IsMin ? S::Infinity() : S::NegativeInfinity();
+        }
+        // Otherwise an empty Min/Max — by convention undefined; SymPy raises.
+        // Build the empty form to surface the misuse; rarely hit in practice.
     }
     if (out.size() == 1) return std::move(out[0]);
 
