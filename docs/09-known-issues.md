@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-EXP-NOLEAK — `Σcos(k·x)/k!` returned a bogus `e·cos(k·x)` (bound-variable leak)
+- **Problem:** `sum_exponential_series` built `Poly(numerator, k)` without checking the
+  resulting coefficients are var-free. `Poly()` treats a non-polynomial factor
+  (`cos(k)`, `cos(k·x)`, `√k`, …) as an opaque degree-0 coefficient, so the handler
+  pulled it out and returned a *wrong* closed form containing the summation variable:
+  `Σ cos(k·x)/k! → e·cos(k·x)`, `Σ cos(k)/k! → e·cos(k)`. A summation result must never
+  contain the bound variable.
+- **Fix:** after building the coefficient list in `src/calculus/summation.cpp`, reject
+  any coefficient that still depends on `k` (`for (cf : pcoeffs) if (has(cf, var))
+  return nullopt`). The sum now stays unevaluated — matching SymPy, which also returns
+  an unevaluated `Sum` here — instead of a wrong answer. Legitimate polynomial
+  numerators (`Σ k/k! = e`, `Σ k²/k! = 2e`, `Σ k·xᵏ/k! = x·eˣ`) are unaffected.
+
 ### SUM-RATIONAL-1 — `Σ1/(k²(k+1)) = π²/6 − 1` (general rational sum) was unevaluated
 - **Problem:** a convergent rational sum mixing a ζ part and a telescoping part —
   `Σ1/(k²(k+1)) = π²/6 − 1`, `Σ1/(k(k+1)²) = 2 − π²/6`, `Σ1/(k²(k+2)) = π²/12 − 3/8` —

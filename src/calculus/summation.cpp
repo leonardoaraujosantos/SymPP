@@ -351,6 +351,12 @@ namespace {
     } catch (const std::exception&) {
         return std::nullopt;  // numerator is not a polynomial in var
     }
+    // Poly() treats a non-polynomial factor (cos(k), √k, …) as an opaque degree-0
+    // coefficient, which would leak the summation variable into the result
+    // (Σ cos(k)/k! → e·cos(k)). Reject any var-dependent coefficient.
+    for (const auto& cf : pcoeffs) {
+        if (has(cf, var)) return std::nullopt;
+    }
     Expr q_of_r = exp_series_poly_transform(pcoeffs, var, rate);
     Expr e_r = exp(rate);
     Expr tail = mul(q_of_r, e_r);  // Σ_{k≥0} P(k) r^k/k!

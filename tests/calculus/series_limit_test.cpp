@@ -1471,6 +1471,21 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     REQUIRE(oracle.equivalent(
         summation(mul({k, pow(x, k), inv_fact}), k, integer(0), oo)->str(),
         "x*exp(x)"));
+    // SUM-EXP-NOLEAK: a non-polynomial numerator factor (cos(k·x), cos(k)) is NOT a
+    // degree-0 Poly coefficient — it must not be pulled out, which previously leaked
+    // the bound variable as a bogus closed form (Σ cos(k·x)/k! → e·cos(k·x)). The
+    // sum stays unevaluated (matching SymPy), and the result must be free of k.
+    {
+        auto s1 = summation(mul(cos(k * x), inv_fact), k, integer(0), oo);
+        REQUIRE(s1->str().find("Sum(") != std::string::npos);
+        REQUIRE(has(s1, k));   // only as the unevaluated Sum's bound variable
+        auto s2 = summation(mul(cos(k), inv_fact), k, integer(0), oo);
+        REQUIRE(s2->str().find("Sum(") != std::string::npos);
+        // The legitimate polynomial-numerator case is unaffected: Σ k/k! = e.
+        REQUIRE(oracle.equivalent(summation(mul(k, inv_fact), k, integer(0), oo)
+                                      ->str(),
+                                  "E"));
+    }
 }
 
 // SUM-EXP-SHIFT-1: a shifted factorial (k+m)! re-indexes (j=k+m) to the k! case,
