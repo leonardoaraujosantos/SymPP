@@ -818,6 +818,120 @@ struct Growth {
     return val;
 }
 
+// Leading asymptotic term of an algebraic expression as var → +∞: returns
+// (coeff, degree) with e ~ coeff · var^degree (coeff ≠ 0), or nullopt when the
+// behavior is not a single algebraic power (a non-algebraic function, a symbolic
+// exponent, or a leading cancellation the conjugate can't clear). Degrees may be
+// rational (√ halves them). This is the leading-order slice of the Gruntz/MRV
+// algorithm restricted to polynomials and their roots — enough to resolve the
+// √-difference limits (x − √(x²−x), √(x²+x) − √(x²−x), x·(√(x²+1) − x)) that
+// L'Hôpital can't (the radical never stabilises under repeated differentiation).
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> leading_pos_inf(
+    const Expr& e, const Expr& var, int depth) {
+    // Bound the recursion: the conjugate-on-cancellation branch can re-enter a few
+    // levels deep on a single expression, but never unboundedly (each conjugate
+    // clears a leading cancellation). 24 covers realistic nesting and still
+    // terminates on a pathological input.
+    if (depth > 24) return std::nullopt;
+    if (!has(e, var)) {
+        if (e == S::Zero()) return std::nullopt;  // zero has no leading term
+        return std::make_pair(e, Expr{S::Zero()});
+    }
+    if (e == var) return std::make_pair(Expr{S::One()}, Expr{S::One()});
+    switch (e->type_id()) {
+        case TypeId::Pow: {
+            const Expr& b = e->args()[0];
+            const Expr& p = e->args()[1];
+            if (has(p, var)) return std::nullopt;  // var in exponent: not algebraic
+            auto lb = leading_pos_inf(b, var, depth + 1);
+            if (!lb) return std::nullopt;
+            // A fractional power needs a positive leading coefficient to stay real.
+            if (p->type_id() != TypeId::Integer
+                && is_positive(lb->first) != std::optional<bool>{true}) {
+                return std::nullopt;
+            }
+            return std::make_pair(simplify(pow(lb->first, p)),
+                                  simplify(mul(lb->second, p)));
+        }
+        case TypeId::Mul: {
+            Expr c = S::One();
+            Expr d = S::Zero();
+            for (const auto& f : e->args()) {
+                auto lf = leading_pos_inf(f, var, depth + 1);
+                if (!lf) return std::nullopt;
+                c = mul(c, lf->first);
+                d = add(d, lf->second);
+            }
+            return std::make_pair(simplify(c), simplify(d));
+        }
+        case TypeId::Add: {
+            std::optional<Expr> maxdeg;
+            Expr csum = S::Zero();
+            for (const auto& t : e->args()) {
+                auto lt = leading_pos_inf(t, var, depth + 1);
+                if (!lt) return std::nullopt;
+                if (!maxdeg) {
+                    maxdeg = lt->second;
+                    csum = lt->first;
+                    continue;
+                }
+                Expr dd = simplify(lt->second - *maxdeg);
+                if (is_positive(dd) == std::optional<bool>{true}) {
+                    maxdeg = lt->second;
+                    csum = lt->first;
+                } else if (dd == S::Zero()) {
+                    csum = simplify(csum + lt->first);
+                }
+            }
+            if (!maxdeg) return std::nullopt;
+            if (simplify(csum) != S::Zero()) {
+                return std::make_pair(simplify(csum), *maxdeg);
+            }
+            // Leading terms cancel. For a two-term sum with a radical, the conjugate
+            // t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂) clears it; recurse on that form (no
+            // simplify on the quotient, which would rationalize straight back).
+            if (e->args().size() == 2 && has_var_radical(e, var)) {
+                const Expr& t1 = e->args()[0];
+                const Expr& t2 = e->args()[1];
+                Expr num = simplify(mul(t1, t1) + mul(S::NegativeOne(), mul(t2, t2)));
+                Expr den = simplify(t1 + mul(S::NegativeOne(), t2));
+                if (!(den == S::Zero()) && !has_var_radical(num, var)) {
+                    return leading_pos_inf(
+                        mul(num, pow(den, S::NegativeOne())), var, depth + 1);
+                }
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;  // trig/exp/log/… are not handled here
+    }
+}
+
+// Limit at +∞ of an algebraic (radical) expression via its leading term. Resolves
+// the ∞ − ∞ / 0·∞ forms that L'Hôpital abandons on radicals: e ~ c·x^d gives a
+// finite limit c when d = 0, ±∞ when d > 0, and 0 when d < 0.
+[[nodiscard]] std::optional<Expr> try_algebraic_inf(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& target) {
+    if (target->type_id() != TypeId::Infinity) return std::nullopt;  // +∞ only
+    if (!has_var_radical(expr, var)) return std::nullopt;
+    auto lead = leading_pos_inf(expr, var, 0);
+    std::fprintf(stderr, "DBG alginf expr=%s lead=%s\n", expr->str().c_str(),
+                 lead ? (lead->first->str() + " | " + lead->second->str()).c_str()
+                      : "NULLOPT");
+    if (!lead) return std::nullopt;
+    const Expr& c = lead->first;
+    const Expr& d = lead->second;
+    if (d == S::Zero()) return simplify(c);
+    if (is_positive(d) == std::optional<bool>{true}) {
+        if (is_positive(c) == std::optional<bool>{true}) return S::Infinity();
+        if (is_negative(c) == std::optional<bool>{true}) return S::NegativeInfinity();
+        return std::nullopt;
+    }
+    if (is_negative(d) == std::optional<bool>{true}) return S::Zero();
+    return std::nullopt;
+}
+
 // Asymptotic of log(g) at +∞ when g is dominated by an exponential — the
 // "log-sum-exp → max" identity. For g = Σ cᵢ·exp(eᵢ) (after rewriting cosh/sinh
 // and a^x into exp), factoring out the fastest-growing exp(e_dom) gives
@@ -1135,6 +1249,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 }
                 // ∞ − ∞ with a radical: rationalize via the conjugate.
                 if (auto v = try_conjugate_difference(expr, var, target, depth)) {
+                    return *v;
+                }
+                // Algebraic ∞−∞ / 0·∞ via the leading asymptotic term — resolves the
+                // radical ratios the conjugate produces and L'Hôpital abandons.
+                if (auto v = try_algebraic_inf(expr, var, target)) {
                     return *v;
                 }
             }

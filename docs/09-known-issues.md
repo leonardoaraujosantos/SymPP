@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-RADICAL-INF-1 — `lim √(x²+x)−x` (nonzero) returned `nan`
+- **Problem:** √-difference limits at +∞ with a *nonzero* finite value returned `nan`
+  (a wrong answer): `√(x²+x)−x → 1/2`, `x−√(x²−x) → 1/2`, `√(x²+x)−√(x²−x) → 1`,
+  `x·(√(x²+1)−x) → 1/2`. The conjugate handler clears the ∞−∞ but leaves a residual
+  ∞/∞ ratio (e.g. `x/(√(x²+x)+x)`) that L'Hôpital abandons on radicals — repeated
+  differentiation balloons the nested radical and never stabilises. (The zero-valued
+  cases like `√(x²+1)−x → 0` already worked, because there the conjugate numerator is
+  constant, giving const/∞ = 0 with no ∞/∞.)
+- **Fix:** added a leading-asymptotic-term evaluator `leading_pos_inf` (the leading
+  slice of Gruntz/MRV restricted to polynomials and their roots) plus a
+  `try_algebraic_inf` handler in `src/calculus/limit.cpp`, dispatched in the nan/+∞
+  branch after the conjugate. It returns `e ~ c·x^d` (degree may be rational, since √
+  halves it); the limit is `c` when `d=0`, `±∞` when `d>0`, `0` when `d<0`. On a
+  leading cancellation it applies the conjugate identity `t₁+t₂=(t₁²−t₂²)/(t₁−t₂)` and
+  recurses, so it also handles the 0·∞ product `x·(√(x²+1)−x)`. Restricted to +∞ (the
+  evaluator assumes `x>0` to pull `x` out of a radical); −∞ remains a follow-up.
+
 ### SUM-POLYGEOM-SYM-1 — `Σ_{k=1}^n k·xᵏ` (symbolic ratio) was unevaluated
 - **Problem:** the polynomial × geometric closed form `Σ P(k)·rᵏ` was gated to a
   *numeric* ratio (`Σk·2ᵏ` worked), so the generating-function identity

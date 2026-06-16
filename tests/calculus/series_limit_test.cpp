@@ -551,6 +551,30 @@ TEST_CASE("limit: conjugate of a radical difference (LIMIT-CONJUGATE-1)",
     REQUIRE(limit(x + sq(pow(x, integer(2)) + integer(1)), x, oo) == oo);
 }
 
+// LIMIT-RADICAL-INF-1: √-difference limits at +∞ with a NONZERO finite value.
+// The conjugate clears the ∞−∞, but the residual ratio (e.g. x/(√(x²+x)+x)) is an
+// ∞/∞ that L'Hôpital abandons on radicals (the radical never stabilises). A
+// leading-asymptotic-term evaluator resolves it: √(x²+x)−x → 1/2, the two-radical
+// difference √(x²+x)−√(x²−x) → 1, and the 0·∞ product x·(√(x²+1)−x) → 1/2.
+// These previously returned nan (a wrong answer). Matches SymPy.
+TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto sq = [&](const Expr& e) { return pow(e, rational(1, 2)); };
+    auto x2 = pow(x, integer(2));
+    // √(x²+x) − x → 1/2 ; x − √(x²−x) → 1/2.
+    REQUIRE(limit(sq(x2 + x) - x, x, oo) == rational(1, 2));
+    REQUIRE(limit(x - sq(x2 - x), x, oo) == rational(1, 2));
+    // √(x²+x) − √(x²−x) → 1.
+    REQUIRE(limit(sq(x2 + x) - sq(x2 - x), x, oo) == S::One());
+    // 0·∞ product: x·(√(x²+1) − x) → 1/2.
+    REQUIRE(limit(x * (sq(x2 + integer(1)) - x), x, oo) == rational(1, 2));
+    // General coefficient: √(4x²+x) − 2x → 1/4.
+    REQUIRE(limit(sq(integer(4) * x2 + x) - integer(2) * x, x, oo)
+            == rational(1, 4));
+}
+
 // LIMIT-LOG-1: logarithms at ∞ — log-continuity (limit(log g) = log(lim g)),
 // the ∞ − ∞ between logs (log(x+1) − log(x) → 0, via combining), and
 // atan-continuity (limit(atan g) = atan(lim g) = π/2). Also exercises the
