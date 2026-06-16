@@ -780,6 +780,34 @@ TEST_CASE("together: shared denominator uses the LCM (TOGETHER-LCM-1)",
         "(x + y)/(x*y)"));
 }
 
+// TOGETHER-NESTED-1: compound (nested) fractions collapse bottom-up. together
+// now recurses into Add/Mul/Pow children, so a reciprocal of a sum of fractions
+// reduces — 1/(1 + 1/x) → x/(x + 1) — and nests arbitrarily deep. Matches SymPy.
+TEST_CASE("together: nested compound fractions (TOGETHER-NESTED-1)",
+          "[4][together][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto one = integer(1);
+    auto recip = [](const Expr& e) { return pow(e, integer(-1)); };
+    // 1/(1 + 1/x) → x/(x + 1) ; 1/(1 − 1/x) → x/(x − 1).
+    REQUIRE(oracle.equivalent(
+        together(recip(one + recip(x)))->str(), "x/(x + 1)"));
+    REQUIRE(oracle.equivalent(
+        together(recip(one - recip(x)))->str(), "x/(x - 1)"));
+    // Twice-nested: 1/(1 + 1/(1 + 1/x)) → (x + 1)/(2x + 1).
+    REQUIRE(oracle.equivalent(
+        together(recip(one + recip(one + recip(x))))->str(),
+        "(x + 1)/(2*x + 1)"));
+    // Mixed symbols: a/(b + c/d) → a*d/(b*d + c).
+    auto a = symbol("a"), b = symbol("b"), c = symbol("c"), d = symbol("d");
+    REQUIRE(oracle.equivalent(
+        together(a * recip(b + c * recip(d)))->str(), "a*d/(b*d + c)"));
+    // No regression: a plain sum of reciprocals is unaffected.
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        together(recip(x) + recip(y))->str(), "(x + y)/(x*y)"));
+}
+
 TEST_CASE("cancel: (x^2 - 1)/(x - 1) = x + 1", "[4][cancel][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

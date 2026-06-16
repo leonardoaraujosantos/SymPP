@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### TOGETHER-NESTED-1 — `together`/`simplify` left compound (nested) fractions uncombined
+- **Problem:** `together` decomposed only the top level via `as_numer_denom`, which (by
+  design, for `integrate`'s sake) does not recurse. So a reciprocal of a sum of fractions
+  stayed compound: `together(1/(1+1/x))` returned `(1/x+1)⁻¹` and `simplify(1/(1+1/x))`
+  left it unchanged, where SymPy gives `x/(x+1)`. Nested and mixed-symbol forms
+  (`1/(1+1/(1+1/x))`, `a/(b+c/d)`) were likewise stuck.
+- **Fix:** made `together` recursive (`together_recursive` in `src/polys/poly.cpp`) without
+  touching `as_numer_denom`. It combines each `Add`/`Mul`/`Pow` child into a single
+  fraction bottom-up before recombining the current level; function arguments are left
+  intact (shallow inside `sin`/`exp`/…, matching SymPy's default). The `Pow` case inverts a
+  fractional base explicitly — `(bn/bd)^e = bn^e·bd^(−e)` — so `1/((x+1)/x)` flips to
+  `x/(x+1)`. `1/(1+1/x) → x/(x+1)`, `1/(1+1/(1+1/x)) → (x+1)/(2x+1)`,
+  `a/(b+c/d) → a·d/(b·d+c)`. Matches SymPy; plain sums of reciprocals are unchanged.
+
 ### LIMIT-DBG-1 — a debug `fprintf` leaked to stderr on every radical limit at +∞
 - **Problem:** `try_algebraic_inf` in `src/calculus/limit.cpp` (the leading-asymptotic-term
   evaluator for `√`-difference limits at `+∞`) carried a leftover

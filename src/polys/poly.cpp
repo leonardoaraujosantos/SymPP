@@ -1099,10 +1099,56 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
 
 }  // namespace
 
-Expr together(const Expr& expr) {
-    auto nd = as_numer_denom(expr);
+namespace {
+// Recursive together: combine each Add/Mul/Pow child into a single fraction
+// first, so a nested compound fraction collapses bottom-up before the current
+// level is recombined. This is what lets a reciprocal-of-a-sum-of-fractions
+// reduce — together(1/(1+1/x)) recurses into the base (1+1/x → (x+1)/x), and the
+// resulting ((x+1)/x)⁻¹ flattens to x/(x+1). Function arguments are left intact
+// (together stays shallow inside sin/exp/…), matching SymPy's default.
+[[nodiscard]] Expr together_recursive(const Expr& e) {
+    if (!e) return e;
+    Expr rebuilt = e;
+    switch (e->type_id()) {
+        case TypeId::Add: {
+            std::vector<Expr> a;
+            a.reserve(e->args().size());
+            for (const auto& c : e->args()) a.push_back(together_recursive(c));
+            rebuilt = add(std::move(a));
+            break;
+        }
+        case TypeId::Mul: {
+            std::vector<Expr> a;
+            a.reserve(e->args().size());
+            for (const auto& c : e->args()) a.push_back(together_recursive(c));
+            rebuilt = mul(std::move(a));
+            break;
+        }
+        case TypeId::Pow: {
+            const Expr& exp = e->args()[1];
+            Expr base = together_recursive(e->args()[0]);
+            auto bnd = as_numer_denom(base);
+            if (bnd.denom == S::One()) {
+                rebuilt = pow(base, exp);
+            } else {
+                // (bn/bd)^exp = bn^exp · bd^(−exp); a negative exp thus flips the
+                // fraction so 1/((x+1)/x) → x/(x+1).
+                rebuilt = mul(pow(bnd.numer, exp),
+                              pow(bnd.denom, mul(integer(-1), exp)));
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    auto nd = as_numer_denom(rebuilt);
     if (nd.denom == S::One()) return nd.numer;
     return nd.numer / nd.denom;
+}
+}  // namespace
+
+Expr together(const Expr& expr) {
+    return together_recursive(expr);
 }
 
 Expr cancel(const Expr& expr, const Expr& var) {
