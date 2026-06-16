@@ -1243,3 +1243,28 @@ TEST_CASE("simplify: extract perfect-power radical coefficient (SIMPLIFY-RADCOEF
     // No perfect-power factor: √(2x) is unchanged (not split into √2·√x here).
     REQUIRE(simplify(sqrt(integer(2) * x))->str().find("2*x") != std::string::npos);
 }
+
+// SIMPLIFY-LOGRATIO-1: log(b)/log(a) → k when a and b are positive integer powers
+// of a common base (b = c^j, a = c^i ⇒ j/i): log(4)/log(2)→2, log(8)/log(2)→3,
+// log(2)/log(8)→1/3. Incommensurate args (log(2)/log(3)) stay. Previously left as
+// log(2)**(-1)*log(4); matches SymPy and cleans up exponential-equation roots.
+TEST_CASE("simplify: log ratio of commensurate integers (SIMPLIFY-LOGRATIO-1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto two = integer(2);
+    auto ln = [&](int n) { return log(integer(n)); };
+    auto ratio = [&](int b, int a) { return mul(ln(b), pow(ln(a), integer(-1))); };
+    REQUIRE(simplify(ratio(4, 2)) == two);
+    REQUIRE(simplify(ratio(8, 2)) == integer(3));
+    REQUIRE(simplify(ratio(9, 3)) == two);
+    REQUIRE(simplify(ratio(16, 4)) == two);
+    REQUIRE(simplify(ratio(2, 8)) == rational(1, 3));
+    // Incommensurate bases are left alone.
+    REQUIRE(oracle.equivalent(simplify(ratio(2, 3))->str(), "log(2)/log(3)"));
+    REQUIRE(oracle.equivalent(simplify(ratio(6, 2))->str(), "log(6)/log(2)"));
+    // Other factors pass through: x·log(8)/log(2) → 3·x.
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(simplify(mul({x, ln(8), pow(ln(2), integer(-1))}))
+                                  ->str(),
+                              "3*x"));
+}

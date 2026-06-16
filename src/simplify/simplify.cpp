@@ -164,6 +164,7 @@ namespace {
 [[nodiscard]] Expr exp_to_hyp_add(const Expr& e);
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 [[nodiscard]] Expr radical_coeff(const Expr& e);
+[[nodiscard]] Expr log_ratio(const Expr& e);
 
 }  // namespace
 
@@ -179,6 +180,7 @@ Expr simplify(const Expr& e) {
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
     current = powsimp(current);
+    current = log_ratio(current);
     current = combine_exp(current);
     current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
@@ -377,6 +379,71 @@ namespace {
     }
     Expr inside = (cprime == S::One()) ? mul(rest) : mul(cprime, mul(rest));
     return mul(m, pow(inside, exp));
+}
+
+// log(b)/log(a) → k when a and b are positive integers that are powers of a common
+// base c (b = c^j, a = c^i ⇒ log(b)/log(a) = j/i): log(4)/log(2) → 2,
+// log(2)/log(8) → 1/3. Acts on a Mul carrying a log(b) factor and a log(a)^(-1)
+// factor; other factors pass through. (simplify() does not otherwise reduce this,
+// which left exponential-equation roots as log(4)/log(2) instead of 2.)
+[[nodiscard]] Expr log_ratio_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    // The primitive base of n ≥ 2: smallest c with n = c^k; returns (c, k).
+    auto primitive = [](long n) -> std::pair<long, long> {
+        for (long c = 2; c * c <= n; ++c) {
+            long t = c;
+            long k = 1;
+            while (t < n) { t *= c; ++k; }
+            if (t == n) return {c, k};
+        }
+        return {n, 1};
+    };
+    // Integer argument of log(n) (inv=false) or log(n)^(-1) (inv=true), n ≥ 2.
+    auto log_int_arg = [](const Expr& f, bool& inv) -> std::optional<long> {
+        Expr g = f;
+        inv = false;
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+            g = f->args()[0];
+            inv = true;
+        }
+        if (g->type_id() == TypeId::Function
+            && static_cast<const Function&>(*g).function_id() == FunctionId::Log
+            && g->args().size() == 1
+            && g->args()[0]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*g->args()[0]);
+            if (z.fits_long() && z.to_long() >= 2) return z.to_long();
+        }
+        return std::nullopt;
+    };
+    std::vector<Expr> args(e->args().begin(), e->args().end());
+    int num_idx = -1;
+    int den_idx = -1;
+    long num_arg = 0;
+    long den_arg = 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        bool inv = false;
+        if (auto a = log_int_arg(args[i], inv)) {
+            if (inv && den_idx < 0) {
+                den_idx = static_cast<int>(i);
+                den_arg = *a;
+            } else if (!inv && num_idx < 0) {
+                num_idx = static_cast<int>(i);
+                num_arg = *a;
+            }
+        }
+    }
+    if (num_idx < 0 || den_idx < 0) return e;
+    auto [cn, en] = primitive(num_arg);
+    auto [cd, ed] = primitive(den_arg);
+    if (cn != cd) return e;  // no common base → log ratio is irrational
+    std::vector<Expr> rest;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (static_cast<int>(i) != num_idx && static_cast<int>(i) != den_idx) {
+            rest.push_back(args[i]);
+        }
+    }
+    rest.push_back(rational(en, ed));  // log_a(b) = en/ed
+    return mul(std::move(rest));
 }
 
 // exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
@@ -596,6 +663,8 @@ Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 Expr radical_coeff(const Expr& e) {
     return apply_recursive(e, radical_coeff_node);
 }
+
+Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 

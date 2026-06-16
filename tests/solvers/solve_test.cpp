@@ -553,9 +553,17 @@ TEST_CASE("solve: sum of constant-base exponentials (SOLVE-EXPBASE-SUM-1)",
         solve(pow(integer(9), x) - integer(4) * pow(integer(3), x) + integer(3),
               x),
         {"0", "1"}));
-    // 4^x − 5·2^x + 4 → {0, 2}.
-    REQUIRE(set_equal(solve(px(4) - integer(5) * px(2) + integer(4), x),
-                      {"0", "2"}));
+    // 4^x − 5·2^x + 4 → {0, 2}. The root 2^x = 4 ⇒ x = log(4)/log(2) now reduces to
+    // the exact 2 (SIMPLIFY-LOGRATIO-1).
+    {
+        auto roots = solve(px(4) - integer(5) * px(2) + integer(4), x);
+        REQUIRE(set_equal(roots, {"0", "2"}));
+        bool has_exact_two = false;
+        for (const auto& r : roots) {
+            if (r == integer(2)) has_exact_two = true;
+        }
+        REQUIRE(has_exact_two);
+    }
     // 16^x − 6·4^x + 8 → {1/2, 1} (u = 2^x, u⁴ − 6u² + 8 = 0).
     REQUIRE(set_equal(
         solve(pow(integer(16), x) - integer(6) * pow(integer(4), x) + integer(8),

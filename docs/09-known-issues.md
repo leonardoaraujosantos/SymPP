@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMPLIFY-LOGRATIO-1 — `simplify(log(4)/log(2))` stayed unevaluated (should be 2)
+- **Problem:** `log(b)/log(a)` for integer `a, b` that are powers of a common base —
+  `log(4)/log(2)`, `log(8)/log(2)`, `log(2)/log(8)` — was left as
+  `log(2)⁻¹·log(4)` rather than the rational `log_a(b)` (2, 3, 1/3). SymPy's `simplify`
+  reduces these. It also left exponential-equation roots (SOLVE-EXPBASE-SUM-2) as
+  `log(4)/log(2)` instead of `2`.
+- **Fix:** added a `log_ratio` pass in `src/simplify/simplify.cpp`. On a `Mul`
+  carrying a `log(b)` factor and a `log(a)⁻¹` factor (`a, b` positive integers ≥ 2),
+  it takes the primitive base `c` of each (smallest `c` with `n = cᵏ`); when both share
+  `c` (`b = cʲ`, `a = cⁱ`) it replaces the pair with `j/i`. Incommensurate args
+  (`log(2)/log(3)`) and non-power args (`log(6)/log(2)`) are left alone; other factors
+  pass through (`x·log(8)/log(2) → 3x`). As a bonus the exponential-quadratic roots now
+  render exactly: `4ˣ−5·2ˣ+4 → {0, 2}`, `16ˣ−6·4ˣ+8 → {1/2, 1}`.
+
 ### SOLVE-EXPBASE-SUM-2 — `solve(4ˣ−2ˣ−2)` returned `[]` (composite exponential base)
 - **Problem:** an exponential quadratic written with a *composite* base — `4ˣ−2ˣ−2=0`,
   `9ˣ−4·3ˣ+3=0` — returned `[]`, even though `2^(2x)−5·2ˣ+4` (same base, scaled exponent)
