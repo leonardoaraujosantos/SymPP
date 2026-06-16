@@ -166,6 +166,28 @@ TEST_CASE("simplify: Abs(x)^(even) uses assumptions (ASSUME-3)",
     REQUIRE(simplify(pow(abs(xg), integer(2)))->str() == "Abs(x)**2");
 }
 
+// SIGN-ABS-1: sign(u)·|u| = u (polar decomposition). A matching Sign/Abs factor
+// pair in a product cancels to its argument, with any coefficient or extra
+// factors carried through. A mismatched argument or a lone sign/Abs is untouched.
+TEST_CASE("simplify: sign(u)*Abs(u) -> u (SIGN-ABS-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(simplify(sign(x) * abs(x)) == x);
+    REQUIRE(simplify(abs(x) * sign(x)) == x);
+    // Coefficient and extra factors carry through.
+    REQUIRE(oracle.equivalent(simplify(integer(2) * sign(x) * abs(x))->str(),
+                              "2*x"));
+    REQUIRE(oracle.equivalent(simplify(sign(x) * abs(x) * y)->str(), "x*y"));
+    // General argument: sign(x+1)·|x+1| → x+1.
+    REQUIRE(oracle.equivalent(
+        simplify(sign(x + integer(1)) * abs(x + integer(1)))->str(), "x + 1"));
+    // No misfire: mismatched argument, or a lone sign/Abs, is left intact.
+    REQUIRE(simplify(sign(x) * abs(y))->str() == "Abs(y)*sign(x)");
+    REQUIRE(simplify(sign(x))->str() == "sign(x)");
+}
+
 TEST_CASE("simplify: combines exponential products (SIMP-2)",
           "[5][simplify][oracle][regression]") {
     auto& oracle = Oracle::instance();

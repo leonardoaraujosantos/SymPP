@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIGN-ABS-1 — `sign(x)·|x|` did not simplify to `x`
+- **Problem:** the polar-decomposition identity `sign(u)·|u| = u` was not applied, so
+  `sign(x)·|x|`, `2·sign(x)·|x|`, `sign(x)·|x|·y` stayed as products where SymPy returns
+  `x`, `2x`, `x·y`.
+- **Fix:** added `sign_abs_mul` to the `simplify` pipeline (`src/simplify/simplify.cpp`).
+  It scans each `Mul` for a `Sign(u)` factor and an `Abs(u)` factor with the same argument
+  and replaces the pair with `u`, carrying any coefficient or extra factors through
+  (`sign(x)·|x|·y → x·y`). Valid for all `u` — `sign(u) = u/|u|` for `u ≠ 0`, and both
+  sides vanish at `u = 0`. A mismatched argument (`sign(x)·|y|`) or a lone `sign`/`Abs` is
+  left intact. Matches SymPy. (The other directions — `x/|x|`, `sign(x)²` — SymPy returns
+  unchanged or as a `Piecewise`, so they are deliberately not touched.)
+
 ### HYP-DBLADD-1 — `cosh²x + sinh²x` did not fold to `cosh(2x)`
 - **Problem:** `hypsimp_add` carried only the Pythagorean rewrites (`cosh²−sinh²=1`,
   `1+sinh²=cosh²`), so the additive double-angle shapes stayed as written —

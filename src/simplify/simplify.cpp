@@ -165,6 +165,7 @@ namespace {
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 [[nodiscard]] Expr radical_coeff(const Expr& e);
 [[nodiscard]] Expr log_ratio(const Expr& e);
+[[nodiscard]] Expr sign_abs_mul(const Expr& e);
 
 }  // namespace
 
@@ -179,6 +180,7 @@ Expr simplify(const Expr& e) {
     //    doesn't match its pattern, so chaining is safe; ordering only
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
+    current = sign_abs_mul(current);
     current = powsimp(current);
     current = log_ratio(current);
     current = combine_exp(current);
@@ -665,6 +667,40 @@ Expr radical_coeff(const Expr& e) {
 }
 
 Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
+
+// sign(u)·|u| = u (the polar decomposition: sign(u) = u/|u| for u ≠ 0, and both
+// sides vanish at u = 0). Cancels a matching Sign/Abs factor pair in a Mul,
+// leaving the rest untouched — sign(x)·|x| → x, 2·sign(x)·|x| → 2x,
+// sign(x)·|x|·y → x·y. Matches SymPy's simplify.
+[[nodiscard]] Expr sign_abs_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i]->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*args[i]).function_id()
+            != FunctionId::Sign) {
+            continue;
+        }
+        const Expr& u = args[i]->args()[0];
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i || args[j]->type_id() != TypeId::Function) continue;
+            const auto& fj = static_cast<const Function&>(*args[j]);
+            if (fj.function_id() != FunctionId::Abs || !(fj.args()[0] == u)) {
+                continue;
+            }
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(u);
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
+Expr sign_abs_mul(const Expr& e) { return apply_recursive(e, sign_abs_node); }
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 
