@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1287%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1414%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1287 tests / 3157 assertions  all passing
-501 cases (1246 assertions) oracle-validated against SymPy
+1414 tests / 4327 assertions  all passing
+618 cases (2297 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
 
@@ -95,6 +95,70 @@ exp(x)*sin(x) + exp(x)*cos(x)
 
 More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
 
+## More examples
+
+Every call below returns an `Expr`; the comment shows its `->str()`. All
+outputs are produced by the current build and cross-checked against SymPy.
+
+**Calculus, algebra, solving**
+
+```cpp
+using namespace sympp;
+auto x = symbol("x");
+
+diff(pow(x, integer(3)), x);                          // → 3*x**2
+integrate(log(x), x);                                 // → -x + x*log(x)
+integrate(pow(integer(1) + x * x, integer(-1)), x);   // → atan(x)
+limit(pow(integer(1) + integer(1) / x, x),
+      x, S::Infinity());                              // → E
+factor(pow(x, integer(4)) - integer(1), x);           // → (x + 1)*(x - 1)*(x**2 + 1)
+solve(pow(x, integer(2)) - integer(2), x);            // → [2**(1/2), -2**(1/2)]
+```
+
+**Sums & simplification** — including closed forms recently brought to parity:
+
+```cpp
+auto n = symbol("n");
+auto oo = S::Infinity();
+
+summation(pow(n, integer(-2)), n, integer(1), oo);    // → 1/6*pi**2  (Basel)
+summation(pow(n * n + integer(1), integer(-1)),
+          n, integer(1), oo);                         // → 1/2*(pi*coth(pi) - 1)
+
+simplify(pow(sin(x), integer(2))
+         + pow(cos(x), integer(2)));                  // → 1
+simplify(sin(integer(2) * x)
+         * pow(sin(x), integer(-1)));                 // → 2*cos(x)
+```
+
+**Transforms & ODEs**
+
+```cpp
+auto s = symbol("s"), t = symbol("t");
+
+laplace_transform(sin(t), t, s);                      // → (s**2 + 1)**(-1)
+inverse_laplace_transform(
+    pow(pow(s + integer(1), integer(2)) + integer(1),
+        integer(-1)), s, t);                          // → exp(-t)*sin(t)
+inverse_laplace_transform(
+    pow(pow(s, integer(2)) + integer(1), integer(-2)),
+    s, t);                                            // → 1/2*(-t*cos(t) + sin(t))
+
+FunctionSymbol y("y");
+auto ode = diff(y(x), x, 2) + y(x);                   // y'' + y = 0
+dsolve(ode, y(x), x);                                 // → __C0*cos(x) + __C1*sin(x)
+```
+
+**Assumptions & linear algebra**
+
+```cpp
+auto p = symbol("p", AssumptionMask{}.set_positive(true));
+is_positive(pow(p, integer(2)) + integer(1));         // → std::optional<bool>{true}
+
+Matrix M = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+M.eigenvals();                                        // → [3, 2]
+```
+
 ## What's in the box
 
 - **Symbolic algebra** — Add/Mul/Pow with full canonical form,
@@ -114,13 +178,16 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   `∫₀^∞ xⁿe^(-x) = n!`), `series`, `limit` with L'Hôpital (finite points,
   signed `±∞` at even poles, polynomial and 0·∞ exponential dominance at ±∞;
   `1^∞` / `0·∞` / `∞/∞` forms; size-bounded so it never hangs),
-  `summation`, Padé, Euler-Lagrange, asymptotes.
+  `summation` (p-series → ζ, telescoping, geometric/arithmetic-geometric,
+  irreducible-quadratic `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`),
+  Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
   bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
   Cardano cubic, Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
 - **Simplification** — `simplify` orchestrator (anti-bloat-guarded so it never
   returns a form larger than its input) chaining trigsimp (Pythagorean +
-  double-angle / power-reduction `(1∓cos2x)/2 → sin²/cos²` / 2sin·cos collapses),
+  double-angle / power-reduction `(1∓cos2x)/2 → sin²/cos²` / `2sin·cos → sin2x`
+  collapses + double-angle ratio reduction `sin(2x)/sin(x) → 2cos(x)`),
   `expand_trig` (angle-addition + multiple-angle `sin(nx)`), `fu`, powsimp,
   exp folds (`(eˣ)ⁿ → e^(nx)`, `eˣ+e⁻ˣ → 2cosh x`), radsimp, sqrtdenest,
   combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators,
@@ -145,10 +212,12 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   defective A). PDE for first-order linear, heat, wave. IVP
   application + `checkodesol`.
 - **Transforms** — Laplace (table + s-shift theorem: `sinh`/`cosh`,
-  damped oscillations `e^(at)sin/cos`, `tⁿe^(at)`) and inverse Laplace
+  damped oscillations `e^(at)sin/cos`, `tⁿe^(at)`, and the multiplication-by-`tⁿ`
+  rule `L{t·cos t} = (s²−1)/(s²+1)²`) and inverse Laplace
   (incl. completed-square quadratics `1/((s+1)²+1) → e^(-t)sin t`, linear
-  numerators), Fourier, Mellin, Z, sine/cosine — forward and inverse,
-  table-driven with linearity.
+  numerators, and repeated irreducible quadratics
+  `1/(s²+1)² → (sin t − t·cos t)/2`), Fourier, Mellin, Z, sine/cosine —
+  forward and inverse, table-driven with linearity.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
   constants with exact post-2019-redef values, affine
   temperature conversion.
@@ -160,7 +229,7 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy (1.13+) via a long-lived Python
-  subprocess; 501 oracle-validated test cases. New `hyperexpand` op
+  subprocess; 618 oracle-validated test cases. New `hyperexpand` op
   cross-validates SymPP's hypergeometric rewrites against SymPy's
   reference implementation.
 
