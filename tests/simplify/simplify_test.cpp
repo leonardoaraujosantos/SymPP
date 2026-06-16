@@ -1190,3 +1190,34 @@ TEST_CASE("simplify: chains sqrtdenest (sqrt(3+2√2) → 1+√2)",
     auto s = simplify(e);
     REQUIRE(oracle.equivalent(s->str(), "1 + sqrt(2)"));
 }
+
+// SIMPLIFY-RADCOEFF-1: pull a perfect-power factor of a positive numeric
+// coefficient out of a radical. √(4a²) → 2√(a²), √(8x²) → 2√(2x²),
+// (8x³)^(1/3) → 2·x^(1/3). The non-perfect part stays under the radical with the
+// symbolic factors. Previously left as (4a²)^(1/2). Verified equivalent to SymPy.
+TEST_CASE("simplify: extract perfect-power radical coefficient (SIMPLIFY-RADCOEFF-1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // √(4a²) → 2√(a²).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(4) * sq(a)))->str(),
+                              "2*sqrt(a**2)"));
+    // √(9x²) → 3√(x²).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(9) * sq(x)))->str(),
+                              "3*sqrt(x**2)"));
+    // √(8x²) → 2√(2x²) (the non-perfect 2 stays under the radical).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(8) * sq(x)))->str(),
+                              "2*sqrt(2*x**2)"));
+    // √(4x) → 2√x.
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(4) * x))->str(),
+                              "2*sqrt(x)"));
+    // (8x³)^(1/3) → 2·(x³)^(1/3) (the 8 = 2³ is pulled; (x³)^(1/3) is not reduced
+    // to x without a real assumption, matching SymPy).
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(8) * pow(x, integer(3)), rational(1, 3)))->str(),
+        "2*(x**3)**(1/3)"));
+    // No perfect-power factor: √(2x) is unchanged (not split into √2·√x here).
+    REQUIRE(simplify(sqrt(integer(2) * x))->str().find("2*x") != std::string::npos);
+}

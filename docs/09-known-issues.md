@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMPLIFY-RADCOEFF-1 — `simplify(√(4a²))` didn't pull out the perfect square
+- **Problem:** SymPP factored perfect powers out of *pure-number* radicals (`√8 → 2√2`,
+  auto-evaluated) but not when a symbolic factor was present: `√(4a²)`, `√(8x²)`,
+  `(8x³)^(1/3)` stayed as `(4a²)^(1/2)` etc., where SymPy gives `2√(a²)`, `2√2·√(x²)`,
+  `2·x^(1/3)`.
+- **Fix:** added a `radical_coeff` pass in `src/simplify/simplify.cpp`. For a `Pow`
+  with a non-integer rational exponent over a `Mul` base with a *positive* numeric
+  coefficient `c`, it pulls out the perfect-power part of `c` (via `c^exp`, which
+  auto-factors), keeping the non-perfect remainder under the radical with the symbolic
+  factors: `√(8x²) → 2√(2x²)`. Valid because `c > 0` makes `(c·X)^e = c^e·X^e` hold on
+  the principal branch regardless of `X`'s sign. It runs *after* the anti-bloat guard
+  (the extraction can raise the node count yet is a genuine simplification, so the
+  guard must not revert it). Equivalent to SymPy (up to the `√c·√X ↔ √(c·X)` regroup).
+
 ### SUM-EXP-NOLEAK — `Σcos(k·x)/k!` returned a bogus `e·cos(k·x)` (bound-variable leak)
 - **Problem:** `sum_exponential_series` built `Poly(numerator, k)` without checking the
   resulting coefficients are var-free. `Poly()` treats a non-polynomial factor

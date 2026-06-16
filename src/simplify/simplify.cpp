@@ -163,6 +163,7 @@ namespace {
 [[nodiscard]] Expr combine_exp(const Expr& e);
 [[nodiscard]] Expr exp_to_hyp_add(const Expr& e);
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
+[[nodiscard]] Expr radical_coeff(const Expr& e);
 
 }  // namespace
 
@@ -234,10 +235,14 @@ Expr simplify(const Expr& e) {
         const bool removed_cx =
             has_complex_denominator(canon) && !has_complex_denominator(current);
         if (!removed_surd && !removed_cx) {
-            return canon;
+            // Pulling a perfect-power factor out of a radical (√(4a²) → 2√(a²)) is a
+            // simplification even when it raises the node count, so apply it after
+            // the anti-bloat guard rather than inside the pipeline (where the guard
+            // would revert it).
+            return radical_coeff(canon);
         }
     }
-    return current;
+    return radical_coeff(current);
 }
 
 Expr collect(const Expr& e, const Expr& var) {
@@ -316,6 +321,62 @@ namespace {
         }
     }
     return mul(std::move(out));
+}
+
+// √(4·a²) → 2·√(a²), √(8·a²) → 2·√(2·a²), (8·x)^(1/3) → 2·x^(1/3): pull the
+// perfect-power factor of a positive numeric coefficient out of a radical (a Pow
+// with a non-integer rational exponent over a Mul base). The coefficient's
+// non-perfect part stays under the radical with the symbolic factors (matching
+// SymPy up to the √c·√X ↔ √(c·X) regrouping). Valid since the coefficient is
+// positive: (c·X)^e = c^e·X^e on the principal branch regardless of X's sign.
+[[nodiscard]] Expr radical_coeff_node(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return e;
+    const Expr& base = e->args()[0];
+    const Expr& exp = e->args()[1];
+    if (exp->type_id() != TypeId::Rational) return e;  // non-integer rational only
+    if (base->type_id() != TypeId::Mul) return e;
+    Expr coeff = S::One();
+    std::vector<Expr> rest;
+    for (const auto& f : base->args()) {
+        if (f->type_id() == TypeId::Integer || f->type_id() == TypeId::Rational) {
+            coeff = mul(coeff, f);
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (rest.empty() || coeff == S::One()) return e;       // pure number / no coeff
+    if (is_positive(coeff) != std::optional<bool>{true}) return e;  // need c > 0
+
+    // coeff^exp auto-factors to m·(c')^exp (e.g. 8^(1/2) = 2·2^(1/2), 4^(1/2) = 2).
+    // Pull out the rational m and keep c' under the radical with `rest`.
+    Expr ce = pow(coeff, exp);
+    Expr m;
+    Expr cprime = S::One();
+    if (ce->type_id() == TypeId::Integer || ce->type_id() == TypeId::Rational) {
+        m = ce;  // coeff was a perfect power
+    } else if (ce->type_id() == TypeId::Mul) {
+        std::vector<Expr> nums;
+        std::vector<Expr> others;
+        for (const auto& f : ce->args()) {
+            if (f->type_id() == TypeId::Integer
+                || f->type_id() == TypeId::Rational) {
+                nums.push_back(f);
+            } else {
+                others.push_back(f);
+            }
+        }
+        if (nums.empty() || others.size() != 1
+            || others[0]->type_id() != TypeId::Pow
+            || !(others[0]->args()[1] == exp)) {
+            return e;
+        }
+        m = mul(nums);
+        cprime = others[0]->args()[0];
+    } else {
+        return e;  // coeff^exp stayed a bare radical — nothing to pull
+    }
+    Expr inside = (cprime == S::One()) ? mul(rest) : mul(cprime, mul(rest));
+    return mul(m, pow(inside, exp));
 }
 
 // exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
@@ -531,6 +592,10 @@ template <typename NodeFn>
 }
 
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
+
+Expr radical_coeff(const Expr& e) {
+    return apply_recursive(e, radical_coeff_node);
+}
 
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 
