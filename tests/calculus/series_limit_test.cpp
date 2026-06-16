@@ -877,6 +877,44 @@ TEST_CASE("summation: telescoping rational sums (SUM-TELESCOPE-1)",
         "1/2"));
 }
 
+// SUM-TELESCOPE-2: the rational telescoping closed form generalized from a quadratic
+// denominator to any degree ≥ 2 whose roots are rational and pairwise differ by
+// integers (via partial fractions over Σ Aᵢ/(k−rᵢ)). Closes Σ1/(k(k+1)(k+2))=1/4 and
+// Σ1/(k(k+1)(k+2)(k+3))=1/18, previously unevaluated. Verified against SymPy.
+TEST_CASE("summation: higher-degree telescoping rationals (SUM-TELESCOPE-2)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto one = integer(1);
+    const Expr oo = S::Infinity();
+    // Σ_{k=1}^∞ 1/(k(k+1)(k+2)) = 1/4.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + one) * (k + integer(2)), integer(-1)), k, one, oo)
+            ->str(),
+        "1/4"));
+    // Σ_{k=1}^∞ 1/(k(k+1)(k+2)(k+3)) = 1/18.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + one) * (k + integer(2)) * (k + integer(3)),
+                      integer(-1)),
+                  k, one, oo)
+            ->str(),
+        "1/18"));
+    // Half-integer roots: Σ 1/((2k-1)(2k+1)(2k+3)) = 1/12.
+    REQUIRE(oracle.equivalent(
+        summation(pow((integer(2) * k - one) * (integer(2) * k + one)
+                          * (integer(2) * k + integer(3)),
+                      integer(-1)),
+                  k, one, oo)
+            ->str(),
+        "1/12"));
+    // Finite closed form: Σ_{k=1}^n 1/(k(k+1)(k+2)) = n(n+3)/(4(n+1)(n+2)).
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * (k + one) * (k + integer(2)), integer(-1)), k, one, n)
+            ->str(),
+        "n*(n+3)/(4*(n+1)*(n+2))"));
+}
+
 // SUM-BINOMIAL-1: the binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. A summand
 // binomial(n,k)·base^(a·k+b) (geometric factor optional), where n is exactly the
 // binomial's first arg, closes to const·base^b·(1+base^a)ⁿ.

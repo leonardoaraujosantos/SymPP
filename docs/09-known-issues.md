@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-TELESCOPE-2 — `Σ1/(k(k+1)(k+2))` (degree ≥ 3 telescoping) was unevaluated
+- **Problem:** the rational telescoping handler only covered a *quadratic*
+  denominator, so `Σ1/(k(k+1)(k+2)) = 1/4`, `Σ1/(k(k+1)(k+2)(k+3)) = 1/18` and
+  `Σ1/((2k−1)(2k+1)(2k+3)) = 1/12` stayed unevaluated even though the 2-factor cases
+  (`Σ1/(k(k+1))`, `Σ1/(4k²−1)`) worked.
+- **Fix:** generalized `telescope_rational` (`src/calculus/summation.cpp`) to any
+  denominator of degree ≥ 2 whose roots are rational and pairwise differ by integers.
+  Partial fractions give `c/D = Σ Aᵢ/(k−rᵢ)` with `Aᵢ = c/(lead·∏_{j≠i}(rᵢ−rⱼ))`;
+  taking the largest root as a reference, each `1/(k−rᵢ) = u(k+mᵢ)` (`mᵢ = ref−rᵢ ≥ 0`),
+  so the summand is `Σ Aᵢ(u(k+mᵢ)−u(k))` (the `−u(k)` parts cancel since `ΣAᵢ = 0` for a
+  constant numerator over degree ≥ 2). Each piece telescopes to
+  `Σ Aᵢ[Σ_{j=1}^{mᵢ}u(hi+j) − Σ_{j=0}^{mᵢ−1}u(lo+j)]`, exact for finite or infinite
+  `hi`. The pole guard (no integer root ≥ `lo`) and var-free-numerator restriction are
+  retained; non-integer root gaps (which need digamma) safely fall through.
+
 ### LIMIT-RADICAL-INF-1 — `lim √(x²+x)−x` (nonzero) returned `nan`
 - **Problem:** √-difference limits at +∞ with a *nonzero* finite value returned `nan`
   (a wrong answer): `√(x²+x)−x → 1/2`, `x−√(x²−x) → 1/2`, `√(x²+x)−√(x²−x) → 1`,
