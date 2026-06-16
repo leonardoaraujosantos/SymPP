@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-EXP-SHIFT-1 — `Σ1/(k+1)! = e−2` and shifted-factorial e-sums were unevaluated
+- **Problem:** the exponential-series handler matched only a bare `k!` denominator, so
+  the e-valued sums over a *shifted* factorial — `Σ1/(k+1)!=e−2`, `Σ(2k+1)/(k+1)!=e`,
+  `Σk/(k+2)!=3−e`, `Σ1/(k+2)!=e−2` — stayed unevaluated. (These are the non-telescoping
+  companions of SUM-FACT-TELESCOPE-1.)
+- **Fix:** `sum_exponential_series` (`src/calculus/summation.cpp`) now re-indexes a
+  shifted factorial: `(k+m)!` with `j=k+m` turns `Σ_{k=lo}^∞ P(k)/(k+m)!` into
+  `Σ_{j=lo+m}^∞ P(j−m)/j!`, the `m=0` case it already closes (`Q(1)·e` via the
+  falling-factorial transform, minus the omitted head). Implemented as a `subs(var →
+  var−m)` with the lower bound shifted to `lo+m`; the recursion bottoms out at the bare
+  `factorial(var)`. A non-unit var coefficient (`(2k)!` → `cosh 1`) is left alone.
+  Matches SymPy.
+
 ### SUM-FACT-TELESCOPE-1 — `Σ k/(k+1)! = 1` (factorial telescoping) was unevaluated
 - **Problem:** sums like `Σ_{k=1}^∞ k/(k+1)! = 1` and `Σ (k²−1)/(k+1)! = 1` were left as
   a partially-split unevaluated `Sum`. The exponential-series handler only matches a

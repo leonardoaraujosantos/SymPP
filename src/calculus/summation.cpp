@@ -267,6 +267,32 @@ namespace {
     } else {
         factors.push_back(expr);
     }
+
+    // A shifted factorial (k+m)! re-indexes to k! via j = k+m: the sum
+    // Σ_{k=lo}^∞ P(k)/(k+m)! equals Σ_{j=lo+m}^∞ P(j−m)/j!, which is the m=0 case
+    // below. Reduce to it by substituting var → var−m and shifting the lower bound.
+    // (factorial(2k) and the like — a non-unit var coefficient — are left alone.)
+    for (const auto& f : factors) {
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Factorial
+                && fn.args().size() == 1) {
+                Expr mm = simplify(fn.args()[0] + mul(S::NegativeOne(), var));
+                if (!has(mm, var) && mm->type_id() == TypeId::Integer
+                    && static_cast<const Integer&>(*mm).fits_long()
+                    && static_cast<const Integer&>(*mm).to_long() != 0) {
+                    const long m = static_cast<const Integer&>(*mm).to_long();
+                    if (loz.to_long() + m < 0) return std::nullopt;  // factorial pole
+                    Expr shifted =
+                        subs(expr, var, var + mul(S::NegativeOne(), integer(m)));
+                    return sum_exponential_series(shifted, var,
+                                                  lo + integer(m), hi);
+                }
+                break;  // the bare factorial(var) case proceeds below
+            }
+        }
+    }
     bool has_factorial = false;
     Expr cst = S::One();                // var-free constant prefactor c
     Expr rate = S::One();               // r

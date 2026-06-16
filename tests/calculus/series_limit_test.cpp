@@ -942,10 +942,11 @@ TEST_CASE("summation: factorial telescoping Σ P(k)/(k+m)! (SUM-FACT-TELESCOPE-1
     REQUIRE(oracle.equivalent(
         summation(k * inv_fact(k + one), k, one, n)->str(),
         "1 - 1/factorial(n+1)"));
-    // A non-telescoping numerator (constant) is NOT given a bogus closed form —
-    // Σ 1/(k+1)! is e−2, which this handler must reject (stays unevaluated here).
-    REQUIRE(summation(inv_fact(k + one), k, one, oo)->str().find("Sum(")
-            != std::string::npos);
+    // A constant numerator is NOT telescoping — this handler rejects it (its
+    // consistency check fails). Σ 1/(k+1)! = e−2 is instead closed by the shifted
+    // exponential-series path (SUM-EXP-SHIFT-1), not a bogus telescoping form.
+    REQUIRE(oracle.equivalent(summation(inv_fact(k + one), k, one, oo)->str(),
+                              "E - 2"));
 }
 
 // SUM-BINOMIAL-1: the binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ. A summand
@@ -1398,6 +1399,38 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     REQUIRE(oracle.equivalent(
         summation(mul({k, pow(x, k), inv_fact}), k, integer(0), oo)->str(),
         "x*exp(x)"));
+}
+
+// SUM-EXP-SHIFT-1: a shifted factorial (k+m)! re-indexes (j=k+m) to the k! case,
+// closing the e-valued sums Σ P(k)/(k+m)! that don't telescope. Σ1/(k+1)!=e−2,
+// Σ(2k+1)/(k+1)!=e, Σ k/(k+2)!=3−e. Previously unevaluated. Matches SymPy.
+TEST_CASE("summation: shifted exponential series Σ P(k)/(k+m)! (SUM-EXP-SHIFT-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto one = integer(1);
+    auto oo = S::Infinity();
+    auto inv_fact = [&](const Expr& a) {
+        return pow(factorial(a), integer(-1));
+    };
+    // Σ_{k=0}^∞ 1/(k+1)! = e − 1 ; Σ_{k=1}^∞ 1/(k+1)! = e − 2.
+    REQUIRE(oracle.equivalent(
+        summation(inv_fact(k + one), k, S::Zero(), oo)->str(), "E - 1"));
+    REQUIRE(oracle.equivalent(
+        summation(inv_fact(k + one), k, one, oo)->str(), "E - 2"));
+    // Σ_{k=0}^∞ 1/(k+2)! = e − 2.
+    REQUIRE(oracle.equivalent(
+        summation(inv_fact(k + integer(2)), k, S::Zero(), oo)->str(), "E - 2"));
+    // Polynomial numerator over a shifted factorial: Σ_{k=1}^∞ (2k+1)/(k+1)! = e.
+    REQUIRE(oracle.equivalent(
+        summation((integer(2) * k + one) * inv_fact(k + one), k, one, oo)->str(),
+        "E"));
+    // Σ_{k=1}^∞ k/(k+2)! = 3 − e.
+    REQUIRE(oracle.equivalent(
+        summation(k * inv_fact(k + integer(2)), k, one, oo)->str(), "3 - E"));
+    // The unshifted m=0 case is unaffected: Σ (k+1)/k! = 2e.
+    REQUIRE(oracle.equivalent(
+        summation((k + one) * inv_fact(k), k, S::Zero(), oo)->str(), "2*E"));
 }
 
 // Single-term range Σ_{k=a}^{a} f(k) = f(a).
