@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-ARITH-PSERIES-1 — `Σ1/(2k−1)² = π²/8` and arithmetic p-series were unevaluated
+- **Problem:** the p-series handler only recognized `1/kˢ` (base exactly the index),
+  so the classic Basel relatives `Σ1/(2k−1)²=π²/8`, `Σ1/(2k)²=π²/24`, `Σ1/(2k−1)⁴=π⁴/96`
+  stayed unevaluated even though `ζ(even)` was already known.
+- **Fix:** added an arithmetic-argument p-series handler in
+  `src/calculus/summation.cpp` for `Σ_{k=1}^∞ c/(a·k+b)ˢ`, `s ≥ 2` integer, `a ∈ {1,2}`.
+  The denominator runs over one residue class, so the value is the matching slice of
+  `ζ(s)` minus the finitely many leading terms: `a=1,b≥0` → `ζ(s) − Σ_{n=1}^{b} n⁻ˢ`;
+  `a=2` odd `b` → `(1−2⁻ˢ)ζ(s) − Σ(2j−1)⁻ˢ` (odd n); `a=2` even `b` → `2⁻ˢζ(s) − Σ(2j)⁻ˢ`
+  (even n). `ζ(even)` closes to a `πˢ` rational; odd `s` stays a symbolic `ζ(s)`
+  (`Σ1/(2k−1)³ = 7ζ(3)/8`), as SymPy does. `a ≥ 3` needs Hurwitz `ζ` and falls through.
+
 ### SUM-TELESCOPE-2 — `Σ1/(k(k+1)(k+2))` (degree ≥ 3 telescoping) was unevaluated
 - **Problem:** the rational telescoping handler only covered a *quadratic*
   denominator, so `Σ1/(k(k+1)(k+2)) = 1/4`, `Σ1/(k(k+1)(k+2)(k+3)) = 1/18` and

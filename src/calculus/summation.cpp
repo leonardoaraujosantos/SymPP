@@ -516,6 +516,93 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
+    // Arithmetic-argument p-series Σ_{k=1}^∞ c/(a·k+b)^s for integer s ≥ 2 and
+    // a ∈ {1, 2}. The denominator runs over one residue class, so the value is the
+    // matching slice of ζ(s) minus the finitely many terms before the start:
+    //   a=1, b ≥ 0      : ζ(s) − Σ_{n=1}^{b} n^(−s)
+    //   a=2, b odd  ≥ −1: (1 − 2^(−s))·ζ(s) − Σ_{j=1}^{(b+1)/2} (2j−1)^(−s)   (odd n)
+    //   a=2, b even ≥ 0 : 2^(−s)·ζ(s)        − Σ_{j=1}^{b/2}     (2j)^(−s)     (even n)
+    // ζ(even) closes to a π^s rational (Σ1/(2k−1)²=π²/8, Σ1/(2k)²=π²/24); odd s
+    // stays a symbolic ζ(s), as SymPy does. a ≥ 3 needs Hurwitz ζ and falls through.
+    if (lo == S::One() && hi->type_id() == TypeId::Infinity) {
+        Expr coeff = S::One();
+        Expr powf;
+        bool ok = true;
+        bool have_pow = false;
+        std::vector<Expr> factors;
+        if (expr->type_id() == TypeId::Mul) {
+            for (const auto& f : expr->args()) factors.push_back(f);
+        } else {
+            factors.push_back(expr);
+        }
+        for (const auto& f : factors) {
+            if (f->type_id() == TypeId::Pow && has(f->args()[0], var)
+                && f->args()[1]->type_id() == TypeId::Integer) {
+                if (have_pow) { ok = false; break; }
+                powf = f;
+                have_pow = true;
+            } else if (!has(f, var)) {
+                coeff = mul(coeff, f);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && have_pow) {
+            const auto& zexp = static_cast<const Integer&>(*powf->args()[1]);
+            if (zexp.fits_long() && zexp.to_long() <= -2) {
+                const long s = -zexp.to_long();
+                try {
+                    Poly pb(expand(powf->args()[0]), var);
+                    if (pb.degree() == 1
+                        && pb.coeffs()[1]->type_id() == TypeId::Integer
+                        && pb.coeffs()[0]->type_id() == TypeId::Integer
+                        && static_cast<const Integer&>(*pb.coeffs()[1]).fits_long()
+                        && static_cast<const Integer&>(*pb.coeffs()[0])
+                               .fits_long()) {
+                        const long a =
+                            static_cast<const Integer&>(*pb.coeffs()[1]).to_long();
+                        const long b =
+                            static_cast<const Integer&>(*pb.coeffs()[0]).to_long();
+                        auto term = [&](long n) {
+                            return pow(integer(n), integer(-s));
+                        };
+                        std::optional<Expr> base_sum;
+                        if (a == 1 && b >= 0) {
+                            Expr sub = S::Zero();
+                            for (long n = 1; n <= b; ++n) sub = add({sub, term(n)});
+                            base_sum =
+                                simplify(zeta(integer(s))
+                                         + mul(S::NegativeOne(), sub));
+                        } else if (a == 2 && b >= -1) {
+                            const bool odd_n = (((b % 2) + 2) % 2) == 1;
+                            Expr full = odd_n
+                                ? mul(simplify(S::One()
+                                               + mul(S::NegativeOne(),
+                                                     pow(integer(2), integer(-s)))),
+                                      zeta(integer(s)))
+                                : mul(pow(integer(2), integer(-s)),
+                                      zeta(integer(s)));
+                            Expr sub = S::Zero();
+                            if (odd_n) {
+                                for (long j = 1; j <= (b + 1) / 2; ++j)
+                                    sub = add({sub, term(2 * j - 1)});
+                            } else {
+                                for (long j = 1; j <= b / 2; ++j)
+                                    sub = add({sub, term(2 * j)});
+                            }
+                            base_sum =
+                                simplify(full + mul(S::NegativeOne(), sub));
+                        }
+                        if (base_sum) return simplify(mul(coeff, *base_sum));
+                    }
+                } catch (const std::exception&) {
+                    // not a clean affine denominator — fall through
+                }
+            }
+        }
+    }
+
     // Alternating p-series Σ_{k=1}^∞ (−1)^k / k^s = (2^(1−s) − 1)·ζ(s) for s ≥ 2,
     // and −log 2 for s = 1 (the Dirichlet eta values η(s)). A (−1)^(a·k+b) factor
     // with odd a is (−1)^k up to the constant sign (−1)^b; a leading constant and

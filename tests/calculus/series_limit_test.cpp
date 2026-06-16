@@ -1234,6 +1234,43 @@ TEST_CASE("summation: alternating p-series → Dirichlet eta (SUM-ALT-PSERIES-1)
         summation(pow(k, integer(-2)), k, integer(1), oo)->str(), "pi**2/6"));
 }
 
+// SUM-ARITH-PSERIES-1: arithmetic-argument p-series Σ_{k=1}^∞ 1/(a·k+b)^s for
+// a ∈ {1,2}, closed by slicing ζ(s) over the residue class the denominator runs.
+// The famous odd/even Basel relatives: Σ1/(2k−1)²=π²/8, Σ1/(2k)²=π²/24,
+// Σ1/(2k−1)⁴=π⁴/96; with finite head terms removed for a shifted start; odd s
+// stays a symbolic ζ(s) (Σ1/(2k−1)³ = 7ζ(3)/8). Previously all unevaluated.
+TEST_CASE("summation: arithmetic-argument p-series (SUM-ARITH-PSERIES-1)",
+          "[6][summation][zeta][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto oo = S::Infinity();
+    auto one = integer(1);
+    auto odd = integer(2) * k - one;   // 2k−1
+    auto even = integer(2) * k;        // 2k
+    // Σ 1/(2k−1)² = π²/8 ; Σ 1/(2k)² = π²/24 ; Σ 1/(2k−1)⁴ = π⁴/96.
+    REQUIRE(oracle.equivalent(
+        summation(pow(odd, integer(-2)), k, one, oo)->str(), "pi**2/8"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(even, integer(-2)), k, one, oo)->str(), "pi**2/24"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(odd, integer(-4)), k, one, oo)->str(), "pi**4/96"));
+    // Shifted start removes the head term: Σ 1/(2k+1)² = π²/8 − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2) * k + one, integer(-2)), k, one, oo)->str(),
+        "pi**2/8 - 1"));
+    // a=1 shift: Σ 1/(k+1)² = π²/6 − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k + one, integer(-2)), k, one, oo)->str(),
+        "pi**2/6 - 1"));
+    // A leading constant scales through: Σ 3/(2k−1)² = 3π²/8.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * pow(odd, integer(-2)), k, one, oo)->str(),
+        "3*pi**2/8"));
+    // Odd exponent stays a symbolic ζ: Σ 1/(2k−1)³ = 7ζ(3)/8.
+    REQUIRE(oracle.equivalent(
+        summation(pow(odd, integer(-3)), k, one, oo)->str(), "7*zeta(3)/8"));
+}
+
 // SUM-DIRICHLET-BETA-1: the Dirichlet beta series Σ_{k=0}^∞ (−1)^k/(2k+1)^s.
 // β(1) = π/4 (Leibniz), β(2) = Catalan's constant. Higher s have no elementary
 // closed form (SymPy returns a polylog), so only s ∈ {1, 2} are closed; others
