@@ -206,6 +206,30 @@ TEST_CASE("mod: Mod(integer, 1) = 0 (ASSUME-14)",
     REQUIRE(mod(x, integer(1))->type_id() == TypeId::Function);
 }
 
+// MOD-DIVIDEND-REDUCE-1: the numeric constant of an Add dividend is reduced
+// modulo a numeric modulus — Mod(x+5,3) → Mod(x+2,3), Mod(x+2,2) → Mod(x,2)
+// (the term drops when c mod q = 0). Non-numeric / symbolic-integer terms are
+// kept. Matches SymPy.
+TEST_CASE("mod: numeric dividend constant reduces mod q (MOD-DIVIDEND-REDUCE-1)",
+          "[3g][mod][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    REQUIRE(oracle.equivalent(mod(x + integer(5), integer(3))->str(),
+                              "Mod(x + 2, 3)"));
+    REQUIRE(oracle.equivalent(mod(x + integer(2), integer(2))->str(),
+                              "Mod(x, 2)"));
+    REQUIRE(oracle.equivalent(mod(x - integer(1), integer(3))->str(),
+                              "Mod(x + 2, 3)"));
+    REQUIRE(oracle.equivalent(
+        mod(integer(2) * x + integer(4), integer(3))->str(), "Mod(2*x + 1, 3)"));
+    // Constant already in range → unchanged.
+    REQUIRE(mod(x + integer(1), integer(3))->str() == "Mod(x + 1, 3)");
+    // Symbolic-integer term is not numeric → not reduced.
+    REQUIRE(mod(x + n, integer(1))->type_id() == TypeId::Function);
+    REQUIRE(has(mod(x + n, integer(1)), n));
+}
+
 TEST_CASE("mod: parse round-trip and SymPy agreement", "[3g][mod][parser][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");

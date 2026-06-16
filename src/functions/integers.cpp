@@ -287,16 +287,47 @@ Expr mod(const Expr& p, const Expr& q) {
     };
     auto mp = to_mpq(p);
     auto mq = to_mpq(q);
-    if (mp && mq) {
-        // Floored modulo: r = p − q·⌊p/q⌋ (result takes the sign of q).
-        mpq_class ratio = *mp / *mq;
+    // Floored modulo: r = a − m·⌊a/m⌋ (result takes the sign of m), as an Expr.
+    auto floored_mod = [](const mpq_class& a, const mpq_class& m) {
+        mpq_class ratio = a / m;
         mpz_class fl;
         mpz_fdiv_q(fl.get_mpz_t(), mpq_numref(ratio.get_mpq_t()),
                    mpq_denref(ratio.get_mpq_t()));
-        mpq_class r = *mp - *mq * mpq_class(fl);
+        mpq_class r = a - m * mpq_class(fl);
         r.canonicalize();
+        return r;
+    };
+    if (mp && mq) {
+        mpq_class r = floored_mod(*mp, *mq);
         return rational(mpz_class(mpq_numref(r.get_mpq_t())),
                         mpz_class(mpq_denref(r.get_mpq_t())));
+    }
+    // Reduce the numeric constant of an Add dividend modulo a numeric q:
+    // Mod(x + c, q) = Mod(x + (c mod q), q); the term drops when c mod q = 0.
+    // (Mod(x+5,3) → Mod(x+2,3), Mod(x+2,2) → Mod(x,2).) Non-numeric terms are kept.
+    if (mq && p->type_id() == TypeId::Add) {
+        std::vector<Expr> rest;
+        mpq_class c = 0;
+        bool have_c = false;
+        for (const auto& term : p->args()) {
+            if (auto t = to_mpq(term)) {
+                c += *t;
+                have_c = true;
+            } else {
+                rest.push_back(term);
+            }
+        }
+        if (have_c) {
+            mpq_class cr = floored_mod(c, *mq);
+            if (cr != c) {
+                if (cr != 0) {
+                    rest.push_back(rational(mpz_class(mpq_numref(cr.get_mpq_t())),
+                                            mpz_class(mpq_denref(cr.get_mpq_t()))));
+                }
+                Expr new_p = rest.empty() ? Expr{S::Zero()} : add(std::move(rest));
+                return mod(new_p, q);
+            }
+        }
     }
     return make<Mod>(p, q);
 }

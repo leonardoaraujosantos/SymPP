@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### MOD-DIVIDEND-REDUCE-1 — `Mod(x+5,3)` did not reduce its numeric constant
+- **Problem:** `mod()` evaluated a fully numeric `Mod` and handled the structural
+  identities (`Mod(0,q)`, `Mod(x,x)`, `Mod(n,1)`), but left a symbolic dividend's numeric
+  constant unreduced: `Mod(x+5,3)`, `Mod(x+2,2)`, `Mod(2x+4,3)` stayed as written where
+  SymPy returns `Mod(x+2,3)`, `Mod(x,2)`, `Mod(2x+1,3)`.
+- **Fix:** in `src/functions/integers.cpp`, when the modulus `q` is numeric and the dividend
+  is an `Add`, sum its numeric (Integer/Rational) terms into `c`, reduce `c → c mod q`
+  (floored, sharing the lambda with the all-numeric path), and rebuild the dividend with
+  the reduced constant — dropping it entirely when `c mod q = 0`. Re-applied via `mod()`
+  (terminates: the new constant is already in range). Non-numeric and symbolic-integer
+  terms (`Mod(x+n,1)`, `Mod(x+2n,2)`) are untouched, matching SymPy.
+
 ### FLOOR-IDEMPOTENT-1 — `floor(floor(x))` was not reduced (floor/ceiling idempotence)
 - **Problem:** `floor`/`ceiling` returned `arg` only when `is_integer(arg)` was provably
   true, and `int_ask` reports a `floor`/`ceiling` node as integer *only when its inner
