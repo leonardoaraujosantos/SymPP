@@ -950,10 +950,41 @@ TEST_CASE("summation: repeated-root telescoping via apart (SUM-TELESCOPE-3)",
                   k, one, n)
             ->str(),
         "1 - 1/(n+1)**2"));
-    // A residual-ζ case must NOT be given a bogus telescoping value (stays a Sum).
-    REQUIRE(summation(pow(sq(k) * (k + one), integer(-1)), k, one, oo)
-                ->str()
-                .find("Sum(") != std::string::npos);
+    // A residual-ζ case is NOT a pure telescoping value: it is closed by the general
+    // rational-sum path instead (SUM-RATIONAL-1): Σ1/(k²(k+1)) = π²/6 − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(sq(k) * (k + one), integer(-1)), k, one, oo)->str(),
+        "pi**2/6 - 1"));
+}
+
+// SUM-RATIONAL-1: a general convergent rational sum closes via partial fractions —
+// apart() splits it into a ζ part (poles of order ≥ 2) and a telescoping part (simple
+// poles, whose residues sum to zero). Σ1/(k²(k+1))=π²/6−1, Σ1/(k(k+1)²)=2−π²/6,
+// Σ1/(k²(k+2))=π²/12−3/8. Previously unevaluated. Matches SymPy.
+TEST_CASE("summation: general rational sum via partial fractions (SUM-RATIONAL-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto one = integer(1);
+    const Expr oo = S::Infinity();
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // Σ 1/(k²(k+1)) = π²/6 − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(sq(k) * (k + one), integer(-1)), k, one, oo)->str(),
+        "pi**2/6 - 1"));
+    // Σ 1/(k(k+1)²) = 2 − π²/6.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k * sq(k + one), integer(-1)), k, one, oo)->str(),
+        "2 - pi**2/6"));
+    // Σ 1/(k²(k+2)) = π²/12 − 3/8.
+    REQUIRE(oracle.equivalent(
+        summation(pow(sq(k) * (k + integer(2)), integer(-1)), k, one, oo)->str(),
+        "pi**2/12 - 3/8"));
+    // Constant scales through: Σ 2/(k²(k+1)) = π²/3 − 2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(2) * pow(sq(k) * (k + one), integer(-1)), k, one, oo)
+            ->str(),
+        "pi**2/3 - 2"));
 }
 
 // SUM-FACT-TELESCOPE-1: Σ P(k)/(k+m)! with deg P ≥ 1 — Gosper for a factorial

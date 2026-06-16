@@ -637,6 +637,88 @@ namespace {
     return simplify(full + mul(S::NegativeOne(), head));
 }
 
+// General convergent rational sum via partial fractions. apart() splits the summand
+// into terms c·(a·k+b)^(-j): terms with j ≥ 2 each sum on their own (the p-series
+// path gives ζ-values), and the j = 1 terms collectively telescope (their residues
+// sum to zero for a convergent series), recombined and handed to telescope_rational.
+// Closes Σ1/(k²(k+1)) = π²/6 − 1, mixing a ζ part and a telescoping part. Infinite
+// range only — a finite j ≥ 2 part would need harmonic numbers.
+[[nodiscard]] std::optional<Expr> sum_rational_via_apart(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (hi->type_id() != TypeId::Infinity) return std::nullopt;
+    Expr a;
+    try {
+        a = apart(expr, var);
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+    if (a->type_id() != TypeId::Add || a->args().size() < 2) return std::nullopt;
+
+    // Classify a term as coeff·(linear)^(-j): returns 1 and sets j for a pole term,
+    // 0 for a var-free constant, -1 for anything else (a positive var power, a
+    // higher-degree base, or two poles in one term).
+    auto classify = [&](const Expr& term, long& j) -> int {
+        j = 0;
+        std::vector<Expr> facs =
+            term->type_id() == TypeId::Mul
+                ? std::vector<Expr>(term->args().begin(), term->args().end())
+                : std::vector<Expr>{term};
+        bool have_pole = false;
+        for (const auto& f : facs) {
+            if (!has(f, var)) continue;
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*f->args()[1]).is_negative()
+                && has(f->args()[0], var)) {
+                if (have_pole) return -1;
+                try {
+                    Poly pb(expand(f->args()[0]), var);
+                    if (pb.degree() != 1) return -1;
+                } catch (const std::exception&) {
+                    return -1;
+                }
+                j = -static_cast<const Integer&>(*f->args()[1]).to_long();
+                have_pole = true;
+            } else {
+                return -1;
+            }
+        }
+        if (have_pole) return 1;
+        return has(term, var) ? -1 : 0;
+    };
+
+    std::vector<Expr> j1;
+    Expr hi_sum = S::Zero();
+    bool summed_any = false;
+    for (const auto& term : a->args()) {
+        long j = 0;
+        const int cls = classify(term, j);
+        if (cls < 0) return std::nullopt;
+        if (cls == 0) {
+            if (!(simplify(term) == S::Zero())) return std::nullopt;  // diverges
+            continue;
+        }
+        if (j == 1) {
+            j1.push_back(term);
+            continue;
+        }
+        Expr s = summation(term, var, lo, hi);
+        if (s->str().find("Sum(") != std::string::npos) return std::nullopt;
+        hi_sum = add({hi_sum, s});
+        summed_any = true;
+    }
+    if (!j1.empty()) {
+        // simplify so the recombined numerator collapses to the var-free constant
+        // telescope_rational expects (together alone may leave it as e.g. k−(k+1)).
+        auto t = telescope_rational(simplify(together(add(j1))), var, lo, hi);
+        if (!t) return std::nullopt;  // residues don't sum to zero → divergent
+        hi_sum = add({hi_sum, *t});
+        summed_any = true;
+    }
+    if (!summed_any) return std::nullopt;
+    return simplify(hi_sum);
+}
+
 Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (!expr) return expr;
 
@@ -1143,6 +1225,10 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
     if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;
+
+    // General convergent rational sum: apart into a ζ part (j ≥ 2 poles) and a
+    // telescoping part (j = 1 poles). Closes Σ1/(k²(k+1)) = π²/6 − 1.
+    if (auto r = sum_rational_via_apart(expr, var, lo, hi)) return *r;
 
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).

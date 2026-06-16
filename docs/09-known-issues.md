@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-RATIONAL-1 — `Σ1/(k²(k+1)) = π²/6 − 1` (general rational sum) was unevaluated
+- **Problem:** a convergent rational sum mixing a ζ part and a telescoping part —
+  `Σ1/(k²(k+1)) = π²/6 − 1`, `Σ1/(k(k+1)²) = 2 − π²/6`, `Σ1/(k²(k+2)) = π²/12 − 3/8` —
+  stayed unevaluated. The 2-term-apart telescoping (SUM-TELESCOPE-3) only fires when
+  every partial-fraction term cancels into a single `g(k)−g(k+1)`.
+- **Fix:** added `sum_rational_via_apart` in `src/calculus/summation.cpp`. It `apart()`s
+  the summand and groups the terms: each pole of order `j ≥ 2` sums on its own (the
+  arithmetic p-series path gives the ζ-value, e.g. `Σ1/k² = π²/6`), while the simple
+  poles (`j = 1`) are recombined into one fraction and handed to `telescope_rational`
+  (their residues sum to zero for a convergent series, so they telescope). The two
+  parts are added. The recombined `j = 1` fraction is `simplify`'d first so its
+  numerator collapses to the var-free constant `telescope_rational` requires. Infinite
+  range only (a finite `j ≥ 2` part would need harmonic numbers). Matches SymPy.
+
 ### SUM-TELESCOPE-3 — `Σ(2k+1)/(k²(k+1)²)=1` (repeated-root telescoping) was unevaluated
 - **Problem:** rational summands that telescope only after partial fractions —
   `(2k+1)/(k²(k+1)²) = 1/k² − 1/(k+1)²`, `(3k²+3k+1)/(k³(k+1)³) = 1/k³ − 1/(k+1)³` —
