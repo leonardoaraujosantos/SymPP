@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUME-MULSIGN-1 / ASSUME-REALFINITE-1 — last assumption-propagation gaps vs SymPy
+- **Problem:** a 39-query SymPP-vs-SymPy assumption battery left two genuine gaps
+  (the others were SymPP being *more* correct — `Abs(x)` is always real/nonnegative,
+  where SymPy returns unknown): (1) `Mul` did not propagate non-strict signs, so
+  `positive·nonnegative` → `is_nonnegative` was unknown; (2) `real` did not imply
+  `finite`, so `exp(r)` for real `r` was not known finite (SymPy: `real ⇒ finite`).
+- **Fix:** `Mul::ask` (`src/core/mul.cpp`) now decides Nonnegative/Nonpositive by the
+  parity of the ≤0 factors when every factor has a known sign direction (≥0 or ≤0); a
+  provably-zero factor makes the product 0. Conservative — only the definite direction
+  is reported. And `close_assumptions` (`src/core/assumption_mask.cpp`) adds `real ⇒
+  finite` (the unbounded ±∞ are the separate Infinity atoms; consistent with the
+  existing positive/negative/zero ⇒ finite). The battery now matches or exceeds SymPy
+  on all 39 queries.
+
 ### SIMPLIFY-LOGRATIO-1 — `simplify(log(4)/log(2))` stayed unevaluated (should be 2)
 - **Problem:** `log(b)/log(a)` for integer `a, b` that are powers of a common base —
   `log(4)/log(2)`, `log(8)/log(2)`, `log(2)/log(8)` — was left as

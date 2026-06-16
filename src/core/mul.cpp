@@ -179,11 +179,34 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
                                                 : !product_negative;
         }
 
-        // Nonneg/nonpos product require sign analysis with potential zeros;
-        // defer for v1.
+        // Sign-direction of a product of real factors. Each factor must be known
+        // ≥0 or ≤0; the product's direction is the parity of the ≤0 factors. A
+        // provably-zero factor makes the product 0 (both ≥0 and ≤0). Conservative:
+        // only the definite direction is reported (the unprovable opposite, which
+        // would require ruling out a zero factor, stays nullopt). Closes e.g.
+        // positive·nonnegative → nonnegative, nonpositive·nonpositive → nonnegative.
         case AssumptionKey::Nonnegative:
-        case AssumptionKey::Nonpositive:
-            return std::nullopt;
+        case AssumptionKey::Nonpositive: {
+            if (!all_args_have(args_, AssumptionKey::Real, true)) {
+                return std::nullopt;
+            }
+            int neg_dir = 0;
+            for (const auto& a : args_) {
+                const bool ge0 =
+                    a->ask(AssumptionKey::Nonnegative) == std::optional<bool>{true};
+                const bool le0 =
+                    a->ask(AssumptionKey::Nonpositive) == std::optional<bool>{true};
+                if (ge0 && le0) return true;  // factor is 0 → product is 0
+                if (ge0) continue;
+                if (le0) { ++neg_dir; continue; }
+                return std::nullopt;  // factor's sign direction unknown
+            }
+            const bool even = (neg_dir % 2) == 0;
+            if (k == AssumptionKey::Nonnegative) {
+                return even ? std::optional<bool>{true} : std::nullopt;
+            }
+            return even ? std::nullopt : std::optional<bool>{true};
+        }
 
         // Parity of an integer product: even iff some factor is even; odd iff
         // every factor is odd. Requires all factors to be known integers.

@@ -233,10 +233,13 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.even) m.even = false;
             if (!m.odd) m.odd = false;
         }
-        // real => complex, ¬imaginary (a real number is not imaginary; 0, the
-        // only value both could touch, is real and NOT imaginary).
+        // real => complex, finite, ¬imaginary. A symbol declared `real` denotes a
+        // finite real number; the unbounded values ±∞ are the separate Infinity
+        // atoms, not real symbols (matching SymPy, where real ⇒ finite and oo is
+        // only extended-real). Consistent with positive/negative/zero ⇒ finite.
         if (m.real == true) {
             if (!m.complex_) m.complex_ = true;
+            if (!m.finite) m.finite = true;
             if (!m.imaginary) m.imaginary = false;
         }
         // zero => ¬imaginary (0 is real).
