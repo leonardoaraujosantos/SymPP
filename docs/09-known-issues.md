@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-SHIFT-1 — infinite sums starting at an index ≠ 1 missed the closed-form handlers
+- **Problem:** most closed-form `summation` handlers (arithmetic p-series, ζ, cotangent)
+  key on `lo == 1`. So the *standard* odd p-series written from zero,
+  `Σ_{n=0}^∞ 1/(2n+1)² = π²/8`, and any shifted-start variant
+  (`Σ_{n=0}^∞ 1/(2n+1)⁴`, `Σ_{n=2}^∞ 1/(2n+1)²`, `Σ_{n=2}^∞ 1/n²`) returned an
+  unevaluated `Sum(…)` even though the `lo=1` form evaluates fine.
+- **Fix:** added an index-shift fallback in `src/calculus/summation.cpp`, tried only after
+  every direct handler fails. For an infinite sum with an integer start `lo ≠ 1` it
+  re-expresses `Σ_{n=lo}^∞ f(n) = Σ_{m=1}^∞ f(m + lo − 1)` (via `subs`) and recurses; the
+  shifted call has `lo = 1` so it cannot loop. Its result is adopted only when it is a
+  genuine closed form (var-free) — an unevaluated `Sum` still carries the bound variable
+  and is rejected, so nothing that previously stayed symbolic changes. General over the
+  summand (not just p-series): `Σ_{n=0}^∞ 1/(2n+1)² → π²/8`,
+  `Σ_{n=2}^∞ 1/(2n+1)² → π²/8 − 10/9`. Matches SymPy.
+
 ### TOGETHER-NESTED-1 — `together`/`simplify` left compound (nested) fractions uncombined
 - **Problem:** `together` decomposed only the top level via `as_numer_denom`, which (by
   design, for `integrate`'s sake) does not recurse. So a reciprocal of a sum of fractions

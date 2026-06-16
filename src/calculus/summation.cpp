@@ -1284,6 +1284,20 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // telescoping part (j = 1 poles). Closes Σ1/(k²(k+1)) = π²/6 − 1.
     if (auto r = sum_rational_via_apart(expr, var, lo, hi)) return *r;
 
+    // Index-shift fallback for an infinite sum with an integer start ≠ 1:
+    // Σ_{n=lo}^∞ f(n) = Σ_{m=1}^∞ f(m + lo − 1). Re-expressing from m=1 lets the
+    // many lo=1 handlers above (arithmetic p-series, cotangent, …) reach a series
+    // merely written from a different start — e.g. the standard odd p-series
+    // Σ_{n=0}^∞ 1/(2n+1)² = Σ_{m=1}^∞ 1/(2m−1)² = π²/8. The shifted call has lo=1
+    // so it cannot re-enter here; its result is adopted only when it is a true
+    // closed form (var-free), never an unevaluated Sum (which still carries var).
+    if (hi->type_id() == TypeId::Infinity && lo->type_id() == TypeId::Integer
+        && !(lo == S::One())) {
+        Expr shifted = summation(subs(expr, var, var + (lo - integer(1))), var,
+                                 S::One(), hi);
+        if (!has(shifted, var)) return shifted;
+    }
+
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).
     return sum_marker(expr, var, lo, hi);

@@ -1421,6 +1421,40 @@ TEST_CASE("summation: arithmetic-argument p-series (SUM-ARITH-PSERIES-1)",
         summation(pow(odd, integer(-3)), k, one, oo)->str(), "7*zeta(3)/8"));
 }
 
+// SUM-SHIFT-1: an infinite sum whose index starts at an integer ≠ 1 is
+// re-expressed as Σ_{m=1}^∞ f(m + lo − 1), so the lo=1 closed-form handlers
+// (arithmetic p-series, ζ, …) reach it. Closes the standard odd p-series written
+// from zero, Σ_{n=0}^∞ 1/(2n+1)² = π²/8, and shifted-start variants.
+TEST_CASE("summation: integer index-shift fallback (SUM-SHIFT-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto oo = S::Infinity();
+    // Σ_{n=0}^∞ 1/(2n+1)² = π²/8 ; Σ_{n=0}^∞ 1/(2n+1)⁴ = π⁴/96.
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2) * n + integer(1), integer(-2)), n, integer(0),
+                  oo)->str(),
+        "pi**2/8"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2) * n + integer(1), integer(-4)), n, integer(0),
+                  oo)->str(),
+        "pi**4/96"));
+    // Σ_{n=0}^∞ 1/(n+1)² = π²/6 (re-indexed Basel).
+    REQUIRE(oracle.equivalent(
+        summation(pow(n + integer(1), integer(-2)), n, integer(0), oo)->str(),
+        "pi**2/6"));
+    // Start above 1 drops head terms: Σ_{n=2}^∞ 1/(2n+1)² = π²/8 − 10/9.
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2) * n + integer(1), integer(-2)), n, integer(2),
+                  oo)->str(),
+        "pi**2/8 - 10/9"));
+    // No regression: the lo=1 form is unchanged.
+    REQUIRE(oracle.equivalent(
+        summation(pow(integer(2) * n - integer(1), integer(-2)), n, integer(1),
+                  oo)->str(),
+        "pi**2/8"));
+}
+
 // SUM-INVQUAD-1: Σ_{k=1}^∞ c/(a·k²+b) with b/a > 0 — irreducible-quadratic
 // denominator, the cotangent closed form Σ 1/(k²+B) = (π√B·coth(π√B) − 1)/(2B).
 // apart can't split the complex-conjugate poles, so it was previously unevaluated.
