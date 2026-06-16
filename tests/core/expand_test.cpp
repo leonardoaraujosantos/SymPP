@@ -19,6 +19,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -226,4 +227,25 @@ TEST_CASE("expand: log of a positive product/power splits (ASSUME-4)",
     // A non-positive (generic) factor blocks the split.
     REQUIRE(expand(log(p * z))->str() == "log(p*z)");
     REQUIRE(expand(log(z * symbol("w")))->str() == "log(w*z)");
+}
+
+// EXPAND-LOG-FRACPOW-1: log(bᵉ) = e·log(b) is branch-safe for a generic (not
+// necessarily positive) base when e is rational with −1 < e < 1, so it is
+// extracted even without a positivity assumption — log(√x) → log(x)/2. Exponents
+// with |e| ≥ 1 (log(x²), log(1/x), log(x^(3/2))) stay intact, matching SymPy.
+TEST_CASE("expand: log of a fractional power of a generic base (EXPAND-LOG-FRACPOW-1)",
+          "[1i][expand][regression]") {
+    auto x = symbol("x");  // generic, no assumptions
+    auto half = rational(1, 2);
+    // |e| < 1 extracts on a generic base.
+    REQUIRE(expand(log(pow(x, half))) == half * log(x));
+    REQUIRE(expand(log(sqrt(x))) == half * log(x));
+    REQUIRE(expand(log(pow(x, rational(1, 3)))) == rational(1, 3) * log(x));
+    REQUIRE(expand(log(pow(x, rational(2, 3)))) == rational(2, 3) * log(x));
+    REQUIRE(expand(log(pow(x, rational(-1, 2)))) == rational(-1, 2) * log(x));
+    // |e| ≥ 1 (and symbolic e) stay intact — not branch-safe in general.
+    REQUIRE(expand(log(pow(x, integer(2))))->str() == "log(x**2)");
+    REQUIRE(expand(log(pow(x, integer(-1))))->str() == "log(x**(-1))");
+    REQUIRE(expand(log(pow(x, rational(3, 2))))->str() == "log(x**(3/2))");
+    REQUIRE(expand(log(pow(x, symbol("n"))))->str() == "log(x**n)");
 }

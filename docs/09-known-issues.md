@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### EXPAND-LOG-FRACPOW-1 — `log(√x)` was not pulled to `log(x)/2` for a generic base
+- **Problem:** `expand`/`simplify` extracted `log(bᵉ) → e·log(b)` only when the base `b`
+  was known positive. For a generic symbol, `log(√x)`, `log(x^(2/3))` stayed unexpanded,
+  whereas SymPy returns `log(x)/2`, `2·log(x)/3` even without a positivity assumption.
+- **Fix:** in `expand_log_arg` (`src/core/expand.cpp`), added the branch-safe case: when the
+  exponent is a rational `e` with `−1 < e < 1` (`e ≠ 0`), extract `e·log(b)` regardless of
+  the base's sign. That range is exactly where `e·arg(b) ∈ (−π, π)` keeps the identity on
+  the principal branch (the same bound SymPy uses). `log(√x) → log(x)/2`,
+  `log(x^(1/3)) → log(x)/3`, `log(x^(−1/2)) → −log(x)/2`. Exponents with `|e| ≥ 1`
+  (`log(x²)`, `log(1/x)` at the `e = −1` boundary, `log(x^(3/2))`) and symbolic exponents
+  are left intact, matching SymPy. `simplify` picks it up through its `expand` step.
+
 ### SOLVE-CPLXFORM-1 — complex polynomial roots came back as `½·(…)` not `a + b·I`
 - **Problem:** Cardano (and the quadratic formula) build a complex root as a rational
   prefactor times a sum — `½·(2·I − 2)`, `1/16·(4·I·√3 − 4)` — and `solve` returned it

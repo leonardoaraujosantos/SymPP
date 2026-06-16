@@ -12,6 +12,7 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
@@ -156,8 +157,23 @@ namespace {
         for (const auto& f : arg->args()) terms.push_back(split_factor(f));
         return add(std::move(terms));
     }
-    if (arg->type_id() == TypeId::Pow && is_positive(arg->args()[0]) == true) {
-        return mul(arg->args()[1], log(arg->args()[0]));
+    if (arg->type_id() == TypeId::Pow) {
+        const Expr& base = arg->args()[0];
+        const Expr& exp = arg->args()[1];
+        // Positive base: log(bᵉ) = e·log(b) for any exponent.
+        if (is_positive(base) == true) {
+            return mul(exp, log(base));
+        }
+        // Unknown/complex base: still branch-safe when e is rational with
+        // −1 < e < 1 (e ≠ 0), since then e·arg(b) ∈ (−π, π) stays on the
+        // principal branch. Closes log(√x) → log(x)/2, log(x^(2/3)) → 2·log(x)/3.
+        // |e| ≥ 1 (e.g. log(x²), log(1/x)) is left intact, matching SymPy.
+        if (exp->type_id() == TypeId::Rational) {
+            const mpq_class& q = static_cast<const Rational&>(*exp).value();
+            if (q > -1 && q < 1 && sgn(q) != 0) {
+                return mul(exp, log(base));
+            }
+        }
     }
     return log(arg);
 }
