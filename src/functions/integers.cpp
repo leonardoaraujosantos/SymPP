@@ -137,6 +137,13 @@ std::optional<bool> Ceiling::ask(AssumptionKey k) const noexcept {
 // remainder, returns (Σ integer terms, remaining sum). floor/ceiling are
 // integer-shift invariant, so the integer part can be pulled out of the
 // function. Returns nullopt when there's nothing to split.
+// True when `e` is a Floor or Ceiling application — i.e. an integer-valued node.
+[[nodiscard]] bool is_floor_or_ceiling(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return false;
+    const auto fid = static_cast<const Function&>(*e).function_id();
+    return fid == FunctionId::Floor || fid == FunctionId::Ceiling;
+}
+
 [[nodiscard]] std::optional<std::pair<Expr, Expr>> pull_integer_shift(
     const Expr& arg) {
     if (arg->type_id() != TypeId::Add) return std::nullopt;
@@ -163,6 +170,10 @@ Expr floor(const Expr& arg) {
     }
     // Symbol with integer assumption -> identity.
     if (is_integer(arg) == true) return arg;
+    // Idempotence: floor(floor x) = floor x, floor(ceil x) = ceil x. A floor or
+    // ceiling is integer-valued by construction, so flooring it again is the
+    // identity (true even when the inner argument's reality is unknown).
+    if (is_floor_or_ceiling(arg)) return arg;
     // Integer-shift invariance: floor(n + x) = n + floor(x) when n is a sum of
     // provably-integer terms (e.g. floor(n + 1/2) = n).
     if (auto s = pull_integer_shift(arg); s.has_value()) {
@@ -182,6 +193,9 @@ Expr ceiling(const Expr& arg) {
         return ceiling_float(static_cast<const Float&>(*arg));
     }
     if (is_integer(arg) == true) return arg;
+    // Idempotence: ceil(ceil x) = ceil x, ceil(floor x) = floor x (the inner is
+    // already integer-valued).
+    if (is_floor_or_ceiling(arg)) return arg;
     // Integer-shift invariance: ceiling(n + x) = n + ceiling(x).
     if (auto s = pull_integer_shift(arg); s.has_value()) {
         return add(s->first, ceiling(s->second));

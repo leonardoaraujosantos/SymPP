@@ -68,6 +68,23 @@ TEST_CASE("floor/ceiling: integer-shift invariance (ASSUME-13)",
     REQUIRE(floor(x + rational(1, 2))->str().find("floor(") != std::string::npos);
 }
 
+// FLOOR-IDEMPOTENT-1: floor/ceiling of an already integer-valued floor/ceiling
+// is the identity — floor(floor x)=floor x, floor(ceil x)=ceil x, and the
+// cross/mirror pairs. Holds for a generic argument (no reality assumption needed),
+// matching SymPy.
+TEST_CASE("floor/ceiling: idempotence (FLOOR-IDEMPOTENT-1)",
+          "[3g][floor][ceiling][regression]") {
+    auto x = symbol("x");  // generic — reality unknown
+    REQUIRE(floor(floor(x)) == floor(x));
+    REQUIRE(ceiling(ceiling(x)) == ceiling(x));
+    REQUIRE(floor(ceiling(x)) == ceiling(x));
+    REQUIRE(ceiling(floor(x)) == floor(x));
+    // Composes with the integer-shift pull-out: floor(floor(x) + 2) = floor(x) + 2.
+    REQUIRE(floor(floor(x) + integer(2)) == floor(x) + integer(2));
+    // A non-trivial multiple of a floor is left intact (as SymPy does).
+    REQUIRE(floor(integer(2) * floor(x))->str().find("floor(2") != std::string::npos);
+}
+
 // Regression (FLOOR-CONST): floor/ceiling of a real constant expression
 // evaluate numerically — floor(pi)=3, floor(2*pi)=6, floor(sqrt(2))=1.
 TEST_CASE("floor/ceiling: real constants evaluate numerically",

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### FLOOR-IDEMPOTENT-1 — `floor(floor(x))` was not reduced (floor/ceiling idempotence)
+- **Problem:** `floor`/`ceiling` returned `arg` only when `is_integer(arg)` was provably
+  true, and `int_ask` reports a `floor`/`ceiling` node as integer *only when its inner
+  argument is provably real*. So for a generic `x`, `floor(floor(x))`, `floor(ceiling(x))`,
+  etc. stayed nested where SymPy returns `floor(x)`, `ceiling(x)`.
+- **Fix:** added a direct idempotence rule to the `floor()` and `ceiling()` builders in
+  `src/functions/integers.cpp` (helper `is_floor_or_ceiling`): if the argument is itself a
+  `Floor` or `Ceiling` application, return it unchanged — a floor/ceiling is integer-valued
+  by construction, so rounding it again is the identity, regardless of the inner argument's
+  reality. Covers all four pairs (`floor∘floor`, `floor∘ceil`, `ceil∘floor`, `ceil∘ceil`)
+  and composes with the integer-shift pull-out (`floor(floor x + 2) = floor x + 2`). A
+  non-trivial multiple of a floor (`floor(2·floor x)`) is left intact, as SymPy does.
+
 ### MINMAX-FLAT-1 — nested `Min`/`Max` did not flatten and ±∞ was not absorbed
 - **Problem:** `min`/`max` folded numerics and de-duplicated symbols but kept a nested
   same-kind node (`Max(x, Max(y, z))`) un-flattened and treated `±∞` as an ordinary
