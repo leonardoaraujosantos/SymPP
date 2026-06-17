@@ -881,6 +881,100 @@ struct Growth {
     return s_pow > 0 ? Expr{S::Infinity()} : Expr{S::Zero()};
 }
 
+// Stirling-asymptotic limits of n-th roots of factorial/gamma: (n!)^(1/n)/n →
+// 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e, (n!/nⁿ)^(1/n) → 1/e. These need the
+// growth rate of n! that the elementary growth hierarchy lacks. Substitute the
+// variable with a *positive* symbol (valid at +∞, and it lets the powdenest
+// rules collapse ((m/e)^m)^(1/m) → m/e) and replace each factorial/gamma by its
+// leading Stirling form g! ~ (g/e)^g. The candidate is accepted only after a
+// numeric check against the original at large n, so the dropped subleading
+// Stirling terms cannot produce a wrong answer.
+[[nodiscard]] std::optional<Expr> try_stirling_limit(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& target,
+                                                     int depth) {
+    if (target != S::Infinity() || count_gamma_factorial(expr) == 0) {
+        return std::nullopt;
+    }
+    AssumptionMask pm;
+    pm.set_positive(true);
+    Expr m = symbol("__stirling_m", pm);
+    Expr em = subs(expr, var, m);  // recast over a positive variable
+    ExprMap<Expr> map;
+    bool any = false;
+    auto collect = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            const auto id = fn.function_id();
+            if ((id == FunctionId::Factorial || id == FunctionId::Gamma)
+                && fn.args().size() == 1 && has(fn.args()[0], m)
+                && map.find(e) == map.end()) {
+                const Expr& g = fn.args()[0];
+                if (limit_impl(g, m, S::Infinity(), depth + 1) == S::Infinity()) {
+                    // g! = Γ(g+1) ~ (g/e)^g (leading Stirling); the numeric guard
+                    // validates the dropped subleading factor.
+                    map.emplace(e, pow(mul(g, exp(S::NegativeOne())), g));
+                    any = true;
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    collect(collect, em);
+    if (!any) return std::nullopt;
+    Expr cand = limit_impl(simplify(xreplace(em, map)), m, S::Infinity(),
+                           depth + 1);
+    if (is_nan(cand) || has(cand, m)
+        || cand->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    // Numeric guard: sample the ORIGINAL expression at increasing n and require
+    // the values to track the candidate (converge to a finite value, or grow /
+    // decay consistently with ±∞). A wrong candidate keeps an O(1) offset.
+    const bool cand_pinf = cand->type_id() == TypeId::Infinity;
+    const bool cand_ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cv = 0.0;
+    if (!cand_pinf && !cand_ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            cv = std::stod(cvf->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    double prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
+    for (long nv : {300L, 1000L, 3000L}) {
+        Expr at = evalf(simplify(subs(expr, var, integer(nv))), 40);
+        if (at->type_id() != TypeId::Float) return std::nullopt;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        if (cand_pinf) {
+            // Within the n-th-root gate the Stirling rewrite is asymptotically
+            // exact, so a divergent candidate only needs the samples to climb
+            // (a slow sqrt(n)/e or log(n) limit never reaches a fixed threshold).
+            if (checks > 0 && !(v > prev_val)) return std::nullopt;
+            if (nv == 3000L && !(v > 1.0)) return std::nullopt;
+        } else if (cand_ninf) {
+            if (checks > 0 && !(v < prev_val)) return std::nullopt;
+            if (nv == 3000L && !(v < -1.0)) return std::nullopt;
+        } else {
+            const double d = std::fabs(v - cv);
+            if (!(d <= prev_diff + 1e-12)) return std::nullopt;  // must not diverge
+            prev_diff = d;
+            if (nv == 3000L && !(d < 1e-2)) return std::nullopt;  // slow ~log n/n
+        }
+        prev_val = v;
+        ++checks;
+    }
+    return checks == 3 ? std::optional<Expr>{cand} : std::nullopt;
+}
+
 // True if e contains a non-integer power of a var-dependent base (a radical such
 // as √(x²+1) = (x²+1)^(1/2)), which the conjugate rationalization targets.
 [[nodiscard]] bool has_var_radical(const Expr& e, const Expr& var) {
@@ -1316,6 +1410,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
     if (target == S::Infinity() && count_gamma_factorial(expr) > 0) {
         if (auto r = superpow_vs_factorial(expr, var)) return *r;
+    }
+
+    // n-th roots of factorial/gamma via Stirling (numerically guarded):
+    // (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e.
+    if (depth < 10 && target == S::Infinity()
+        && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)) {
+        if (auto r = try_stirling_limit(expr, var, target, depth)) return *r;
     }
 
     // Gamma/factorial at +∞. Direct substitution gives gamma(∞)/gamma(∞), which

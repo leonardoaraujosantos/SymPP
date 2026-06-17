@@ -591,6 +591,38 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
             == rational(1, 12));
 }
 
+// LIMIT-STIRLING-1: n-th roots of factorial/gamma via Stirling's asymptotic
+// n! ~ (n/e)ⁿ. (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e,
+// (n!/nⁿ)^(1/n) → 1/e. The handler recasts over a positive variable (so the
+// powdenest rules apply), substitutes the Stirling form, and accepts the result
+// only after a numeric check against the original at large n. Matches SymPy.
+TEST_CASE("limit: n-th root of factorial via Stirling (LIMIT-STIRLING-1)",
+          "[6][limit][infinity]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr inv_e = exp(integer(-1));
+    auto root = [&](const Expr& b) { return pow(b, pow(n, integer(-1))); };
+
+    // (n!)^(1/n)/n → 1/e.
+    REQUIRE(simplify(limit(root(factorial(n)) * pow(n, integer(-1)), n, oo))
+            == inv_e);
+    // (n!)^(1/n) → ∞.
+    REQUIRE(limit(root(factorial(n)), n, oo) == oo);
+    // n/(n!)^(1/n) → e.
+    REQUIRE(simplify(limit(n * pow(root(factorial(n)), integer(-1)), n, oo))
+            == exp(integer(1)));
+    // (n!/nⁿ)^(1/n) → 1/e.
+    REQUIRE(simplify(limit(root(factorial(n) * pow(pow(n, n), integer(-1))), n,
+                           oo))
+            == inv_e);
+    // gamma(n+1) = n! behaves identically.
+    REQUIRE(simplify(limit(root(gamma(n + integer(1))) * pow(n, integer(-1)), n,
+                           oo))
+            == inv_e);
+    // (n!)^(1/n)/√n → ∞ (the slow sqrt(n)/e growth the numeric guard tolerates).
+    REQUIRE(limit(root(factorial(n)) * pow(n, rational(-1, 2)), n, oo) == oo);
+}
+
 // LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
 // (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
 // because n^n is outside the growth hierarchy. The handler is restricted to a

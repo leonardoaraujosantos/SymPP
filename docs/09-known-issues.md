@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-STIRLING-1 — n-th roots of factorial gave wrong/1 answers
+- **Problem:** `(n!)^{1/n}/n` should be `1/e`, `(n!)^{1/n}` should be `∞`, `n/(n!)^{1/n}` should
+  be `e`, and `(n!/nⁿ)^{1/n}` should be `1/e`, but all returned wrong values (`0`, `1`, `∞`, `1`)
+  — the `∞^0` power-form handler could not find the growth rate of `n!` that needs Stirling's
+  asymptotic.
+- **Fix:** added a numerically-guarded `try_stirling_limit` handler (run only when a factorial /
+  gamma sits under an n-th root). It recasts the limit over a *positive* variable — valid at `+∞`,
+  and the positivity lets the powdenest rules (SIMP-POWDENEST-1) collapse `((m/e)ᵐ)^{1/m} → m/e`
+  — then substitutes the leading Stirling form `g! ~ (g/e)ᵍ`, which is asymptotically exact for an
+  n-th root (the dropped `√(2πn)` factor's n-th root → 1). The candidate is accepted only after a
+  numeric check against the original at `n = 300, 1000, 3000` (convergence for a finite/0 limit,
+  monotone growth/decay for `±∞`), so an inappropriate rewrite — where the dropped subleading term
+  matters — is rejected rather than returning a wrong value. `(n!)^{1/n}/n = 1/e`,
+  `(n!)^{1/n} = ∞`, `n/(n!)^{1/n} = e`, `(n!/nⁿ)^{1/n} = 1/e`, `(n!)^{2/n}/n² = 1/e²`,
+  `(n!)^{1/n}/√n = ∞`. Matches SymPy.
+
 ### SIMP-POWDENEST-1 — (product of nonnegative powers)^q did not denest
 - **Problem:** `simplify(((m/e)ᵐ)^(1/m))` returned the nested form rather than `m/e`, and likewise
   `((2m)ᵐ)^(1/m)` did not denest to `2m`. `pow_of_pow` denested `(bᵖ)^q → b^(p·q)` for a single
