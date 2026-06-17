@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### POLYGAMMA-POLE-1 — `polygamma`/`digamma` at nonpositive integers were unevaluated
+- **Problem:** `ψ⁽ⁿ⁾(x)` has a pole at every nonpositive integer `x ∈ {0, −1, −2, …}`, but
+  `polygamma(0,0)`, `polygamma(1,0)`, `polygamma(2,−3)`, and `digamma(0)`/`digamma(−k)` stayed
+  symbolic where SymPy returns `zoo`.
+- **Fix:** in the `polygamma()` builder (`src/functions/combinatorial.cpp`), return
+  `S::ComplexInfinity()` when the argument `x` is a nonpositive integer and the order `n` is
+  a non-negative integer (the underlying Γ pole). `digamma` inherits it automatically via
+  `polygamma(0, ·)`. Positive integers, half-integers, and symbols are untouched (the `x=1`
+  special values still fire). Matches SymPy. (Companion to FACT-NEGINT-1; `loggamma` at
+  nonpositive integers and `arg(0)=nan` remain.)
+
 ### FACT-NEGINT-1 — `factorial(−1)` was left unevaluated instead of `zoo`
 - **Problem:** the `factorial()` builder kept a negative-integer argument symbolic, with a
   stale comment that `ComplexInfinity` "isn't wired into the singletons yet" — but it now

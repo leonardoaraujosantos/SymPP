@@ -174,6 +174,23 @@ TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
     REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
 }
 
+// POLYGAMMA-POLE-1: ψ⁽ⁿ⁾(x) = zoo at the nonpositive integers x ∈ {0, −1, −2, …}
+// for any non-negative integer order n (the Γ pole); digamma inherits it via
+// polygamma(0, ·). Matches SymPy.
+TEST_CASE("polygamma/digamma: pole at nonpositive integers (POLYGAMMA-POLE-1)",
+          "[3i][polygamma][digamma][regression]") {
+    REQUIRE(polygamma(integer(0), integer(0)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(0), integer(-1)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(1), integer(0)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(2), integer(-3)) == S::ComplexInfinity());
+    REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
+    REQUIRE(digamma(integer(-5)) == S::ComplexInfinity());
+    // No over-reach: positive integers, half-integers, and symbols stay symbolic.
+    REQUIRE(polygamma(integer(0), integer(2))->type_id() == TypeId::Function);
+    REQUIRE(polygamma(integer(0), rational(1, 2))->type_id() == TypeId::Function);
+    REQUIRE(polygamma(integer(0), symbol("x"))->type_id() == TypeId::Function);
+}
+
 // ----- loggamma --------------------------------------------------------------
 
 TEST_CASE("loggamma: classic values", "[3i][loggamma]") {

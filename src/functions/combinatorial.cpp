@@ -1157,6 +1157,15 @@ Expr PolyGammaFn::diff_arg(std::size_t i) const {
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
+    // Pole at the nonpositive integers: ψ⁽ⁿ⁾(x) → zoo for x ∈ {0, −1, −2, …} and a
+    // non-negative integer order n (the underlying Γ pole). digamma(0)/digamma(−k)
+    // inherit this via polygamma(0, ·). Matches SymPy.
+    if (x->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*x).is_positive()
+        && n->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*n).is_negative()) {
+        return S::ComplexInfinity();
+    }
     // Special values at x = 1 for a non-negative integer order:
     //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
     if (x == S::One() && n->type_id() == TypeId::Integer) {
