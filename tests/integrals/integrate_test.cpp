@@ -2528,6 +2528,38 @@ TEST_CASE("integrate: polynomial × decaying exp × trig (INT-POLY-EXP-TRIG-1)",
     REQUIRE(integrate(edecay * sin(x), x, S::Zero(), oo) == rational(1, 2));
 }
 
+// INT-SINSQ-1: ∫₀^∞ sin²(bx)/x² = π|b|/2 (a Dirichlet-family integral). The
+// antiderivative is correct but factored — −½·(−2·Si(2x) − cos(2x)/x) − 1/(2x) —
+// which hid the bounded Si inside a product so the boundary limits folded to
+// wrong values. Expanding the antiderivative before Newton–Leibniz lets the
+// per-term limit rules resolve each piece. Matches SymPy.
+TEST_CASE("integrate: sin²(bx)/x² over [0, oo) (INT-SINSQ-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+
+    // ∫₀^∞ sin²x/x² = π/2.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, S::Zero(),
+                  oo)
+            ->str(),
+        "pi/2"));
+    // ∫₀^∞ sin²(2x)/x² = π.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(integer(2) * x), integer(2)) * pow(x, integer(-2)), x,
+                  S::Zero(), oo)
+            ->str(),
+        "pi"));
+    // A finite-bound version still evaluates (regression guard on the expand
+    // retry): ∫₁² sin²x/x² matches SymPy.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, integer(1),
+                  integer(2))
+            ->str(),
+        "Si(4) - Si(2) + cos(4)/4 - cos(2)/2 + Rational(1,4)"));
+}
+
 // INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
 // that individually diverge at ∞ but combine to a finite limit. The upper-bound
 // evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the

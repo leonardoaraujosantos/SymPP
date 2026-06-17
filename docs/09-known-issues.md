@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-SINSQ-1 / LIMIT-ADD-MIX-1 — ∫₀^∞ sin²x/x² and mixed finite + cancelling ∞ − ∞
+- **Problem:** `∫₀^∞ sin²x/x² = π/2` came back `nan`. The antiderivative is correct but factored
+  (`−½·(−2·Si(2x) − cos(2x)/x) − 1/(2x)`), which (a) hid the bounded `Si` inside a product so its
+  limit folded to a wrong value, and (b) at the lower bound produced a three-term sum mixing a
+  finite term (`Si(2x) → 0`) with two infinite terms whose `∞ − ∞` cancels
+  (`cos(2x)/(2x) − 1/(2x) → 0`) — which the limit engine left as `nan`.
+- **Fix (two parts):**
+  - *Limit engine:* the sum-linearity rule now handles the mixed case — terms with a finite
+    limit are peeled off and the divergent remainder is resolved on its own; if it has a
+    determinate limit the results are added. `limit(Si(2x) + cos(2x)/(2x) − 1/(2x), x, 0) = 0`,
+    while a genuine all-divergent `∞ − ∞` (`x² − x → ∞`) still falls through.
+  - *Definite integrate:* when the boundary (Newton–Leibniz) evaluation fails to resolve (nan /
+    infinity / leftover `Integral` marker), retry on the **expanded** antiderivative, whose flat
+    `Si(2x) + cos(2x)/(2x) − 1/(2x)` form lets the per-term limit rules resolve each piece.
+  - `∫₀^∞ sin²x/x² = π/2`, `∫₀^∞ sin²(2x)/x² = π`; finite-bound versions and the other definite
+    integrals are unchanged. Matches SymPy. (`∫₀^∞ (1−cos x)/x²` still needs its *indefinite*
+    integral found first — a separate gap.)
+
 ### LIMIT-ADD-SF-1 — limit of a sum with a special function collapsed
 - **Problem:** `limit(Si(2x) + 1/x, x, ∞)` returned `0` (and `limit(Si(x) + 1/x)` leaked a
   `sin(oo)` term) where the answer is `π/2`. `Si(2x)` on its own gave `π/2` correctly, but

@@ -1304,17 +1304,38 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // of substitution and L'Hôpital so a convergent special function plus a
     // vanishing term — e.g. the Si(2x) + cos(2x)/(2x) − 1/(2x) antiderivative of
     // sin²x/x² — isn't mangled: substitution would fold Si(∞) to a wrong value
-    // and L'Hôpital would differentiate Si into sin(x)/x and substitute ∞. A
-    // divergent term bails, leaving genuine ∞ − ∞ to the machinery below.
+    // and L'Hôpital would differentiate Si into sin(x)/x and substitute ∞.
     if (depth < 12 && expr->type_id() == TypeId::Add) {
-        std::vector<Expr> term_limits;
-        bool all_finite = true;
+        std::vector<Expr> finite_limits;
+        std::vector<Expr> divergent_terms;
+        bool any_nan = false;
         for (const auto& t : expr->args()) {
             Expr tl = limit_impl(t, var, target, depth + 1);
-            if (is_nan(tl) || is_infinity(tl)) { all_finite = false; break; }
-            term_limits.push_back(std::move(tl));
+            if (is_nan(tl)) { any_nan = true; break; }
+            if (is_infinity(tl)) {
+                divergent_terms.push_back(t);
+            } else {
+                finite_limits.push_back(std::move(tl));
+            }
         }
-        if (all_finite) return simplify(add(std::move(term_limits)));
+        if (!any_nan) {
+            if (divergent_terms.empty()) {
+                return simplify(add(std::move(finite_limits)));
+            }
+            // Mixed: finite terms alongside divergent ones whose ∞ − ∞ may
+            // cancel. Peel the finite terms off and resolve the divergent
+            // remainder on its own; if it has a determinate limit, add them.
+            // (A lone divergent term, or an all-divergent sum, is left to the
+            // ∞ − ∞ machinery below.)
+            if (!finite_limits.empty() && divergent_terms.size() >= 2) {
+                Expr rem = limit_impl(add(std::move(divergent_terms)), var,
+                                      target, depth + 1);
+                if (!is_nan(rem)) {
+                    finite_limits.push_back(std::move(rem));
+                    return simplify(add(std::move(finite_limits)));
+                }
+            }
+        }
     }
 
     Expr direct = simplify(subs(expr, var, target));

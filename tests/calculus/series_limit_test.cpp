@@ -2091,4 +2091,16 @@ TEST_CASE("limit: sum of a special function and a vanishing term (LIMIT-ADD-SF-1
     REQUIRE(limit(cosint(x) + pow(x, integer(-1)), x, oo) == S::Zero());
     // A genuine ∞ − ∞ is still left to the other machinery (not forced finite).
     REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
+
+    // Mixed: a finite term (Si(2x) → 0) alongside two infinite terms whose
+    // ∞ − ∞ cancels (cos(2x)/(2x) − 1/(2x) → 0). The finite part is peeled off
+    // and the divergent remainder resolved on its own — the lower bound of the
+    // ∫₀^∞ sin²x/x² antiderivative.
+    auto inv2x = pow(integer(2) * x, integer(-1));
+    REQUIRE(limit(sinint(integer(2) * x) + cos(integer(2) * x) * inv2x - inv2x,
+                  x, S::Zero())
+            == S::Zero());
+    // The same cancellation without the finite term still works.
+    REQUIRE(limit(cos(integer(2) * x) * inv2x - inv2x, x, S::Zero())
+            == S::Zero());
 }

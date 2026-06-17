@@ -3887,15 +3887,33 @@ Expr integrate(const Expr& expr, const Expr& var,
     // (or when direct substitution lands on the unevaluated nan / an infinity —
     // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative
     // rather than substituting the bound literally.
-    auto eval_at = [&](const Expr& bound) -> Expr {
-        if (is_infinity(bound)) return limit(antider, var, bound);
-        Expr v = subs(antider, var, bound);
+    auto eval_at = [&var](const Expr& F, const Expr& bound) -> Expr {
+        if (is_infinity(bound)) return limit(F, var, bound);
+        Expr v = subs(F, var, bound);
         if (v->type_id() == TypeId::NaN || is_infinity(v)) {
-            return limit(antider, var, bound);
+            return limit(F, var, bound);
         }
         return v;
     };
-    return eval_at(upper) - eval_at(lower);
+    Expr result = simplify(eval_at(antider, upper) - eval_at(antider, lower));
+    // Retry on an expanded antiderivative when the boundary evaluation fails to
+    // resolve. A factored form like −½·(−2·Si(2x) − cos(2x)/x) − 1/(2x) hides a
+    // bounded special function inside a product, where the limit machinery folds
+    // the whole thing to a wrong value; the flattened Si(2x) + cos(2x)/(2x) −
+    // 1/(2x) lets the per-term limit rules resolve each piece. Closes ∫₀^∞
+    // sin²x/x² = π/2.
+    if (result->type_id() == TypeId::NaN || is_infinity(result)
+        || contains_integral_marker(result)) {
+        Expr flat = expand(antider);
+        if (!(flat == antider)) {
+            Expr retried = simplify(eval_at(flat, upper) - eval_at(flat, lower));
+            if (retried->type_id() != TypeId::NaN && !is_infinity(retried)
+                && !contains_integral_marker(retried)) {
+                return retried;
+            }
+        }
+    }
+    return result;
 }
 
 std::optional<Expr> manualintegrate(const Expr& expr, const Expr& var) {
