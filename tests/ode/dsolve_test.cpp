@@ -564,6 +564,35 @@ TEST_CASE("dsolve: unified order-detecting entry point (DSOLVE-UNIFIED-1)",
     REQUIRE(satisfies(yppp - yp));
 }
 
+// DSOLVE-LINVAR-1: first-order linear ODEs with a variable coefficient — y' +
+// y/x = … or x·y' + y = … . isolate_yp leaves the right-hand side as a product
+// like (x² − y)·x⁻¹; without expanding it before building the polynomial in y,
+// the y-dependence stayed buried in a degree-0 term and the equation was
+// misclassified as non-linear (returning the Dsolve marker). Each solution is
+// verified by back-substitution. Matches SymPy.
+TEST_CASE("dsolve: first-order linear with variable coefficient (DSOLVE-LINVAR-1)",
+          "[11][dsolve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto satisfies = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        Expr r = subs(ode, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return oracle.equivalent(simplify(expand(r))->str(), "0");
+    };
+    // Non-unit leading coefficient: x·y' + y = x²  (→ x²/3 + C/x).
+    REQUIRE(satisfies(x * yp + y - pow(x, integer(2))));
+    REQUIRE(satisfies(x * yp - y - pow(x, integer(3))));
+    // Normalized variable coefficient p(x) = ±1/x.
+    REQUIRE(satisfies(yp + y / x - pow(x, integer(2))));
+    REQUIRE(satisfies(yp - y / x - x));
+    // Polynomial coefficient: y' + 2x·y = x  (integrating factor e^(x²)).
+    REQUIRE(satisfies(yp + integer(2) * x * y - x));
+}
+
 // DSOLVE-RESONANCE-1: a forcing term that is itself a homogeneous solution
 // (resonance). The complex basis e^(±iβx) made the cyclic exp·trig integrator in
 // variation of parameters divide by a²+g² = 0, producing zoo. Emitting the real

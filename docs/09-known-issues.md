@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### DSOLVE-LINVAR-1 — first-order linear ODEs with a variable coefficient unsolved
+- **Problem:** `dsolve` returned the unevaluated `Dsolve(…)` marker for a first-order linear ODE
+  with a variable coefficient — `x·y' + y = x²`, `y' + y/x = x²`, `y' − y/x = x` — even though
+  these are textbook linear equations (`y = x²/3 + C/x`, etc.).
+- **Fix:** `isolate_yp` leaves the right-hand side as a product such as `(x² − y)·x⁻¹`. The linear
+  classifier built `Poly(rhs, y)` without expanding it first, so the `x⁻¹` was never distributed
+  over the `Add`; `Poly` then treated the whole product as a single degree-0 term whose
+  coefficient still contained `y`, and the `has(q, y)` guard rejected the equation as non-linear.
+  Expanding the right-hand side before the polynomial-in-`y` step exposes the `−y·x⁻¹ + x` form.
+  `x·y' + y = x² → x²/3 + C/x`, `y' + y/x = x² → x⁴/4·x⁻¹ + C/x`, `y' + 2x·y = x → C·e^(−x²) +
+  1/2`; all verified by back-substitution. The constant-coefficient and separable paths are
+  unchanged. Matches SymPy.
+
 ### INT-POLYPROD-1 — products of polynomials were not integrated
 - **Problem:** an integrand that is a product or power of polynomial factors — `x³·(1−x)²`,
   `x²·(1−x)`, `x·(x+1)·(x+2)` — was returned unevaluated (`Integral(…)`), since no handler
