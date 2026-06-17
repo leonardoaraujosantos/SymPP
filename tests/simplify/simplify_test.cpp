@@ -1509,6 +1509,36 @@ TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
         "2**(log(2)*log(x))"));
 }
 
+// SIMP-POWDENEST-1: (∏ bᵢ^pᵢ)^q denests to ∏ bᵢ^(pᵢ·q) when every base bᵢ is
+// nonnegative — needed because the pipeline's expand distributes a power over a
+// product, leaving the outer power applied to a Mul of nonnegative-base powers.
+// ((2m)ᵐ)^(1/m) → 2m, ((m/e)ᵐ)^(1/m) → m/e. A factor whose base may be negative
+// is left alone (((x·y)²)^(1/2) is not denested to x·y). Matches SymPy.
+TEST_CASE("simplify: powdenest of a product of nonnegative powers (SIMP-POWDENEST-1)",
+          "[10][simplify]") {
+    auto m = symbol("m", AssumptionMask{}.set_positive(true));
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto q = symbol("q", AssumptionMask{}.set_positive(true));
+    auto x = symbol("x");  // generic
+    auto y = symbol("y");
+    auto invm = pow(m, integer(-1));
+
+    // ((2m)^m)^(1/m) = 2m, ((m/e)^m)^(1/m) = m/e.
+    REQUIRE(simplify(pow(pow(integer(2) * m, m), invm)) == integer(2) * m);
+    REQUIRE(simplify(pow(pow(m * exp(integer(-1)), m), invm))
+            == m * exp(integer(-1)));
+    // ((3p)^2)^(1/2) = 3p; (p·q^2)^3 = p^3·q^6.
+    REQUIRE(simplify(pow(pow(integer(3) * p, integer(2)), rational(1, 2)))
+            == integer(3) * p);
+    REQUIRE(simplify(pow(p * pow(q, integer(2)), integer(3)))
+            == pow(p, integer(3)) * pow(q, integer(6)));
+
+    // Safety: a possibly-negative base is not denested.
+    REQUIRE(simplify(pow(pow(x * y, integer(2)), rational(1, 2)))
+            != x * y);
+    REQUIRE(simplify(pow(pow(x, integer(2)), rational(1, 2))) != x);
+}
+
 // SIMP-TRIGEXPAND-1: a multiple-angle trig expression that cancels collapses to
 // a smaller form when compound angles are expanded — sin(3x) − 3·sin x +
 // 4·sin³x → 0, cos(3x) − 4·cos³x + 3·cos x → 0. simplify expands and re-applies

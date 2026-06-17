@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-POWDENEST-1 — (product of nonnegative powers)^q did not denest
+- **Problem:** `simplify(((m/e)ᵐ)^(1/m))` returned the nested form rather than `m/e`, and likewise
+  `((2m)ᵐ)^(1/m)` did not denest to `2m`. `pow_of_pow` denested `(bᵖ)^q → b^(p·q)` for a single
+  nonnegative base, but the pipeline's `expand` distributes a power over a product — `(2m)ᵐ →
+  2ᵐ·mᵐ` — so the outer power ends up applied to a **Mul** of nonnegative-base powers, which the
+  rule did not handle.
+- **Fix:** extended `pow_of_pow_node` with a `(∏ bᵢ^pᵢ)^q = ∏ bᵢ^(pᵢ·q)` rule, applied only when
+  every base `bᵢ` is provably nonnegative. `((2m)ᵐ)^(1/m) → 2m`, `((m/e)ᵐ)^(1/m) → m/e`,
+  `((3p)²)^(1/2) → 3p`. A factor whose base may be negative is left alone, so `((x·y)²)^(1/2)` is
+  *not* denested to `x·y` (the branch-cut-safe form is preserved). Matches SymPy. (This also
+  partially unblocks the Stirling-root limits `(n!)^{1/n}` — those additionally need the limit
+  engine to treat the variable as positive and remain a separate, deeper gap.)
+
 ### SIMP-TRIGEXPAND-1 — multiple-angle trig identities did not cancel
 - **Problem:** `simplify(sin(3x) − 3·sin x + 4·sin³x)` returned the input unchanged instead of
   `0`, and likewise `cos(3x) − 4·cos³x + 3·cos x`. simplify reduced double-angle forms

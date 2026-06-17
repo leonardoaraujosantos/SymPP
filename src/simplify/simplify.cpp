@@ -639,6 +639,28 @@ namespace {
         }
     }
 
+    // (∏ bᵢ^pᵢ)^q = ∏ bᵢ^(pᵢ·q) when every base bᵢ ≥ 0. The pipeline's expand
+    // distributes a power over a product (e.g. (2x)ᵐ → 2ᵐ·xᵐ), so the inner node
+    // is often a Mul of nonnegative-base powers rather than a single Pow; without
+    // this, ((m/e)ᵐ)^(1/m) = (mᵐ·e^(−m))^(1/m) would not denest to m/e.
+    if (inner->type_id() == TypeId::Mul) {
+        std::vector<Expr> out;
+        out.reserve(inner->args().size());
+        for (const auto& f : inner->args()) {
+            Expr fb = f;
+            Expr fp = S::One();
+            if (f->type_id() == TypeId::Pow) {
+                fb = f->args()[0];
+                fp = f->args()[1];
+            }
+            if (is_nonnegative(fb) != std::optional<bool>{true}) {
+                return e;  // a factor whose base may be negative — unsafe
+            }
+            out.push_back(pow(fb, mul(fp, q)));
+        }
+        return mul(std::move(out));
+    }
+
     if (inner->type_id() != TypeId::Pow) return e;
     const Expr& base = inner->args()[0];
     const Expr& p = inner->args()[1];
