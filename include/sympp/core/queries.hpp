@@ -81,6 +81,12 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_transcendental(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Transcendental);
 }
+[[nodiscard]] inline std::optional<bool> is_extended_real(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedReal);
+}
+[[nodiscard]] inline std::optional<bool> is_infinite(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Infinite);
+}
 [[nodiscard]] inline std::optional<bool> is_imaginary(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Imaginary);
 }

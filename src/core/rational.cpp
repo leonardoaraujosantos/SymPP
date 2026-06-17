@@ -99,6 +99,8 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Irrational: return false;  // a Rational is rational
         case AssumptionKey::Algebraic: return true;     // ℚ ⊂ algebraic numbers
         case AssumptionKey::Transcendental: return false;
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return false;
     }
     return std::nullopt;
 }

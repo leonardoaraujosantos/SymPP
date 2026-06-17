@@ -244,6 +244,10 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Irrational: return std::nullopt;
         case AssumptionKey::Algebraic: return std::nullopt;
         case AssumptionKey::Transcendental: return std::nullopt;
+        // A Float is real-valued (a point of the extended real line); it is
+        // infinite exactly when it holds an mpfr infinity.
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return !finite;
     }
     return std::nullopt;
 }

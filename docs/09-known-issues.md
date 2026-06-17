@@ -16,6 +16,28 @@ truth and links the issue number.
 
 ## Fixed
 
+### EXTREAL-INF-1 — no `extended_real` / `infinite` predicates; complex ⇏ finite
+- **Problem:** the assumption vocabulary could not express the extended real line or
+  boundedness. There was no way to ask `is_extended_real(oo)` / `is_infinite(zoo)` or to declare
+  a symbol `extended_real`/`infinite` (SymPy: `oo.is_extended_real is True` with
+  `oo.is_real is False`, `zoo.is_infinite is True`). Separately, a symbol declared `complex`
+  reported `finite=None`, although `AssumptionKey::Complex` is documented as a *finite* complex
+  number and SymPy has `is_complex ⇒ is_finite`.
+- **Fix:** added `AssumptionKey::ExtendedReal` and `AssumptionKey::Infinite`. `extended_real`
+  is a point of ℝ ∪ {±∞}: `real ⇒ extended_real` (but not conversely — ±∞ are extended-real,
+  not real), `extended_real ⇒ ¬imaginary`, and it does *not* imply real/finite/complex.
+  `infinite ⟺ ¬finite`, with `infinite ⇒ ¬real ∧ ¬complex ∧ ¬zero`. Also added the
+  `complex ⇒ finite` closure rule so a bare complex symbol is finite (hence not infinite),
+  matching SymPy and the enum's own contract. Wired the pair through the stack: mask fields +
+  `set_extended_real`/`set_infinite` builders, closure rules, generic derive cases (plus
+  `infinite ⇒ ¬finite` in the Finite derivation), `is_extended_real(e)`/`is_infinite(e)`
+  helpers, and the MATLAB surface. The ∞ atoms answer directly: `oo`/`-oo` →
+  `extended_real=true`/`infinite=true`, `zoo` → `extended_real=false`/`infinite=true`;
+  `Integer`/`Rational`/`NumberSymbol`/`I` are extended-real-or-not but `infinite=false`; a
+  `Float` is extended-real and infinite iff it holds an mpfr infinity. `is_extended_real(oo)=
+  True` with `is_real(oo)=False`, `is_infinite(zoo)=True`, `is_extended_real(I)=False`; a
+  declared-infinite symbol is ¬finite/¬real/¬complex/¬zero. Matches SymPy.
+
 ### ALGTRANS-1 — no `algebraic` / `transcendental` predicates
 - **Problem:** the assumption vocabulary had no `algebraic` or `transcendental` predicate, so
   `is_algebraic(I)`, `is_transcendental(pi)` and declared-algebraic/transcendental symbols were

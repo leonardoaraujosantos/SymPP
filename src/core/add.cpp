@@ -190,6 +190,8 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Irrational:
         case AssumptionKey::Algebraic:
         case AssumptionKey::Transcendental:
+        case AssumptionKey::ExtendedReal:
+        case AssumptionKey::Infinite:
             // Left to the generic derivation layer.
             return std::nullopt;
     }

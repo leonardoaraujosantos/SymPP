@@ -145,6 +145,28 @@ TEST_CASE("matlab::assume supports the irrational property",
     matlab::clearAssumptions(x);
 }
 
+TEST_CASE("matlab::assume supports extended_real / infinite",
+          "[15m][matlab][assumptions]") {
+    auto e = matlab::sym("xext");
+    matlab::clearAssumptions(e);
+    matlab::assume(e, "extended_real");
+    e = matlab::refresh(e);
+    REQUIRE(contains(matlab::assumptions(e), "extended_real"));
+    REQUIRE(is_extended_real(e) == true);
+    REQUIRE(is_imaginary(e) == false);   // extended_real ⇒ ¬imaginary
+    matlab::clearAssumptions(e);
+
+    auto f = matlab::sym("xinf");
+    matlab::clearAssumptions(f);
+    matlab::assume(f, "infinite");
+    f = matlab::refresh(f);
+    REQUIRE(contains(matlab::assumptions(f), "infinite"));
+    REQUIRE(is_infinite(f) == true);
+    REQUIRE(is_finite(f) == false);      // infinite ⟺ ¬finite
+    REQUIRE(is_real(f) == false);
+    matlab::clearAssumptions(f);
+}
+
 TEST_CASE("matlab::assume supports algebraic / transcendental",
           "[15m][matlab][assumptions]") {
     auto a = matlab::sym("xalg");

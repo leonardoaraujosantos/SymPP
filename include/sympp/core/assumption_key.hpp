@@ -57,6 +57,13 @@ enum class AssumptionKey : std::uint8_t {
     Transcendental,// a complex number that is not algebraic (implies complex,
                    // finite, ¬algebraic, ¬rational). transcendental ⟺ complex ∧
                    // ¬algebraic; a real transcendental is irrational.
+
+    // Extended real line / boundedness.
+    ExtendedReal,  // a point of ℝ ∪ {−∞, +∞} (implies ¬imaginary). real ⇒
+                   // extended_real, but NOT conversely (±∞ are extended-real,
+                   // not real). Does not imply finite or complex.
+    Infinite,      // an infinite quantity (±∞, zoo). infinite ⟺ ¬finite; implies
+                   // ¬real, ¬complex, ¬zero.
 };
 
 }  // namespace sympp

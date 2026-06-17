@@ -21,6 +21,8 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Irrational: return irrational;
         case AssumptionKey::Algebraic: return algebraic;
         case AssumptionKey::Transcendental: return transcendental;
+        case AssumptionKey::ExtendedReal: return extended_real;
+        case AssumptionKey::Infinite: return infinite;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -74,6 +76,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Irrational: irrational = value; break;
         case AssumptionKey::Algebraic: algebraic = value; break;
         case AssumptionKey::Transcendental: transcendental = value; break;
+        case AssumptionKey::ExtendedReal: extended_real = value; break;
+        case AssumptionKey::Infinite: infinite = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -95,7 +99,7 @@ bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
            && !complex_ && !imaginary && !prime && !composite && !irrational
-           && !algebraic && !transcendental;
+           && !algebraic && !transcendental && !extended_real && !infinite;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -125,6 +129,8 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(irrational));
     mix(encode(algebraic));
     mix(encode(transcendental));
+    mix(encode(extended_real));
+    mix(encode(infinite));
     return h;
 }
 
@@ -315,10 +321,31 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.finite) m.finite = true;
             if (!m.imaginary) m.imaginary = false;
         }
+        // complex => finite. AssumptionKey::Complex denotes a *finite* complex
+        // number (see the enum docs), matching SymPy's is_complex ⇒ is_finite;
+        // the unbounded ∞ atoms answer Complex=false directly.
+        if (m.complex_ == true && !m.finite) m.finite = true;
         // zero => ¬imaginary (0 is real).
         if (m.zero == true) {
             if (!m.imaginary) m.imaginary = false;
         }
+        // extended_real: a point of ℝ ∪ {±∞}. real ⇒ extended_real; a nonzero
+        // pure imaginary is off the real line. extended_real does NOT imply real,
+        // finite or complex (±∞ are extended-real but neither), but it does
+        // exclude imaginary.
+        if (m.real == true && !m.extended_real) m.extended_real = true;
+        if (m.imaginary == true && !m.extended_real) m.extended_real = false;
+        if (m.extended_real == true && !m.imaginary) m.imaginary = false;
+        // infinite ⟺ ¬finite. An infinite quantity is not a finite real/complex
+        // number and is nonzero (zero is finite).
+        if (m.infinite == true) {
+            if (!m.finite) m.finite = false;
+            if (!m.real) m.real = false;
+            if (!m.complex_) m.complex_ = false;
+            if (!m.zero) m.zero = false;
+        }
+        if (m.finite == true && !m.infinite) m.infinite = false;
+        if (m.finite == false && !m.infinite) m.infinite = true;
     }
     return m;
 }

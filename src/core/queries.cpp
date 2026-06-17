@@ -126,8 +126,21 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Finite: {
-            // No simple universal implications here; numeric / structural
-            // overrides handle the definite cases.
+            // infinite ⟺ ¬finite; otherwise numeric / structural overrides
+            // handle the definite cases.
+            if (direct(e, AssumptionKey::Infinite) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedReal: {
+            // real ⇒ extended_real; a nonzero pure imaginary is off the line.
+            if (direct(e, AssumptionKey::Real) == true) return true;
+            if (direct(e, AssumptionKey::Imaginary) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Infinite: {
+            // infinite ⟺ ¬finite.
+            if (direct(e, AssumptionKey::Finite) == true) return false;
+            if (direct(e, AssumptionKey::Finite) == false) return true;
             return std::nullopt;
         }
         case AssumptionKey::Complex: {

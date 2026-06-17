@@ -33,6 +33,8 @@ std::optional<bool> ImaginaryUnit::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Composite:
         case AssumptionKey::Irrational:  // I is not real, so not irrational
         case AssumptionKey::Transcendental:  // i is algebraic
+        case AssumptionKey::ExtendedReal:  // i is off the real line
+        case AssumptionKey::Infinite:      // i is finite
             return false;
     }
     return std::nullopt;

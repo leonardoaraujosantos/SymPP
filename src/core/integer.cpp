@@ -130,6 +130,8 @@ std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Irrational: return false;  // every integer is rational
         case AssumptionKey::Algebraic: return true;     // ℤ ⊂ algebraic numbers
         case AssumptionKey::Transcendental: return false;
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return false;
     }
     return std::nullopt;
 }

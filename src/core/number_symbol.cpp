@@ -53,6 +53,9 @@ std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
             return proven_irrational ? std::optional<bool>{false} : std::nullopt;
         case AssumptionKey::Transcendental:
             return proven_irrational ? std::optional<bool>{true} : std::nullopt;
+        // All of π, e, γ, Catalan are finite real constants.
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return false;
     }
     return std::nullopt;
 }

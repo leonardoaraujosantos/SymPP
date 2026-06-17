@@ -833,3 +833,61 @@ TEST_CASE("AssumptionMask: algebraic / transcendental (ALGTRANS-1)", "[2a][assum
     REQUIRE(is_algebraic(symbol("i", AssumptionMask{}.set_integer(true))) == T);
     REQUIRE(is_algebraic(symbol("im", AssumptionMask{}.set_imaginary(true))) == U);
 }
+
+// EXTREAL-INF-1: the `extended_real` / `infinite` predicates. extended_real is a
+// point of ℝ ∪ {±∞} (real ⇒ extended_real, but ±∞ are extended-real yet not
+// real); it excludes imaginary and does not imply finite/complex. infinite ⟺
+// ¬finite, and implies ¬real/¬complex/¬zero. The ∞ atoms answer directly (oo/-oo
+// extended-real, zoo not); a declared-complex symbol is now finite (so not
+// infinite), matching the enum's "finite complex number" contract. Matches SymPy.
+TEST_CASE("AssumptionMask: extended_real / infinite (EXTREAL-INF-1)", "[2a][assumptions]") {
+    using sympp::is_extended_real;
+    using sympp::is_infinite;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    // Finite reals: extended-real, not infinite.
+    REQUIRE(is_extended_real(integer(3)) == T);
+    REQUIRE(is_infinite(integer(3)) == F);
+    REQUIRE(is_extended_real(S::Pi()) == T);
+    // I is off the real line and finite.
+    REQUIRE(is_extended_real(S::I()) == F);
+    REQUIRE(is_infinite(S::I()) == F);
+    // The infinity atoms.
+    REQUIRE(is_extended_real(S::Infinity()) == T);
+    REQUIRE(is_infinite(S::Infinity()) == T);
+    REQUIRE(is_finite(S::Infinity()) == F);
+    REQUIRE(is_extended_real(S::NegativeInfinity()) == T);
+    REQUIRE(is_infinite(S::NegativeInfinity()) == T);
+    REQUIRE(is_extended_real(S::ComplexInfinity()) == F);  // zoo is off the line
+    REQUIRE(is_infinite(S::ComplexInfinity()) == T);
+
+    // real ⇒ extended_real ∧ finite ∧ ¬infinite.
+    auto re = symbol("re", AssumptionMask{}.set_real(true));
+    REQUIRE(is_extended_real(re) == T);
+    REQUIRE(is_infinite(re) == F);
+
+    // Declared-infinite symbol: ¬finite ∧ ¬real ∧ ¬complex ∧ ¬zero; extended_real
+    // stays Unknown (could be ±∞ or zoo).
+    auto inf = symbol("inf", AssumptionMask{}.set_infinite(true));
+    REQUIRE(is_infinite(inf) == T);
+    REQUIRE(is_finite(inf) == F);
+    REQUIRE(is_real(inf) == F);
+    REQUIRE(is_complex(inf) == F);
+    REQUIRE(is_extended_real(inf) == U);
+
+    // Declared-extended_real symbol: only ¬imaginary follows; real/finite/complex
+    // stay Unknown (it might be ±∞).
+    auto er = symbol("er", AssumptionMask{}.set_extended_real(true));
+    REQUIRE(is_extended_real(er) == T);
+    REQUIRE(is_imaginary(er) == F);
+    REQUIRE(is_real(er) == U);
+    REQUIRE(is_finite(er) == U);
+    REQUIRE(is_infinite(er) == U);
+
+    // imaginary ⇒ ¬extended_real; a complex symbol is finite ⇒ not infinite.
+    REQUIRE(is_extended_real(symbol("im", AssumptionMask{}.set_imaginary(true))) == F);
+    REQUIRE(is_infinite(symbol("cx", AssumptionMask{}.set_complex(true))) == F);
+    REQUIRE(is_finite(symbol("cx2", AssumptionMask{}.set_complex(true))) == T);
+}
