@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### ONESIDED-1 — no one-sided limits
+- **Problem:** `limit` only computed two-sided limits, so directional limits were unavailable.
+  At a pole or discontinuity the two-sided result is the unsigned `zoo` or `nan` — e.g.
+  `limit(1/x, x, 0)` is `zoo` and `limit(|x|/x, x, 0)` is `nan` — with no way to ask for the
+  one-sided value that SymPy returns (`limit(1/x, x, 0, '+') = oo`, `'-' = -oo`;
+  `limit(|x|/x, x, 0, '+') = 1`).
+- **Fix:** added a 4-argument overload `limit(expr, var, target, dir)` with `dir = +1` (from the
+  right), `−1` (from the left), or `0` (two-sided, identical to the 3-argument form). A one-sided
+  finite limit is reduced to a limit at infinity by substituting `x = target + 1/u` and taking
+  `u → +∞` (right) or `u → −∞` (left); `u` carries the sign of its target so `simplify` resolves
+  `Abs(1/u)`/`log(1/u)`, and using `+1/u` keeps reciprocals un-nested so the engine evaluates
+  them cleanly. This reuses the well-tested ±∞ machinery and resolves poles (`1/x → ±∞`),
+  sign/abs discontinuities (`|x|/x → ±1`), and essential singularities (`exp(1/x) → ∞` from the
+  right, `0` from the left). The 3-argument overload stays two-sided (SymPy instead defaults to
+  `dir='+'`). En route, filled a small `Pow` sign gap so the substitution’s sign nodes resolve:
+  a negative real base raised to an **odd** integer power is negative (`(neg)^(-1)` is negative).
+  Matches SymPy on directional poles, discontinuities and essential singularities.
+
 ### ALGCLOSURE-POW-1 — Pow did not recognize algebraic radicals
 - **Problem:** a rational power of an algebraic number is algebraic (e.g. `sqrt(2) = 2^(1/2)`),
   but `Pow` returned Unknown for `algebraic`/`transcendental`, so `is_algebraic(sqrt(2))` and

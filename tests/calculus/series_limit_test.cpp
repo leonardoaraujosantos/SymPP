@@ -1951,3 +1951,48 @@ TEST_CASE("inflection_points: x⁴ - 6x² at ±1 (f'' = 12x² - 12 = 0)",
     REQUIRE(has_pos);
     REQUIRE(has_neg);
 }
+
+// ONESIDED-1: the 4-argument limit(expr, var, target, dir) computes a one-sided
+// limit (dir = +1 from the right, −1 from the left). It resolves the cases a
+// two-sided limit leaves undefined — finite poles (1/x → ±∞), sign/abs
+// discontinuities (|x|/x → ±1) and essential singularities (exp(1/x) → ∞ from
+// the right, 0 from the left). The 3-argument overload stays two-sided. Matches
+// SymPy's limit(..., dir='+'/'-').
+TEST_CASE("limit: one-sided limits (ONESIDED-1)", "[7][limit][onesided]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr noo = S::NegativeInfinity();
+
+    // Finite pole: signed infinity per side.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), -1) == noo);
+    // 1/x² diverges to +∞ from both sides.
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero(), -1) == oo);
+    // Pole away from the origin.
+    REQUIRE(limit(pow(x - integer(2), integer(-1)), x, integer(2), 1) == oo);
+    REQUIRE(limit(pow(x - integer(2), integer(-1)), x, integer(2), -1) == noo);
+
+    // log diverges to −∞ from the right.
+    REQUIRE(limit(log(x), x, S::Zero(), 1) == noo);
+
+    // Sign/abs discontinuity: |x|/x → +1 (right), −1 (left).
+    REQUIRE(limit(abs(x) * pow(x, integer(-1)), x, S::Zero(), 1) == integer(1));
+    REQUIRE(limit(abs(x) * pow(x, integer(-1)), x, S::Zero(), -1) == integer(-1));
+    REQUIRE(limit(x * pow(abs(x), integer(-1)), x, S::Zero(), 1) == integer(1));
+    REQUIRE(limit(x * pow(abs(x), integer(-1)), x, S::Zero(), -1) == integer(-1));
+
+    // Essential singularity: exp(1/x) → ∞ from the right, 0 from the left.
+    REQUIRE(limit(exp(pow(x, integer(-1))), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(exp(pow(x, integer(-1))), x, S::Zero(), -1) == S::Zero());
+
+    // Continuous point: both sides and the two-sided limit agree.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, S::Zero(), 1) == integer(1));
+
+    // The 3-argument (two-sided) overload is unchanged: 1/x stays the unsigned
+    // ComplexInfinity, and dir = 0 matches it.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero())->type_id()
+            == TypeId::ComplexInfinity);
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), 0)->type_id()
+            == TypeId::ComplexInfinity);
+}

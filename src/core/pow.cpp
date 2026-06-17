@@ -141,6 +141,13 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             }
             return std::nullopt;
         case AssumptionKey::Negative:
+            // A negative real base raised to an odd integer power stays negative
+            // (an even power turns positive — handled by the Positive case).
+            if (base->ask(AssumptionKey::Negative) == true
+                && exp->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*exp);
+                if (z.fits_long()) return z.to_long() % 2 != 0;
+            }
             return std::nullopt;
         case AssumptionKey::Zero:
             if (base->ask(AssumptionKey::Zero) == true

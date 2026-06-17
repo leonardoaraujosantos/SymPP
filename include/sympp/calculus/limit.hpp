@@ -28,4 +28,13 @@ namespace sympp {
 [[nodiscard]] SYMPP_EXPORT Expr limit(const Expr& expr, const Expr& var,
                                         const Expr& target);
 
+// One-sided limit. `dir` selects the approach side: +1 from the right
+// (var → target⁺), −1 from the left (var → target⁻), 0 the two-sided limit
+// (identical to the 3-argument overload). One-sided queries resolve the cases a
+// two-sided limit leaves undefined: a finite pole (1/x → +∞ as x→0⁺, −∞ as
+// x→0⁻) and a sign/abs discontinuity (|x|/x → ±1). Note the 3-argument overload
+// stays two-sided; SymPy's `limit` instead defaults to dir='+'.
+[[nodiscard]] SYMPP_EXPORT Expr limit(const Expr& expr, const Expr& var,
+                                        const Expr& target, int dir);
+
 }  // namespace sympp

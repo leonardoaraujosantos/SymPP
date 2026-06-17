@@ -22,6 +22,7 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
@@ -1436,6 +1437,35 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
 
 Expr limit(const Expr& expr, const Expr& var, const Expr& target) {
     return limit_impl(expr, var, target, 0);
+}
+
+Expr limit(const Expr& expr, const Expr& var, const Expr& target, int dir) {
+    // dir 0 (two-sided) and limits at ±∞ (already one-sided by nature) use the
+    // standard engine.
+    if (dir == 0 || !is_number(target)) return limit_impl(expr, var, target, 0);
+    // Reduce a one-sided finite limit to a limit at infinity via the
+    // substitution x = target + 1/u, taking u → +∞ for the right limit and
+    // u → −∞ for the left (1/u → 0 from the matching side). Using +1/u keeps
+    // reciprocals un-nested (1/x ↦ u, not (±1/u)⁻¹), which the engine resolves
+    // cleanly. u carries the sign of its target (positive for +∞, negative for
+    // −∞) so simplify resolves the sign-dependent nodes: Abs(1/u) → ±1/u,
+    // log(1/u) → −log(u). This makes the approach direction explicit and reuses
+    // the well-tested ±∞ machinery, handling poles (1/x → ±∞), sign/abs
+    // discontinuities (|x|/x → ±1) and essential singularities (exp(1/x) → ∞
+    // from the right, 0 from the left).
+    AssumptionMask um;
+    um.set_positive(dir > 0).set_negative(dir < 0);
+    Expr u = symbol("__onesided_u", um);
+    Expr shifted = add(target, pow(u, S::NegativeOne()));
+    Expr utarget = dir > 0 ? Expr{S::Infinity()} : Expr{S::NegativeInfinity()};
+    Expr r = limit_impl(simplify(subs(expr, var, shifted)), u, utarget, 0);
+    // If the transformed problem is intractable but the ordinary two-sided limit
+    // is a determinate finite value (a continuous point), prefer that.
+    if (is_nan(r) || r->type_id() == TypeId::ComplexInfinity) {
+        Expr two = limit_impl(expr, var, target, 0);
+        if (!is_nan(two) && two->type_id() != TypeId::ComplexInfinity) return two;
+    }
+    return r;
 }
 
 }  // namespace sympp
