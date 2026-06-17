@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ADD-SF-1 — limit of a sum with a special function collapsed
+- **Problem:** `limit(Si(2x) + 1/x, x, ∞)` returned `0` (and `limit(Si(x) + 1/x)` leaked a
+  `sin(oo)` term) where the answer is `π/2`. `Si(2x)` on its own gave `π/2` correctly, but
+  wrapped in a sum the engine ran direct substitution / L'Hôpital first — folding `Si(∞)` to a
+  wrong value or differentiating `Si` into `sin(x)/x` and substituting `∞`. The term-wise
+  linearity rule existed but only ran inside the `nan`-after-substitution branch, which this
+  case never reached.
+- **Fix:** hoisted the sum-linearity rule ahead of substitution and L'Hôpital: if every term of
+  an `Add` has a determinate finite limit, the limit is their sum. A divergent term bails,
+  leaving a genuine `∞ − ∞` to the conjugate / L'Hôpital machinery (so `x² − x → ∞` is
+  unaffected). `limit(Si(2x) + 1/x) = limit(atan(2x) − 1/(x+1)) = π/2`, `limit(Ci(x) + 1/x) =
+  0`. Matches SymPy. (The remaining `∫₀^∞ sin²x/x²` still needs a finite-point `∞ − ∞` in its
+  antiderivative resolved — tracked separately.)
+
 ### LIMIT-BOUNDED-1 — bounded oscillation × vanishing factor returned nan
 - **Problem:** `limit(x·cos(x)·e^(−x), x, ∞)` is 0 by the squeeze theorem (a bounded oscillation
   times a decaying envelope), but the limit engine returned `nan`. SymPP already closed the

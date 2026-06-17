@@ -16,6 +16,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/special.hpp>  // sinint (Si), cosint (Ci)
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -2061,4 +2062,33 @@ TEST_CASE("limit: bounded oscillation times a vanishing factor (LIMIT-BOUNDED-1)
     REQUIRE(limit(x * sin(x), x, oo) != S::Zero());
     // The definite integrals this unblocks (∫₀^∞ xⁿ·e^(−x)·sin/cos x) are
     // covered in the integrate tests (INT-POLY-EXP-TRIG-1).
+}
+
+// LIMIT-ADD-SF-1: the limit of a sum whose terms each converge is the sum of the
+// term limits — applied before substitution / L'Hôpital so a convergent special
+// function (Si, Ci, atan, …) plus a vanishing term isn't mangled. Previously
+// limit(sinint(2x) + 1/x, x, oo) collapsed to 0 (and limit(sinint(x) + 1/x) leaked a
+// sin(oo) term) because direct substitution / L'Hôpital ran first. Matches SymPy.
+TEST_CASE("limit: sum of a special function and a vanishing term (LIMIT-ADD-SF-1)",
+          "[7][limit][add]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr half_pi = S::Pi() / integer(2);
+
+    // sinint(c·x) → π/2 survives addition of a vanishing / finite term.
+    REQUIRE(simplify(limit(sinint(integer(2) * x) + pow(x, integer(-1)), x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(sinint(x) + pow(x, integer(-1)), x, oo)) == half_pi);
+    REQUIRE(simplify(limit(sinint(integer(2) * x) - pow(x, integer(-1)), x, oo))
+            == half_pi);
+    // atan likewise.
+    REQUIRE(simplify(limit(atan(x) + exp(mul(S::NegativeOne(), x)), x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(atan(integer(2) * x)
+                               - pow(x + integer(1), integer(-1)), x, oo))
+            == half_pi);
+    // cosint(x) → 0 plus a vanishing term stays 0.
+    REQUIRE(limit(cosint(x) + pow(x, integer(-1)), x, oo) == S::Zero());
+    // A genuine ∞ − ∞ is still left to the other machinery (not forced finite).
+    REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
 }

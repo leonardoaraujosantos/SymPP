@@ -1299,6 +1299,24 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         if (auto v = try_log_exp_asymptotic(expr, var, target, depth)) return *v;
     }
 
+    // Linearity over a sum, attempted before direct substitution: when every
+    // term has a determinate finite limit, the limit is their sum. Hoisted ahead
+    // of substitution and L'Hôpital so a convergent special function plus a
+    // vanishing term — e.g. the Si(2x) + cos(2x)/(2x) − 1/(2x) antiderivative of
+    // sin²x/x² — isn't mangled: substitution would fold Si(∞) to a wrong value
+    // and L'Hôpital would differentiate Si into sin(x)/x and substitute ∞. A
+    // divergent term bails, leaving genuine ∞ − ∞ to the machinery below.
+    if (depth < 12 && expr->type_id() == TypeId::Add) {
+        std::vector<Expr> term_limits;
+        bool all_finite = true;
+        for (const auto& t : expr->args()) {
+            Expr tl = limit_impl(t, var, target, depth + 1);
+            if (is_nan(tl) || is_infinity(tl)) { all_finite = false; break; }
+            term_limits.push_back(std::move(tl));
+        }
+        if (all_finite) return simplify(add(std::move(term_limits)));
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
@@ -1341,22 +1359,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             }
             // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
             if (auto v = try_log_limit(expr, var, target, depth)) return *v;
-            // Linearity over a sum: when every term has a determinate finite
-            // limit, the limit is their sum. Direct substitution gives nan when
-            // a single term is an ∞·0 product (e.g. the antiderivative
-            // −x·e^(−x) − e^(−x) at +∞, whose terms each → 0). Bail if any term
-            // diverges, so an ∞ − ∞ cancellation still falls through to L'Hôpital
-            // on the combined fraction.
-            if (expr->type_id() == TypeId::Add) {
-                std::vector<Expr> term_limits;
-                bool all_finite = true;
-                for (const auto& t : expr->args()) {
-                    Expr tl = limit_impl(t, var, target, depth + 1);
-                    if (is_nan(tl) || is_infinity(tl)) { all_finite = false; break; }
-                    term_limits.push_back(std::move(tl));
-                }
-                if (all_finite) return add(std::move(term_limits));
-            }
+            // (Sum linearity for the all-finite case is handled before direct
+            // substitution above; a genuine ∞ − ∞ falls through to L'Hôpital on
+            // the combined fraction.)
             // Determinate product: fold the per-factor limits when there is no
             // genuine 0·∞ conflict (e.g. 2·(…→0) → 0). Direct substitution gives
             // nan when a nested factor's substitution does, even though the
