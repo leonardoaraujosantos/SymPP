@@ -1007,6 +1007,28 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
         }
     }
 
+    // Σ 1/kᵖ over a finite (or symbolic) range is a generalized harmonic number:
+    //   Σ_{k=lo}^{hi} k^(−p) = H_hi^(p) − H_(lo−1)^(p),  p ≥ 1.
+    // The 1-argument harmonic(n) = H_n^(1) is used for p = 1 to match SymPy's
+    // Sum(1/k) = harmonic(n). Requires lo ≥ 1 so k = 0 never enters the range
+    // (the formula would otherwise emit a bogus value at the 1/0 pole). The
+    // divergent hi → ∞ case is handled by the p-series / ζ blocks below, so this
+    // only fires for a non-infinite upper bound.
+    if (hi->type_id() != TypeId::Infinity
+        && is_positive(lo) == std::optional<bool>{true}
+        && expr->type_id() == TypeId::Pow && expr->args()[0] == var
+        && expr->args()[1]->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*expr->args()[1]);
+        if (z.is_negative() && z.fits_long()) {
+            const long p = -z.to_long();  // summand is 1/kᵖ, p ≥ 1
+            auto gen_harmonic = [&](const Expr& n) -> Expr {
+                return p == 1 ? harmonic(n) : harmonic(n, integer(p));
+            };
+            return simplify(gen_harmonic(hi)
+                            - gen_harmonic(lo - integer(1)));
+        }
+    }
+
     // Convergent p-series Σ_{k=1}^∞ 1/k^s = ζ(s) for an integer s ≥ 2. zeta()
     // closes the even cases (ζ(2)=π²/6, …) and keeps odd s as a symbolic ζ(s)
     // (matching SymPy's Sum(1/k**3).doit() = zeta(3)). The divergent harmonic

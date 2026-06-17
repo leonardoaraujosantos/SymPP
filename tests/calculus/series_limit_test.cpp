@@ -793,6 +793,49 @@ TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
     REQUIRE(oracle.equivalent(s->str(), "n*(n+1)*(2*n+1)/6"));
 }
 
+// SUM-HARMONIC-1: Σ 1/kᵖ over a finite/symbolic range is a generalized harmonic
+// number H_hi^(p) − H_(lo−1)^(p) (the 1-argument harmonic(n) for p = 1). These
+// were previously returned unevaluated. Matches SymPy's Sum(1/k**p).doit().
+TEST_CASE("summation: Σ 1/kᵖ → generalized harmonic (SUM-HARMONIC-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    // Σ 1/k = harmonic(n); from 2..n = harmonic(n) − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-1)), k, integer(1), n)->str(), "harmonic(n)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-1)), k, integer(2), n)->str(),
+        "harmonic(n) - 1"));
+
+    // Σ 1/k² = harmonic(n, 2); Σ 1/k³ = harmonic(n, 3).
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), n)->str(),
+        "harmonic(n, 2)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-3)), k, integer(1), n)->str(),
+        "harmonic(n, 3)"));
+
+    // Offset lower bound: Σ_{3}^{n} 1/k² = harmonic(n,2) − 5/4.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(3), n)->str(),
+        "harmonic(n, 2) - Rational(5,4)"));
+
+    // Concrete ranges fold to exact rationals.
+    REQUIRE(summation(pow(k, integer(-1)), k, integer(1), integer(5))
+            == rational(137, 60));
+    REQUIRE(summation(pow(k, integer(-2)), k, integer(1), integer(4))
+            == rational(205, 144));
+
+    // The convergent p-series and the integer power sums are unaffected.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), S::Infinity())->str(),
+        "pi**2/6"));
+    REQUIRE(oracle.equivalent(
+        summation(k, k, integer(1), n)->str(), "n*(n+1)/2"));
+}
+
 TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();

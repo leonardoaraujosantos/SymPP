@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-HARMONIC-1 — Σ 1/kᵖ over a finite range was left unevaluated
+- **Problem:** `summation` closed integer power sums (Faulhaber) and the convergent p-series at
+  ∞ (→ ζ), but a reciprocal power over a finite or symbolic range — `Σ_{k=1}^{n} 1/k` or
+  `Σ 1/k²` — fell through unevaluated, where SymPy returns the generalized harmonic number
+  `harmonic(n)` / `harmonic(n, 2)`.
+- **Fix:** added a block recognizing `1/kᵖ` (a `Pow` of the summation variable with a negative
+  integer exponent) over a non-infinite upper bound: `Σ_{k=lo}^{hi} k^(−p) = H_hi^(p) −
+  H_(lo−1)^(p)`, using the 1-argument `harmonic(n)` for `p = 1` and the 2-argument
+  `harmonic(n, p)` otherwise. Guarded by `lo ≥ 1` so the `k = 0` pole never enters the range.
+  `Σ_{1}^{n} 1/k = harmonic(n)`, `Σ_{2}^{n} 1/k = harmonic(n) − 1`, `Σ_{1}^{n} 1/k² =
+  harmonic(n, 2)`, `Σ_{3}^{n} 1/k² = harmonic(n, 2) − 5/4`, `Σ_{1}^{5} 1/k = 137/60`. The
+  convergent ∞ p-series (ζ) and integer power sums are untouched. Matches SymPy. (The divergent
+  `Σ_{1}^{∞} 1/k = ∞` remains a separate, pre-existing gap — out of scope here.)
+
 ### ONESIDED-1 — no one-sided limits
 - **Problem:** `limit` only computed two-sided limits, so directional limits were unavailable.
   At a pole or discontinuity the two-sided result is the unsigned `zoo` or `nan` — e.g.
