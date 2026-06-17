@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### ATANH-POLE-1 — `atanh(±1)` and `acoth(±1)` were left unevaluated (real poles)
+- **Problem:** `atanh(x) = ½·log((1+x)/(1−x))` has real poles at `x = ±1`, but `atanh(1)`,
+  `atanh(−1)`, `acoth(1)`, `acoth(−1)` stayed symbolic where SymPy returns `±∞`. (The
+  `asech(0)`/`acsch(0)` poles were already handled.)
+- **Fix:** added `atanh(1) = +∞` and `atanh(−1) = −∞` to the `atanh()` builder in
+  `src/functions/hyperbolic.cpp`, before the odd-function branch (which would otherwise
+  emit an unevaluated `−1·Atanh(1)`). `acoth(±1)` follows automatically — `acoth` computes
+  via `atanh` of the reciprocal (`acoth(1) = atanh(1/1) = atanh(1) = ∞`) and its own
+  odd-function branch handles the sign. Interior (`atanh(½)`) and exterior/complex
+  (`atanh(2)`) arguments stay symbolic, matching SymPy.
+
 ### TRIG-COFUNC-1 — `tan(π/2−x)` did not fold to `cot(x)` (half-period co-functions)
 - **Problem:** the `tan`/`cot`/`sec`/`csc` builders reduced an *integer*-π shift
   (`c.get_den()==1`) but not a *half*-period shift (`(m/2)·π`, `m` odd), so the co-function

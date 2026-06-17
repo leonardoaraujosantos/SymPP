@@ -11,6 +11,7 @@
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
@@ -129,6 +130,19 @@ TEST_CASE("atanh: canonical and odd", "[3f][atanh]") {
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);
     REQUIRE(atanh(neg) == mul(S::NegativeOne(), atanh(x)));
+}
+
+// ATANH-POLE-1: atanh(±1) = ±∞ (the real pole, since ½·log((1+x)/(1−x)) → ±∞),
+// and acoth(±1) = ±∞ follows via acoth = atanh of the reciprocal. Matches SymPy.
+TEST_CASE("atanh/acoth: poles at ±1 (ATANH-POLE-1)", "[3f][atanh][acoth][regression]") {
+    REQUIRE(atanh(S::One()) == S::Infinity());
+    REQUIRE(atanh(integer(-1)) == S::NegativeInfinity());
+    REQUIRE(acoth(S::One()) == S::Infinity());
+    REQUIRE(acoth(integer(-1)) == S::NegativeInfinity());
+    // No over-reach: interior and exterior arguments stay symbolic.
+    REQUIRE(atanh(rational(1, 2))->type_id() == TypeId::Function);
+    REQUIRE(atanh(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(acoth(integer(2))->type_id() == TypeId::Function);
 }
 
 // ----- Numeric evalf ---------------------------------------------------------

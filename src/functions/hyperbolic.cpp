@@ -456,6 +456,11 @@ Expr acosh(const Expr& arg) {
 
 Expr atanh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // Pole at ±1: atanh(x) = ½·log((1+x)/(1−x)) → ±∞ as x → ±1. Handled before the
+    // odd-function branch, which would otherwise emit −1·Atanh(1) unevaluated.
+    // (acoth(±1) = ±∞ follows via acoth = atanh of the reciprocal.)
+    if (arg == S::One()) return S::Infinity();
+    if (arg == S::NegativeOne()) return S::NegativeInfinity();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_atanh, arg);
     }
