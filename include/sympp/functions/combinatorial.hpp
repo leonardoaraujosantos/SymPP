@@ -202,6 +202,7 @@ public:
 class SYMPP_EXPORT DivisorSigma final : public Function {
 public:
     explicit DivisorSigma(Expr arg);
+    DivisorSigma(Expr n, Expr k);  // σ_k(n) = Σ_{d|n} d^k
     [[nodiscard]] FunctionId function_id() const noexcept override {
         return FunctionId::DivisorSigma;
     }
@@ -351,6 +352,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr mobius(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& n, const Expr& m);
 [[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);

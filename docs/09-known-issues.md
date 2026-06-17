@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### DIVSIGMA-GEN-1 — generalized divisor function `divisor_sigma(n, k)` was unsupported
+- **Problem:** SymPP's `divisor_sigma` was single-argument (σ₁) only, so the generalized
+  divisor function `σ_k(n) = Σ_{d|n} d^k` parsed as a 2-arg unknown function and stayed
+  unevaluated where SymPy returns e.g. `divisor_sigma(6, 2) = 50`.
+- **Fix:** added a 2-argument `divisor_sigma(n, k)` builder and a 2-arg `DivisorSigma`
+  constructor (arity-dispatched `rebuild`), plus the `two_arg_funcs` parser entry — the same
+  variable-arity pattern as HARMONIC-GEN-1. It computes
+  `σ_k(n) = ∏_p (p^(k(eᵢ+1)) − 1)/(p^k − 1)` from the factorization for a positive integer
+  `n` and non-negative integer order `k` (`k = 0` → divisor count, `k = 1` reuses the 1-arg
+  σ₁); symbolic arguments stay unevaluated. `σ₂(6)=50`, `σ₃(28)=25112`, `σ₀(12)=6`. The
+  1-arg form is unchanged. Matches SymPy.
+
 ### HARMONIC-GEN-1 — generalized harmonic `harmonic(n, m)` was unsupported
 - **Problem:** SymPP's `harmonic` was single-argument only, so the generalized harmonic
   number `harmonic(n, m) = Σ_{k=1}^n k^(−m)` parsed as a 2-arg unknown function and stayed

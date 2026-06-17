@@ -380,11 +380,19 @@ TEST_CASE("mobius/divisor_count/divisor_sigma (ARITH-FN-1)",
     REQUIRE(divisor_sigma(integer(28)) == integer(56));  // perfect
     // Cross-check a larger value against SymPy.
     REQUIRE(oracle.equivalent(divisor_sigma(integer(720))->str(), "2418"));
+    // DIVSIGMA-GEN-1: generalized σ_k(n) = Σ_{d|n} d^k.
+    REQUIRE(divisor_sigma(integer(6), integer(2)) == integer(50));   // 1+4+9+36
+    REQUIRE(divisor_sigma(integer(10), integer(2)) == integer(130));
+    REQUIRE(divisor_sigma(integer(28), integer(3)) == integer(25112));
+    REQUIRE(divisor_sigma(integer(12), integer(0)) == integer(6));   // = divisor count
+    REQUIRE(divisor_sigma(integer(6), integer(1))
+            == divisor_sigma(integer(6)));                           // σ₁ = 1-arg
     // Symbolic / non-positive arguments stay unevaluated.
     auto n = symbol("n");
     REQUIRE(mobius(n)->type_id() == TypeId::Function);
     REQUIRE(divisor_count(integer(0))->type_id() == TypeId::Function);
     REQUIRE(divisor_sigma(integer(-4))->type_id() == TypeId::Function);
+    REQUIRE(divisor_sigma(n, integer(2))->type_id() == TypeId::Function);
 }
 
 // HARMONIC-FACT2-1: harmonic(n) = Σ 1/k (a rational) and factorial2(n) = n!!

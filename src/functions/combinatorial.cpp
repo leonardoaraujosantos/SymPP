@@ -412,7 +412,12 @@ Expr divisor_count(const Expr& arg) {
 DivisorSigma::DivisorSigma(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::DivisorSigma);
 }
+DivisorSigma::DivisorSigma(Expr n, Expr k)
+    : Function(std::vector<Expr>{std::move(n), std::move(k)}) {
+    compute_hash(FunctionId::DivisorSigma);
+}
 Expr DivisorSigma::rebuild(std::vector<Expr> new_args) const {
+    if (new_args.size() == 2) return divisor_sigma(new_args[0], new_args[1]);
     return divisor_sigma(new_args[0]);
 }
 std::optional<bool> DivisorSigma::ask(AssumptionKey k) const noexcept {
@@ -435,6 +440,36 @@ Expr divisor_sigma(const Expr& arg) {
         return make<Integer>(std::move(result));
     }
     return make<DivisorSigma>(arg);
+}
+
+// σ_k(n) = Σ_{d|n} d^k = ∏_p (p^(k(eᵢ+1)) − 1)/(p^k − 1) for k ≥ 1; σ_0(n) =
+// ∏ (eᵢ+1) is the divisor count. Evaluated for a positive integer n and a
+// non-negative integer order k; symbolic otherwise.
+Expr divisor_sigma(const Expr& n, const Expr& k) {
+    if (n->type_id() == TypeId::Integer && k->type_id() == TypeId::Integer) {
+        const auto& zn = static_cast<const Integer&>(*n);
+        const auto& zk = static_cast<const Integer&>(*k);
+        if (zn.is_positive() && !zk.is_negative() && zk.fits_long()) {
+            const unsigned long ek = static_cast<unsigned long>(zk.to_long());
+            if (ek == 1) return divisor_sigma(n);  // σ₁ — reuse the 1-arg path
+            mpz_class result = 1;
+            for (const auto& [p, e] : factorize(zn.value())) {
+                if (ek == 0) {
+                    result *= (e + 1);  // divisor count
+                    continue;
+                }
+                mpz_class pk;
+                mpz_pow_ui(pk.get_mpz_t(), p.get_mpz_t(), ek);  // p^k
+                mpz_class num;
+                mpz_pow_ui(num.get_mpz_t(), p.get_mpz_t(),
+                           ek * static_cast<unsigned long>(e + 1));  // p^(k(e+1))
+                num -= 1;
+                result *= num / (pk - 1);
+            }
+            return make<Integer>(std::move(result));
+        }
+    }
+    return make<DivisorSigma>(n, k);
 }
 
 // ============================================================================

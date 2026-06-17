@@ -204,6 +204,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"polylog", &polylog},
         {"polygamma", &polygamma},
         {"harmonic", static_cast<TwoArgFn>(&harmonic)},  // generalized Hₙ⁽ᵐ⁾
+        {"divisor_sigma", static_cast<TwoArgFn>(&divisor_sigma)},  // σ_k(n)
     };
     return table;
 }
