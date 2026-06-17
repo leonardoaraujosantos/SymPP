@@ -38,6 +38,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Even) == true) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;
+            if (direct(e, AssumptionKey::Prime) == true) return true;
             // A (nonzero) imaginary value is not real.
             if (direct(e, AssumptionKey::Imaginary) == true) return false;
             return std::nullopt;
@@ -47,9 +48,10 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Integer: {
-            // even / odd ⇒ integer
+            // even / odd / prime ⇒ integer
             if (direct(e, AssumptionKey::Even) == true) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;
+            if (direct(e, AssumptionKey::Prime) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Nonzero: {
@@ -57,6 +59,12 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Negative) == true) return true;
             if (direct(e, AssumptionKey::Zero) == false) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;  // odd ⇒ ≠ 0
+            if (direct(e, AssumptionKey::Prime) == true) return true;  // prime ≥ 2
+            return std::nullopt;
+        }
+        case AssumptionKey::Prime: {
+            // A non-integer is never prime; otherwise primality is a direct fact.
+            if (direct(e, AssumptionKey::Integer) == false) return false;
             return std::nullopt;
         }
         case AssumptionKey::Nonnegative: {

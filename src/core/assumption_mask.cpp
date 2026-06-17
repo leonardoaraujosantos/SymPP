@@ -16,6 +16,7 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Finite: return finite;
         case AssumptionKey::Even: return even;
         case AssumptionKey::Odd: return odd;
+        case AssumptionKey::Prime: return prime;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -64,6 +65,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Finite: finite = value; break;
         case AssumptionKey::Even: even = value; break;
         case AssumptionKey::Odd: odd = value; break;
+        case AssumptionKey::Prime: prime = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -84,7 +86,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
-           && !complex_ && !imaginary;
+           && !complex_ && !imaginary && !prime;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -109,6 +111,7 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(odd));
     mix(encode(complex_));
     mix(encode(imaginary));
+    mix(encode(prime));
     return h;
 }
 
@@ -190,10 +193,18 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (m.even == false && !m.odd) m.odd = true;
             if (m.odd == false && !m.even) m.even = true;
         }
-        // ¬integer => ¬even, ¬odd
+        // ¬integer => ¬even, ¬odd, ¬prime
         if (m.integer == false) {
             if (!m.even) m.even = false;
             if (!m.odd) m.odd = false;
+            if (!m.prime) m.prime = false;
+        }
+        // prime => integer, positive (≥ 2). The positive/integer closures above
+        // then cascade to real, finite, nonzero, nonnegative, rational. Note a
+        // prime is NOT necessarily odd (2 is prime and even), so no parity rule.
+        if (m.prime == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.positive) m.positive = true;
         }
         // integer => rational => real
         if (m.integer == true) {

@@ -182,6 +182,9 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             const bool sum_even = (odd_terms % 2) == 0;
             return (k == AssumptionKey::Even) ? sum_even : !sum_even;
         }
+        case AssumptionKey::Prime:
+            // Primality of a symbolic sum isn't decided structurally.
+            return std::nullopt;
     }
     return std::nullopt;
 }

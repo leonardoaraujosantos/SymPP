@@ -40,6 +40,10 @@ enum class AssumptionKey : std::uint8_t {
     Complex,       // a finite complex number (real ⇒ complex, imaginary ⇒ complex)
     Imaginary,     // a nonzero real multiple of i (implies complex, ¬real, finite;
                    // 0 is NOT imaginary — it is real)
+
+    // Number theory (integers only).
+    Prime,         // a prime ≥ 2 (implies integer, positive; NOT odd — 2 is prime
+                   // and even). ¬integer ⇒ ¬prime.
 };
 
 }  // namespace sympp

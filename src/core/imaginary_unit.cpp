@@ -28,6 +28,7 @@ std::optional<bool> ImaginaryUnit::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Zero:
         case AssumptionKey::Even:
         case AssumptionKey::Odd:
+        case AssumptionKey::Prime:
             return false;
     }
     return std::nullopt;

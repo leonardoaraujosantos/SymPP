@@ -66,6 +66,9 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_odd(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Odd);
 }
+[[nodiscard]] inline std::optional<bool> is_prime(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Prime);
+}
 [[nodiscard]] inline std::optional<bool> is_imaginary(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Imaginary);
 }

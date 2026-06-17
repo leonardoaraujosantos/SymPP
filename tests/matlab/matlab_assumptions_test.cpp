@@ -97,6 +97,20 @@ TEST_CASE("matlab::refresh on unregistered symbol returns input unchanged",
 
 TEST_CASE("matlab::assume rejects unsupported property",
           "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xalg");
+    REQUIRE_THROWS_AS(matlab::assume(x, "algebraic"), std::runtime_error);
+}
+
+TEST_CASE("matlab::assume supports the prime property",
+          "[15m][matlab][assumptions]") {
     auto x = matlab::sym("xprime");
-    REQUIRE_THROWS_AS(matlab::assume(x, "prime"), std::runtime_error);
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "prime");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "prime"));
+    REQUIRE(is_prime(x) == true);
+    REQUIRE(is_integer(x) == true);   // prime ⇒ integer, positive
+    REQUIRE(is_positive(x) == true);
+    matlab::clearAssumptions(x);
 }

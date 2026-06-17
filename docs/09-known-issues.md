@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### PRIME-1 — no `prime` assumption predicate
+- **Problem:** the assumption vocabulary had no `prime` predicate. `is_prime(7)` was
+  unanswerable, and a symbol could not be declared prime (SymPy: `Symbol('p', prime=True)`,
+  `Q.prime`, `Integer(7).is_prime is True`).
+- **Fix:** added `AssumptionKey::Prime` and wired it through the whole stack: an
+  `AssumptionMask::prime` field with a `set_prime` builder; closure rules `prime ⇒ integer ∧
+  positive` (which cascade to real/finite/nonzero/nonnegative/rational) and `¬integer ⇒
+  ¬prime` — deliberately *no* parity rule, since 2 is prime and even; `Integer::ask`/
+  `Rational::ask` decide concrete primality via `mpz_probab_prime_p` (values `< 2` → False);
+  every other node answers structurally (`I`/π/∞ → False, `Float`/`Mul`/`Add`/`Pow` →
+  Unknown); a generic-layer derive case (`¬integer ⇒ ¬prime`) and forward derivations
+  (`prime ⇒ integer/nonzero/real`); an `is_prime(e)` query helper; and the MATLAB surface
+  (`assume(x,"prime")`, `assumptions()` listing). `is_prime(2/3/11)=True`,
+  `is_prime(1/4/8/0/−3)=False`; a declared-prime symbol is integer/positive/nonzero but of
+  unknown parity. Matches SymPy.
+
 ### DIVSIGMA-GEN-1 — generalized divisor function `divisor_sigma(n, k)` was unsupported
 - **Problem:** SymPP's `divisor_sigma` was single-argument (σ₁) only, so the generalized
   divisor function `σ_k(n) = Σ_{d|n} d^k` parsed as a 2-arg unknown function and stayed

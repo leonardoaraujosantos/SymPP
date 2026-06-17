@@ -630,3 +630,42 @@ TEST_CASE("AssumptionMask: real => finite (ASSUME-REALFINITE-1)",
     REQUIRE(is_finite(exp(r)) == T);
     REQUIRE(is_nonzero(exp(r)) == T);
 }
+
+// PRIME-1: the `prime` predicate. Concrete integers answer via GMP primality
+// (n < 2 → False); a declared-prime symbol closes to integer ∧ positive ∧
+// nonzero ∧ real ∧ rational, but NOT odd (2 is prime and even). A non-integer
+// is never prime. Matches SymPy's Q.prime / Symbol(..., prime=True).
+TEST_CASE("AssumptionMask: prime predicate (PRIME-1)", "[2a][assumptions]") {
+    using sympp::is_prime;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    // Concrete integers.
+    REQUIRE(is_prime(integer(2)) == T);
+    REQUIRE(is_prime(integer(3)) == T);
+    REQUIRE(is_prime(integer(11)) == T);
+    REQUIRE(is_prime(integer(1)) == F);
+    REQUIRE(is_prime(integer(4)) == F);
+    REQUIRE(is_prime(integer(8)) == F);
+    REQUIRE(is_prime(integer(0)) == F);
+    REQUIRE(is_prime(integer(-3)) == F);
+
+    // Declared-prime symbol: prime ⇒ integer, positive, nonzero, real, rational.
+    auto p = symbol("p", AssumptionMask{}.set_prime(true));
+    REQUIRE(is_prime(p) == T);
+    REQUIRE(is_integer(p) == T);
+    REQUIRE(is_positive(p) == T);
+    REQUIRE(is_nonzero(p) == T);
+    REQUIRE(is_real(p) == T);
+    REQUIRE(is_rational(p) == T);
+    REQUIRE(is_even(p) == U);  // 2 is prime and even → parity is not pinned
+    REQUIRE(is_odd(p) == U);
+
+    // Non-integers are never prime; an integer-unknown symbol stays Unknown.
+    auto q = symbol("q", AssumptionMask{}.set_rational(true).set_integer(false));
+    REQUIRE(is_prime(q) == F);
+    auto x = symbol("x", AssumptionMask{}.set_real(true));
+    REQUIRE(is_prime(x) == U);
+    REQUIRE(is_prime(S::I()) == F);
+}

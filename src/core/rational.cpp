@@ -86,6 +86,11 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
             return is_int && mpz_even_p(value_.get_num_mpz_t()) != 0;
         case AssumptionKey::Odd:
             return is_int && mpz_odd_p(value_.get_num_mpz_t()) != 0;
+        case AssumptionKey::Prime: {
+            // Only an integer-valued rational (den == 1) can be prime.
+            if (!is_int || value_ < 2) return false;
+            return mpz_probab_prime_p(value_.get_num_mpz_t(), 25) != 0;
+        }
     }
     return std::nullopt;
 }
