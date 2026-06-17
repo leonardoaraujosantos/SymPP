@@ -824,6 +824,63 @@ struct Growth {
     return std::nullopt;
 }
 
+// A super-power var^(c·var) (c a nonzero rational) dominates the factorial/gamma
+// class: n^n ≫ n!. When the expression is exactly such a super-power times a
+// single factorial(var) / gamma(var+1) raised to ±1 (plus constants), the
+// super-power's sign decides the limit at +∞ — ∞ when it sits in the numerator,
+// 0 in the denominator. Restricted to a lone factorial of the matching variable,
+// so gamma(2n) (which outgrows n^n) is left to other methods rather than given a
+// wrong answer. Closes n!/n^n → 0, n^n/n! → ∞.
+[[nodiscard]] std::optional<Expr> superpow_vs_factorial(const Expr& expr,
+                                                        const Expr& var) {
+    Expr t = together(expr);
+    std::vector<Expr> factors;
+    if (t->type_id() == TypeId::Mul) {
+        for (const auto& f : t->args()) factors.push_back(f);
+    } else {
+        factors.push_back(t);
+    }
+    int s_pow = 0;  // sign of the super-power's exponent coefficient
+    bool has_factorial = false;
+    for (const auto& f : factors) {
+        if (!has(f, var)) continue;  // constant factor — dominated
+        // Super-power var^(c·var).
+        if (f->type_id() == TypeId::Pow && f->args()[0] == var
+            && has(f->args()[1], var)) {
+            Expr coef = simplify(f->args()[1] / var);  // c when exp = c·var
+            if (has(coef, var) || !is_number(coef)) return std::nullopt;
+            const int sc = is_positive(coef) == std::optional<bool>{true}  ? 1
+                           : is_negative(coef) == std::optional<bool>{true} ? -1
+                                                                            : 0;
+            if (sc == 0 || s_pow != 0) return std::nullopt;
+            s_pow = sc;
+            continue;
+        }
+        // factorial(var) or gamma(var+1), optionally inverted.
+        Expr base = f;
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+            base = f->args()[0];
+        }
+        if (base->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*base);
+            const auto id = fn.function_id();
+            if (id == FunctionId::Factorial && fn.args().size() == 1
+                && fn.args()[0] == var) {
+                has_factorial = true;
+                continue;
+            }
+            if (id == FunctionId::Gamma && fn.args().size() == 1
+                && simplify(fn.args()[0] - integer(1)) == var) {
+                has_factorial = true;
+                continue;
+            }
+        }
+        return std::nullopt;  // some other var-dependent factor — bail
+    }
+    if (s_pow == 0 || !has_factorial) return std::nullopt;
+    return s_pow > 0 ? Expr{S::Infinity()} : Expr{S::Zero()};
+}
+
 // True if e contains a non-integer power of a var-dependent base (a radical such
 // as √(x²+1) = (x²+1)^(1/2)), which the conjugate rationalization targets.
 [[nodiscard]] bool has_var_radical(const Expr& e, const Expr& var) {
@@ -1254,6 +1311,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *r;
             }
         }
+    }
+
+    // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
+    if (target == S::Infinity() && count_gamma_factorial(expr) > 0) {
+        if (auto r = superpow_vs_factorial(expr, var)) return *r;
     }
 
     // Gamma/factorial at +∞. Direct substitution gives gamma(∞)/gamma(∞), which

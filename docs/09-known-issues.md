@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SUPERPOW-1 — n!/nⁿ and nⁿ/n! returned nan
+- **Problem:** `limit(n!/nⁿ, n, ∞)` is `0` and `limit(nⁿ/n!, n, ∞)` is `∞`, but both returned
+  `nan`. The super-power `nⁿ` (which grows faster than `n!`) is outside the limit engine's growth
+  hierarchy (gamma/factorial ≫ exp ≫ poly ≫ log), so a factorial-vs-`nⁿ` ratio could not be
+  classified. (`2ⁿ/n!` and `n!/2ⁿ` already worked — exponential is in the hierarchy.)
+- **Fix:** added a targeted handler `superpow_vs_factorial`. When an expression at `+∞` is a
+  super-power `n^(c·n)` (`c` a nonzero rational) times a single `factorial(n)` / `gamma(n+1)`
+  raised to ±1 (plus constants), the super-power dominates, so its sign decides the limit — `∞`
+  when it sits in the numerator, `0` in the denominator. `n!/nⁿ = 0`, `nⁿ/n! = ∞`,
+  `n!/n^(2n) = 0`, `n^(2n)/n! = ∞`, `Γ(n+1)/nⁿ = 0`, with a constant prefactor carried through.
+  Restricted to a **lone** factorial of the matching variable, so `Γ(2n)` (which outgrows `nⁿ`)
+  is left unevaluated rather than given a wrong answer. Matches SymPy. (The Stirling-asymptotics
+  limit `(n!)^{1/n}/n → 1/e` needs `loggamma` expansions and remains a separate gap.)
+
 ### SIMP-LOGSUM-1 — sums of numeric logarithms were not combined
 - **Problem:** `simplify(log(2) + log(3) − log(6))` returned the input unchanged instead of `0`,
   and `log(2) + log(3)` was not folded to `log(6)`. SymPP had a `log(b)/log(a)` ratio rule but no

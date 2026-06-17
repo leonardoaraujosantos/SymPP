@@ -591,6 +591,39 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
             == rational(1, 12));
 }
 
+// LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
+// (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
+// because n^n is outside the growth hierarchy. The handler is restricted to a
+// lone factorial of the matching variable, so gamma(2n) (which outgrows n^n) is
+// left unevaluated rather than given a wrong answer. Matches SymPy.
+TEST_CASE("limit: super-power vs factorial (LIMIT-SUPERPOW-1)",
+          "[6][limit][infinity]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    auto nton = [&](const Expr& e) { return pow(n, e); };  // n^e
+
+    // n!/n^n → 0, n^n/n! → ∞.
+    REQUIRE(limit(factorial(n) * nton(mul(S::NegativeOne(), n)), n, oo)
+            == S::Zero());
+    REQUIRE(limit(nton(n) * pow(factorial(n), integer(-1)), n, oo) == oo);
+    // gamma(n+1) = n! behaves the same.
+    REQUIRE(limit(gamma(n + integer(1)) * nton(mul(S::NegativeOne(), n)), n, oo)
+            == S::Zero());
+    REQUIRE(limit(nton(n) * pow(gamma(n + integer(1)), integer(-1)), n, oo)
+            == oo);
+    // A constant prefactor and a larger super-power are handled.
+    REQUIRE(limit(integer(2) * factorial(n) * nton(mul(S::NegativeOne(), n)), n,
+                  oo)
+            == S::Zero());
+    REQUIRE(limit(nton(integer(2) * n) * pow(factorial(n), integer(-1)), n, oo)
+            == oo);
+    // Safety: gamma(2n) outgrows n^n, so the handler must not claim 0 — it
+    // leaves the limit unevaluated (nan) rather than giving a wrong answer.
+    REQUIRE(limit(gamma(integer(2) * n) * nton(mul(S::NegativeOne(), n)), n, oo)
+                ->type_id()
+            == TypeId::NaN);
+}
+
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental
 // subleading term, resolved by the reciprocal substitution x = 1/t → t → 0 (where
 // the series/L'Hôpital machinery applies), guarded by a numeric convergence check
