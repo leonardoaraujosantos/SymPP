@@ -936,3 +936,46 @@ TEST_CASE("Add/Mul: algebraic field closure (ALGCLOSURE-1)",
     // A plain symbolic sum stays Unknown.
     REQUIRE(is_algebraic(symbol("x") + symbol("y")) == U);
 }
+
+// ALGCLOSURE-POW-1: a rational power of an algebraic number is algebraic
+// (radicals: sqrt(2) = 2^(1/2)). The 0^negative case is guarded by requiring a
+// nonnegative exponent or a nonzero base. A transcendental base to a nonzero
+// rational power is transcendental. Previously Pow returned Unknown for these.
+// Matches SymPy.
+TEST_CASE("Pow: algebraic of rational power (ALGCLOSURE-POW-1)",
+          "[2b][assumptions][algebraic]") {
+    using sympp::is_algebraic;
+    using sympp::is_transcendental;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    auto a = symbol("a", AssumptionMask{}.set_algebraic(true));
+    auto anz = symbol("anz", AssumptionMask{}.set_algebraic(true).set_nonzero(true));
+    auto tr = symbol("tr", AssumptionMask{}.set_transcendental(true));
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+
+    // Radicals and rational powers of algebraic numbers.
+    REQUIRE(is_algebraic(sqrt(integer(2))) == T);          // 2^(1/2)
+    REQUIRE(is_algebraic(pow(integer(2), rational(1, 3))) == T);
+    REQUIRE(is_algebraic(pow(a, rational(3, 2))) == T);
+    REQUIRE(is_algebraic(pow(a, integer(2))) == T);
+
+    // 0^negative guard: a might be zero ⇒ Unknown; a nonzero base ⇒ algebraic.
+    REQUIRE(is_algebraic(pow(a, rational(-1, 2))) == U);
+    REQUIRE(is_algebraic(pow(anz, rational(-1, 2))) == T);
+
+    // A symbolic integer exponent could be negative with a possibly-zero base.
+    REQUIRE(is_algebraic(pow(a, n)) == U);
+
+    // Transcendental base, nonzero rational exponent ⇒ transcendental.
+    REQUIRE(is_algebraic(pow(tr, integer(2))) == F);
+    REQUIRE(is_transcendental(pow(tr, integer(2))) == T);
+    REQUIRE(is_transcendental(pow(tr, rational(1, 2))) == T);
+
+    // Algebraic base, transcendental exponent ⇒ Unknown (Gelfond out of scope).
+    REQUIRE(is_algebraic(pow(integer(2), tr)) == U);
+
+    // Composition: (1 + sqrt(2))^3 is algebraic via Add-closure then Pow.
+    REQUIRE(is_algebraic(pow(integer(1) + sqrt(integer(2)), integer(3))) == T);
+}

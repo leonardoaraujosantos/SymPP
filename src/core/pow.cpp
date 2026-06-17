@@ -213,9 +213,33 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             // Primality / compositeness of a symbolic power isn't decided
             // structurally.
             return std::nullopt;
+        case AssumptionKey::Algebraic: {
+            // algebraic base ^ rational exponent ⇒ algebraic (radicals, rational
+            // powers). Guard 0^negative: require a nonnegative exponent or a
+            // nonzero base.
+            if (base->ask(AssumptionKey::Algebraic) == true
+                && exp->ask(AssumptionKey::Rational) == true
+                && (exp->ask(AssumptionKey::Nonnegative) == true
+                    || base->ask(AssumptionKey::Nonzero) == true)) {
+                return true;
+            }
+            // transcendental base ^ nonzero rational exponent ⇒ transcendental.
+            if (base->ask(AssumptionKey::Transcendental) == true
+                && exp->ask(AssumptionKey::Rational) == true
+                && exp->ask(AssumptionKey::Nonzero) == true) {
+                return false;
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Transcendental: {
+            if (base->ask(AssumptionKey::Transcendental) == true
+                && exp->ask(AssumptionKey::Rational) == true
+                && exp->ask(AssumptionKey::Nonzero) == true) {
+                return true;
+            }
+            return std::nullopt;
+        }
         case AssumptionKey::Irrational:
-        case AssumptionKey::Algebraic:
-        case AssumptionKey::Transcendental:
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.

@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ALGCLOSURE-POW-1 — Pow did not recognize algebraic radicals
+- **Problem:** a rational power of an algebraic number is algebraic (e.g. `sqrt(2) = 2^(1/2)`),
+  but `Pow` returned Unknown for `algebraic`/`transcendental`, so `is_algebraic(sqrt(2))` and
+  `is_algebraic(a**Rational(3,2))` were Unknown where SymPy returns True.
+- **Fix:** added rules to the `Pow` assumption handler. An algebraic base raised to a rational
+  exponent is algebraic, guarding the `0^negative` case by requiring a nonnegative exponent or
+  a nonzero base. A transcendental base raised to a nonzero rational exponent is transcendental
+  (hence ¬algebraic). `is_algebraic(2^(1/2))=True`, `is_algebraic(a^(3/2))=True`,
+  `is_algebraic(anz^(-1/2))=True` for nonzero algebraic `anz`, `is_algebraic(a^(-1/2))=None`
+  (base may be zero), `is_transcendental(t^2)=True`; and `(1 + sqrt(2))^3` is recognized as
+  algebraic by composing with the Add-closure rule (ALGCLOSURE-1). The exotic
+  Gelfond–Schneider case `2^sqrt(2)` (algebraic^(algebraic irrational) ⇒ transcendental)
+  remains Unknown — out of scope. Matches SymPy on the common cases.
+
 ### ALGCLOSURE-1 — Add/Mul did not propagate algebraic/transcendental status
 - **Problem:** the algebraic numbers form a field (closed under +, −, ×), but `Add` and `Mul`
   returned Unknown for `algebraic`/`transcendental`. So `is_algebraic(a + b)` and
