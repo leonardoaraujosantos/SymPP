@@ -399,6 +399,16 @@ TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
     REQUIRE(harmonic(integer(1)) == integer(1));
     REQUIRE(oracle.equivalent(harmonic(integer(5))->str(), "137/60"));
     REQUIRE(oracle.equivalent(harmonic(integer(10))->str(), "7381/2520"));
+    // HARMONIC-GEN-1: generalized harmonic Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m).
+    REQUIRE(oracle.equivalent(harmonic(integer(5), integer(2))->str(),
+                              "5269/3600"));
+    REQUIRE(oracle.equivalent(harmonic(integer(4), integer(3))->str(),
+                              "2035/1728"));
+    REQUIRE(harmonic(integer(5), integer(1)) == harmonic(integer(5)));  // m=1
+    REQUIRE(harmonic(integer(3), integer(0)) == integer(3));            // Σ 1
+    REQUIRE(harmonic(integer(3), integer(-1)) == integer(6));           // Σ k
+    // Symbolic 2-arg stays unevaluated.
+    REQUIRE(harmonic(symbol("n"), integer(2))->type_id() == TypeId::Function);
     // factorial2 n!!.
     REQUIRE(factorial2(integer(0)) == integer(1));
     REQUIRE(factorial2(integer(-1)) == integer(1));

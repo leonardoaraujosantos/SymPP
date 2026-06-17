@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### HARMONIC-GEN-1 — generalized harmonic `harmonic(n, m)` was unsupported
+- **Problem:** SymPP's `harmonic` was single-argument only, so the generalized harmonic
+  number `harmonic(n, m) = Σ_{k=1}^n k^(−m)` parsed as a 2-arg unknown function and stayed
+  unevaluated where SymPy returns e.g. `harmonic(5, 2) = 5269/3600`.
+- **Fix:** added a 2-argument `harmonic(n, m)` builder and a 2-arg `Harmonic` constructor
+  (the `Harmonic` node now holds 1 or 2 args, with `rebuild` dispatching on arity), plus the
+  `two_arg_funcs` parser entry. It sums `k^(−m)` exactly as a rational for a non-negative
+  integer `n` and a bounded integer `m` (`m = 1` is the ordinary `Hₙ`, `m ≤ 0` a power sum);
+  symbolic arguments stay unevaluated. `harmonic(5,2)=5269/3600`, `harmonic(3,−1)=6`. The
+  1-arg form is unchanged. Matches SymPy.
+
 ### LUCAS-1 — Lucas numbers `lucas(n)` were unsupported (new function)
 - **Problem:** SymPP had `fibonacci`/`catalan`/`bernoulli`/`harmonic` but no `lucas`, so
   `lucas(5)` parsed as an unknown function and stayed unevaluated where SymPy returns `11`.

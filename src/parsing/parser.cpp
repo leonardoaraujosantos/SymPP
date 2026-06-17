@@ -203,6 +203,7 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"FallingFactorial", &falling_factorial},
         {"polylog", &polylog},
         {"polygamma", &polygamma},
+        {"harmonic", static_cast<TwoArgFn>(&harmonic)},  // generalized Hₙ⁽ᵐ⁾
     };
     return table;
 }

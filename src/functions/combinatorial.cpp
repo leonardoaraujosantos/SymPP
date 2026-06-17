@@ -444,7 +444,12 @@ Expr divisor_sigma(const Expr& arg) {
 Harmonic::Harmonic(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::Harmonic);
 }
+Harmonic::Harmonic(Expr n, Expr m)
+    : Function(std::vector<Expr>{std::move(n), std::move(m)}) {
+    compute_hash(FunctionId::Harmonic);
+}
 Expr Harmonic::rebuild(std::vector<Expr> new_args) const {
+    if (new_args.size() == 2) return harmonic(new_args[0], new_args[1]);
     return harmonic(new_args[0]);
 }
 std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
@@ -472,6 +477,34 @@ Expr harmonic(const Expr& arg) {
         return rational(sum.get_num(), sum.get_den());
     }
     return make<Harmonic>(arg);
+}
+
+// Generalized harmonic number Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m). For m = 1 it is the
+// ordinary Hₙ; m ≤ 0 gives a power sum. Evaluated exactly as a rational when n
+// is a non-negative integer and m a (bounded) integer; symbolic otherwise.
+Expr harmonic(const Expr& n, const Expr& m) {
+    if (n->type_id() == TypeId::Integer && m->type_id() == TypeId::Integer) {
+        const auto& zn = static_cast<const Integer&>(*n);
+        const auto& zm = static_cast<const Integer&>(*m);
+        if (!zn.is_negative() && zn.fits_long() && zm.fits_long()) {
+            long N = zn.to_long();
+            long M = zm.to_long();
+            if (N <= 100'000 && M >= -1000 && M <= 1000) {
+                mpq_class sum(0);
+                for (long k = 1; k <= N; ++k) {
+                    mpz_class kp;
+                    mpz_class base(k);
+                    mpz_pow_ui(kp.get_mpz_t(), base.get_mpz_t(),
+                               static_cast<unsigned long>(M >= 0 ? M : -M));
+                    // 1/kᴹ for M ≥ 0, else k^(−M) = k^|M|.
+                    sum += (M >= 0) ? mpq_class(mpz_class(1), kp) : mpq_class(kp);
+                }
+                sum.canonicalize();
+                return rational(sum.get_num(), sum.get_den());
+            }
+        }
+    }
+    return make<Harmonic>(n, m);
 }
 
 Factorial2::Factorial2(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {

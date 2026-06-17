@@ -217,6 +217,7 @@ public:
 class SYMPP_EXPORT Harmonic final : public Function {
 public:
     explicit Harmonic(Expr arg);
+    Harmonic(Expr n, Expr m);  // generalized Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m)
     [[nodiscard]] FunctionId function_id() const noexcept override {
         return FunctionId::Harmonic;
     }
@@ -351,6 +352,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& n, const Expr& m);
 [[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr bernoulli(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr euler(const Expr& arg);
