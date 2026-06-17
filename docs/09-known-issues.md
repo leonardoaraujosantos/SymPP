@@ -16,6 +16,15 @@ truth and links the issue number.
 
 ## Fixed
 
+### ARG-ZERO-1 — `arg(0)` was left unevaluated instead of `nan`
+- **Problem:** `arg(0)` stayed an unevaluated `Arg` node — the builder handled positive
+  (`0`), negative (`π`), and complex (`atan2`) but not zero, whose argument is undefined.
+  SymPy returns `nan`.
+- **Fix:** added `if (arg == S::Zero()) return S::NaN();` at the top of `arg_()`
+  (`src/functions/miscellaneous.cpp`) — the origin has no well-defined argument. A generic
+  symbol still stays unevaluated (no spurious nan). Closes the pole/undefined-value cluster
+  (gamma, factorial, polygamma/digamma, loggamma, arg). Matches SymPy.
+
 ### LOGGAMMA-VALUES-1 — `loggamma` of positive args and poles was left unevaluated
 - **Problem:** `loggamma` evaluated only `loggamma(1)=loggamma(2)=0`. Positive integers
   (`loggamma(3)`, `loggamma(5)`), positive half-integers (`loggamma(½)`, `loggamma(3/2)`),

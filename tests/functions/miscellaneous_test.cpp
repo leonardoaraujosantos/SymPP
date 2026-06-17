@@ -453,6 +453,13 @@ TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     REQUIRE(arg_(integer(5)) == S::Zero());
 }
 
+// ARG-ZERO-1: arg(0) is undefined (the origin has no argument) → nan, as SymPy.
+TEST_CASE("arg_: arg(0) = nan (ARG-ZERO-1)", "[3h][arg][regression]") {
+    REQUIRE(arg_(S::Zero())->type_id() == TypeId::NaN);
+    // A generic symbol still stays unevaluated (no spurious nan).
+    REQUIRE(arg_(symbol("x"))->type_id() == TypeId::Function);
+}
+
 // ARG-CX-1: arg(z) = atan2(im z, re z) for a complex value.
 TEST_CASE("arg_: complex values via atan2 (ARG-CX-1)",
           "[3h][arg][oracle][regression]") {

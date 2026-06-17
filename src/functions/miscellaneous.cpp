@@ -571,6 +571,8 @@ Expr conjugate(const Expr& arg) {
 }
 
 Expr arg_(const Expr& arg) {
+    // arg(0) is undefined — the origin has no argument. SymPy returns nan.
+    if (arg == S::Zero()) return S::NaN();
     if (is_positive(arg) == true) return S::Zero();
     if (is_negative(arg) == true) return S::Pi();
     // arg(z) = atan2(im z, re z), applied when there is a (resolved) imaginary
