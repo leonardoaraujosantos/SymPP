@@ -187,9 +187,16 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             // Primality / compositeness of a symbolic sum isn't decided
             // structurally.
             return std::nullopt;
-        case AssumptionKey::Irrational:
         case AssumptionKey::Algebraic:
+            // Algebraic numbers are closed under addition.
+            if (all_args_have(args_, AssumptionKey::Algebraic, true)) return true;
+            // Algebraics plus exactly one transcendental term ⇒ transcendental.
+            if (detail::sum_forces_transcendental(args_)) return false;
+            return std::nullopt;
         case AssumptionKey::Transcendental:
+            if (detail::sum_forces_transcendental(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::Irrational:
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.

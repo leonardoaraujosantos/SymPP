@@ -891,3 +891,48 @@ TEST_CASE("AssumptionMask: extended_real / infinite (EXTREAL-INF-1)", "[2a][assu
     REQUIRE(is_infinite(symbol("cx", AssumptionMask{}.set_complex(true))) == F);
     REQUIRE(is_finite(symbol("cx2", AssumptionMask{}.set_complex(true))) == T);
 }
+
+// ALGCLOSURE-1: the algebraic numbers form a field, so Add and Mul propagate
+// algebraicity. A sum/product of algebraic args is algebraic; a sum of
+// algebraics plus exactly one transcendental term is transcendental (and not
+// algebraic); a product of nonzero algebraics with exactly one transcendental
+// factor is transcendental. Previously Add/Mul returned Unknown for these.
+// Matches SymPy.
+TEST_CASE("Add/Mul: algebraic field closure (ALGCLOSURE-1)",
+          "[2b][assumptions][algebraic]") {
+    using sympp::is_algebraic;
+    using sympp::is_transcendental;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    auto a = symbol("a", AssumptionMask{}.set_algebraic(true));
+    auto b = symbol("b", AssumptionMask{}.set_algebraic(true));
+    auto tr = symbol("tr", AssumptionMask{}.set_transcendental(true));
+    auto tu = symbol("tu", AssumptionMask{}.set_transcendental(true));
+    auto anz = symbol("anz", AssumptionMask{}.set_algebraic(true).set_nonzero(true));
+
+    // Closure under + and ×, including the algebraic atom I and integers.
+    REQUIRE(is_algebraic(a + b) == T);
+    REQUIRE(is_transcendental(a + b) == F);
+    REQUIRE(is_algebraic(a * b) == T);
+    REQUIRE(is_algebraic(a * S::I()) == T);          // i is algebraic
+    REQUIRE(is_algebraic(a + b + S::I()) == T);
+    REQUIRE(is_algebraic(integer(2) + integer(3) * a) == T);
+
+    // Algebraics + exactly one transcendental ⇒ transcendental.
+    REQUIRE(is_algebraic(a + tr) == F);
+    REQUIRE(is_transcendental(a + tr) == T);
+
+    // Product: needs the algebraic factor nonzero (0·t = 0 is algebraic).
+    REQUIRE(is_algebraic(a * tr) == U);              // a might be zero
+    REQUIRE(is_transcendental(a * tr) == U);
+    REQUIRE(is_algebraic(anz * tr) == F);            // nonzero ⇒ transcendental
+    REQUIRE(is_transcendental(anz * tr) == T);
+
+    // Two transcendentals can cancel — Unknown.
+    REQUIRE(is_algebraic(tr + tu) == U);
+
+    // A plain symbolic sum stays Unknown.
+    REQUIRE(is_algebraic(symbol("x") + symbol("y")) == U);
+}

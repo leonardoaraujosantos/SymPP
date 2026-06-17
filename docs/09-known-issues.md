@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### ALGCLOSURE-1 — Add/Mul did not propagate algebraic/transcendental status
+- **Problem:** the algebraic numbers form a field (closed under +, −, ×), but `Add` and `Mul`
+  returned Unknown for `algebraic`/`transcendental`. So `is_algebraic(a + b)` and
+  `is_algebraic(a * b)` for algebraic `a`, `b` were Unknown where SymPy returns True, and a sum
+  like `a + π` was not recognized as transcendental.
+- **Fix:** added algebraic-closure rules to the `Add` and `Mul` assumption handlers (via two
+  `detail::` helpers). A sum/product whose args are all algebraic is algebraic. A sum of
+  algebraics with exactly one transcendental term is transcendental (hence ¬algebraic), since
+  the algebraic numbers are closed under subtraction. A product of nonzero algebraics with
+  exactly one transcendental factor is transcendental — the nonzero requirement guards against
+  a zero algebraic factor collapsing the product to 0 (which is algebraic). `is_algebraic(a+b)=
+  True`, `is_algebraic(a*b)=True`, `is_algebraic(a*I)=True`, `is_algebraic(a+π)=False` with
+  `is_transcendental(a+π)=True`, `is_transcendental(anz*π)=True` for nonzero algebraic `anz`,
+  while `a*π` (a possibly zero) and `π+π'` stay Unknown. Matches SymPy.
+
 ### EXTREAL-INF-1 — no `extended_real` / `infinite` predicates; complex ⇏ finite
 - **Problem:** the assumption vocabulary could not express the extended real line or
   boundedness. There was no way to ask `is_extended_real(oo)` / `is_infinite(zoo)` or to declare

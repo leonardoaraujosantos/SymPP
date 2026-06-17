@@ -229,9 +229,16 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             // Primality / compositeness of a symbolic product isn't decided
             // structurally.
             return std::nullopt;
-        case AssumptionKey::Irrational:
         case AssumptionKey::Algebraic:
+            // Algebraic numbers are closed under multiplication.
+            if (all_args_have(args_, AssumptionKey::Algebraic, true)) return true;
+            // Nonzero algebraics times exactly one transcendental ⇒ transcendental.
+            if (detail::product_forces_transcendental(args_)) return false;
+            return std::nullopt;
         case AssumptionKey::Transcendental:
+            if (detail::product_forces_transcendental(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::Irrational:
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.
