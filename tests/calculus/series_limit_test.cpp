@@ -2039,3 +2039,26 @@ TEST_CASE("limit: one-sided limits (ONESIDED-1)", "[7][limit][onesided]") {
     REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), 0)->type_id()
             == TypeId::ComplexInfinity);
 }
+
+// LIMIT-BOUNDED-1: a bounded oscillating factor (sin/cos) times a vanishing
+// factor tends to 0 by the squeeze theorem, even with a polynomial present —
+// x·cos(x)·e^(−x) → 0. Previously these returned nan, which also broke the
+// definite integrals ∫₀^∞ xⁿ·e^(−x)·sin/cos(x). Matches SymPy.
+TEST_CASE("limit: bounded oscillation times a vanishing factor (LIMIT-BOUNDED-1)",
+          "[7][limit][bounded]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto edecay = exp(mul(S::NegativeOne(), x));  // e^(−x)
+
+    REQUIRE(limit(x * cos(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(x * sin(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, integer(2)) * sin(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(cos(x) * pow(x, integer(-2)), x, oo) == S::Zero());
+    // Already-handled simple cases still hold.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(cos(x) * edecay, x, oo) == S::Zero());
+    // x·sin(x) is unbounded oscillation — no limit (left as before, not 0).
+    REQUIRE(limit(x * sin(x), x, oo) != S::Zero());
+    // The definite integrals this unblocks (∫₀^∞ xⁿ·e^(−x)·sin/cos x) are
+    // covered in the integrate tests (INT-POLY-EXP-TRIG-1).
+}

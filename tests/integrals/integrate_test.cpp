@@ -2504,6 +2504,30 @@ TEST_CASE("integrate: Gaussian Fourier integrals (INT-GAUSSFOURIER-1)",
                               "sqrt(pi)"));
 }
 
+// INT-POLY-EXP-TRIG-1: ∫₀^∞ xⁿ·e^(−ax)·sin/cos(bx) — the antiderivative
+// (poly × exp × trig) was correct, but the upper-bound limit returned nan
+// because the engine could not see that a bounded oscillation times a decaying
+// envelope vanishes (x·cos x·e^(−x) → 0). With that limit rule in place these
+// close. Matches SymPy.
+TEST_CASE("integrate: polynomial × decaying exp × trig (INT-POLY-EXP-TRIG-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto edecay = exp(mul(S::NegativeOne(), x));        // e^(−x)
+    auto edecay2 = exp(mul(integer(-2), x));            // e^(−2x)
+
+    // ∫₀^∞ x·e^(−x)·sin x = 1/2, x²·e^(−x)·sin x = 1/2, x·e^(−x)·cos x = 0.
+    REQUIRE(integrate(x * edecay * sin(x), x, S::Zero(), oo) == rational(1, 2));
+    REQUIRE(integrate(pow(x, integer(2)) * edecay * sin(x), x, S::Zero(), oo)
+            == rational(1, 2));
+    REQUIRE(integrate(x * edecay * cos(x), x, S::Zero(), oo) == S::Zero());
+    // Scaled exponent / frequency: ∫₀^∞ x·e^(−2x)·sin(3x) = 12/169.
+    REQUIRE(integrate(x * edecay2 * sin(integer(3) * x), x, S::Zero(), oo)
+            == rational(12, 169));
+    // The n = 0 cases (no polynomial factor) are unchanged.
+    REQUIRE(integrate(edecay * sin(x), x, S::Zero(), oo) == rational(1, 2));
+}
+
 // INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
 // that individually diverge at ∞ but combine to a finite limit. The upper-bound
 // evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the

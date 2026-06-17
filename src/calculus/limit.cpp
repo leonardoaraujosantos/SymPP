@@ -785,6 +785,45 @@ struct Growth {
     return top_dir_sum > 0 ? S::Infinity() : S::Zero();
 }
 
+// Bounded × vanishing at ±∞: a product carrying a bounded oscillating factor
+// (sin/cos of a real argument, value in [−1, 1]) times a remaining product that
+// → 0 has limit 0 by the squeeze theorem (|sin(g)·rest| ≤ |rest| → 0). Resolves
+// x·cos(x)·e^(−x) → 0, x²·sin(x)·e^(−x) → 0 and the like, where the oscillating
+// factor otherwise leaves the growth/substitution machinery at nan. Returns
+// nullopt unless an oscillating factor is present and the rest provably vanishes,
+// so non-vanishing or non-oscillating products are untouched.
+[[nodiscard]] std::optional<Expr> bounded_times_vanishing(const Expr& expr,
+                                                          const Expr& var,
+                                                          const Expr& target,
+                                                          int depth) {
+    if (!is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    std::vector<Expr> rest;
+    bool has_bounded = false;
+    for (const auto& f : expr->args()) {
+        bool bounded = false;
+        if (f->type_id() == TypeId::Function) {
+            const auto id = static_cast<const Function&>(*f).function_id();
+            if ((id == FunctionId::Sin || id == FunctionId::Cos)
+                && is_real(f->args()[0]) != std::optional<bool>{false}) {
+                bounded = true;  // sin/cos of a real argument ∈ [−1, 1]
+            }
+        }
+        if (bounded) {
+            has_bounded = true;
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (!has_bounded) return std::nullopt;
+    Expr rest_prod = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    if (limit_impl(rest_prod, var, target, depth + 1) == S::Zero()) {
+        return S::Zero();  // bounded · 0 = 0
+    }
+    return std::nullopt;
+}
+
 // True if e contains a non-integer power of a var-dependent base (a radical such
 // as √(x²+1) = (x²+1)^(1/2)), which the conjugate rationalization targets.
 [[nodiscard]] bool has_var_radical(const Expr& e, const Expr& var) {
@@ -1210,6 +1249,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // L'Hôpital path.
     if (is_infinity(target)) {
         if (auto r = rational_limit_at_infinity(expr, var, target)) return *r;
+        if (depth < 12) {
+            if (auto r = bounded_times_vanishing(expr, var, target, depth)) {
+                return *r;
+            }
+        }
     }
 
     // Gamma/factorial at +∞. Direct substitution gives gamma(∞)/gamma(∞), which

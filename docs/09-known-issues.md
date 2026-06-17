@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-BOUNDED-1 — bounded oscillation × vanishing factor returned nan
+- **Problem:** `limit(x·cos(x)·e^(−x), x, ∞)` is 0 by the squeeze theorem (a bounded oscillation
+  times a decaying envelope), but the limit engine returned `nan`. SymPP already closed the
+  simple cases (`cos(x)·e^(−x)`, `sin(x)/x`), but any extra polynomial factor broke it. This
+  also propagated into definite integrals: `∫₀^∞ xⁿ·e^(−x)·sin/cos(x)` came back `nan` even
+  though the (poly × exp × trig) antiderivative was correct — the upper-bound limit failed.
+- **Fix:** added a `bounded_times_vanishing` rule to the limit engine. At an infinite target a
+  product is split into bounded oscillating factors (`sin`/`cos` of a real argument, value in
+  [−1, 1]) and the rest; if the rest provably → 0, the whole product → 0 (|sin(g)·rest| ≤
+  |rest| → 0). Guarded so non-vanishing or non-oscillating products are untouched (e.g.
+  `x·sin(x)` keeps no limit). `limit(x·cos(x)·e^(−x)) = limit(x²·sin(x)·e^(−x)) = 0`, which
+  unblocks `∫₀^∞ x·e^(−x)·sin x = 1/2`, `∫₀^∞ x²·e^(−x)·sin x = 1/2`, `∫₀^∞ x·e^(−2x)·sin 3x =
+  12/169`. Matches SymPy.
+
 ### INT-GAUSSFOURIER-1 — Gaussian Fourier integral garbled
 - **Problem:** `∫_{-∞}^{∞} exp(-x²)·cos(x) dx` should be `√π·exp(-1/4)` (the Fourier transform of
   a Gaussian), but the integrand has no elementary antiderivative, so the Newton–Leibniz path
