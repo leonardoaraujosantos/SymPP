@@ -6,7 +6,9 @@
 #include <string>
 
 #include <sympp/calculus/diff.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
@@ -16,6 +18,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/integrate.hpp>
@@ -118,6 +121,30 @@ TEST_CASE("integrate: definite cos(x) from 0 to pi = 0",
     REQUIRE(r == integer(0));
 }
 
+// INT-ABS-DEF-1: a definite integral of an abs/sign integrand has no elementary
+// antiderivative, but is piecewise-smooth — split at the sign changes (roots of
+// the argument) and sum. Previously the unevaluated marker was substituted at the
+// bounds, producing garbage like −Integral(1, −1) + Integral(1, 1).
+TEST_CASE("integrate: definite integral of abs/sign by sign-splitting (INT-ABS-DEF-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+    auto I = [&](const Expr& e, int a, int b) {
+        return integrate(e, x, integer(a), integer(b));
+    };
+    REQUIRE(I(abs(x), -1, 1) == integer(1));               // two triangles
+    REQUIRE(I(abs(x), -2, 3) == rational(13, 2));          // asymmetric
+    REQUIRE(I(abs(x - integer(1)), 0, 2) == integer(1));   // shifted root
+    REQUIRE(I(x * abs(x), -1, 1) == integer(0));           // odd integrand
+    REQUIRE(I(sign(x), -1, 2) == integer(1));              // ∫sign = −1+2
+    REQUIRE(I(abs(x) + pow(x, integer(2)), -1, 1)
+            == rational(5, 3));  // marker buried in a sum: 1 + 2/3
+    // No interior root: the integrand is smooth over [0,1], plain ∫x = 1/2.
+    REQUIRE(I(abs(x), 0, 1) == rational(1, 2));
+    // |cos x| over [0, π] = 2 (root at π/2).
+    auto two = integrate(abs(cos(x)), x, S::Zero(), S::Pi());
+    REQUIRE(two == integer(2));
+}
+
 // ----- Round-trip property: diff(integrate(f, x), x) == f --------------------
 
 TEST_CASE("integrate / diff round-trip on polynomial",
@@ -171,6 +198,34 @@ TEST_CASE("integrate: ∫tan(x) dx = -log(cos(x))",
     REQUIRE(oracle.equivalent(r->str(), "-log(cos(x))"));
 }
 
+// INT-LOGSUB-1: integrands built from log(x) close under u = log(x)
+// (x = eᵘ, dx = eᵘ du): ∫cos(log x), ∫sin(log x), ∫cos(2·log x) become cyclic
+// exp·trig integrals in u, and ∫log(log x)/x becomes ∫log(u). Verified by
+// diff-back against the oracle.
+TEST_CASE("integrate: substitution u = log(x) for log-composite integrands (INT-LOGSUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(cos(log(x))));                          // ∫cos(log x)
+    REQUIRE(db(sin(log(x))));                          // ∫sin(log x)
+    REQUIRE(db(cos(integer(2) * log(x))));             // affine inner 2·log x
+    REQUIRE(db(log(log(x)) / x));                      // ∫log(log x)/x → ∫log u
+    REQUIRE(db(sin(log(x)) * cos(log(x))));            // product of logs
+    // Known closed form for ∫cos(log x).
+    REQUIRE(oracle.equivalent(integrate(cos(log(x)), x)->str(),
+                              "x*sin(log(x))/2 + x*cos(log(x))/2"));
+    // Integrands without log(x) are untouched: ∫1/x = log x, ∫x·log x by parts.
+    REQUIRE(oracle.equivalent(integrate(pow(x, integer(-1)), x)->str(),
+                              "log(x)"));
+    REQUIRE(oracle.equivalent(integrate(x * log(x), x)->str(),
+                              "x**2*log(x)/2 - x**2/4"));
+}
+
 TEST_CASE("integrate: ∫1/cos(x)^2 dx = tan(x)",
           "[7][integrate][trig][oracle][regression]") {
     auto& oracle = Oracle::instance();
@@ -201,6 +256,32 @@ TEST_CASE("integrate: ∫1/cos(3x)^2 dx = tan(3x)/3",
     auto x = symbol("x");
     auto r = integrate(pow(cos(integer(3) * x), integer(-2)), x);
     REQUIRE(oracle.equivalent(r->str(), "tan(3*x)/3"));
+}
+
+// INT-TANSEC-1: ∫tan^m·sec^n (and cot^m·csc^n). m odd → u = sec; m even → rewrite
+// tan²=sec²−1 to pure sec powers. ∫tan³·sec = sec³/3 − sec, etc. Verified by
+// diff-back at sample points (the closed forms keep sec/tan that SymPy's
+// simplify won't reduce against the integrand symbolically).
+TEST_CASE("integrate: tan^m·sec^n products (INT-TANSEC-1)",
+          "[7][integrate][trig][regression]") {
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(2, 5), rational(3, 7), rational(-1, 4)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::fabs(d) > 1e-7) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(pow(tan(x), integer(3)) * sec(x)));         // m odd
+    REQUIRE(db(pow(tan(x), integer(2)) * sec(x)));         // m even → sec powers
+    REQUIRE(db(tan(x) * pow(sec(x), integer(3))));         // m=1
+    REQUIRE(db(pow(tan(x), integer(3)) * pow(sec(x), integer(3))));
+    REQUIRE(db(pow(tan(x), integer(2)) * pow(sec(x), integer(2))));
+    REQUIRE(db(pow(cot(x), integer(3)) * csc(x)));         // cot/csc analogue
+    REQUIRE(db(pow(cot(x), integer(2)) * csc(x)));
 }
 
 // ----- Polynomial × log integration by parts (regression, INT-4) -------------
@@ -274,6 +355,76 @@ TEST_CASE("integrate: ∫1/(4x^2+9) dx = atan(2x/3)/6",
     auto den = integer(4) * pow(x, integer(2)) + integer(9);
     auto r = integrate(pow(den, integer(-1)), x);
     REQUIRE(oracle.equivalent(r->str(), "atan(2*x/3)/6"));
+}
+
+// INT-ARCTAN-PARAM-1: ∫1/(quadratic) with SYMBOLIC positive coefficients —
+// ∫1/(x²+a²) = atan(x/a)/a (a > 0), ∫1/(ax²+b) = atan(x√(a/b))/√(ab). Fires only
+// when the discriminant is provably positive, matching SymPy under positivity
+// assumptions. Relies on the Mul-positivity fix (is_positive(4·a²) = true).
+TEST_CASE("integrate: arctan over a symbolic-coefficient quadratic (INT-ARCTAN-PARAM-1)",
+          "[7][integrate][arctan][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    auto b = symbol("b", AssumptionMask{}.set_positive(true));
+    // Symbolic antiderivatives carry an (a > 0)-branch (√(4a²) = 2a), which the
+    // oracle can't reduce without assumptions — so verify after substituting
+    // concrete positive values for the parameters.
+    auto chk = [&](const Expr& integrand, const ExprMap<Expr>& sub) {
+        auto F = integrate(integrand, x);
+        INFO("integrand: " << integrand->str() << "  F: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr Fc = xreplace(F, sub);
+        Expr ic = xreplace(integrand, sub);
+        REQUIRE(oracle.equivalent(diff(Fc, x)->str(), ic->str()));
+    };
+    // 1/(x²+a²), 1/(x²+a), 1/(a·x²+b).
+    chk(pow(pow(x, integer(2)) + pow(a, integer(2)), integer(-1)),
+        {{a, integer(2)}});
+    chk(pow(pow(x, integer(2)) + a, integer(-1)), {{a, integer(3)}});
+    chk(pow(a * pow(x, integer(2)) + b, integer(-1)),
+        {{a, integer(2)}, {b, integer(5)}});
+    // Negative discriminant (Δ = 4a² > 0) → the log form: 1/(a²−x²), 1/(x²−a²).
+    chk(pow(pow(a, integer(2)) - pow(x, integer(2)), integer(-1)),
+        {{a, integer(3)}});
+    chk(pow(pow(x, integer(2)) - pow(a, integer(2)), integer(-1)),
+        {{a, integer(3)}});
+    // is_positive propagates through an even power and a positive coefficient.
+    REQUIRE(is_positive(integer(4) * pow(a, integer(2))) == true);
+}
+
+// INT-SQRTQUAD-PARAM-1: ∫1/√(quadratic) with symbolic positive coefficients —
+// ∫1/√(x²+a²) = asinh(x/a), ∫1/√(a²−x²) = asin(x/a). The sign-gated branches in
+// try_sqrt_quadratic already handled symbolic coefficients; only a rational-only
+// gate blocked them (now relaxed). These match SymPy's forms exactly.
+TEST_CASE("integrate: sqrt-quadratic with symbolic coefficients (INT-SQRTQUAD-PARAM-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    // ∫1/√(x²+a²) = asinh(x/a), exactly SymPy's form.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + pow(a, integer(2)), rational(-1, 2)),
+                  x)
+            ->str(),
+        "asinh(x/a)"));
+    // ∫1/√(a²−x²) = asin(x/a).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(a, integer(2)) - pow(x, integer(2)), rational(-1, 2)),
+                  x)
+            ->str(),
+        "asin(x/a)"));
+    // ∫1/√(x²+a) = asinh(x/√a).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(2)) + a, rational(-1, 2)), x)->str(),
+        "asinh(x/sqrt(a))"));
+    // ∫√(a²−x²) = (a²·asin(x/a) + x·√(a²−x²))/2 (verified by diff-back at a=2).
+    auto F = integrate(
+        pow(pow(a, integer(2)) - pow(x, integer(2)), rational(1, 2)), x);
+    REQUIRE(F->str().find("Integral(") == std::string::npos);
+    Expr Fc = xreplace(F, ExprMap<Expr>{{a, integer(2)}});
+    Expr ic = pow(integer(4) - pow(x, integer(2)), rational(1, 2));
+    REQUIRE(oracle.equivalent(diff(Fc, x)->str(), ic->str()));
 }
 
 TEST_CASE("integrate: ∫1/(x^2+2x+5) dx = atan((x+1)/2)/2 (completed square)",
@@ -379,6 +530,30 @@ TEST_CASE("integrate: ∫1/sqrt(x^2+1) dx = asinh(x)",
     REQUIRE(oracle.equivalent(r->str(), "asinh(x)"));
 }
 
+// INT-XSQRTQUAD-NUM-1: a non-polynomial numerator over √(quadratic) must NOT be
+// treated as a constant coefficient. Poly(asin(x), x) sees asin(x) as a degree-0
+// "coefficient", so ∫asin(x)/√(1−x²) was wrongly pulled out as asin(x)·∫1/√Q =
+// asin(x)² (a factor-of-2 error; correct is asin²/2). Guard the numerator
+// coefficients var-free; the residual is then verified by heurisch's diff-back.
+TEST_CASE("integrate: non-polynomial numerator over sqrt-quadratic (INT-XSQRTQUAD-NUM-1)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto isqrt = pow(integer(1) - pow(x, integer(2)), rational(-1, 2));  // 1/√(1−x²)
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // ∫asin/√(1−x²) = asin²/2 (was the wrong asin²); ∫asin²/√ = asin³/3.
+    REQUIRE(db(asin(x) * isqrt));
+    REQUIRE(db(pow(asin(x), integer(2)) * isqrt));
+    REQUIRE(db(acos(x) * isqrt));  // −acos²/2 (was the wrong acos·asin)
+    // Genuine numerator forms (bare x, linear) are unaffected.
+    REQUIRE(db(x * isqrt));                                   // −√(1−x²)
+    REQUIRE(db((integer(2) * x + integer(1)) * isqrt));       // −2√(1−x²)+asin
+}
+
 TEST_CASE("integrate: ∫1/sqrt(4x^2+9) dx = asinh(2x/3)/2",
           "[7][integrate][invtrig][oracle][regression]") {
     auto& oracle = Oracle::instance();
@@ -465,6 +640,32 @@ TEST_CASE("integrate: ∫sqrt(x^2-1) dx = x*sqrt(x^2-1)/2 - log(x+sqrt(x^2-1))/2
     auto F = integrate(e, x);
     REQUIRE(F->str().find("Integral(") == std::string::npos);
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+// INT-POLYSQRTQUAD-1: ∫P(x)·√(quadratic) for an even-power P. The u = Q
+// substitution closes odd powers (∫x·√(1−x²)), but even powers fell through;
+// rewriting P·√Q = (P·Q)/√Q routes them to the polynomial-over-√(quadratic)
+// reduction. Verified by diff-back.
+TEST_CASE("integrate: polynomial × sqrt(quadratic) (INT-POLYSQRTQUAD-1)",
+          "[7][integrate][invtrig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    auto sq = [&](const Expr& q) { return pow(q, rational(1, 2)); };
+    auto omx2 = integer(1) - pow(x, integer(2));
+    REQUIRE(db(pow(x, integer(2)) * sq(omx2)));           // ∫x²·√(1−x²)
+    REQUIRE(db(pow(x, integer(4)) * sq(omx2)));           // ∫x⁴·√(1−x²)
+    REQUIRE(db(pow(x, integer(2))
+               * sq(integer(4) - pow(x, integer(2)))));    // non-unit radicand
+    // Higher half-power: ∫x²·(1−x²)^(3/2).
+    REQUIRE(db(pow(x, integer(2)) * pow(omx2, rational(3, 2))));
+    // Odd-power and bare-radical cases keep their existing (cleaner) forms.
+    REQUIRE(oracle.equivalent(integrate(x * sq(omx2), x)->str(),
+                              "-(1-x**2)**(3/2)/3"));
 }
 
 // ----- Polynomial × (linear)^rational via u-sub (regression, INT-21) ---------
@@ -987,6 +1188,33 @@ TEST_CASE("integrate: ∫1/(x*log(x)^2) dx = -1/log(x)",
 // ----- Gaussian integral → erf (regression, INT-11) -------------------------
 // ∫exp(−a·x²) dx = √π·erf(√a·x)/(2√a) — the error-function antiderivative.
 // Verified by differentiation (erf' was fixed in DIFF-2).
+// INT-CONSTBASEEXP-1: constant-base exponential ∫P(x)·a^(b·x+c). SymPP integrated
+// the natural base eˣ but left aˣ unevaluated (exp(x·ln a) even canonicalizes back
+// to a^x). Reduces by parts to ∫a^g = a^g/(b·ln a). Verified by diff-back.
+TEST_CASE("integrate: constant-base exponential ∫P(x)·a^x (INT-CONSTBASEEXP-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(pow(integer(2), x)));                       // ∫2ˣ
+    REQUIRE(db(x * pow(integer(2), x)));                   // ∫x·2ˣ
+    REQUIRE(db(pow(x, integer(2)) * pow(integer(2), x)));  // ∫x²·2ˣ
+    REQUIRE(db(x * pow(integer(3), x)));                   // different base
+    REQUIRE(db((x + integer(1)) * pow(integer(2), x)));    // mixed polynomial
+    REQUIRE(db(x * pow(integer(2), mul(S::NegativeOne(), x))));  // decaying 2^(−x)
+    REQUIRE(db(pow(integer(2), integer(3) * x)));          // affine exponent 3x
+    // ∫2ˣ closed form.
+    REQUIRE(oracle.equivalent(integrate(pow(integer(2), x), x)->str(),
+                              "2**x/log(2)"));
+    // Natural base is still handled by the elementary path, unchanged.
+    REQUIRE(oracle.equivalent(integrate(x * exp(x), x)->str(),
+                              "x*exp(x) - exp(x)"));
+}
+
 TEST_CASE("integrate: ∫exp(-x^2) dx = sqrt(pi)*erf(x)/2",
           "[7][integrate][erf][oracle][regression]") {
     auto& oracle = Oracle::instance();
@@ -1017,6 +1245,77 @@ TEST_CASE("integrate: ∫exp(x^2) dx = sqrt(pi)*erfi(x)/2",
     REQUIRE(F->str().find("Integral(") == std::string::npos);
     REQUIRE(oracle.equivalent(F->str(), "sqrt(pi)*erfi(x)/2"));
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+// INT-GAUSSMOMENT-1: polynomial × Gaussian ∫P(x)·exp(c·x²) dx — the Gaussian
+// moments. Reduces ∫xⁿ·exp(c·x²) by parts to ∫exp(c·x²) (erf/erfi, even n) and
+// ∫x·exp(c·x²) = exp(c·x²)/(2c) (odd n). Without it ∫x²·exp(−x²) was unevaluated,
+// and the improper ∫₀^∞ x²·exp(−x²) produced garbage. Verified by diff-back.
+TEST_CASE("integrate: polynomial times Gaussian → erf moments (INT-GAUSSMOMENT-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    auto g = exp(mul(S::NegativeOne(), pow(x, integer(2))));  // exp(−x²)
+    REQUIRE(db(pow(x, integer(2)) * g));               // even: erf moment
+    REQUIRE(db(pow(x, integer(3)) * g));               // odd: elementary
+    REQUIRE(db(pow(x, integer(4)) * g));
+    REQUIRE(db((pow(x, integer(2)) + integer(1)) * g));  // mixed polynomial
+    REQUIRE(db(pow(x, integer(2)) * exp(pow(x, integer(2)))));  // positive c → erfi
+    // The known closed form for the canonical second moment.
+    REQUIRE(oracle.equivalent(integrate(pow(x, integer(2)) * g, x)->str(),
+                              "-x*exp(-x**2)/2 + sqrt(pi)*erf(x)/4"));
+    // Improper second moment: ∫₀^∞ x²·exp(−x²) = √π/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * g, x, S::Zero(), S::Infinity())->str(),
+        "sqrt(pi)/4"));
+}
+
+// INT-GAUSSSHIFT-1: a Gaussian with a linear term ∫P(x)·exp(a·x²+b·x+c), b ≠ 0.
+// Completing the square via u = x + b/(2a) reduces it to a pure Gaussian/moment in
+// u. Without it ∫exp(−(x−1)²), ∫exp(−x²+x), ∫x·exp(−(x−1)²) were unevaluated.
+TEST_CASE("integrate: Gaussian with linear term via completing the square (INT-GAUSSSHIFT-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    // exp(−(x−1)²) = exp(−x²+2x−1).
+    REQUIRE(db(exp(mul(S::NegativeOne(), pow(x - integer(1), integer(2))))));
+    // exp(−x²+x): a non-monic shift x₀ = 1/2, constant e^(1/4).
+    REQUIRE(db(exp(mul(S::NegativeOne(), pow(x, integer(2))) + x)));
+    // x·exp(−(x−1)²): polynomial residual under the shift → erf moment.
+    REQUIRE(db(x * exp(mul(S::NegativeOne(), pow(x - integer(1), integer(2))))));
+    // Positive leading coefficient → erfi.
+    REQUIRE(db(exp(pow(x, integer(2)) + x)));
+    // General a≠1: exp(−2x²+3x−1).
+    REQUIRE(db(exp(mul(integer(-2), pow(x, integer(2))) + integer(3) * x
+                   - integer(1))));
+}
+
+// INT-GAUSS-PARAM-1: the Gaussian with a symbolic positive coefficient —
+// ∫exp(−a·x²) = √π·erf(√a·x)/(2√a), ∫exp(a·x²) = √π·erfi(√a·x)/(2√a). try_gaussian
+// already branched on is_negative/is_positive; a leftover rational-only gate
+// blocked symbolic coefficients (now relaxed). Matches SymPy exactly.
+TEST_CASE("integrate: parametric Gaussian → erf/erfi (INT-GAUSS-PARAM-1)",
+          "[7][integrate][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    REQUIRE(oracle.equivalent(
+        integrate(exp(mul(mul(S::NegativeOne(), a), pow(x, integer(2)))), x)
+            ->str(),
+        "sqrt(pi)*erf(sqrt(a)*x)/(2*sqrt(a))"));
+    REQUIRE(oracle.equivalent(
+        integrate(exp(a * pow(x, integer(2))), x)->str(),
+        "sqrt(pi)*erfi(sqrt(a)*x)/(2*sqrt(a))"));
 }
 
 // ----- Hyperbolic table integrals (regression, INT-12) -----------------------
@@ -1196,6 +1495,31 @@ TEST_CASE("integrate: ∫sin(2x)*cos(3x) dx product-to-sum",
     auto e = sin(integer(2) * x) * cos(integer(3) * x);
     auto r = integrate(e, x);
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
+}
+
+// INT-PROD2SUM-1: product-to-sum for sin·sin and cos·cos (not just sin·cos), and
+// for three-way products (reduced pair by pair). ∫sin(2x)·sin(3x), ∫cos·cos·cos,
+// ∫x·sin(2x)·cos(3x) close via the identities + linearity. Verified by diff-back.
+TEST_CASE("integrate: product-to-sum sin·sin, cos·cos, triple (INT-PROD2SUM-1)",
+          "[7][integrate][trig_reduction][regression]") {
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        // diff-back numerically (some forms keep cos² that SymPy's simplify
+        // won't reduce against the integrand symbolically).
+        Expr resid = diff(F, x) - e;
+        for (Expr pt : {rational(2, 5), rational(7, 4), rational(11, 3)}) {
+            double d = std::stod(evalf(subs(resid, x, pt))->str());
+            if (std::fabs(d) > 1e-7) return false;
+        }
+        return true;
+    };
+    REQUIRE(db(sin(integer(2) * x) * sin(integer(3) * x)));   // sin·sin
+    REQUIRE(db(cos(integer(2) * x) * cos(integer(5) * x)));   // cos·cos
+    REQUIRE(db(cos(x) * cos(integer(2) * x) * cos(integer(3) * x)));  // triple cos
+    REQUIRE(db(sin(x) * sin(integer(2) * x) * sin(integer(3) * x)));  // triple sin
+    REQUIRE(db(x * sin(integer(2) * x) * cos(integer(3) * x)));  // with poly factor
 }
 
 // ----- Trig powers ∫sinᵐcosⁿ (INT-18) ----------------------------------------
@@ -1394,6 +1718,33 @@ TEST_CASE("integrate: ∫x*cosh(2x+1) dx (parts with affine)",
     REQUIRE(oracle.equivalent(diff(r, x)->str(), e->str()));
 }
 
+// INT-RECIPTRIG-PARTS-1: ∫x·sec²(x) = ∫x/cos²(x) and the reciprocal-square trig /
+// hyperbolic family, by parts with v = ∫target tabulated (∫1/cos² = tan, etc.).
+// The by-parts target whitelist was widened to negative integer powers; a
+// recursive marker check bails on odd reciprocal powers (∫x/cos x is
+// non-elementary) instead of returning a partial Integral(...) garbage.
+TEST_CASE("integrate: polynomial × reciprocal-square trig by parts (INT-RECIPTRIG-PARTS-1)",
+          "[7][integrate][parts][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(x / pow(cos(x), integer(2))));   // ∫x·sec²x = x·tan x + log cos x
+    REQUIRE(db(x / pow(sin(x), integer(2))));   // ∫x·csc²x = −x·cot x + log sin x
+    REQUIRE(db(x / pow(cosh(x), integer(2))));  // ∫x·sech²x = x·tanh x − log cosh x
+    REQUIRE(db(x / pow(sinh(x), integer(2))));  // ∫x·csch²x
+    // Non-elementary odd reciprocal power (∫x/cos x) must stay an unevaluated
+    // marker, not a partial garbage answer with embedded Integral(...) terms.
+    REQUIRE(integrate(x / cos(x), x)->str().find("Integral(") != std::string::npos);
+    // Positive-power and bare cases are unchanged.
+    REQUIRE(oracle.equivalent(diff(integrate(x * pow(cos(x), integer(2)), x),
+                                   x)->str(),
+                              (x * pow(cos(x), integer(2)))->str()));
+}
+
 // INT-14: ∫log(x)^n and ∫poly·log(x)^n fell through to the unevaluated
 // Integral — by parts only handled a single (power-1) log factor. log^n now
 // integrates by repeated parts (u = log^n, dv = rest dx), recursing down to
@@ -1500,6 +1851,40 @@ TEST_CASE("integrate: ∫sin(3x)/x = Si(3x) (scaled argument)",
     auto F = integrate(e, x);
     REQUIRE(F->str().find("Integral(") == std::string::npos);
     REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+}
+
+// INT-EXPINT-POWER-1: ∫f(c·x)/xⁿ for f ∈ {sin,cos,exp,sinh,cosh}, n ≥ 2 — by
+// parts down to the n = 1 Si/Ci/Ei base case. Previously only n = 1 was handled.
+TEST_CASE("integrate: ∫f(c·x)/x^n reduces to Si/Ci/Ei (INT-EXPINT-POWER-1)",
+          "[7][integrate][expint][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto db = [&](Expr e) {
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        return oracle.equivalent(diff(F, x)->str(), e->str());
+    };
+    REQUIRE(db(sin(x) / pow(x, integer(2))));            // = Ci(x) − sin(x)/x
+    REQUIRE(db(cos(x) / pow(x, integer(2))));            // = −Si(x) − cos(x)/x
+    REQUIRE(db(exp(x) / pow(x, integer(2))));            // = Ei(x) − exp(x)/x
+    REQUIRE(db(sin(x) / pow(x, integer(3))));            // two-step reduction
+    REQUIRE(db(sinh(x) / pow(x, integer(2))));           // hyperbolic → Chi
+    REQUIRE(db(sin(integer(2) * x) / pow(x, integer(2))));  // scaled argument
+    // n = 1 base cases still close to the bare special-integral functions.
+    REQUIRE(oracle.equivalent(integrate(sin(x) / x, x)->str(), "Si(x)"));
+    REQUIRE(oracle.equivalent(integrate(cos(x) / x, x)->str(), "Ci(x)"));
+    // Squared trig over a power: the half-angle identity reduces sin²/cos² to a
+    // (1∓cos 2x)/2 form, then the linear + Si/Ci paths close it.
+    REQUIRE(db(pow(sin(x), integer(2)) / pow(x, integer(2))));  // Si(2x)+…
+    REQUIRE(db(pow(cos(x), integer(2)) / pow(x, integer(2))));
+    REQUIRE(db(pow(sin(x), integer(2)) / x));                  // Ci-form
+    REQUIRE(db(pow(cos(x), integer(2)) / x));
+    REQUIRE(db(pow(sin(x), integer(2)) / pow(x, integer(3))));
+    // A pure trig × trig product is NOT hijacked by the half-angle rewrite — it
+    // keeps the clean sin^m·cos^n closed form.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(3)) * pow(cos(x), integer(2)), x)->str(),
+        "cos(x)**5/5 - cos(x)**3/3"));
 }
 
 // ----- ∫ of a special-integral function by parts (regression, EXPINT-BYPARTS)
@@ -1637,6 +2022,40 @@ TEST_CASE("integrate: polynomial × inverse-trig by parts (INT-32)",
     REQUIRE(db(x * atanh(x)));                     // x·atanh
     REQUIRE(db(x * acot(x)));                      // x·acot
     REQUIRE(db((x + integer(1)) * atan(x)));      // (x+1)·atan
+    // INT-INVTRIG-RECIP-1: a reciprocal-power dv = 1/xⁿ for the rational-derivative
+    // inverse functions (atan/acot/atanh) — the residual stays rational, so it
+    // closes where the polynomial-only gate previously bailed.
+    REQUIRE(db(atan(x) / pow(x, integer(2))));    // ∫atan(x)/x²
+    REQUIRE(db(atan(x) / pow(x, integer(3))));    // ∫atan(x)/x³
+    REQUIRE(db(acot(x) / pow(x, integer(2))));    // ∫acot(x)/x²
+    REQUIRE(db(atanh(x) / pow(x, integer(2))));   // ∫atanh(x)/x²
+    // ∫atan(x)/x is genuinely non-elementary (residual log(x)/(x²+1)) — must stay
+    // an unevaluated marker, not a wrong closed form.
+    REQUIRE(integrate(atan(x) / x, x)->str().find("Integral(")
+            != std::string::npos);
+    // The √-derivative functions over 1/xⁿ are NOT admitted (the residual is
+    // non-rational and the rational path mis-handles it) — they bail to a marker.
+    REQUIRE(integrate(asin(x) / pow(x, integer(2)), x)->str().find("Integral(")
+            != std::string::npos);
+    // INT-INVTRIG-SQ-1: x·f(x)² for a rational-derivative inverse function. The
+    // by-parts target now admits a positive integer power f^k (recursing down a
+    // power each step), and a rational dv keeps the residual rational so it closes.
+    // ∫x·atan(x)² = x²·atan²/2 − x·atan + atan²/2 + log(x²+1)/2.
+    REQUIRE(db(x * pow(atan(x), integer(2))));
+    REQUIRE(db(x * pow(acot(x), integer(2))));
+    // A non-elementary case (no polynomial factor) stays an unevaluated marker.
+    REQUIRE(integrate(pow(atan(x), integer(2)), x)->str().find("Integral(")
+            != std::string::npos);
+    // INT-INVTRIG-SQRT-SQ-1: the √-derivative inverse functions f² (asin/acos/
+    // asinh/acosh). A dv = P(x)/√(quadratic) is admitted, and a numeric diff-back
+    // guards the broadened recursion (it once produced a wrong factor before the
+    // try_x_over_sqrt_quadratic coefficient bug was fixed). ∫asin² =
+    // x·asin² − 2x + 2√(1−x²)·asin.
+    REQUIRE(db(pow(asin(x), integer(2))));        // bare asin²
+    REQUIRE(db(pow(acos(x), integer(2))));
+    REQUIRE(db(pow(asinh(x), integer(2))));
+    REQUIRE(db(x * pow(asin(x), integer(2))));     // x·asin²
+    REQUIRE(db(pow(asin(x), integer(3))));         // asin³
 }
 
 TEST_CASE("integrate: trig × hyperbolic and exp × hyperbolic products (INT-34)",
@@ -1826,6 +2245,11 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     REQUIRE(db(pow(integer(3) + integer(5) * cos(x), integer(-1))));  // a²<b²: log
     REQUIRE(db(pow(integer(2) - cos(x), integer(-1))));               // negated b
     REQUIRE(db(pow(integer(1) + sin(x), integer(-1))));               // a=b: rational
+    // Degenerate a=b for cosine: ∫1/(1+cos x) = tan(x/2). together() leaves the
+    // half-angle denominator un-cancelled here (it collapses to a constant only
+    // after full cancellation), which previously made try_rational emit zoo·log 2;
+    // cancel() reduces it first.
+    REQUIRE(db(pow(integer(1) + cos(x), integer(-1))));               // a=b: tan(x/2)
     REQUIRE(db(pow(integer(4) + integer(5) * sin(x), integer(-1))));  // a²<b²
     REQUIRE(db(pow(integer(2) + cos(x) + sin(x), integer(-1))));      // sin+cos
     // The dedicated integrators still win for simple trig (not Weierstrass).
@@ -1856,6 +2280,18 @@ TEST_CASE("integrate: Weierstrass substitution for rational trig (INT-33)",
     // But trig to the FIRST power inside a polynomial denominator still works.
     REQUIRE(integrate(pow(integer(1) + tan(x), integer(-1)), x)->str()
                 .find("Integral(") == std::string::npos);
+    // Numerator-bearing rational trig: cos(x)/(1+cos x) = x − tan(x/2), returned
+    // as −tan(x/2) + 2·atan(tan x/2). The half-angle substitution leaves a nested
+    // fraction in the denominator (1 + (1−t²)/(1+t²)); flatten_ratio must reduce
+    // it so the integral closes instead of bailing. SymPy's simplify can't reduce
+    // the derivative form symbolically, so diff-back is verified numerically.
+    {
+        Expr e = cos(x) * pow(integer(1) + cos(x), integer(-1));
+        Expr F = integrate(e, x);
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr residual = subs(diff(F, x) - e, x, rational(1, 2));
+        REQUIRE(std::abs(std::stod(oracle.evalf(residual->str()))) < 1e-9);
+    }
 }
 
 // ----- manualintegrate orchestrator ------------------------------------------
@@ -2026,6 +2462,36 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
     // Finite-bound integrals are unchanged.
     REQUIRE(integrate(pow(x, integer(2)), x, S::Zero(), integer(1))
             == rational(1, 3));
+}
+
+// INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
+// that individually diverge at ∞ but combine to a finite limit. The upper-bound
+// evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the
+// atan(arg→∞) = π/2 terms (supported by the oo + √2 = oo arithmetic fix).
+// ∫₀^∞ 1/(1+x⁴) = π√2/4 used to come back as nan.
+TEST_CASE("integrate: improper integrals with log/atan antiderivatives (INT-DEF-2)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    // ∫₀^∞ 1/(1+x⁴) = π√2/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(integer(1) + pow(x, integer(4)), integer(-1)), x,
+                  S::Zero(), oo)
+            ->str(),
+        "sqrt(2)*pi/4"));
+    // ∫₀^∞ 1/(x⁴+x²+1) = π√3/6.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(pow(x, integer(4)) + pow(x, integer(2)) + integer(1),
+                      integer(-1)),
+                  x, S::Zero(), oo)
+            ->str(),
+        "sqrt(3)*pi/6"));
+    // ∫₁^∞ 1/(x(x+1)) = log 2 (a pure ∞ − ∞ between logs).
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x * (x + integer(1)), integer(-1)), x, integer(1), oo)
+            ->str(),
+        "log(2)"));
 }
 
 // INT-IMPROPER-1: improper rational functions (deg numerator ≥ deg denominator)
@@ -2218,6 +2684,67 @@ TEST_CASE("integrate: linear-radical substitution √(ax+b) (INT-LINRADICAL-SUB-
                               "2*(x + 1)**(3/2)/3"));
 }
 
+// INT-EXP-SUB-1: an integrand rational in eˣ closes via u = eˣ (each
+// exp(k·x+d) → e^d·uᵏ, dx = du/u), e.g. ∫1/(eˣ+e⁻ˣ) = atan(eˣ). Previously
+// exp(2x)/exp(−x) terms (distinct nodes from exp(x)) blocked the substitution.
+// Verified by differentiating back.
+TEST_CASE("integrate: exponential substitution u=eˣ (INT-EXP-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto ex = [&](const Expr& a) { return exp(a); };
+    const std::vector<Expr> integrands = {
+        pow(ex(x) + ex(-x), integer(-1)),                       // 1/(eˣ+e⁻ˣ)
+        ex(x) * pow(ex(integer(2) * x) + integer(1), integer(-1)),  // eˣ/(e²ˣ+1)
+        ex(integer(2) * x) * pow(integer(1) + ex(x), integer(-1)),  // e²ˣ/(1+eˣ)
+        pow(ex(x) + ex(integer(2) * x), integer(-1)),           // 1/(eˣ+e²ˣ)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+    // The headline closed form matches SymPy exactly.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(ex(x) + ex(-x), integer(-1)), x)->str(), "atan(exp(x))"));
+}
+
+// INT-RECIP-SUB-1: ∫dx/(xⁿ·√(a·x²+c)) closes via the reciprocal substitution
+// x = 1/u: substituting clears the x in the denominator, and pulling u out of
+// the radical ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e) leaves an ordinary
+// √(quadratic) integral. The antiderivative matches SymPy's (it carries the
+// same x>0 principal-branch convention, so diff-back is checked on x>0).
+TEST_CASE("integrate: reciprocal substitution x=1/u (INT-RECIP-SUB-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto recip_sqrt = [&](const Expr& xn, const Expr& a, const Expr& c) {
+        // 1 / (xn · √(a·x² + c))
+        return pow(xn * pow(a * pow(x, integer(2)) + c, rational(1, 2)),
+                   integer(-1));
+    };
+    // ∫1/(x√(x²+1)) = −asinh(1/x), ∫1/(x√(x²+4)) = −asinh(2/x)/2.
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(1), integer(1)), x)->str(),
+        "-asinh(1/x)"));
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(1), integer(4)), x)->str(),
+        "-asinh(2/x)/2"));
+    REQUIRE(oracle.equivalent(
+        integrate(recip_sqrt(x, integer(9), integer(1)), x)->str(),
+        "-asinh(1/(3*x))"));
+    // Higher denominator powers also close (form differs from SymPy by the
+    // x>0 |x| branch, so just require a closed form — no Integral marker).
+    for (int n : {2, 3}) {
+        auto F = integrate(recip_sqrt(pow(x, integer(n)), integer(1),
+                                      integer(1)),
+                           x);
+        INFO("n=" << n << " antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+    }
+}
+
 // INT-QUAD-IRRATIONAL-1: ∫1/(a·x²+b·x+c) where the discriminant is positive but
 // the roots are irrational (no rational factorization) — 1/(x²−3), 1/(2x²−3),
 // 1/(x²+x−1). The partial-fraction logs carry √Δ. Previously unevaluated (the
@@ -2307,5 +2834,95 @@ TEST_CASE("integrate: even numerator over biquadratic (INT-BIQUAD-NUM-1)",
         INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
         REQUIRE(F->str().find("Integral(") == std::string::npos);
         REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}
+
+// INT-SINCOS-QUOT-1: ∫ sinᵐ(x)cosⁿ(x) dx for a sin/cos quotient (one negative
+// power) with at least one ODD exponent, e.g. ∫cos²/sin, ∫sin³/cos², ∫cos²/sin³.
+// The substitution u=sin(x) (cos odd) or u=cos(x) (sin odd) makes the integrand
+// rational in u, which the rational path closes; previously all unevaluated.
+// Verified by differentiating back.
+TEST_CASE("integrate: sin/cos quotients with an odd power (INT-SINCOS-QUOT-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sc = [&](long m, long n) {
+        return pow(sin(x), integer(m)) * pow(cos(x), integer(n));
+    };
+    const std::vector<Expr> integrands = {
+        sc(-1, 2),  // cos²/sin
+        sc(2, -1),  // sin²/cos
+        sc(3, -1),  // sin³/cos
+        sc(-1, 3),  // cos³/sin
+        sc(3, -2),  // sin³/cos²
+        sc(-3, 2),  // cos²/sin³
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}
+
+// INT-SINCOS-QUOT-2: ∫ sinᵐ(x)cosⁿ(x) dx for a sin/cos quotient with BOTH exponents
+// even, e.g. ∫cos⁴/sin², ∫cos²/sin² (=cot²), ∫sin⁴/cos². The substitution t=tan(x)
+// makes the integrand rational in t, which the rational path closes; previously all
+// unevaluated. Verified by differentiating back.
+TEST_CASE("integrate: even/even sin/cos quotients (INT-SINCOS-QUOT-2)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sc = [&](long m, long n) {
+        return pow(sin(x), integer(m)) * pow(cos(x), integer(n));
+    };
+    const std::vector<Expr> integrands = {
+        sc(-2, 4),  // cos⁴/sin²
+        sc(-2, 2),  // cos²/sin² = cot²
+        sc(4, -2),  // sin⁴/cos²
+        sc(-4, 2),  // cos²/sin⁴
+        sc(2, -4),  // sin²/cos⁴
+        sc(-2, 6),  // cos⁶/sin²
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        REQUIRE(oracle.equivalent(diff(F, x)->str(), e->str()));
+    }
+}
+
+// INT-TRIGPROD-1: ∫ ∏ sin/cos(affineᵢ)^kᵢ dx — a product of sin/cos powers whose
+// arguments are NOT all equal, e.g. ∫sin²(x)cos(2x), ∫sin³(x)cos(2x),
+// ∫sin²(2x)cos(x). Product-to-sum linearization reduces it to a sum of single
+// sin/cos terms the table integrates; previously all unevaluated. Verified by
+// high-precision numeric diff-back (SymPy's symbolic simplify can't reliably
+// reduce a trig product, so the standard oracle.equivalent check is unreliable).
+TEST_CASE("integrate: trig products with mixed arguments (INT-TRIGPROD-1)",
+          "[7][integrate][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const std::vector<Expr> integrands = {
+        pow(sin(x), integer(2)) * cos(integer(2) * x),       // sin²(x)cos(2x)
+        pow(cos(x), integer(2)) * cos(integer(2) * x),       // cos²(x)cos(2x)
+        pow(sin(x), integer(2)) * sin(integer(2) * x),       // sin²(x)sin(2x)
+        pow(sin(x), integer(3)) * cos(integer(2) * x),       // sin³(x)cos(2x)
+        pow(sin(integer(2) * x), integer(2)) * cos(x),       // sin²(2x)cos(x)
+        sin(x) * cos(integer(2) * x),                        // sin(x)cos(2x)
+    };
+    for (const Expr& e : integrands) {
+        auto F = integrate(e, x);
+        INFO("integrand: " << e->str() << "  antiderivative: " << F->str());
+        REQUIRE(F->str().find("Integral(") == std::string::npos);
+        Expr resid = diff(F, x) - e;
+        for (long num : {3, 7, 13, 19}) {
+            Expr at = subs(resid, x, rational(num, 29));
+            auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                     {"expr", at->str()},
+                                     {"prec", 40},
+                                     {"tol", 20}});
+            REQUIRE(resp.ok);
+            REQUIRE(resp.raw.at("result").get<bool>());
+        }
     }
 }

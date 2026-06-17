@@ -8,6 +8,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
@@ -15,9 +16,11 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/matrices/matrix.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/solvers/solve.hpp>
 
 #include "oracle/oracle.hpp"
@@ -111,6 +114,43 @@ TEST_CASE("solve: cubic via rational-root deflation", "[10][solve][oracle]") {
         auto val = pow(r, integer(3)) - integer(8);
         REQUIRE(oracle.equivalent(val->str(), "0"));
     }
+}
+
+// SOLVE-CPLXFORM-1: complex polynomial roots are returned distributed as a + b·I,
+// not as the ½·(…) prefactor form Cardano/the quadratic formula build internally.
+// Asserts the exact string so it would fail on the un-normalized output.
+TEST_CASE("solve: complex roots in distributed a+b*I form (SOLVE-CPLXFORM-1)",
+          "[10][solve][regression]") {
+    auto x = symbol("x");
+    auto str_set = [](const std::vector<Expr>& got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && got[i]->str() == w) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // x² − 2x + 5 = 0 → 1 ± 2I (was ½·(4I+2) before normalization).
+    REQUIRE(str_set(solve(pow(x, integer(2)) - integer(2) * x + integer(5), x),
+                    {"2*I + 1", "-2*I + 1"}));
+    // x⁴ + 4 = 0 → the four Gaussian roots ±1 ± I.
+    REQUIRE(str_set(solve(pow(x, integer(4)) + integer(4), x),
+                    {"I + 1", "-I + 1", "I - 1", "-I - 1"}));
+    // Cardano complex pair: x³ − 8 = 0 → 2, −1 ± √3·I.
+    REQUIRE(str_set(
+        solve(pow(x, integer(3)) - integer(8), x),
+        {"2", "I*3**(1/2) - 1", "-I*3**(1/2) - 1"}));
+    // Real roots are untouched (golden ratio stays exact, just distributed).
+    REQUIRE(str_set(solve(pow(x, integer(2)) - x - integer(1), x),
+                    {"1/2*5**(1/2) + 1/2", "-1/2*5**(1/2) + 1/2"}));
 }
 
 // ----- transcendental solve (regression, issue #11 / SOLVE-1) ----------------
@@ -313,6 +353,21 @@ TEST_CASE("solve: Lambert-W equations (SOLVE-LAMBERT-1)",
     // Additive-exp: x + eˣ + c → −c − W(e^(−c)); x+eˣ−1 auto-evaluates to 0.
     REQUIRE(set_equal(solve(x + exp(x), x), {"-LambertW(1)"}));
     REQUIRE(set_equal(solve(x + exp(x) - integer(1), x), {"0"}));
+    // SOLVE-LAMBERT-2: a non-unit coefficient on the bare-var term, a·var + eᵛᵃʳ + c
+    // → var = −W(e^(−c/a)/a) − c/a (and the log analogue → W(a·e^(−c))/a). Covers
+    // eˣ = x + 2, i.e. eˣ − x − 2, which previously returned [].
+    // eˣ − x − 2 → −2 − W(−e^(−2)).
+    REQUIRE(set_equal(solve(exp(x) - x - integer(2), x),
+                      {"-2 - LambertW(-exp(-2))"}));
+    // eˣ − x → −W(−1).
+    REQUIRE(set_equal(solve(exp(x) - x, x), {"-LambertW(-1)"}));
+    // 2x + eˣ → −W(1/2).
+    REQUIRE(set_equal(solve(integer(2) * x + exp(x), x), {"-LambertW(1/2)"}));
+    // eˣ − 2x − 1 → −1/2 − W(−e^(−1/2)/2).
+    REQUIRE(set_equal(solve(exp(x) - integer(2) * x - integer(1), x),
+                      {"-1/2 - LambertW(-exp(-1/2)/2)"}));
+    // Generalized additive-log: 2x + log(x) → W(2)/2.
+    REQUIRE(set_equal(solve(integer(2) * x + log(x), x), {"LambertW(2)/2"}));
 }
 
 // SOLVE-RADPOLY-1: solve() of a polynomial in a radical x^(1/d) — e.g.
@@ -352,6 +407,90 @@ TEST_CASE("solve: polynomial in a radical x^(1/d) (SOLVE-RADPOLY-1)",
     REQUIRE(set_equal(solve(pow(x, rational(1, 3)) - integer(2), x), {"8"}));
     // A plain polynomial is untouched.
     REQUIRE(set_equal(solve(pow(x, integer(2)) - integer(4), x), {"2", "-2"}));
+}
+
+// SOLVE-RADISOLATE-1: a single square root √(g(x)) of a non-trivial radicand
+// appearing linearly — isolate and square, then filter the extraneous root the
+// squaring introduces (numerically, since denesting √((3−√5)/2) symbolically is
+// beyond simplify). solve_radical_poly only handles a polynomial in x^(1/d) of
+// the bare variable, so these previously returned [].
+TEST_CASE("solve: single √(g(x)) by isolate-and-square (SOLVE-RADISOLATE-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto sq = [&](const Expr& g) { return pow(g, rational(1, 2)); };
+    // √(x+1) − x + 1 = 0 → x = 3 (x = 0 extraneous).
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - x + integer(1), x), {"3"}));
+    // √(2x+3) − x = 0 → x = 3 (x = −1 extraneous).
+    REQUIRE(set_equal(solve(sq(integer(2) * x + integer(3)) - x, x), {"3"}));
+    // √(x²+1) − x − 1 = 0 → x = 0.
+    REQUIRE(set_equal(
+        solve(sq(pow(x, integer(2)) + integer(1)) - x - integer(1), x), {"0"}));
+    // √(x+1) + x = 0 → x = (1−√5)/2 (the (1+√5)/2 branch is extraneous).
+    REQUIRE(set_equal(solve(sq(x + integer(1)) + x, x), {"1/2 - sqrt(5)/2"}));
+    // √(x+1) − x − 1 = 0 → x = −1, 0.
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - x - integer(1), x), {"-1", "0"}));
+    // No real solution: √(x+1) + 2 = 0 (a positive root would be needed).
+    REQUIRE(solve(sq(x + integer(1)) + integer(2), x).empty());
+    // The radical = constant case still works.
+    REQUIRE(set_equal(solve(sq(x + integer(1)) - integer(2), x), {"3"}));
+}
+
+// SOLVE-RADISOLATE-2: a sum/difference of TWO square roots, √g1 ± √g2 = c. Isolate
+// one radical and square once, leaving a single radical the same path then clears;
+// candidates are filtered against the original to drop the roots squaring adds.
+// Previously returned []. Matches SymPy.
+TEST_CASE("solve: two square roots by isolate-and-square (SOLVE-RADISOLATE-2)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto sq = [&](const Expr& g) { return pow(g, rational(1, 2)); };
+    // √x + √(x+1) = 3 → x = 16/9.
+    REQUIRE(set_equal(solve(sq(x) + sq(x + integer(1)) - integer(3), x),
+                      {"16/9"}));
+    // √(2x+1) − √x = 1 → x = 0, 4 (both valid).
+    REQUIRE(set_equal(
+        solve(sq(integer(2) * x + integer(1)) - sq(x) - integer(1), x),
+        {"0", "4"}));
+    // √(x−1) + √(x+4) = 5 → x = 5.
+    REQUIRE(set_equal(
+        solve(sq(x - integer(1)) + sq(x + integer(4)) - integer(5), x), {"5"}));
+    // √(x+1) − √(x−1) = 1 → x = 5/4.
+    REQUIRE(set_equal(
+        solve(sq(x + integer(1)) - sq(x - integer(1)) - integer(1), x),
+        {"5/4"}));
 }
 
 // SOLVE-EXPBASE-1: constant-base exponential a^x = c (a^x is a Pow with a
@@ -394,9 +533,79 @@ TEST_CASE("solve: constant-base exponential a^x = c (SOLVE-EXPBASE-1)",
                       {"(log(7) + I*pi)/log(2)"}));
     // a^x = 0 has no solution.
     REQUIRE(solve(powx(2), x).empty());
-    // Perfect-power base / scaled exponent stay unsolved (complex reps omitted).
-    REQUIRE(solve(pow(integer(4), x) - integer(2), x).empty());
-    REQUIRE(solve(pow(integer(2), integer(2) * x) - integer(8), x).empty());
+    // Perfect-power base / scaled exponent now solve via solve_const_base_exp_sum
+    // (4^x = 2 → 1/2, 2^(2x) = 8 → 3/2), matching SymPy.
+    REQUIRE(set_equal(solve(pow(integer(4), x) - integer(2), x), {"1/2"}));
+    REQUIRE(set_equal(solve(pow(integer(2), integer(2) * x) - integer(8), x),
+                      {"3/2"}));
+}
+
+// SOLVE-EXPBASE-SUM-1: sums of constant-base exponentials. Each term reduces to
+// coeff·exp(rate·x); commensurate rates substitute u=exp(r₀x) (a polynomial in
+// u), two incommensurate rates use the ratio method. Previously returned [].
+TEST_CASE("solve: sum of constant-base exponentials (SOLVE-EXPBASE-SUM-1)",
+          "[10][solve][transcendental][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    auto px = [&](int a) { return pow(integer(a), x); };
+    // Incommensurate bases (ratio method): 2^x − 3^x = 0 → 0; 5^x − 2^x = 0 → 0.
+    REQUIRE(set_equal(solve(px(2) - px(3), x), {"0"}));
+    REQUIRE(set_equal(solve(px(5) - px(2), x), {"0"}));
+    // Commensurate (polynomial in u = 2^x): 2^(2x) − 5·2^x + 4 → {0, 2}.
+    REQUIRE(set_equal(
+        solve(pow(integer(2), integer(2) * x)
+                  - integer(5) * px(2) + integer(4),
+              x),
+        {"0", "2"}));
+    // 2^(x+1) − 8 → 2; product of bases 2^x·3^x − 6 = 6^x − 6 → 1.
+    REQUIRE(set_equal(solve(pow(integer(2), x + integer(1)) - integer(8), x),
+                      {"2"}));
+    REQUIRE(set_equal(solve(px(2) * px(3) - integer(6), x), {"1"}));
+    // No real solution: 2^x − 3^x + something with negative ratio handled by the
+    // ratio sign check — 4^x − 2^(x+1) → 1.
+    REQUIRE(set_equal(
+        solve(pow(integer(4), x) - pow(integer(2), x + integer(1)), x), {"1"}));
+    // SOLVE-EXPBASE-SUM-2: a composite base that is a power of another base
+    // (4 = 2², 9 = 3²) is normalized to the common base so the u-substitution fires.
+    // 4^x − 2^x − 2 = 0: with u = 2^x, u² − u − 2 = 0 → u = 2 → x = 1 (u = −1 rejected).
+    REQUIRE(set_equal(solve(px(4) - px(2) - integer(2), x), {"1"}));
+    // 9^x − 4·3^x + 3 → {0, 1}.
+    REQUIRE(set_equal(
+        solve(pow(integer(9), x) - integer(4) * pow(integer(3), x) + integer(3),
+              x),
+        {"0", "1"}));
+    // 4^x − 5·2^x + 4 → {0, 2}. The root 2^x = 4 ⇒ x = log(4)/log(2) now reduces to
+    // the exact 2 (SIMPLIFY-LOGRATIO-1).
+    {
+        auto roots = solve(px(4) - integer(5) * px(2) + integer(4), x);
+        REQUIRE(set_equal(roots, {"0", "2"}));
+        bool has_exact_two = false;
+        for (const auto& r : roots) {
+            if (r == integer(2)) has_exact_two = true;
+        }
+        REQUIRE(has_exact_two);
+    }
+    // 16^x − 6·4^x + 8 → {1/2, 1} (u = 2^x, u⁴ − 6u² + 8 = 0).
+    REQUIRE(set_equal(
+        solve(pow(integer(16), x) - integer(6) * pow(integer(4), x) + integer(8),
+              x),
+        {"1/2", "1"}));
 }
 
 // SOLVE-RAD-1: radical equations g^p = c (p a non-integer rational) invert to
@@ -508,6 +717,82 @@ TEST_CASE("linsolve: identity returns b unchanged", "[10][linsolve]") {
 #include <sympp/sets/sets.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/parsing/parser.hpp>
+
+using sympp::parsing::parse;
+
+// SOLVE-EQ-1: solve() accepts an equation Eq(lhs, rhs), reducing it to
+// solve(lhs − rhs). Previously an Eq node fell through to the polynomial path
+// as an opaque function and returned []. The parser now builds Eq/Ne/Lt/… as
+// Relational nodes, and solve() reduces the Eq case.
+TEST_CASE("solve: equation form Eq(lhs, rhs) (SOLVE-EQ-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // Eq(x², 4) → {2, −2}.
+    REQUIRE(set_eq(solve(eq(pow(x, integer(2)), integer(4)), x), {"2", "-2"}));
+    // Eq(x³, x) → {0, 1, −1}.
+    REQUIRE(set_eq(solve(eq(pow(x, integer(3)), x), x), {"0", "1", "-1"}));
+    // Eq(2x+1, 5) → {2}.
+    REQUIRE(set_eq(solve(eq(integer(2) * x + integer(1), integer(5)), x),
+                   {"2"}));
+    // The parser builds Eq as a Relational, so solving the parsed string works.
+    REQUIRE(set_eq(solve(parse("Eq(x**2, 2*x)"), x), {"0", "2"}));
+}
+
+// SOLVE-LOGSUM-1: solve() of a sum of logarithms. Combine Σ cᵢ·log(gᵢ) + K via
+// log(∏ gᵢ^cᵢ) = −K ⇒ ∏ gᵢ^cᵢ = exp(−K), solve, and keep only roots in the log
+// domain (every gᵢ(root) > 0): log(x)+log(x−1)=0 → x(x−1)=1 → (1+√5)/2 (the
+// negative root is dropped). Previously these returned [].
+TEST_CASE("solve: sum of logarithms (SOLVE-LOGSUM-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // log(x)+log(x−1)=0 → only the in-domain root (1+√5)/2.
+    REQUIRE(set_eq(solve(log(x) + log(x - integer(1)), x),
+                   {"1/2 + sqrt(5)/2"}));
+    // log(x)+log(x+1)=log(6) → {2} (the root −3 is out of domain).
+    REQUIRE(set_eq(
+        solve(log(x) + log(x + integer(1)) - log(integer(6)), x), {"2"}));
+    // 2·log(x)−log(x+2)=0 → x²=x+2 → {2} (−1 out of domain).
+    REQUIRE(set_eq(
+        solve(integer(2) * log(x) - log(x + integer(2)), x), {"2"}));
+    // log(x+1)+log(x−1)=0 → x²−1=1 → √2 (−√2 out of domain).
+    REQUIRE(set_eq(solve(log(x + integer(1)) + log(x - integer(1)), x),
+                   {"sqrt(2)"}));
+}
 
 // ----- solveset --------------------------------------------------------------
 
@@ -575,6 +860,53 @@ TEST_CASE("solve: representative roots of trig equations (SOLVE-TRIG-1)",
         {"pi/2", "pi"}));
     REQUIRE(set_equal(solve(sin(x) * cos(x) * tan(x), x),
                       {"0", "pi/2", "pi", "3*pi/2"}));
+}
+
+// SOLVE-ZEROPROD-1: zero-product over factors that mix polynomial and
+// transcendental parts, including an Add with a common factor. solve_poly reads
+// x·cos(x) as a linear polynomial with coefficient cos(x) (partial root {0}), and
+// the common-factor Add x²·eˣ − eˣ as non-polynomial ({}). Zero-product solves
+// each factor and unions, skipping the never-zero eˣ (which also removes the
+// spurious zoo that solving eˣ = 0 injected).
+TEST_CASE("solve: zero-product with transcendental factors (SOLVE-ZEROPROD-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_equal = [&](const std::vector<Expr>& got,
+                         const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // Add with a common eˣ factor: eˣ·(x²−1). eˣ never zero → roots of x²−1.
+    REQUIRE(set_equal(
+        solve(pow(x, integer(2)) * exp(x) - exp(x), x), {"1", "-1"}));
+    // Mul with a never-zero factor: no spurious zoo from eˣ = 0.
+    REQUIRE(set_equal(
+        solve(exp(x) * (pow(x, integer(2)) - integer(4)), x), {"2", "-2"}));
+    // Common factor that IS solvable (sin): both it and the cofactor contribute.
+    REQUIRE(set_equal(solve(pow(x, integer(2)) * sin(x) - sin(x), x),
+                      {"0", "pi", "1", "-1"}));
+    // Common x·eˣ factor: x³·eˣ − x·eˣ = x·eˣ·(x²−1).
+    REQUIRE(set_equal(
+        solve(pow(x, integer(3)) * exp(x) - x * exp(x), x), {"0", "1", "-1"}));
+    // Polynomial × trig product, complete root set (solve_poly gave only {0}).
+    REQUIRE(set_equal(solve(x * cos(x), x), {"0", "pi/2", "3*pi/2"}));
+    REQUIRE(set_equal(solve(sin(x) * (x - integer(1)), x), {"0", "1", "pi"}));
+    // Several factors, mixed: eˣ·(x²−1)·(x−3).
+    REQUIRE(set_equal(
+        solve(exp(x) * (pow(x, integer(2)) - integer(1)) * (x - integer(3)), x),
+        {"1", "-1", "3"}));
 }
 
 // SOLVE-TRIG-PHASE-1: solve() of a trig equation whose argument carries an
@@ -756,6 +1088,16 @@ TEST_CASE("solve: inverse trig/hyperbolic equations (SOLVE-INVFN-1)",
     REQUIRE(solve(asin(x) - integer(2), x).empty());       // 2 > π/2
     REQUIRE(solve(acos(x) - integer(4), x).empty());       // 4 > π
     REQUIRE(solve(acosh(x) + integer(1), x).empty());      // c = -1 < 0
+    // Symbolic RHS → the formal principal-branch inverse (matching SymPy). The
+    // bounded-range check previously rejected a non-numeric c, returning [].
+    auto a = symbol("a");
+    REQUIRE(set_equal(solve(atan(x) - a, x), {"tan(a)"}));
+    REQUIRE(set_equal(solve(asin(x) - a, x), {"sin(a)"}));
+    REQUIRE(set_equal(solve(acos(x) - a, x), {"cos(a)"}));
+    REQUIRE(set_equal(solve(atanh(x) - a, x), {"tanh(a)"}));
+    REQUIRE(set_equal(solve(asinh(x) - a, x), {"sinh(a)"}));
+    // Scaled argument with a symbolic RHS: atan(2x) = a → x = tan(a)/2.
+    REQUIRE(set_equal(solve(atan(integer(2) * x) - a, x), {"tan(a)/2"}));
 }
 
 // SOLVE-TRIG-LINEAR-1: solve() of a linear combination a·sin(B·x)+b·cos(B·x)+c
@@ -923,6 +1265,43 @@ TEST_CASE("solveset: |x| = 3 → {3, -3}",
     REQUIRE(s->kind() == SetKind::FiniteSet);
     auto fs = std::static_pointer_cast<const FiniteSet>(s);
     REQUIRE(fs->size() == 2);
+}
+
+// SOLVE-ABS-1: solve() of an absolute-value equation |g(x)| = c. solveset
+// returns {3} ∪ {−1} for |x−1| = 2 (a Union of finite sets); solve() now
+// flattens a Union of finite sets into the root list. |g| = c with c < 0 has no
+// real solution (the previously-unsound case that the flattening exposed).
+TEST_CASE("solve: absolute-value equations (SOLVE-ABS-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto set_eq = [&](std::vector<Expr> got,
+                      const std::vector<std::string>& want) {
+        if (got.size() != want.size()) return false;
+        std::vector<bool> used(got.size(), false);
+        for (const auto& w : want) {
+            bool hit = false;
+            for (std::size_t i = 0; i < got.size(); ++i) {
+                if (!used[i] && oracle.equivalent(got[i]->str(), w)) {
+                    used[i] = hit = true;
+                    break;
+                }
+            }
+            if (!hit) return false;
+        }
+        return true;
+    };
+    // |x−1| = 2 → {3, −1}; |2x−1| = 5 → {3, −2}; |x²−1| = 3 → {2, −2}.
+    REQUIRE(set_eq(solve(abs(x - integer(1)) - integer(2), x), {"3", "-1"}));
+    REQUIRE(set_eq(solve(abs(integer(2) * x - integer(1)) - integer(5), x),
+                   {"3", "-2"}));
+    REQUIRE(set_eq(solve(abs(pow(x, integer(2)) - integer(1)) - integer(3), x),
+                   {"2", "-2"}));
+    // |x| = 0 → {0}.
+    REQUIRE(set_eq(solve(abs(x), x), {"0"}));
+    // |g| = c with c < 0 has no real solution (soundness).
+    REQUIRE(solve(abs(x + integer(1)) + integer(2), x).empty());
+    REQUIRE(solve(abs(x) + integer(5), x).empty());
 }
 
 TEST_CASE("solveset: sin(x) = 1/2 → ImageSet over ℤ",
@@ -1222,4 +1601,67 @@ TEST_CASE("nonlinsolve_groebner: 2-variable polynomial system",
     auto sols = nonlinsolve_groebner(
         {x * y - integer(1), x + y - integer(3)}, {x, y});
     REQUIRE(!sols.empty());
+}
+
+// SOLVE-ROOTOF-1: an irreducible polynomial of degree >= 5 is not solvable by
+// radicals, so the closed-form solver left it unrepresented and solve() returned
+// an empty list — implying "no solutions" for x^5 - x - 1, which has a real root
+// near 1.1673. solve() now supplements with RootOf (rendered CRootOf) for the
+// real roots of such factors. Each returned root is checked numerically by
+// substituting its high-precision value back into the polynomial.
+TEST_CASE("solve: irreducible quintic returns real CRootOf (SOLVE-ROOTOF-1)",
+          "[10][solve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+
+    // x^5 - x - 1: one real root, four complex (the real one is represented).
+    {
+        Expr p = pow(x, integer(5)) - x - integer(1);
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 1);
+        REQUIRE(roots[0]->type_id() == TypeId::RootOf);
+        auto v = static_cast<const RootOf&>(*roots[0]).try_evalf(30);
+        REQUIRE(v.has_value());
+        // p(root) ≈ 0
+        Expr resid = subs(p, x, *v);
+        auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                 {"expr", resid->str()},
+                                 {"prec", 40},
+                                 {"tol", 20}});
+        REQUIRE(resp.ok);
+        REQUIRE(resp.raw.at("result").get<bool>());
+    }
+
+    // 2*x^5 - 10*x + 5: three real roots, all returned as CRootOf.
+    {
+        Expr p = integer(2) * pow(x, integer(5)) - integer(10) * x + integer(5);
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 3);
+        for (const auto& r : roots) {
+            REQUIRE(r->type_id() == TypeId::RootOf);
+            auto v = static_cast<const RootOf&>(*r).try_evalf(30);
+            REQUIRE(v.has_value());
+            Expr resid = subs(p, x, *v);
+            auto resp = oracle.send({{"op", "evalf_is_zero"},
+                                     {"expr", resid->str()},
+                                     {"prec", 40},
+                                     {"tol", 20}});
+            REQUIRE(resp.ok);
+            REQUIRE(resp.raw.at("result").get<bool>());
+        }
+    }
+
+    // Mixed: (x - 2)·(x^5 - x - 1) keeps the rational root and adds the CRootOf.
+    {
+        Expr p = (x - integer(2)) * (pow(x, integer(5)) - x - integer(1));
+        auto roots = solve(p, x);
+        REQUIRE(roots.size() == 2);
+        bool has_two = false, has_rootof = false;
+        for (const auto& r : roots) {
+            if (r == integer(2)) has_two = true;
+            if (r->type_id() == TypeId::RootOf) has_rootof = true;
+        }
+        REQUIRE(has_two);
+        REQUIRE(has_rootof);
+    }
 }

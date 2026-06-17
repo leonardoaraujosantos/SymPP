@@ -78,6 +78,22 @@ namespace {
     return false;
 }
 
+// True if e contains a complex denominator — Pow(d, negative) whose base d
+// carries the imaginary unit. A rationalized result (no such denominator) is
+// preferred even when larger, so the anti-bloat guard exempts it.
+[[nodiscard]] bool has_complex_denominator(const Expr& e) {
+    if (e->type_id() == TypeId::Pow
+        && e->args()[1]->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*e->args()[1]).is_negative()
+        && has(e->args()[0], S::I())) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_complex_denominator(a)) return true;
+    }
+    return false;
+}
+
 // True iff `e` is a rational function in its symbols — built only from
 // numbers, symbols, +, *, and integer powers. cancel()/Poly() can loop
 // forever on transcendental subexpressions (e.g. sin(x)), so simplify()
@@ -147,6 +163,11 @@ namespace {
 [[nodiscard]] Expr combine_exp(const Expr& e);
 [[nodiscard]] Expr exp_to_hyp_add(const Expr& e);
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
+[[nodiscard]] Expr radical_coeff(const Expr& e);
+[[nodiscard]] Expr log_ratio(const Expr& e);
+[[nodiscard]] Expr sign_abs_mul(const Expr& e);
+[[nodiscard]] Expr abs_mul_combine(const Expr& e);
+[[nodiscard]] Expr change_of_base_pow(const Expr& e);
 
 }  // namespace
 
@@ -154,17 +175,22 @@ Expr simplify(const Expr& e) {
     if (!e) return e;
     // 1. Canonical form.
     Expr canon = re_canonicalize(e);
-    // 2. Expand to flush nested products.
-    Expr current = expand(canon);
+    // 2. Expand to flush nested products, then rationalize complex denominators
+    //    ((1+I)/(1-I) → I, 1/(1+I) → 1/2 − I/2).
+    Expr current = expand(rationalize_complex(expand(canon)));
     // 3. Apply pattern-based simplifiers. Each is a no-op when the input
     //    doesn't match its pattern, so chaining is safe; ordering only
     //    affects which form we land on when multiple rules could apply.
     current = trigsimp(current);
+    current = sign_abs_mul(current);
+    current = abs_mul_combine(current);
     current = powsimp(current);
+    current = log_ratio(current);
     current = combine_exp(current);
     current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
     current = pow_of_pow(current);
+    current = change_of_base_pow(current);
     current = combsimp(current);
     current = gammasimp(current);
     current = radsimp(current);
@@ -212,11 +238,19 @@ Expr simplify(const Expr& e) {
         // Exception: a rationalized surd denominator is the preferred canonical
         // form even when larger. Only fall back to canon when current did not
         // remove a surd denominator that canon still carries.
-        if (!(has_surd_denominator(canon) && !has_surd_denominator(current))) {
-            return canon;
+        const bool removed_surd =
+            has_surd_denominator(canon) && !has_surd_denominator(current);
+        const bool removed_cx =
+            has_complex_denominator(canon) && !has_complex_denominator(current);
+        if (!removed_surd && !removed_cx) {
+            // Pulling a perfect-power factor out of a radical (√(4a²) → 2√(a²)) is a
+            // simplification even when it raises the node count, so apply it after
+            // the anti-bloat guard rather than inside the pipeline (where the guard
+            // would revert it).
+            return radical_coeff(canon);
         }
     }
-    return current;
+    return radical_coeff(current);
 }
 
 Expr collect(const Expr& e, const Expr& var) {
@@ -295,6 +329,127 @@ namespace {
         }
     }
     return mul(std::move(out));
+}
+
+// √(4·a²) → 2·√(a²), √(8·a²) → 2·√(2·a²), (8·x)^(1/3) → 2·x^(1/3): pull the
+// perfect-power factor of a positive numeric coefficient out of a radical (a Pow
+// with a non-integer rational exponent over a Mul base). The coefficient's
+// non-perfect part stays under the radical with the symbolic factors (matching
+// SymPy up to the √c·√X ↔ √(c·X) regrouping). Valid since the coefficient is
+// positive: (c·X)^e = c^e·X^e on the principal branch regardless of X's sign.
+[[nodiscard]] Expr radical_coeff_node(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return e;
+    const Expr& base = e->args()[0];
+    const Expr& exp = e->args()[1];
+    if (exp->type_id() != TypeId::Rational) return e;  // non-integer rational only
+    if (base->type_id() != TypeId::Mul) return e;
+    Expr coeff = S::One();
+    std::vector<Expr> rest;
+    for (const auto& f : base->args()) {
+        if (f->type_id() == TypeId::Integer || f->type_id() == TypeId::Rational) {
+            coeff = mul(coeff, f);
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (rest.empty() || coeff == S::One()) return e;       // pure number / no coeff
+    if (is_positive(coeff) != std::optional<bool>{true}) return e;  // need c > 0
+
+    // coeff^exp auto-factors to m·(c')^exp (e.g. 8^(1/2) = 2·2^(1/2), 4^(1/2) = 2).
+    // Pull out the rational m and keep c' under the radical with `rest`.
+    Expr ce = pow(coeff, exp);
+    Expr m;
+    Expr cprime = S::One();
+    if (ce->type_id() == TypeId::Integer || ce->type_id() == TypeId::Rational) {
+        m = ce;  // coeff was a perfect power
+    } else if (ce->type_id() == TypeId::Mul) {
+        std::vector<Expr> nums;
+        std::vector<Expr> others;
+        for (const auto& f : ce->args()) {
+            if (f->type_id() == TypeId::Integer
+                || f->type_id() == TypeId::Rational) {
+                nums.push_back(f);
+            } else {
+                others.push_back(f);
+            }
+        }
+        if (nums.empty() || others.size() != 1
+            || others[0]->type_id() != TypeId::Pow
+            || !(others[0]->args()[1] == exp)) {
+            return e;
+        }
+        m = mul(nums);
+        cprime = others[0]->args()[0];
+    } else {
+        return e;  // coeff^exp stayed a bare radical — nothing to pull
+    }
+    Expr inside = (cprime == S::One()) ? mul(rest) : mul(cprime, mul(rest));
+    return mul(m, pow(inside, exp));
+}
+
+// log(b)/log(a) → k when a and b are positive integers that are powers of a common
+// base c (b = c^j, a = c^i ⇒ log(b)/log(a) = j/i): log(4)/log(2) → 2,
+// log(2)/log(8) → 1/3. Acts on a Mul carrying a log(b) factor and a log(a)^(-1)
+// factor; other factors pass through. (simplify() does not otherwise reduce this,
+// which left exponential-equation roots as log(4)/log(2) instead of 2.)
+[[nodiscard]] Expr log_ratio_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    // The primitive base of n ≥ 2: smallest c with n = c^k; returns (c, k).
+    auto primitive = [](long n) -> std::pair<long, long> {
+        for (long c = 2; c * c <= n; ++c) {
+            long t = c;
+            long k = 1;
+            while (t < n) { t *= c; ++k; }
+            if (t == n) return {c, k};
+        }
+        return {n, 1};
+    };
+    // Integer argument of log(n) (inv=false) or log(n)^(-1) (inv=true), n ≥ 2.
+    auto log_int_arg = [](const Expr& f, bool& inv) -> std::optional<long> {
+        Expr g = f;
+        inv = false;
+        if (f->type_id() == TypeId::Pow && f->args()[1] == S::NegativeOne()) {
+            g = f->args()[0];
+            inv = true;
+        }
+        if (g->type_id() == TypeId::Function
+            && static_cast<const Function&>(*g).function_id() == FunctionId::Log
+            && g->args().size() == 1
+            && g->args()[0]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*g->args()[0]);
+            if (z.fits_long() && z.to_long() >= 2) return z.to_long();
+        }
+        return std::nullopt;
+    };
+    std::vector<Expr> args(e->args().begin(), e->args().end());
+    int num_idx = -1;
+    int den_idx = -1;
+    long num_arg = 0;
+    long den_arg = 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        bool inv = false;
+        if (auto a = log_int_arg(args[i], inv)) {
+            if (inv && den_idx < 0) {
+                den_idx = static_cast<int>(i);
+                den_arg = *a;
+            } else if (!inv && num_idx < 0) {
+                num_idx = static_cast<int>(i);
+                num_arg = *a;
+            }
+        }
+    }
+    if (num_idx < 0 || den_idx < 0) return e;
+    auto [cn, en] = primitive(num_arg);
+    auto [cd, ed] = primitive(den_arg);
+    if (cn != cd) return e;  // no common base → log ratio is irrational
+    std::vector<Expr> rest;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (static_cast<int>(i) != num_idx && static_cast<int>(i) != den_idx) {
+            rest.push_back(args[i]);
+        }
+    }
+    rest.push_back(rational(en, ed));  // log_a(b) = en/ed
+    return mul(std::move(rest));
 }
 
 // exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
@@ -511,6 +666,119 @@ template <typename NodeFn>
 
 Expr pow_of_pow(const Expr& e) { return apply_recursive(e, pow_of_pow_node); }
 
+// Change-of-base exponential: base^(num·log(base)⁻¹) = exp(num). Since
+// base^e = exp(e·log base), an exponent carrying a 1/log(base) factor cancels it,
+// leaving exp(num); a num of the form k·log(b) then folds to bᵏ. Closes
+// 2^(log x/log 2) → x, 3^(2·log x/log 3) → x², x^(log y/log x) → y.
+[[nodiscard]] Expr change_of_base_pow_node(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return e;
+    const Expr& base = e->args()[0];
+    const Expr& exponent = e->args()[1];
+    // log(base) must be a genuine Log node — not folded to a number (e.g. base = E
+    // gives log = 1, which would make the 1/log(base) factor vanish spuriously).
+    Expr lb = log(base);
+    if (lb->type_id() != TypeId::Function
+        || static_cast<const Function&>(*lb).function_id() != FunctionId::Log) {
+        return e;
+    }
+    const Expr inv_lb = pow(lb, S::NegativeOne());
+    Expr num;
+    if (exponent == inv_lb) {
+        num = S::One();
+    } else if (exponent->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        bool found = false;
+        for (const auto& f : exponent->args()) {
+            if (!found && f == inv_lb) {
+                found = true;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!found) return e;
+        num = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    } else {
+        return e;
+    }
+    return exp(num);  // exp(log b)=b, exp(k·log b)=bᵏ fold at construction
+}
+
+Expr change_of_base_pow(const Expr& e) {
+    return apply_recursive(e, change_of_base_pow_node);
+}
+
+Expr radical_coeff(const Expr& e) {
+    return apply_recursive(e, radical_coeff_node);
+}
+
+Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
+
+// sign(u)·|u| = u (the polar decomposition: sign(u) = u/|u| for u ≠ 0, and both
+// sides vanish at u = 0). Cancels a matching Sign/Abs factor pair in a Mul,
+// leaving the rest untouched — sign(x)·|x| → x, 2·sign(x)·|x| → 2x,
+// sign(x)·|x|·y → x·y. Matches SymPy's simplify.
+[[nodiscard]] Expr sign_abs_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (args[i]->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*args[i]).function_id()
+            != FunctionId::Sign) {
+            continue;
+        }
+        const Expr& u = args[i]->args()[0];
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i || args[j]->type_id() != TypeId::Function) continue;
+            const auto& fj = static_cast<const Function&>(*args[j]);
+            if (fj.function_id() != FunctionId::Abs || !(fj.args()[0] == u)) {
+                continue;
+            }
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(u);
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
+Expr sign_abs_mul(const Expr& e) { return apply_recursive(e, sign_abs_node); }
+
+// |a|·|b| = |a·b| (true for all complex a, b). Combine the Abs-bearing factors of
+// a Mul — Abs(u) and integer powers Abs(u)^k — into a single Abs of their product,
+// leaving non-Abs factors as a loose coefficient: |x|·|y| → |x·y|,
+// 2·|x|·|y| → 2·|x·y|, |x|²·|y| → |x²·y|, |x|/|y| → |x/y|. A lone Abs factor
+// (|x|, |x|²) is left untouched. Matches SymPy. Runs after sign_abs_mul so a
+// sign(u)·|u| pair has already cancelled to u and won't be re-wrapped.
+[[nodiscard]] Expr abs_mul_node(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto is_abs = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Abs;
+    };
+    std::vector<Expr> inside;  // the u^k pieces destined for one Abs(…)
+    std::vector<Expr> rest;
+    for (const auto& f : e->args()) {
+        if (is_abs(f)) {
+            inside.push_back(f->args()[0]);
+        } else if (f->type_id() == TypeId::Pow && is_abs(f->args()[0])
+                   && f->args()[1]->type_id() == TypeId::Integer) {
+            inside.push_back(pow(f->args()[0]->args()[0], f->args()[1]));
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (inside.size() < 2) return e;  // nothing to merge
+    rest.push_back(abs(mul(std::move(inside))));
+    return mul(std::move(rest));
+}
+
+Expr abs_mul_combine(const Expr& e) { return apply_recursive(e, abs_mul_node); }
+
 Expr combine_exp(const Expr& e) { return apply_recursive(e, combine_exp_node); }
 
 // a·exp(g) + a·exp(−g) → 2a·cosh(g),  a·exp(g) − a·exp(−g) → 2a·sinh(g).
@@ -712,10 +980,27 @@ struct CosDoubleTerm {
     if (term->type_id() == TypeId::Mul) {
         std::optional<Expr> arg;
         std::vector<Expr> coef_factors;
+        // A trig factor in the coefficient means this is a genuine trig product
+        // (sin(x)·cos(2x)), better folded by the angle-addition pass — folding the
+        // cos(2x) into cos²−sin² here would mangle it.
+        auto is_trig_bearing = [](const Expr& f) {
+            const Expr& b = f->type_id() == TypeId::Pow ? f->args()[0] : f;
+            if (b->type_id() != TypeId::Function) return false;
+            switch (static_cast<const Function&>(*b).function_id()) {
+                case FunctionId::Sin: case FunctionId::Cos:
+                case FunctionId::Tan: case FunctionId::Cot:
+                case FunctionId::Sec: case FunctionId::Csc:
+                    return true;
+                default:
+                    return false;
+            }
+        };
         for (const auto& f : term->args()) {
             if (auto g = cos_double_arg(f); g) {
                 if (arg) return std::nullopt;  // multiple — leave alone
                 arg = *g;
+            } else if (is_trig_bearing(f)) {
+                return std::nullopt;  // genuine product → leave for angle-addition
             } else {
                 coef_factors.push_back(f);
             }
@@ -866,6 +1151,48 @@ struct CosDoubleTerm {
     return mul(std::move(rest));
 }
 
+// Hyperbolic analogue of trigsimp_mul: 2·sinh(x)·cosh(x) = sinh(2x), more
+// generally k·sinh(x)·cosh(x) → (k/2)·sinh(2x). Folds a same-argument sinh·cosh
+// pair in a Mul, leaving everything else untouched. (No sign change — sinh(2x)
+// factors as sinh·cosh just like sin(2x).)
+[[nodiscard]] Expr hypsimp_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    Expr sinh_arg = nullptr;
+    std::size_t sinh_idx = 0;
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*f).function_id() == FunctionId::Sinh) {
+            sinh_arg = f->args()[0];
+            sinh_idx = i;
+            break;
+        }
+    }
+    if (!sinh_arg) return e;
+    std::size_t cosh_idx = args.size();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sinh_idx) continue;
+        const Expr& f = args[i];
+        if (f->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*f).function_id() == FunctionId::Cosh
+            && f->args()[0] == sinh_arg) {
+            cosh_idx = i;
+            break;
+        }
+    }
+    if (cosh_idx == args.size()) return e;
+    std::vector<Expr> rest;
+    rest.reserve(args.size() - 1);
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        if (i == sinh_idx || i == cosh_idx) continue;
+        rest.push_back(args[i]);
+    }
+    rest.push_back(rational(1, 2));
+    rest.push_back(sinh(integer(2) * sinh_arg));
+    return mul(std::move(rest));
+}
+
 // Classify an Add term as a product of exactly two first-power sin/cos factors,
 // returning the coefficient and each factor's (is_sin, arg). Anything else — a
 // bare or squared trig, a third trig factor, or a leftover function in the
@@ -913,50 +1240,71 @@ struct TwoTrigTerm {
 //   sin(a)cos(b) ± cos(a)sin(b) → sin(a ± b)
 //   cos(a)cos(b) ∓ sin(a)sin(b) → cos(a ± b)
 // A shared coefficient g carries through (g·… → g·sin/cos(…)).
-[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
-    if (e->type_id() != TypeId::Add || e->args().size() != 2) return e;
-    auto t1 = as_two_trig_term(e->args()[0]);
-    auto t2 = as_two_trig_term(e->args()[1]);
-    if (!t1 || !t2) return e;
+// Collapse two two-trig terms via a single angle-addition identity, returning the
+// folded coef·sin/cos(…) or nullopt when the pair doesn't combine.
+[[nodiscard]] std::optional<Expr> collapse_two_trig(const TwoTrigTerm& t1,
+                                                    const TwoTrigTerm& t2) {
     auto neg = [](const Expr& c) { return mul(S::NegativeOne(), c); };
-
-    const bool sc1 = t1->sin1 != t1->sin2;  // one sin, one cos
-    const bool sc2 = t2->sin1 != t2->sin2;
-    // sin(a±b): both terms are sin·cos.
+    const bool sc1 = t1.sin1 != t1.sin2;  // one sin, one cos
+    const bool sc2 = t2.sin1 != t2.sin2;
+    // sin(a±b): both terms are sin·cos, cross-paired.
     if (sc1 && sc2) {
-        Expr a = t1->sin1 ? t1->arg1 : t1->arg2;   // sin argument of term 1
-        Expr b = t1->sin1 ? t1->arg2 : t1->arg1;   // cos argument of term 1
-        Expr s2 = t2->sin1 ? t2->arg1 : t2->arg2;  // sin argument of term 2
-        Expr c2 = t2->sin1 ? t2->arg2 : t2->arg1;  // cos argument of term 2
-        if (!(s2 == b && c2 == a)) return e;       // must cross-pair
-        if (t1->coef == t2->coef) {
-            return mul(t1->coef, sin(add({a, b})));
-        }
-        if (t1->coef == neg(t2->coef)) {
-            return mul(t1->coef, sin(add({a, neg(b)})));
-        }
-        return e;
+        Expr a = t1.sin1 ? t1.arg1 : t1.arg2;   // sin argument of term 1
+        Expr b = t1.sin1 ? t1.arg2 : t1.arg1;   // cos argument of term 1
+        Expr s2 = t2.sin1 ? t2.arg1 : t2.arg2;  // sin argument of term 2
+        Expr c2 = t2.sin1 ? t2.arg2 : t2.arg1;  // cos argument of term 2
+        if (!(s2 == b && c2 == a)) return std::nullopt;
+        if (t1.coef == t2.coef) return mul(t1.coef, sin(add({a, b})));
+        if (t1.coef == neg(t2.coef)) return mul(t1.coef, sin(add({a, neg(b)})));
+        return std::nullopt;
     }
     // cos(a±b): one term is cos·cos, the other sin·sin, over the same arg pair.
-    const bool cc1 = !t1->sin1 && !t1->sin2, ss1 = t1->sin1 && t1->sin2;
-    const bool cc2 = !t2->sin1 && !t2->sin2, ss2 = t2->sin1 && t2->sin2;
+    const bool cc1 = !t1.sin1 && !t1.sin2, ss1 = t1.sin1 && t1.sin2;
+    const bool cc2 = !t2.sin1 && !t2.sin2, ss2 = t2.sin1 && t2.sin2;
     const TwoTrigTerm* cc = nullptr;
     const TwoTrigTerm* ss = nullptr;
-    if (cc1 && ss2) { cc = &*t1; ss = &*t2; }
-    else if (ss1 && cc2) { cc = &*t2; ss = &*t1; }
-    else return e;
+    if (cc1 && ss2) { cc = &t1; ss = &t2; }
+    else if (ss1 && cc2) { cc = &t2; ss = &t1; }
+    else return std::nullopt;
     const bool same_args =
         (cc->arg1 == ss->arg1 && cc->arg2 == ss->arg2)
         || (cc->arg1 == ss->arg2 && cc->arg2 == ss->arg1);
-    if (!same_args) return e;
+    if (!same_args) return std::nullopt;
     Expr a = cc->arg1, b = cc->arg2;
-    if (cc->coef == ss->coef) {
-        return mul(cc->coef, cos(add({a, neg(b)})));  // cos(a−b)
+    if (cc->coef == ss->coef) return mul(cc->coef, cos(add({a, neg(b)})));
+    if (cc->coef == neg(ss->coef)) return mul(cc->coef, cos(add({a, b})));
+    return std::nullopt;
+}
+
+// Angle-addition identities over an Add of any size: greedily collapse every
+// collapsible pair of two-trig products (sin·cos ± cos·sin → sin(a±b), etc.), then
+// let add() collect the folded terms. Reduces e.g. the variation-of-parameters
+// particular solution sin(3x)cos(2x) − cos(3x)sin(2x) + … down to sin(x)/3.
+[[nodiscard]] Expr trigsimp_angle_addition(const Expr& e) {
+    if (e->type_id() != TypeId::Add || e->args().size() < 2) return e;
+    std::vector<Expr> terms(e->args().begin(), e->args().end());
+    std::vector<std::optional<TwoTrigTerm>> parsed;
+    parsed.reserve(terms.size());
+    for (const auto& t : terms) parsed.push_back(as_two_trig_term(t));
+    std::vector<bool> used(terms.size(), false);
+    std::vector<Expr> out;
+    bool any = false;
+    for (std::size_t i = 0; i < terms.size(); ++i) {
+        if (used[i]) continue;
+        if (!parsed[i]) { out.push_back(terms[i]); continue; }
+        bool paired = false;
+        for (std::size_t j = i + 1; j < terms.size(); ++j) {
+            if (used[j] || !parsed[j]) continue;
+            if (auto folded = collapse_two_trig(*parsed[i], *parsed[j])) {
+                out.push_back(*folded);
+                used[i] = used[j] = paired = any = true;
+                break;
+            }
+        }
+        if (!paired) out.push_back(terms[i]);
     }
-    if (cc->coef == neg(ss->coef)) {
-        return mul(cc->coef, cos(add({a, b})));  // cos(a+b)
-    }
-    return e;
+    if (!any) return e;
+    return add(std::move(out));  // canonicalization collects the folded like terms
 }
 
 // Hyperbolic Pythagorean: a·sinh²(x) + b·cosh²(x) using cosh² − sinh² = 1.
@@ -1035,10 +1383,29 @@ struct TwoTrigTerm {
         if (out.size() == 1) return out[0];
         return add(std::move(out));
     };
+    // Double-angle candidate, using sinh²x = (cosh 2x − 1)/2 and
+    // cosh²x = (cosh 2x + 1)/2:  a·sinh² + b·cosh² = (b − a)/2 + ((a + b)/2)·cosh 2x.
+    // Folds cosh²x + sinh²x → cosh 2x and the constant-mixed shapes
+    // 1 + 2·sinh²x, 2·cosh²x − 1 → cosh 2x (the loose constant absorbs into the Add).
+    auto double_angle = [&] {
+        std::vector<Expr> out = non_hyp;
+        Expr half = rational(1, 2);
+        for (auto& [arg, cp] : by_arg) {
+            out.push_back(half * (cp.cosh_c - cp.sinh_c));
+            Expr c_2x = half * (cp.sinh_c + cp.cosh_c);
+            if (!(c_2x == S::Zero())) {
+                out.push_back(c_2x * cosh(integer(2) * arg));
+            }
+        }
+        if (out.empty()) return Expr{S::Zero()};
+        if (out.size() == 1) return out[0];
+        return add(std::move(out));
+    }();
     Expr sinh_form = build(true);
     Expr cosh_form = build(false);
     Expr best = count_leaves(cosh_form) < count_leaves(sinh_form)
                     ? cosh_form : sinh_form;
+    if (count_leaves(double_angle) < count_leaves(best)) best = double_angle;
     return count_leaves(best) < count_leaves(e) ? best : e;
 }
 
@@ -1444,6 +1811,109 @@ struct TwoTrigTerm {
     return count_leaves(rebuilt) < count_leaves(e) ? rebuilt : e;
 }
 
+// Cancel a double-angle sine against a single-angle sin/cos in the denominator,
+// matching SymPy's simplify: sin(2u) = 2·sin(u)·cos(u), so
+//   sin(2u)/sin(u) → 2·cos(u)   and   sin(2u)/cos(u) → 2·sin(u).
+// Only the doubled *sine* factors into a single sin/cos pair, so cos(2u)/cos(u)
+// and sin(3u)/sin(u) (which SymPy also leaves alone) are untouched. Runs after
+// trig_ratio_mul so a csc/sec denominator has already become sin/cos^(-1).
+[[nodiscard]] Expr trig_double_angle_ratio_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& fi = args[i];
+        if (fi->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*fi).function_id() != FunctionId::Sin) {
+            continue;
+        }
+        const Expr& a = fi->args()[0];  // the doubled angle
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i) continue;
+            // The denominator is 1/sin or 1/cos of u, written either as a negative
+            // power sin(u)^(-1)/cos(u)^(-1) or as the reciprocal csc(u)/sec(u).
+            const Expr* den_fn = nullptr;
+            bool over_sin = false;
+            if (args[j]->type_id() == TypeId::Pow
+                && args[j]->args()[1] == S::NegativeOne()
+                && args[j]->args()[0]->type_id() == TypeId::Function) {
+                den_fn = &args[j]->args()[0];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Sin) over_sin = true;
+                else if (id != FunctionId::Cos) continue;
+            } else if (args[j]->type_id() == TypeId::Function) {
+                den_fn = &args[j];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Csc) over_sin = true;
+                else if (id != FunctionId::Sec) continue;
+            } else {
+                continue;
+            }
+            const Expr& u = (*den_fn)->args()[0];
+            if (!(expand(a - integer(2) * u) == S::Zero())) continue;
+            Expr folded = over_sin ? Expr{integer(2) * cos(u)}
+                                   : Expr{integer(2) * sin(u)};
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(std::move(folded));
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
+// Hyperbolic analogue of trig_double_angle_ratio_mul: sinh(2u) = 2·sinh(u)·cosh(u),
+// so sinh(2u)/sinh(u) → 2·cosh(u) and sinh(2u)/cosh(u) → 2·sinh(u) (and the
+// csch/sech forms). No sign flip — sinh(2u) factors as a sinh·cosh product just like
+// sin(2u). cosh(2u)/cosh(u) and sinh(3u)/sinh(u) are left alone, matching SymPy.
+[[nodiscard]] Expr hyp_double_angle_ratio_mul(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return e;
+    auto args = e->args();
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const Expr& fi = args[i];
+        if (fi->type_id() != TypeId::Function) continue;
+        if (static_cast<const Function&>(*fi).function_id() != FunctionId::Sinh) {
+            continue;
+        }
+        const Expr& a = fi->args()[0];  // the doubled angle
+        for (std::size_t j = 0; j < args.size(); ++j) {
+            if (j == i) continue;
+            // Denominator 1/sinh(u) or 1/cosh(u), as a negative power or csch/sech.
+            const Expr* den_fn = nullptr;
+            bool over_sinh = false;
+            if (args[j]->type_id() == TypeId::Pow
+                && args[j]->args()[1] == S::NegativeOne()
+                && args[j]->args()[0]->type_id() == TypeId::Function) {
+                den_fn = &args[j]->args()[0];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Sinh) over_sinh = true;
+                else if (id != FunctionId::Cosh) continue;
+            } else if (args[j]->type_id() == TypeId::Function) {
+                den_fn = &args[j];
+                const auto id = static_cast<const Function&>(**den_fn).function_id();
+                if (id == FunctionId::Csch) over_sinh = true;
+                else if (id != FunctionId::Sech) continue;
+            } else {
+                continue;
+            }
+            const Expr& u = (*den_fn)->args()[0];
+            if (!(expand(a - integer(2) * u) == S::Zero())) continue;
+            Expr folded = over_sinh ? Expr{integer(2) * cosh(u)}
+                                    : Expr{integer(2) * sinh(u)};
+            std::vector<Expr> rest;
+            rest.reserve(args.size() - 1);
+            for (std::size_t k = 0; k < args.size(); ++k) {
+                if (k != i && k != j) rest.push_back(args[k]);
+            }
+            rest.push_back(std::move(folded));
+            return mul(std::move(rest));
+        }
+    }
+    return e;
+}
+
 [[nodiscard]] Expr trigsimp_node(const Expr& e) {
     Expr cur = trigsimp_add(e);
     cur = trigsimp_angle_addition(cur);
@@ -1452,8 +1922,11 @@ struct TwoTrigTerm {
     cur = trig_pyth_add(cur);
     cur = hyp_to_exp_add(cur);
     cur = trig_ratio_mul(cur);
+    cur = trig_double_angle_ratio_mul(cur);
     cur = trigsimp_mul(cur);
     cur = hyp_ratio_mul(cur);
+    cur = hyp_double_angle_ratio_mul(cur);
+    cur = hypsimp_mul(cur);
     return cur;
 }
 
@@ -1472,7 +1945,9 @@ namespace {
     const auto& f = static_cast<const Function&>(*e);
     auto fid = f.function_id();
     if (fid != FunctionId::Sin && fid != FunctionId::Cos
-        && fid != FunctionId::Tan) return e;
+        && fid != FunctionId::Tan && fid != FunctionId::Sinh
+        && fid != FunctionId::Cosh && fid != FunctionId::Tanh)
+        return e;
     const Expr& arg = e->args()[0];
     // Split the argument into a + b, then apply the angle-addition formula.
     // Two sources of a split:
@@ -1512,16 +1987,36 @@ namespace {
     } else {
         return e;
     }
-    if (fid == FunctionId::Sin) {
-        return sin(a) * cos(b) + cos(a) * sin(b);
+    switch (fid) {
+        case FunctionId::Sin:
+            return sin(a) * cos(b) + cos(a) * sin(b);
+        case FunctionId::Cos:
+            return cos(a) * cos(b) - sin(a) * sin(b);
+        case FunctionId::Tan: {
+            // tan(a+b) = (tan a + tan b) / (1 − tan a · tan b).
+            Expr ta = tan(a);
+            Expr tb = tan(b);
+            return (ta + tb) / (integer(1) - ta * tb);
+        }
+        // Hyperbolic angle-addition mirrors the circular case but with the
+        // sign flips of the Osborn rule (a sinh·sinh product carries +1, not −1):
+        //   sinh(a+b) = sinh a cosh b + cosh a sinh b
+        //   cosh(a+b) = cosh a cosh b + sinh a sinh b
+        //   tanh(a+b) = (tanh a + tanh b) / (1 + tanh a · tanh b)
+        // Multiple angles (sinh(2x), cosh(3x), …) reduce through the same
+        // n·g = g + (n−1)·g split and the expand_trig fixpoint.
+        case FunctionId::Sinh:
+            return sinh(a) * cosh(b) + cosh(a) * sinh(b);
+        case FunctionId::Cosh:
+            return cosh(a) * cosh(b) + sinh(a) * sinh(b);
+        case FunctionId::Tanh: {
+            Expr ta = tanh(a);
+            Expr tb = tanh(b);
+            return (ta + tb) / (integer(1) + ta * tb);
+        }
+        default:
+            return e;
     }
-    if (fid == FunctionId::Cos) {
-        return cos(a) * cos(b) - sin(a) * sin(b);
-    }
-    // Tan(a+b) = (tan a + tan b) / (1 - tan a · tan b).
-    Expr ta = tan(a);
-    Expr tb = tan(b);
-    return (ta + tb) / (integer(1) - ta * tb);
 }
 
 }  // namespace

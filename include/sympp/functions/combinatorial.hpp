@@ -109,6 +109,19 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Lucas number L(n): L(0)=2, L(1)=1, L(n)=L(n-1)+L(n-2). Evaluates for a
+// non-negative integer; stays symbolic otherwise. Mirrors SymPy's lucas.
+class SYMPP_EXPORT Lucas final : public Function {
+public:
+    explicit Lucas(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Lucas;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "lucas"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+};
+
 // Euler's totient φ(n): the count of integers in [1, n] coprime to n. Evaluates
 // for a positive integer; stays symbolic otherwise. Mirrors SymPy's totient.
 class SYMPP_EXPORT Totient final : public Function {
@@ -189,6 +202,7 @@ public:
 class SYMPP_EXPORT DivisorSigma final : public Function {
 public:
     explicit DivisorSigma(Expr arg);
+    DivisorSigma(Expr n, Expr k);  // σ_k(n) = Σ_{d|n} d^k
     [[nodiscard]] FunctionId function_id() const noexcept override {
         return FunctionId::DivisorSigma;
     }
@@ -204,6 +218,7 @@ public:
 class SYMPP_EXPORT Harmonic final : public Function {
 public:
     explicit Harmonic(Expr arg);
+    Harmonic(Expr n, Expr m);  // generalized Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m)
     [[nodiscard]] FunctionId function_id() const noexcept override {
         return FunctionId::Harmonic;
     }
@@ -330,13 +345,16 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr binomial(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr beta(const Expr& a, const Expr& b);
 [[nodiscard]] SYMPP_EXPORT Expr fibonacci(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr lucas(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr totient(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr prime(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr primepi(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr mobius(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_count(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr divisor_sigma(const Expr& n, const Expr& k);
 [[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr harmonic(const Expr& n, const Expr& m);
 [[nodiscard]] SYMPP_EXPORT Expr factorial2(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr bernoulli(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr euler(const Expr& arg);

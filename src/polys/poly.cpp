@@ -19,8 +19,10 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/matrices/matrix.hpp>
 
@@ -803,6 +805,16 @@ FactorList factor_list(const Poly& f) {
     }
     std::vector<std::pair<Poly, std::size_t>> out;
 
+    // A primitive-part scalar relates a monic root/Kronecker factor to its
+    // integer-content form; since that factor is stored with multiplicity `mult`,
+    // the scalar enters the content `mult` times — qᵐ, not q. (Without this,
+    // (2n+1)² = 4n²+4n+1 mis-factored as 2·(2n+1)², which is 2× too large.)
+    auto pow_mq = [](mpq_class b, std::size_t m) {
+        mpq_class r(1);
+        for (std::size_t i = 0; i < m; ++i) r *= b;
+        return r;
+    };
+
     for (auto& [g_monic, mult] : sqf.factors) {
         // g_monic is square-free monic over ℚ. Pull out rational roots first.
         Poly remaining = g_monic;
@@ -812,7 +824,7 @@ FactorList factor_list(const Poly& f) {
             Poly lin(std::vector<Expr>{mul(S::NegativeOne(), r), S::One()},
                      remaining.var());
             auto [prim, scalar] = primitive_part(lin);
-            running_content *= scalar;
+            running_content *= pow_mq(scalar, mult);
             // Multiplicity: rational_roots returns repeats already, so each
             // call here corresponds to one (x - r) factor; track separately.
             // We'll consolidate at the end.
@@ -827,12 +839,12 @@ FactorList factor_list(const Poly& f) {
             if (!k_factor) {
                 // remaining is irreducible.
                 auto [prim, scalar] = primitive_part(remaining);
-                running_content *= scalar;
+                running_content *= pow_mq(scalar, mult);
                 out.emplace_back(prim, mult);
                 break;
             }
             auto [prim, scalar] = primitive_part(*k_factor);
-            running_content *= scalar;
+            running_content *= pow_mq(scalar, mult);
             out.emplace_back(prim, mult);
             remaining = remaining / *k_factor;
         }
@@ -840,7 +852,7 @@ FactorList factor_list(const Poly& f) {
         // gets absorbed into content.
         if (remaining.degree() == 0 && !remaining.is_zero()) {
             if (auto qc = coeff_as_mpq(remaining.leading_coeff()); qc) {
-                running_content *= *qc;
+                running_content *= pow_mq(*qc, mult);
             }
         }
     }
@@ -1097,10 +1109,56 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
 
 }  // namespace
 
-Expr together(const Expr& expr) {
-    auto nd = as_numer_denom(expr);
+namespace {
+// Recursive together: combine each Add/Mul/Pow child into a single fraction
+// first, so a nested compound fraction collapses bottom-up before the current
+// level is recombined. This is what lets a reciprocal-of-a-sum-of-fractions
+// reduce — together(1/(1+1/x)) recurses into the base (1+1/x → (x+1)/x), and the
+// resulting ((x+1)/x)⁻¹ flattens to x/(x+1). Function arguments are left intact
+// (together stays shallow inside sin/exp/…), matching SymPy's default.
+[[nodiscard]] Expr together_recursive(const Expr& e) {
+    if (!e) return e;
+    Expr rebuilt = e;
+    switch (e->type_id()) {
+        case TypeId::Add: {
+            std::vector<Expr> a;
+            a.reserve(e->args().size());
+            for (const auto& c : e->args()) a.push_back(together_recursive(c));
+            rebuilt = add(std::move(a));
+            break;
+        }
+        case TypeId::Mul: {
+            std::vector<Expr> a;
+            a.reserve(e->args().size());
+            for (const auto& c : e->args()) a.push_back(together_recursive(c));
+            rebuilt = mul(std::move(a));
+            break;
+        }
+        case TypeId::Pow: {
+            const Expr& exp = e->args()[1];
+            Expr base = together_recursive(e->args()[0]);
+            auto bnd = as_numer_denom(base);
+            if (bnd.denom == S::One()) {
+                rebuilt = pow(base, exp);
+            } else {
+                // (bn/bd)^exp = bn^exp · bd^(−exp); a negative exp thus flips the
+                // fraction so 1/((x+1)/x) → x/(x+1).
+                rebuilt = mul(pow(bnd.numer, exp),
+                              pow(bnd.denom, mul(integer(-1), exp)));
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    auto nd = as_numer_denom(rebuilt);
     if (nd.denom == S::One()) return nd.numer;
     return nd.numer / nd.denom;
+}
+}  // namespace
+
+Expr together(const Expr& expr) {
+    return together_recursive(expr);
 }
 
 Expr cancel(const Expr& expr, const Expr& var) {
@@ -1118,6 +1176,94 @@ Expr cancel(const Expr& expr, const Expr& var) {
         return reduced_num.as_expr();
     }
     return reduced_num.as_expr() / reduced_den.as_expr();
+}
+
+namespace {
+// The single free symbol of the given expressions, or nullopt if there is not
+// exactly one (used to infer the polynomial variable for the parser-facing
+// poly operations).
+[[nodiscard]] std::optional<Expr> inferred_var(const Expr& a, const Expr& b) {
+    ExprSet vars;
+    for (const auto& s : free_symbols(a)) vars.insert(s);
+    if (b) {
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+    }
+    if (vars.size() != 1) return std::nullopt;
+    return *vars.begin();
+}
+}  // namespace
+
+Expr cancel(const Expr& expr) {
+    auto nd = as_numer_denom(expr);
+    auto var = inferred_var(nd.numer, nd.denom);
+    if (!var) return expr;  // no/multiple vars: nothing univariate to cancel
+    return cancel(expr, *var);
+}
+
+Expr degree(const Expr& expr) {
+    auto var = inferred_var(expr, Expr{});
+    if (!var) {
+        // A constant: deg(0) = −∞, deg(c≠0) = 0 (matching SymPy).
+        if (free_symbols(expr).empty()) {
+            return expr == S::Zero() ? S::NegativeInfinity()
+                                     : Expr{integer(0)};
+        }
+        return function_symbol("degree")(std::vector<Expr>{expr});
+    }
+    try {
+        Poly p(expand(expr), *var);
+        return integer(static_cast<long>(p.degree()));
+    } catch (const std::exception&) {
+        return function_symbol("degree")(std::vector<Expr>{expr});
+    }
+}
+
+Expr quo(const Expr& a, const Expr& b) {
+    auto var = inferred_var(a, b);
+    if (var) {
+        try {
+            Poly pa(expand(a), *var);
+            Poly pb(expand(b), *var);
+            return pa.divmod(pb).first.as_expr();
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("quo")(std::vector<Expr>{a, b});
+}
+
+Expr rem(const Expr& a, const Expr& b) {
+    auto var = inferred_var(a, b);
+    if (var) {
+        try {
+            Poly pa(expand(a), *var);
+            Poly pb(expand(b), *var);
+            return pa.divmod(pb).second.as_expr();
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("rem")(std::vector<Expr>{a, b});
+}
+
+Expr resultant(const Expr& p, const Expr& q) {
+    auto var = inferred_var(p, q);
+    if (var) {
+        try {
+            return resultant(p, q, *var);
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("resultant")(std::vector<Expr>{p, q});
+}
+
+Expr discriminant(const Expr& p) {
+    auto var = inferred_var(p, Expr{});
+    if (var) {
+        try {
+            return discriminant(p, *var);
+        } catch (const std::exception&) {
+        }
+    }
+    return function_symbol("discriminant")(std::vector<Expr>{p});
 }
 
 namespace {

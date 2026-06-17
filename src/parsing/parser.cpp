@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <sympp/core/add.hpp>
+#include <sympp/core/boolean.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
@@ -22,6 +23,7 @@
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/integers.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/polys/poly.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
@@ -153,7 +155,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"sqrt", &sqrt}, {"abs", &abs}, {"sign", &sign},
         {"floor", &floor}, {"ceiling", &ceiling}, {"frac", &frac},
         {"factorial", &factorial}, {"subfactorial", &subfactorial},
-        {"fibonacci", &fibonacci}, {"catalan", &catalan}, {"totient", &totient},
+        {"fibonacci", &fibonacci}, {"lucas", &lucas},
+        {"catalan", &catalan}, {"totient", &totient},
         {"prime", &prime}, {"primepi", &primepi},
         {"mobius", &mobius}, {"divisor_count", &divisor_count},
         {"divisor_sigma", &divisor_sigma},
@@ -166,6 +169,9 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"Shi", &sinhint}, {"Chi", &coshint},
         {"heaviside", &heaviside}, {"dirac_delta", &dirac_delta},
         {"re", &re}, {"im", &im}, {"conjugate", &conjugate}, {"arg", &arg_},
+        // Univariate polynomial operations (variable inferred from the args).
+        {"cancel", static_cast<OneArgFn>(&cancel)}, {"degree", &degree},
+        {"discriminant", static_cast<OneArgFn>(&discriminant)},
         // SymPy canonical spellings — these are the names str() emits, so the
         // parser must accept them too for round-tripping (parse(e->str()) == e).
         {"Abs", &abs}, {"Heaviside", &heaviside}, {"DiracDelta", &dirac_delta},
@@ -180,13 +186,25 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"beta", &beta},
         {"gcd", &gcd},
         {"lcm", &lcm},
+        {"quo", &quo},
+        {"rem", &rem},
+        {"resultant", static_cast<TwoArgFn>(&resultant)},
         {"log", static_cast<TwoArgFn>(&log)},
+        // Relational constructors: Eq(a, b), Ne(a, b), Lt/Le/Gt/Ge(a, b).
+        {"Eq", &eq},
+        {"Ne", &ne},
+        {"Lt", &lt},
+        {"Le", &le},
+        {"Gt", &gt},
+        {"Ge", &ge},
         {"Mod", &mod},
         {"mod", &mod},
         {"RisingFactorial", &rising_factorial},
         {"FallingFactorial", &falling_factorial},
         {"polylog", &polylog},
         {"polygamma", &polygamma},
+        {"harmonic", static_cast<TwoArgFn>(&harmonic)},  // generalized Hₙ⁽ᵐ⁾
+        {"divisor_sigma", static_cast<TwoArgFn>(&divisor_sigma)},  // σ_k(n)
     };
     return table;
 }

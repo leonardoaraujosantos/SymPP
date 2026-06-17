@@ -9,6 +9,7 @@
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
@@ -44,6 +45,19 @@ TEST_CASE("factorial: large integer", "[3i][factorial][oracle]") {
 TEST_CASE("factorial: stays unevaluated on a symbol", "[3i][factorial]") {
     auto x = symbol("x");
     REQUIRE(factorial(x)->type_id() == TypeId::Function);
+}
+
+// FACT-NEGINT-1: (−n)! = Γ(−n+1) has a pole, so a negative-integer factorial is
+// ComplexInfinity (matching SymPy). A non-integer negative arg keeps its node.
+TEST_CASE("factorial: negative integers are zoo (FACT-NEGINT-1)",
+          "[3i][factorial][regression]") {
+    REQUIRE(factorial(integer(-1)) == S::ComplexInfinity());
+    REQUIRE(factorial(integer(-2)) == S::ComplexInfinity());
+    REQUIRE(factorial(integer(-10)) == S::ComplexInfinity());
+    // 1/(−1)! = 0 (the reciprocal of the pole).
+    REQUIRE(pow(factorial(integer(-1)), integer(-1)) == S::Zero());
+    // A non-integer (no pole) stays a Factorial node.
+    REQUIRE(factorial(rational(-1, 2))->type_id() == TypeId::Function);
 }
 
 // ----- binomial --------------------------------------------------------------
@@ -160,11 +174,52 @@ TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
     REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
 }
 
+// POLYGAMMA-POLE-1: ψ⁽ⁿ⁾(x) = zoo at the nonpositive integers x ∈ {0, −1, −2, …}
+// for any non-negative integer order n (the Γ pole); digamma inherits it via
+// polygamma(0, ·). Matches SymPy.
+TEST_CASE("polygamma/digamma: pole at nonpositive integers (POLYGAMMA-POLE-1)",
+          "[3i][polygamma][digamma][regression]") {
+    REQUIRE(polygamma(integer(0), integer(0)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(0), integer(-1)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(1), integer(0)) == S::ComplexInfinity());
+    REQUIRE(polygamma(integer(2), integer(-3)) == S::ComplexInfinity());
+    REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
+    REQUIRE(digamma(integer(-5)) == S::ComplexInfinity());
+    // No over-reach: positive integers, half-integers, and symbols stay symbolic.
+    REQUIRE(polygamma(integer(0), integer(2))->type_id() == TypeId::Function);
+    REQUIRE(polygamma(integer(0), rational(1, 2))->type_id() == TypeId::Function);
+    REQUIRE(polygamma(integer(0), symbol("x"))->type_id() == TypeId::Function);
+}
+
 // ----- loggamma --------------------------------------------------------------
 
 TEST_CASE("loggamma: classic values", "[3i][loggamma]") {
     REQUIRE(loggamma(integer(1)) == integer(0));   // log(0!) = 0
     REQUIRE(loggamma(integer(2)) == integer(0));   // log(1!) = 0
+}
+
+// LOGGAMMA-VALUES-1: loggamma(x) = log(Γ(x)) for x > 0 — log((n−1)!) at a positive
+// integer, log(√π·…) at a positive half-integer; +∞ at the nonpositive-integer
+// poles and at +∞. For x < 0 it stays loggamma(x) (branch cuts). Matches SymPy.
+TEST_CASE("loggamma: positive-argument and pole values (LOGGAMMA-VALUES-1)",
+          "[3i][loggamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    // Poles at the nonpositive integers and at +∞ → +∞.
+    REQUIRE(loggamma(integer(0)) == S::Infinity());
+    REQUIRE(loggamma(integer(-1)) == S::Infinity());
+    REQUIRE(loggamma(integer(-5)) == S::Infinity());
+    REQUIRE(loggamma(S::Infinity()) == S::Infinity());
+    // Positive integers → log((n−1)!).
+    REQUIRE(oracle.equivalent(loggamma(integer(3))->str(), "log(2)"));
+    REQUIRE(oracle.equivalent(loggamma(integer(5))->str(), "log(24)"));
+    // Positive half-integers → log(√π·…).
+    REQUIRE(oracle.equivalent(loggamma(rational(1, 2))->str(), "log(sqrt(pi))"));
+    REQUIRE(oracle.equivalent(loggamma(rational(3, 2))->str(),
+                              "log(sqrt(pi)/2)"));
+    // Negative (non-integer) and symbolic arguments stay symbolic.
+    REQUIRE(loggamma(rational(-1, 2))->type_id() == TypeId::Function);
+    REQUIRE(loggamma(rational(-3, 2))->type_id() == TypeId::Function);
+    REQUIRE(loggamma(symbol("x"))->type_id() == TypeId::Function);
 }
 
 TEST_CASE("loggamma: numeric Float matches mpfr_lngamma", "[3i][loggamma]") {
@@ -230,6 +285,24 @@ TEST_CASE("fibonacci: integer values", "[3i][fibonacci]") {
     auto x = symbol("x");
     REQUIRE(fibonacci(x)->type_id() == TypeId::Function);
     REQUIRE(fibonacci(integer(-1))->type_id() == TypeId::Function);
+}
+
+// LUCAS-1: Lucas numbers L(0)=2, L(1)=1, L(n)=L(n-1)+L(n-2). Evaluates for a
+// non-negative integer; symbolic and negative arguments stay symbolic. New
+// function, matching SymPy's lucas.
+TEST_CASE("lucas: integer values (LUCAS-1)", "[3i][lucas][regression]") {
+    REQUIRE(lucas(integer(0)) == integer(2));
+    REQUIRE(lucas(integer(1)) == integer(1));
+    REQUIRE(lucas(integer(2)) == integer(3));
+    REQUIRE(lucas(integer(5)) == integer(11));
+    REQUIRE(lucas(integer(10)) == integer(123));
+    REQUIRE(lucas(integer(20)) == integer(15127));
+    // Symbolic / negative arguments stay unevaluated; parses round-trip.
+    auto x = symbol("x");
+    REQUIRE(lucas(x)->type_id() == TypeId::Function);
+    REQUIRE(lucas(x)->str() == "lucas(x)");
+    REQUIRE(parsing::parse("lucas(7)") == lucas(integer(7)));
+    REQUIRE(lucas(integer(-3))->type_id() == TypeId::Function);
 }
 
 // TOTIENT-1: Euler's totient φ(n) evaluates for positive integers (φ(p)=p−1
@@ -307,11 +380,19 @@ TEST_CASE("mobius/divisor_count/divisor_sigma (ARITH-FN-1)",
     REQUIRE(divisor_sigma(integer(28)) == integer(56));  // perfect
     // Cross-check a larger value against SymPy.
     REQUIRE(oracle.equivalent(divisor_sigma(integer(720))->str(), "2418"));
+    // DIVSIGMA-GEN-1: generalized σ_k(n) = Σ_{d|n} d^k.
+    REQUIRE(divisor_sigma(integer(6), integer(2)) == integer(50));   // 1+4+9+36
+    REQUIRE(divisor_sigma(integer(10), integer(2)) == integer(130));
+    REQUIRE(divisor_sigma(integer(28), integer(3)) == integer(25112));
+    REQUIRE(divisor_sigma(integer(12), integer(0)) == integer(6));   // = divisor count
+    REQUIRE(divisor_sigma(integer(6), integer(1))
+            == divisor_sigma(integer(6)));                           // σ₁ = 1-arg
     // Symbolic / non-positive arguments stay unevaluated.
     auto n = symbol("n");
     REQUIRE(mobius(n)->type_id() == TypeId::Function);
     REQUIRE(divisor_count(integer(0))->type_id() == TypeId::Function);
     REQUIRE(divisor_sigma(integer(-4))->type_id() == TypeId::Function);
+    REQUIRE(divisor_sigma(n, integer(2))->type_id() == TypeId::Function);
 }
 
 // HARMONIC-FACT2-1: harmonic(n) = Σ 1/k (a rational) and factorial2(n) = n!!
@@ -326,6 +407,16 @@ TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
     REQUIRE(harmonic(integer(1)) == integer(1));
     REQUIRE(oracle.equivalent(harmonic(integer(5))->str(), "137/60"));
     REQUIRE(oracle.equivalent(harmonic(integer(10))->str(), "7381/2520"));
+    // HARMONIC-GEN-1: generalized harmonic Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m).
+    REQUIRE(oracle.equivalent(harmonic(integer(5), integer(2))->str(),
+                              "5269/3600"));
+    REQUIRE(oracle.equivalent(harmonic(integer(4), integer(3))->str(),
+                              "2035/1728"));
+    REQUIRE(harmonic(integer(5), integer(1)) == harmonic(integer(5)));  // m=1
+    REQUIRE(harmonic(integer(3), integer(0)) == integer(3));            // Σ 1
+    REQUIRE(harmonic(integer(3), integer(-1)) == integer(6));           // Σ k
+    // Symbolic 2-arg stays unevaluated.
+    REQUIRE(harmonic(symbol("n"), integer(2))->type_id() == TypeId::Function);
     // factorial2 n!!.
     REQUIRE(factorial2(integer(0)) == integer(1));
     REQUIRE(factorial2(integer(-1)) == integer(1));
@@ -405,10 +496,59 @@ TEST_CASE("gcd: integer values", "[3i][gcd]") {
     REQUIRE(gcd(integer(-12), integer(8)) == integer(4));  // non-negative result
     REQUIRE(gcd(integer(0), integer(5)) == integer(5));
     REQUIRE(gcd(integer(0), integer(0)) == integer(0));
-    // Symbolic args stay unevaluated.
+    // Symbolic (multivariate) args stay unevaluated.
     auto x = symbol("x");
     auto y = symbol("y");
     REQUIRE(gcd(x, y)->type_id() == TypeId::Function);
+}
+
+// GCD-POLY-1: univariate polynomial GCD. SymPy's convention is the primitive
+// integer gcd (integer coefficients, content 1, positive leading) scaled by the
+// gcd of the integer contents: gcd(x²−1, x−1) = x−1, gcd(2x²−2, 2x−2) = 2x−2,
+// gcd(6x²+11x+3, 2x²−x−6) = 2x+3. Previously these stayed an unevaluated node.
+TEST_CASE("gcd: univariate polynomial GCD (GCD-POLY-1)",
+          "[3i][gcd][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    auto chk = [&](const Expr& g, const std::string& want) {
+        REQUIRE(oracle.equivalent(g->str(), want));
+    };
+    chk(gcd(sq(x) - integer(1), x - integer(1)), "x - 1");
+    chk(gcd(sq(x) - integer(1), sq(x) + integer(2) * x + integer(1)), "x + 1");
+    chk(gcd(pow(x, integer(3)) - integer(1), sq(x) - integer(1)), "x - 1");
+    // Content is preserved.
+    chk(gcd(integer(2) * sq(x) - integer(2), integer(2) * x - integer(2)),
+        "2*x - 2");
+    // Primitive integer form (not monic): gcd(6x²+11x+3, 2x²−x−6) = 2x+3.
+    chk(gcd(integer(6) * sq(x) + integer(11) * x + integer(3),
+            integer(2) * sq(x) - x - integer(6)),
+        "2*x + 3");
+    // Coprime polynomials → 1; constant vs polynomial → 1.
+    chk(gcd(sq(x) + integer(1), x - integer(1)), "1");
+    chk(gcd(sq(x) - integer(1), integer(2)), "1");
+}
+
+// LCM-POLY-1: univariate polynomial LCM via lcm(a,b) = a·b / gcd(a,b),
+// reusing the polynomial gcd. lcm(x²−1, x−1) = x²−1, lcm(2x−2, 3x−3) = 6x−6.
+TEST_CASE("lcm: univariate polynomial LCM (LCM-POLY-1)",
+          "[3i][lcm][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    auto chk = [&](const Expr& g, const std::string& want) {
+        REQUIRE(oracle.equivalent(g->str(), want));
+    };
+    chk(lcm(sq(x) - integer(1), x - integer(1)), "x**2 - 1");
+    chk(lcm(x - integer(1), x + integer(1)), "x**2 - 1");
+    chk(lcm(sq(x) - integer(1), sq(x) + integer(2) * x + integer(1)),
+        "x**3 + x**2 - x - 1");
+    chk(lcm(integer(2) * x - integer(2), integer(3) * x - integer(3)),
+        "6*x - 6");
+    chk(lcm(x, sq(x)), "x**2");
+    // lcm · gcd = a · b (up to content): consistency on a coprime pair.
+    chk(lcm(sq(x) + integer(1), x - integer(1)),
+        "x**3 - x**2 + x - 1");
 }
 
 TEST_CASE("lcm: integer values", "[3i][lcm]") {
@@ -417,7 +557,8 @@ TEST_CASE("lcm: integer values", "[3i][lcm]") {
     REQUIRE(lcm(integer(0), integer(5)) == integer(0));
     REQUIRE(lcm(integer(7), integer(5)) == integer(35));
     auto x = symbol("x");
-    REQUIRE(lcm(x, integer(4))->type_id() == TypeId::Function);
+    // lcm(x, n) = n·x over ℚ[x] (x and a constant are coprime), matching SymPy.
+    REQUIRE(lcm(x, integer(4)) == integer(4) * x);
 }
 
 TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
@@ -427,8 +568,12 @@ TEST_CASE("gcd/lcm: parse round-trip and subs", "[3i][gcd][lcm][parser]") {
     REQUIRE(parsing::parse("lcm(x, y)") == lcm(x, y));
     REQUIRE(gcd(x, y)->str() == "gcd(x, y)");
     REQUIRE(lcm(x, y)->str() == "lcm(x, y)");
-    REQUIRE(subs(gcd(x, integer(18)), x, integer(12)) == integer(6));
-    REQUIRE(subs(lcm(x, integer(6)), x, integer(4)) == integer(12));
+    // gcd(x, n) = 1 over ℚ[x] (x and a constant are coprime), matching SymPy.
+    REQUIRE(gcd(x, integer(18)) == integer(1));
+    // subs reaches inside and re-evaluates: gcd(x, y)|_{y=x} = gcd(x, x) = x,
+    // and lcm(x, y)|_{y=x} = lcm(x, x) = x.
+    REQUIRE(subs(gcd(x, y), y, x) == x);
+    REQUIRE(subs(lcm(x, y), y, x) == x);
 }
 
 // ----- rising/falling factorial & subfactorial (RFF-SUBF) --------------------

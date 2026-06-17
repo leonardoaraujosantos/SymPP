@@ -19,10 +19,31 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
 
 namespace {
+
+// If `arg` has an overall factor of the imaginary unit — arg = I·y — return y,
+// else nullopt. Drives sinh(I·y) = I·sin(y), cosh(I·y) = cos(y),
+// tanh(I·y) = I·tan(y), which hold for every complex y.
+[[nodiscard]] std::optional<Expr> extract_i_factor(const Expr& arg) {
+    if (arg->type_id() == TypeId::ImaginaryUnit) return S::One();
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<Expr> rest;
+    bool found = false;
+    for (const auto& f : arg->args()) {
+        if (!found && f->type_id() == TypeId::ImaginaryUnit) {
+            found = true;
+            continue;
+        }
+        rest.push_back(f);
+    }
+    if (!found) return std::nullopt;
+    if (rest.empty()) return S::One();
+    return mul(std::move(rest));
+}
 
 // Detect a leading -1 factor on a Mul: -1 * rest. Returns the stripped tail
 // if so, std::nullopt otherwise.
@@ -280,6 +301,10 @@ Expr sinh(const Expr& arg) {
     if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
         return mul(*v, invsqrt(one_minus_x2(*v)));
     }
+    // sinh(I·y) = I·sin(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), sin(*y));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Sinh>(*pos));
     }
@@ -306,6 +331,10 @@ Expr cosh(const Expr& arg) {
     if (auto v = arg_of(arg, FunctionId::Atanh); v.has_value()) {
         return invsqrt(one_minus_x2(*v));
     }
+    // cosh(I·y) = cos(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return cos(*y);
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return make<Cosh>(*pos);  // even
     }
@@ -329,6 +358,10 @@ Expr tanh(const Expr& arg) {
     // tanh(acosh(x)) = √(x−1)·√(x+1) / x.
     if (auto v = arg_of(arg, FunctionId::Acosh); v.has_value()) {
         return mul(sqrt_x2_minus_1(*v), pow(*v, integer(-1)));
+    }
+    // tanh(I·y) = I·tan(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), tan(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Tanh>(*pos));
@@ -402,6 +435,10 @@ Expr asinh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_asinh, arg);
     }
+    // asinh(I·y) = I·asin(y) (inverse of sinh(I·y) = I·sin(y)). asinh(I) = I·π/2.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), asin(*y));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Asinh>(*pos));
     }
@@ -418,13 +455,33 @@ Expr acosh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_acosh, arg);
     }
+    // acosh(x) = i·acos(x) for a real x ∈ [−1, 1]: acosh(0)=iπ/2, acosh(½)=iπ/3,
+    // acosh(−1)=iπ. Gated on acos(x) actually reducing to a closed form — for a
+    // rational with no nice acos value (acosh(⅓)) or |x|>1 (acosh(2)), acos stays
+    // a bare node and acosh is left as-is, matching SymPy.
+    if (arg->type_id() == TypeId::Integer
+        || arg->type_id() == TypeId::Rational) {
+        Expr ac = acos(arg);
+        if (!is_bare_inverse(ac, FunctionId::Acos)) {
+            return mul(S::I(), ac);
+        }
+    }
     return make<Acosh>(arg);
 }
 
 Expr atanh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
+    // Pole at ±1: atanh(x) = ½·log((1+x)/(1−x)) → ±∞ as x → ±1. Handled before the
+    // odd-function branch, which would otherwise emit −1·Atanh(1) unevaluated.
+    // (acoth(±1) = ±∞ follows via acoth = atanh of the reciprocal.)
+    if (arg == S::One()) return S::Infinity();
+    if (arg == S::NegativeOne()) return S::NegativeInfinity();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_atanh, arg);
+    }
+    // atanh(I·y) = I·atan(y) (inverse of tanh(I·y) = I·tan(y)). atanh(I) = I·π/4.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), atan(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Atanh>(*pos));

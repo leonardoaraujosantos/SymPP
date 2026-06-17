@@ -17,6 +17,7 @@
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
@@ -346,6 +347,47 @@ namespace {
 // 2^(5/2) = 4√2). Returns nullopt when nothing pulls out (every aᵢp < q, e.g.
 // 2^(2/3)) — leaving such already-reduced powers symbolic. p = 1 is NROOT-1 and
 // the perfect case is try_perfect_root, both dispatched earlier.
+// Pull a perfect-power factor out of a NEGATIVE integer base under a rational
+// power, keeping the principal-branch sign on the residual: with a = |base| =
+// sᵠ·m (m q-th-power-free) and exponent p/q, (−a)^(p/q) = sᵖ·(−m)^(p/q). So
+// (−8)^(1/3) = 2·(−1)^(1/3), (−24)^(1/3) = 2·(−3)^(1/3), (−8)^(2/3) = 4·(−1)^(2/3).
+// A base with no perfect-power factor (s = 1, e.g. (−2)^(1/3)) is left symbolic.
+// The residual (−m)^(p/q) re-enters here with s = 1, so there is no recursion.
+[[nodiscard]] std::optional<Expr> try_negative_root_factor_extraction(
+    const Expr& base, const Expr& exp) {
+    if (base->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*base);
+    if (!z.is_negative()) return std::nullopt;
+    if (exp->type_id() != TypeId::Rational) return std::nullopt;
+    const auto& q = static_cast<const Rational&>(*exp);
+    const mpz_class& denq = q.denominator();
+    if (!denq.fits_ulong_p()) return std::nullopt;
+    const unsigned long n = denq.get_ui();  // n == q (the root order)
+    if (n < 2) return std::nullopt;
+
+    mpz_class a = -z.value();  // |base| > 0
+    constexpr unsigned long kMaxRadicand = 1000000000000UL;  // bound trial division
+    if (mpz_cmp_ui(a.get_mpz_t(), kMaxRadicand) > 0) return std::nullopt;
+
+    // a = sⁿ · m, m n-th-power-free.
+    mpz_class s(1), m(a);
+    for (mpz_class d(2);; ++d) {
+        mpz_class dn;
+        mpz_pow_ui(dn.get_mpz_t(), d.get_mpz_t(), n);
+        if (dn > m) break;
+        while (mpz_divisible_p(m.get_mpz_t(), dn.get_mpz_t())) {
+            s *= d;
+            m /= dn;
+        }
+    }
+    if (s == 1) return std::nullopt;  // nothing pulls out — keep (−a)^(p/q)
+
+    // sᵖ · (−m)^(p/q).  −m is n-th-power-free, so the residual radical bottoms out.
+    Expr coeff = pow(make<Integer>(std::move(s)), make<Integer>(q.numerator()));
+    Expr radical = pow(make<Integer>(-m), exp);
+    return mul(coeff, radical);
+}
+
 [[nodiscard]] std::optional<Expr> try_rational_power_extraction(const Expr& base,
                                                                 const Expr& exp) {
     if (exp->type_id() != TypeId::Rational) return std::nullopt;
@@ -504,6 +546,19 @@ Expr pow(const Expr& base, const Expr& exp) {
         return pow(base->args()[0], new_exp);
     }
 
+    // ---- Distribute an integer power over a symbol-free (numeric) Mul base ----
+    // (∏ aᵢ)ⁿ = ∏ aᵢⁿ folds radical coefficients that the rationalised form leaves
+    // split: (⅓·√3)⁻¹ = 3·3^(−½) = √3, so reciprocals of such products reduce (this
+    // unblocks e.g. acot(√3/3) = atan(√3) = π/3). Restricted to a base with no free
+    // symbols, so the compact form of (2·x)ⁿ is untouched.
+    if (exp->type_id() == TypeId::Integer && base->type_id() == TypeId::Mul
+        && free_symbols(base).empty()) {
+        std::vector<Expr> factors;
+        factors.reserve(base->args().size());
+        for (const auto& f : base->args()) factors.push_back(pow(f, exp));
+        return mul(std::move(factors));
+    }
+
     // ---- I^Integer cycles through {1, I, -1, -I} ----
     if (base == S::I() && exp->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*exp);
@@ -545,6 +600,13 @@ Expr pow(const Expr& base, const Expr& exp) {
         // prime factor (16^(2/3) = 4·2^(2/3), 2^(5/2) = 4√2).
         if (auto ext = try_rational_power_extraction(base, exp); ext.has_value()) {
             return *ext;
+        }
+        // (−a)^(p/q): pull a perfect q-th-power factor of a out, keeping the sign on
+        // the residual — (−8)^(1/3) = 2·(−1)^(1/3). (Runs before the ½-only
+        // try_sqrt_of_negative, which it subsumes for perfect-square radicands.)
+        if (auto neg = try_negative_root_factor_extraction(base, exp);
+            neg.has_value()) {
+            return *neg;
         }
         // √(−a) = I·√a for a negative numeric base.
         if (auto neg = try_sqrt_of_negative(base, exp); neg.has_value()) {

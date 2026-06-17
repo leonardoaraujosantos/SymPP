@@ -236,6 +236,17 @@ std::optional<bool> DiracDeltaFn::ask(AssumptionKey k) const noexcept {
 
 Expr dirac_delta(const Expr& arg) {
     if (is_nonzero(arg) == true) return S::Zero();
+    // DiracDelta is even: δ(−c·x) = δ(c·x). Pull a negative numeric coefficient out
+    // of a Mul argument — δ(−x) = δ(x), δ(−2x) = δ(2x). An Add shift (δ(1−x)) is
+    // left intact, matching SymPy. The negated arg has a positive leading
+    // coefficient, so the recursive call terminates.
+    if (arg->type_id() == TypeId::Mul) {
+        const auto& factors = arg->args();
+        if (!factors.empty() && is_number(factors[0])
+            && static_cast<const Number&>(*factors[0]).is_negative()) {
+            return dirac_delta(mul(S::NegativeOne(), arg));
+        }
+    }
     return make<DiracDeltaFn>(arg);
 }
 
@@ -364,6 +375,8 @@ Expr Ei::diff_arg(std::size_t /*i*/) const {
 Expr expint_ei(const Expr& arg) {
     if (arg == S::Zero()) return S::NegativeInfinity();   // Ei(0) = -oo
     if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    // Ei(x) → 0⁻ as x → −∞ (the exponential decay dominates the 1/x growth).
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::Zero();
     return make<Ei>(arg);
 }
 
@@ -406,6 +419,7 @@ Expr Ci::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr cosint(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();  // Ci(0) = zoo (log pole)
     if (arg->type_id() == TypeId::Infinity) return S::Zero();  // Ci(oo) = 0
     return make<Ci>(arg);
 }
@@ -449,6 +463,7 @@ Expr Chi::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr coshint(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();  // Chi(0) = zoo (log pole)
     if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // Chi(oo) = oo
     return make<Chi>(arg);
 }

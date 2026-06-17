@@ -137,6 +137,13 @@ std::optional<bool> Ceiling::ask(AssumptionKey k) const noexcept {
 // remainder, returns (Σ integer terms, remaining sum). floor/ceiling are
 // integer-shift invariant, so the integer part can be pulled out of the
 // function. Returns nullopt when there's nothing to split.
+// True when `e` is a Floor or Ceiling application — i.e. an integer-valued node.
+[[nodiscard]] bool is_floor_or_ceiling(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return false;
+    const auto fid = static_cast<const Function&>(*e).function_id();
+    return fid == FunctionId::Floor || fid == FunctionId::Ceiling;
+}
+
 [[nodiscard]] std::optional<std::pair<Expr, Expr>> pull_integer_shift(
     const Expr& arg) {
     if (arg->type_id() != TypeId::Add) return std::nullopt;
@@ -163,6 +170,10 @@ Expr floor(const Expr& arg) {
     }
     // Symbol with integer assumption -> identity.
     if (is_integer(arg) == true) return arg;
+    // Idempotence: floor(floor x) = floor x, floor(ceil x) = ceil x. A floor or
+    // ceiling is integer-valued by construction, so flooring it again is the
+    // identity (true even when the inner argument's reality is unknown).
+    if (is_floor_or_ceiling(arg)) return arg;
     // Integer-shift invariance: floor(n + x) = n + floor(x) when n is a sum of
     // provably-integer terms (e.g. floor(n + 1/2) = n).
     if (auto s = pull_integer_shift(arg); s.has_value()) {
@@ -182,6 +193,9 @@ Expr ceiling(const Expr& arg) {
         return ceiling_float(static_cast<const Float&>(*arg));
     }
     if (is_integer(arg) == true) return arg;
+    // Idempotence: ceil(ceil x) = ceil x, ceil(floor x) = floor x (the inner is
+    // already integer-valued).
+    if (is_floor_or_ceiling(arg)) return arg;
     // Integer-shift invariance: ceiling(n + x) = n + ceiling(x).
     if (auto s = pull_integer_shift(arg); s.has_value()) {
         return add(s->first, ceiling(s->second));
@@ -273,16 +287,47 @@ Expr mod(const Expr& p, const Expr& q) {
     };
     auto mp = to_mpq(p);
     auto mq = to_mpq(q);
-    if (mp && mq) {
-        // Floored modulo: r = p − q·⌊p/q⌋ (result takes the sign of q).
-        mpq_class ratio = *mp / *mq;
+    // Floored modulo: r = a − m·⌊a/m⌋ (result takes the sign of m), as an Expr.
+    auto floored_mod = [](const mpq_class& a, const mpq_class& m) {
+        mpq_class ratio = a / m;
         mpz_class fl;
         mpz_fdiv_q(fl.get_mpz_t(), mpq_numref(ratio.get_mpq_t()),
                    mpq_denref(ratio.get_mpq_t()));
-        mpq_class r = *mp - *mq * mpq_class(fl);
+        mpq_class r = a - m * mpq_class(fl);
         r.canonicalize();
+        return r;
+    };
+    if (mp && mq) {
+        mpq_class r = floored_mod(*mp, *mq);
         return rational(mpz_class(mpq_numref(r.get_mpq_t())),
                         mpz_class(mpq_denref(r.get_mpq_t())));
+    }
+    // Reduce the numeric constant of an Add dividend modulo a numeric q:
+    // Mod(x + c, q) = Mod(x + (c mod q), q); the term drops when c mod q = 0.
+    // (Mod(x+5,3) → Mod(x+2,3), Mod(x+2,2) → Mod(x,2).) Non-numeric terms are kept.
+    if (mq && p->type_id() == TypeId::Add) {
+        std::vector<Expr> rest;
+        mpq_class c = 0;
+        bool have_c = false;
+        for (const auto& term : p->args()) {
+            if (auto t = to_mpq(term)) {
+                c += *t;
+                have_c = true;
+            } else {
+                rest.push_back(term);
+            }
+        }
+        if (have_c) {
+            mpq_class cr = floored_mod(c, *mq);
+            if (cr != c) {
+                if (cr != 0) {
+                    rest.push_back(rational(mpz_class(mpq_numref(cr.get_mpq_t())),
+                                            mpz_class(mpq_denref(cr.get_mpq_t()))));
+                }
+                Expr new_p = rest.empty() ? Expr{S::Zero()} : add(std::move(rest));
+                return mod(new_p, q);
+            }
+        }
     }
     return make<Mod>(p, q);
 }

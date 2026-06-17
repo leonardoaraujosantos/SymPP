@@ -202,12 +202,17 @@ try_separate(const Expr& rhs, const Expr& y, const Expr& x) {
     //   * No y: rhs = f(x), trivially separable with g(y) = 1.
     //   * No x: rhs = g(y), trivially separable with f(x) = 1.
     //   * Mul: split factors by which variable they contain.
+    // The dependent variable y is the function application y(x), which literally
+    // contains x — so a raw has(·, x) would see x inside y(x). Test x-dependence
+    // with y replaced by a fresh atom, i.e. "depends on x with y held fixed".
+    Expr u = symbol("__sep_u");
+    auto dep_x = [&](const Expr& e) { return has(subs(e, y, u), x); };
     if (!has(rhs, y)) return std::pair{rhs, S::One()};
-    if (!has(rhs, x)) return std::pair{S::One(), rhs};
+    if (!dep_x(rhs)) return std::pair{S::One(), rhs};
     if (rhs->type_id() == TypeId::Mul) {
         std::vector<Expr> fx, gy;
         for (const auto& f : rhs->args()) {
-            if (has(f, y) && has(f, x)) return std::nullopt;
+            if (has(f, y) && dep_x(f)) return std::nullopt;
             if (has(f, y)) gy.push_back(f);
             else fx.push_back(f);
         }
@@ -250,9 +255,13 @@ Expr dsolve_separable(const Expr& eq, const Expr& y, const Expr& yp,
     if (auto inv = invert_for_y(lhs_int, rhs_int + C, y); inv) {
         return *inv;
     }
-    // Try the polynomial-solve path as a fallback.
+    // Solve F(y) = G(x) + C for y explicitly. y is the function application y(x);
+    // solve()'s transcendental inverters (atan→tan, combined logs, …) expect a
+    // plain symbol, so swap y(x) for one, solve, and read the result (already a
+    // function of x). Closes y' = 1 + y² → y = tan(x+C), the logistic, etc.
     Expr implicit = lhs_int - rhs_int - C;
-    auto explicit_sols = solve(implicit, y);
+    Expr ysym = symbol("__y_explicit");
+    auto explicit_sols = solve(subs(implicit, y, ysym), ysym);
     if (!explicit_sols.empty()) {
         return simplify(explicit_sols[0]);
     }
@@ -434,11 +443,85 @@ Expr dsolve_first_order(const Expr& eq, const Expr& y, const Expr& yp,
         return r;
     };
     if (auto r = try_one(dsolve_linear_first_order); r) return *r;
-    if (auto r = try_one(dsolve_separable); r) return *r;
     if (auto r = try_one(dsolve_lie_autonomous); r) return *r;
     if (auto r = try_one(dsolve_homogeneous); r) return *r;
     if (auto r = try_one(dsolve_bernoulli); r) return *r;
+    // Separable last: the methods above yield explicit closed forms for the
+    // equations they recognize (e.g. Bernoulli gives the logistic in closed form),
+    // whereas separation can leave an implicit F(y) = G(x) + C when y can't be
+    // isolated. It still catches the genuinely separable-only equations.
+    if (auto r = try_one(dsolve_separable); r) return *r;
     return function_symbol("Dsolve")(std::vector<Expr>{eq, y, x});
+}
+
+Expr dsolve(const Expr& eq, const Expr& y, const Expr& x) {
+    auto fail = [&]() {
+        return function_symbol("Dsolve")(std::vector<Expr>{eq, y, x});
+    };
+    auto deriv = [&](long k) {
+        return k == 0 ? y : diff(y, x, static_cast<std::size_t>(k));
+    };
+
+    // Order = highest derivative of y present.
+    long order = 0;
+    for (long k = 1; k <= 8; ++k) {
+        if (has(eq, deriv(k))) order = k;
+    }
+    if (order == 0) return fail();
+    if (order == 1) return dsolve_first_order(eq, y, diff(y, x), x);
+
+    // Linearize: replace each y^(k) with a fresh symbol; the ODE must be first
+    // degree in those symbols (a linear ODE).
+    std::vector<Expr> sy(static_cast<std::size_t>(order) + 1);
+    ExprMap<Expr> repl;
+    for (long k = 0; k <= order; ++k) {
+        sy[static_cast<std::size_t>(k)] =
+            symbol("__dsolve_d" + std::to_string(k));
+        repl.emplace(deriv(k), sy[static_cast<std::size_t>(k)]);
+    }
+    Expr lin = xreplace(eq, repl);
+    if (has(lin, y)) return fail();  // a derivative of y survived substitution
+
+    std::vector<Expr> coeffs(static_cast<std::size_t>(order) + 1);
+    for (long k = 0; k <= order; ++k) {
+        Expr ak = diff(lin, sy[static_cast<std::size_t>(k)]);
+        for (long j = 0; j <= order; ++j) {
+            if (has(ak, sy[static_cast<std::size_t>(j)])) return fail();
+        }
+        coeffs[static_cast<std::size_t>(k)] = simplify(ak);
+    }
+    // rhs g(x): lin = Σ aₖ·sₖ − g ⇒ g = −lin|_{s=0}.
+    ExprMap<Expr> zero;
+    for (long k = 0; k <= order; ++k) {
+        zero.emplace(sy[static_cast<std::size_t>(k)], S::Zero());
+    }
+    Expr g = simplify(mul(S::NegativeOne(), xreplace(lin, zero)));
+
+    bool all_const = true;
+    for (const auto& c : coeffs) {
+        if (has(c, x)) { all_const = false; break; }
+    }
+    if (all_const) {
+        if (g == S::Zero()) return dsolve_constant_coeff(coeffs, x);
+        if (order == 2) {
+            return dsolve_constant_coeff_nonhomogeneous(coeffs, g, x);
+        }
+        return fail();
+    }
+    // Cauchy-Euler: aₖ = cₖ·xᵏ with cₖ constant.
+    std::vector<Expr> ce(static_cast<std::size_t>(order) + 1);
+    bool is_ce = true;
+    for (long k = 0; k <= order; ++k) {
+        Expr ck = simplify(
+            mul(coeffs[static_cast<std::size_t>(k)], pow(x, integer(-k))));
+        if (has(ck, x)) { is_ce = false; break; }
+        ce[static_cast<std::size_t>(k)] = ck;
+    }
+    if (is_ce) {
+        if (g == S::Zero()) return dsolve_cauchy_euler(ce, x);
+        if (order == 2) return dsolve_cauchy_euler_nonhomogeneous(ce, g, x);
+    }
+    return fail();
 }
 
 // ---------------------------------------------------------------------------
@@ -470,13 +553,56 @@ Expr dsolve_constant_coeff(const std::vector<Expr>& coeffs, const Expr& x) {
     }
     int cnt = 0;
     Expr y = S::Zero();
-    for (const auto& [root, mult] : grouped) {
+    std::vector<bool> consumed(grouped.size(), false);
+    auto real_poly = [&](std::size_t mult) {
         Expr poly_x = S::Zero();
         for (std::size_t k = 0; k < mult; ++k) {
-            Expr C = fresh_constant(cnt);
-            poly_x = poly_x + C * pow(x, integer(static_cast<long>(k)));
+            poly_x = poly_x
+                     + fresh_constant(cnt) * pow(x, integer(static_cast<long>(k)));
         }
-        y = y + poly_x * exp(mul(root, x));
+        return poly_x;
+    };
+    for (std::size_t gi = 0; gi < grouped.size(); ++gi) {
+        if (consumed[gi]) continue;
+        const Expr& root = grouped[gi].first;
+        const std::size_t mult = grouped[gi].second;
+        Expr beta = simplify(im(root));
+        if (beta == S::Zero()) {
+            y = y + real_poly(mult) * exp(mul(root, x));  // real root
+            consumed[gi] = true;
+            continue;
+        }
+        // Complex root α ± βi: pair with its conjugate and emit the real form
+        // e^(αx)·Σ xᵏ (Cₖ cos(βx) + Dₖ sin(βx)) instead of complex exponentials —
+        // matching SymPy, and avoiding the a²+g² = 0 division that the cyclic
+        // exp·trig integrator hits during variation of parameters at resonance.
+        Expr alpha = simplify(re(root));
+        Expr conj = simplify(alpha - mul(S::I(), beta));
+        std::size_t gj = grouped.size();
+        for (std::size_t j = gi + 1; j < grouped.size(); ++j) {
+            if (!consumed[j] && grouped[j].second == mult
+                && simplify(grouped[j].first - conj) == S::Zero()) {
+                gj = j;
+                break;
+            }
+        }
+        if (gj == grouped.size()) {
+            y = y + real_poly(mult) * exp(mul(root, x));  // no conjugate partner
+            consumed[gi] = true;
+            continue;
+        }
+        Expr wx = mul(beta, x);
+        Expr trig_part = S::Zero();
+        for (std::size_t k = 0; k < mult; ++k) {
+            Expr C = fresh_constant(cnt);
+            Expr D = fresh_constant(cnt);
+            trig_part = trig_part
+                        + pow(x, integer(static_cast<long>(k)))
+                              * (C * cos(wx) + D * sin(wx));
+        }
+        y = y + exp(mul(alpha, x)) * trig_part;
+        consumed[gi] = true;
+        consumed[gj] = true;
     }
     return y;
 }
@@ -544,6 +670,15 @@ order2_basis(const std::vector<Expr>& coeffs, const Expr& x) {
         Expr y1 = exp(roots[0] * x);
         Expr y2 = x * exp(roots[0] * x);
         return {y1, y2};
+    }
+    // Complex conjugate pair α ± βi → the real basis e^(αx)cos(βx), e^(αx)sin(βx).
+    // The complex basis e^(±iβx) makes the cyclic exp·trig integrator divide by
+    // a²+g² = 0 at resonance (e.g. y″+y = sin x), producing zoo.
+    Expr beta = simplify(im(roots[0]));
+    if (!(beta == S::Zero())) {
+        Expr alpha = simplify(re(roots[0]));
+        Expr ea = exp(mul(alpha, x));
+        return {ea * cos(mul(beta, x)), ea * sin(mul(beta, x))};
     }
     return {exp(roots[0] * x), exp(roots[1] * x)};
 }

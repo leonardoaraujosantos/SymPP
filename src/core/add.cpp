@@ -13,7 +13,9 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 
 #include "assumption_helpers.hpp"
@@ -232,7 +234,14 @@ Expr add(std::vector<Expr> args) {
                 case TypeId::NegativeInfinity: ninf = true; break;
                 case TypeId::ComplexInfinity: ++zoo_count; break;
                 default:
-                    if (!is_number(a)) keep.push_back(a);  // numbers absorbed
+                    // ±∞ absorbs every finite real term — not just numeric
+                    // literals but also closed real constants like √2 or π
+                    // (oo + √2 = oo). Symbolic terms (oo + x) are kept, since x
+                    // is not known finite.
+                    if (!(is_number(a)
+                          || (free_symbols(a).empty() && is_real(a) == true))) {
+                        keep.push_back(a);
+                    }
             }
         }
         if ((pinf && ninf) || (zoo_count > 0 && (pinf || ninf))

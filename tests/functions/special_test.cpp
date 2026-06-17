@@ -121,6 +121,28 @@ TEST_CASE("DiracDelta(generic) stays unevaluated", "[3j][dirac]") {
     REQUIRE(e->str() == "DiracDelta(x)");
 }
 
+// DIRAC-EVEN-1: DiracDelta is even — δ(−c·x) = δ(c·x). A negative numeric
+// coefficient is pulled out of a Mul argument; an Add shift (δ(1−x)) is left
+// intact, matching SymPy.
+TEST_CASE("DiracDelta: even, pulls sign from a scaled argument (DIRAC-EVEN-1)",
+          "[3j][dirac][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(dirac_delta(mul(S::NegativeOne(), x)) == dirac_delta(x));
+    REQUIRE(dirac_delta(mul(integer(-2), x)) == dirac_delta(mul(integer(2), x)));
+    REQUIRE(oracle.equivalent(
+        dirac_delta(mul(rational(-1, 3), x))->str(), "DiracDelta(x/3)"));
+    // An Add argument (a shift) keeps its sign — δ(−x−1) is not normalized.
+    REQUIRE(oracle.equivalent(
+        dirac_delta(mul(S::NegativeOne(), x) - integer(1))->str(),
+        "DiracDelta(-x - 1)"));
+    REQUIRE(dirac_delta(mul(S::NegativeOne(), x) + y)->type_id()
+            == TypeId::Function);
+    // Positive scaling is unaffected.
+    REQUIRE(dirac_delta(mul(integer(2), x)) == dirac_delta(mul(integer(2), x)));
+}
+
 // ----- Substitution ----------------------------------------------------------
 
 TEST_CASE("erf/erfc/Heaviside: subs propagates", "[3j][subs]") {
@@ -218,7 +240,11 @@ TEST_CASE("Si/Ci/Ei: special values and derivatives", "[3h][expint][oracle]") {
     REQUIRE(sinint(S::Zero()) == S::Zero());                 // Si(0)=0
     REQUIRE(sinint(S::Infinity()) == mul(S::Half(), S::Pi())); // Si(oo)=pi/2
     REQUIRE(cosint(S::Infinity()) == S::Zero());             // Ci(oo)=0
+    // CI-POLE-1: Ci(0) = zoo (the log singularity at the origin).
+    REQUIRE(cosint(S::Zero()) == S::ComplexInfinity());      // Ci(0)=zoo
     REQUIRE(expint_ei(S::Infinity()) == S::Infinity());      // Ei(oo)=oo
+    // EI-NEGINF-1: Ei(x) → 0 as x → −∞ (exponential decay wins).
+    REQUIRE(expint_ei(S::NegativeInfinity()) == S::Zero());  // Ei(-oo)=0
     // Odd parity of Si.
     REQUIRE(sinint(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), sinint(x)));
     // Derivatives.
@@ -244,6 +270,7 @@ TEST_CASE("Shi/Chi: special values and derivatives", "[3h][expint][oracle]") {
     REQUIRE(sinhint(S::Zero()) == S::Zero());                  // Shi(0)=0
     REQUIRE(sinhint(S::Infinity()) == S::Infinity());          // Shi(oo)=oo
     REQUIRE(coshint(S::Infinity()) == S::Infinity());          // Chi(oo)=oo
+    REQUIRE(coshint(S::Zero()) == S::ComplexInfinity());       // Chi(0)=zoo (CI-POLE-1)
     REQUIRE(sinhint(mul(S::NegativeOne(), x))
             == mul(S::NegativeOne(), sinhint(x)));             // odd
     REQUIRE(oracle.equivalent(diff(sinhint(x), x)->str(), "sinh(x)/x"));

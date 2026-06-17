@@ -156,34 +156,57 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
 
         // Sign of product = parity of negative factors, given all are nonzero
         // and real.
-        case AssumptionKey::Positive: {
-            if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
-            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
-            int neg = 0;
-            for (const auto& a : args_) {
-                auto v = a->ask(AssumptionKey::Negative);
-                if (!v.has_value()) return std::nullopt;
-                if (*v) ++neg;
-            }
-            return (neg % 2) == 0;
-        }
+        case AssumptionKey::Positive:
         case AssumptionKey::Negative: {
             if (!all_args_have(args_, AssumptionKey::Real, true)) return std::nullopt;
-            if (!all_args_have(args_, AssumptionKey::Nonzero, true)) return std::nullopt;
+            // Each factor must have a definite sign (positive or negative); both
+            // imply nonzero. Asking Positive as well as Negative lets a factor
+            // like a² (positive for a ≠ 0, but whose Negative/Nonzero may be
+            // unknown) count as a known-positive factor.
             int neg = 0;
             for (const auto& a : args_) {
-                auto v = a->ask(AssumptionKey::Negative);
-                if (!v.has_value()) return std::nullopt;
-                if (*v) ++neg;
+                if (a->ask(AssumptionKey::Positive) == std::optional<bool>{true}) {
+                    continue;
+                }
+                if (a->ask(AssumptionKey::Negative) == std::optional<bool>{true}) {
+                    ++neg;
+                    continue;
+                }
+                return std::nullopt;  // sign (or zeroness) of a factor unknown
             }
-            return (neg % 2) == 1;
+            const bool product_negative = (neg % 2) == 1;
+            return k == AssumptionKey::Negative ? product_negative
+                                                : !product_negative;
         }
 
-        // Nonneg/nonpos product require sign analysis with potential zeros;
-        // defer for v1.
+        // Sign-direction of a product of real factors. Each factor must be known
+        // ≥0 or ≤0; the product's direction is the parity of the ≤0 factors. A
+        // provably-zero factor makes the product 0 (both ≥0 and ≤0). Conservative:
+        // only the definite direction is reported (the unprovable opposite, which
+        // would require ruling out a zero factor, stays nullopt). Closes e.g.
+        // positive·nonnegative → nonnegative, nonpositive·nonpositive → nonnegative.
         case AssumptionKey::Nonnegative:
-        case AssumptionKey::Nonpositive:
-            return std::nullopt;
+        case AssumptionKey::Nonpositive: {
+            if (!all_args_have(args_, AssumptionKey::Real, true)) {
+                return std::nullopt;
+            }
+            int neg_dir = 0;
+            for (const auto& a : args_) {
+                const bool ge0 =
+                    a->ask(AssumptionKey::Nonnegative) == std::optional<bool>{true};
+                const bool le0 =
+                    a->ask(AssumptionKey::Nonpositive) == std::optional<bool>{true};
+                if (ge0 && le0) return true;  // factor is 0 → product is 0
+                if (ge0) continue;
+                if (le0) { ++neg_dir; continue; }
+                return std::nullopt;  // factor's sign direction unknown
+            }
+            const bool even = (neg_dir % 2) == 0;
+            if (k == AssumptionKey::Nonnegative) {
+                return even ? std::optional<bool>{true} : std::nullopt;
+            }
+            return even ? std::nullopt : std::optional<bool>{true};
+        }
 
         // Parity of an integer product: even iff some factor is even; odd iff
         // every factor is odd. Requires all factors to be known integers.

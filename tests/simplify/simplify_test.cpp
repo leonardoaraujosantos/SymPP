@@ -116,6 +116,31 @@ TEST_CASE("simplify: genuine reductions still fire under the guard (SIMP-4)",
     REQUIRE(oracle.equivalent(s->str(), "(exp(x) - 1)/(exp(x/2) + 1)"));
 }
 
+// SIMP-CXDIV-1: simplify rationalizes a complex denominator, reducing a complex
+// quotient to a+bI. The anti-bloat guard is exempted when a complex denominator
+// is removed (so 1/(1+I) → 1/2 − I/2 survives despite being larger).
+TEST_CASE("simplify: complex denominators rationalize (SIMP-CXDIV-1)",
+          "[5][simplify][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    REQUIRE(oracle.equivalent(
+        simplify((integer(1) + I) / (integer(1) - I))->str(), "I"));
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(1) + I, integer(-1)))->str(), "1/2 - I/2"));
+    REQUIRE(oracle.equivalent(
+        simplify((integer(2) + integer(3) * I) / (integer(1) + I))->str(),
+        "5/2 + I/2"));
+    REQUIRE(oracle.equivalent(simplify(I / (integer(2) - I))->str(),
+                              "-1/5 + 2*I/5"));
+    // A real rational function is unaffected (no spurious rationalization).
+    REQUIRE(oracle.equivalent(
+        simplify((pow(x, integer(2)) - integer(1)) / (x - integer(1)))->str(),
+        "x + 1"));
+    REQUIRE(simplify(pow(x + integer(1), integer(3)))
+            == pow(x + integer(1), integer(3)));
+}
+
 TEST_CASE("simplify: sqrt(x^2) uses assumptions (ASSUME-1)",
           "[5][simplify][assumptions][regression]") {
     auto xp = symbol("x", AssumptionMask{}.set_positive(true));
@@ -139,6 +164,56 @@ TEST_CASE("simplify: Abs(x)^(even) uses assumptions (ASSUME-3)",
     REQUIRE(simplify(pow(abs(xr), integer(4))) == pow(xr, integer(4)));
     REQUIRE(simplify(pow(abs(xr), integer(3)))->str() == "Abs(x)**3");
     REQUIRE(simplify(pow(abs(xg), integer(2)))->str() == "Abs(x)**2");
+}
+
+// SIGN-ABS-1: sign(u)·|u| = u (polar decomposition). A matching Sign/Abs factor
+// pair in a product cancels to its argument, with any coefficient or extra
+// factors carried through. A mismatched argument or a lone sign/Abs is untouched.
+TEST_CASE("simplify: sign(u)*Abs(u) -> u (SIGN-ABS-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(simplify(sign(x) * abs(x)) == x);
+    REQUIRE(simplify(abs(x) * sign(x)) == x);
+    // Coefficient and extra factors carry through.
+    REQUIRE(oracle.equivalent(simplify(integer(2) * sign(x) * abs(x))->str(),
+                              "2*x"));
+    REQUIRE(oracle.equivalent(simplify(sign(x) * abs(x) * y)->str(), "x*y"));
+    // General argument: sign(x+1)·|x+1| → x+1.
+    REQUIRE(oracle.equivalent(
+        simplify(sign(x + integer(1)) * abs(x + integer(1)))->str(), "x + 1"));
+    // No misfire: mismatched argument, or a lone sign/Abs, is left intact.
+    REQUIRE(simplify(sign(x) * abs(y))->str() == "Abs(y)*sign(x)");
+    REQUIRE(simplify(sign(x))->str() == "sign(x)");
+}
+
+// ABS-MUL-1: |a|·|b| = |a·b| (true for all complex a, b). The Abs factors of a
+// product — including integer powers and reciprocals — merge into a single Abs
+// of the product, leaving non-Abs factors loose. A lone Abs is untouched. After
+// sign_abs cancellation, so sign(x)·|x|·|y| → x·|y|.
+TEST_CASE("simplify: Abs product combines |a|*|b| -> |a*b| (ABS-MUL-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto z = symbol("z");
+    REQUIRE(oracle.equivalent(simplify(abs(x) * abs(y))->str(), "Abs(x*y)"));
+    REQUIRE(oracle.equivalent(simplify(integer(2) * abs(x) * abs(y))->str(),
+                              "2*Abs(x*y)"));
+    REQUIRE(oracle.equivalent(simplify(abs(x) * abs(y) * abs(z))->str(),
+                              "Abs(x*y*z)"));
+    // Integer power and reciprocal Abs factors join the merge.
+    REQUIRE(oracle.equivalent(
+        simplify(pow(abs(x), integer(2)) * abs(y))->str(), "Abs(x**2*y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(abs(x) * pow(abs(y), integer(-1)))->str(), "Abs(x/y)"));
+    // General argument.
+    REQUIRE(oracle.equivalent(simplify(abs(x + integer(1)) * abs(y))->str(),
+                              "Abs((x + 1)*y)"));
+    // No misfire: a lone Abs (even a power) is left intact.
+    REQUIRE(simplify(abs(x))->str() == "Abs(x)");
+    REQUIRE(simplify(pow(abs(x), integer(2)))->str() == "Abs(x)**2");
 }
 
 TEST_CASE("simplify: combines exponential products (SIMP-2)",
@@ -368,6 +443,105 @@ TEST_CASE("trigsimp: power-reduction (1 ∓ cos 2x)/2 (TRIG-PWR)",
         "cos(2*x)"));
 }
 
+// TRIG-DBLRATIO-1: a double-angle sine over a single angle cancels —
+// sin(2u)/sin(u) → 2cos(u), sin(2u)/cos(u) → 2sin(u) (and the csc/sec forms),
+// matching SymPy's simplify. Only the doubled sine factors into one sin/cos
+// pair, so cos(2u)/cos(u) and sin(3u)/sin(u) are deliberately left alone.
+TEST_CASE("simplify: double-angle sine ratio (TRIG-DBLRATIO-1)",
+          "[5][trigsimp][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // sin(2x)/sin(x) → 2cos(x), sin(2x)/cos(x) → 2sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * inv(sin(x)))->str(), "2*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * inv(cos(x)))->str(), "2*sin(x)"));
+    // Coefficient carries through; deeper doubling cancels one level.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sin(integer(2) * x) * inv(sin(x)))->str(),
+        "6*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(4) * x) * inv(sin(integer(2) * x)))->str(),
+        "2*cos(2*x)"));
+    // csc/sec denominators fold identically.
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * csc(x))->str(), "2*cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(2) * x) * sec(x))->str(), "2*sin(x)"));
+    // Left alone (as SymPy does): cos(2x)/cos(x), sin(3x)/sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(cos(integer(2) * x) * inv(cos(x)))->str(),
+        "cos(2*x)/cos(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sin(integer(3) * x) * inv(sin(x)))->str(),
+        "sin(3*x)/sin(x)"));
+}
+
+// HYP-DBLRATIO-1: the hyperbolic analogue of TRIG-DBLRATIO-1. sinh(2u) =
+// 2·sinh(u)·cosh(u), so sinh(2u)/sinh(u) → 2cosh(u), sinh(2u)/cosh(u) → 2sinh(u)
+// (and the csch/sech forms), with no sign flip. cosh(2u)/cosh(u) and
+// sinh(3u)/sinh(u) are left alone, matching SymPy.
+TEST_CASE("simplify: double-angle sinh ratio (HYP-DBLRATIO-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // sinh(2x)/sinh(x) → 2cosh(x) ; sinh(2x)/cosh(x) → 2sinh(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * inv(sinh(x)))->str(), "2*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * inv(cosh(x)))->str(), "2*sinh(x)"));
+    // Coefficient carries through; deeper doubling cancels one level.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(3) * sinh(integer(2) * x) * inv(sinh(x)))->str(),
+        "6*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(4) * x) * inv(sinh(integer(2) * x)))->str(),
+        "2*cosh(2*x)"));
+    // csch/sech denominators fold identically.
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * csch(x))->str(), "2*cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * sech(x))->str(), "2*sinh(x)"));
+    // Left alone (as SymPy does): cosh(2x)/cosh(x), sinh(3x)/sinh(x).
+    REQUIRE(oracle.equivalent(
+        simplify(cosh(integer(2) * x) * inv(cosh(x)))->str(),
+        "cosh(2*x)/cosh(x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(3) * x) * inv(sinh(x)))->str(),
+        "sinh(3*x)/sinh(x)"));
+}
+
+// HYP-MUL-1: the hyperbolic analogue of the 2·sin·cos → sin(2x) product fold.
+// k·sinh(x)·cosh(x) → (k/2)·sinh(2x). As with the circular case, the bare
+// k = 1 fold (sinh·cosh → sinh(2x)/2) is undone by simplify's anti-bloat guard
+// but visible through trigsimp; a coefficient ≥ 2 survives simplify.
+TEST_CASE("simplify: sinh*cosh product fold (HYP-MUL-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    // 2·sinh(x)·cosh(x) → sinh(2x) ; 6·sinh·cosh → 3·sinh(2x).
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * sinh(x) * cosh(x))->str(), "sinh(2*x)"));
+    REQUIRE(oracle.equivalent(
+        simplify(integer(6) * sinh(x) * cosh(x))->str(), "3*sinh(2*x)"));
+    // Nested argument: sinh(2x)·cosh(2x) → sinh(4x)/2.
+    REQUIRE(oracle.equivalent(
+        simplify(sinh(integer(2) * x) * cosh(integer(2) * x))->str(),
+        "sinh(4*x)/2"));
+    // The bare pair folds at the trigsimp level (anti-bloat hides it in simplify).
+    REQUIRE(oracle.equivalent(trigsimp(sinh(x) * cosh(x))->str(),
+                              "sinh(2*x)/2"));
+    // No misfire: a mismatched argument or a squared factor is left intact.
+    REQUIRE(oracle.equivalent(
+        simplify(integer(2) * sinh(x) * cosh(symbol("y")))->str(),
+        "2*sinh(x)*cosh(y)"));
+    REQUIRE(oracle.equivalent(
+        simplify(cosh(x) * pow(sinh(x), integer(2)))->str(),
+        "cosh(x)*sinh(x)**2"));
+}
+
 // TRIG-ANGLE-ADD-1: the angle-addition identities — sin(a)cos(b) ± cos(a)sin(b)
 // → sin(a±b) and cos(a)cos(b) ∓ sin(a)sin(b) → cos(a±b) — which simplify left
 // unfolded before. A shared coefficient carries through, and the rewrite
@@ -398,6 +572,28 @@ TEST_CASE("trigsimp: angle-addition identities (TRIG-ANGLE-ADD-1)",
     // A lone product is not an Add and must be left alone (no spurious fold).
     REQUIRE(oracle.equivalent(simplify(sin(x) * cos(y))->str(),
                               "sin(x)*cos(y)"));
+    // TRIG-ANGLE-ADD-2: angle addition over an Add of MORE than two terms —
+    // collapse every collapsible pair, then collect. Reduces the messy
+    // variation-of-parameters particular solution of y'' + 4y = sin(x) to sin(x)/3.
+    auto two = integer(2);
+    auto three = integer(3);
+    auto sixth = rational(1, 6);
+    auto half = rational(1, 2);
+    // sin(3x)cos(2x) − cos(3x)sin(2x) → sin(x).
+    REQUIRE(oracle.equivalent(
+        simplify(sin(three * x) * cos(two * x) - cos(three * x) * sin(two * x))
+            ->str(),
+        "sin(x)"));
+    // The four-term VoP form −½(−⅙sin3x+½sinx)cos2x + ½(−⅙cos3x+½cosx)sin2x → sin(x)/3.
+    Expr vop =
+        mul(rational(-1, 2),
+            mul(add(mul(mul(S::NegativeOne(), sixth), sin(three * x)),
+                    mul(half, sin(x))),
+                cos(two * x)))
+        + mul(half, mul(add(mul(mul(S::NegativeOne(), sixth), cos(three * x)),
+                            mul(half, cos(x))),
+                        sin(two * x)));
+    REQUIRE(oracle.equivalent(simplify(vop)->str(), "sin(x)/3"));
 }
 
 TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
@@ -414,6 +610,34 @@ TEST_CASE("trigsimp: hyperbolic Pythagorean identities (TRIG-HYP-1)",
     // Scaled: 3cosh² − 3sinh² = 3.
     REQUIRE(trigsimp(integer(3) * pow(cosh(x), integer(2))
                      - integer(3) * pow(sinh(x), integer(2))) == integer(3));
+}
+
+// HYP-DBLADD-1: hyperbolic additive double-angle, the analogue of the circular
+// power-reduction fold. Using sinh²x = (cosh2x−1)/2, cosh²x = (cosh2x+1)/2:
+//   cosh²x + sinh²x → cosh 2x,  1 + 2·sinh²x → cosh 2x,  2·cosh²x − 1 → cosh 2x.
+// The Pythagorean shapes (cosh²−sinh², 1+sinh²) keep their smaller sinh²/cosh²
+// form — the double-angle candidate only wins on strictly fewer leaves.
+TEST_CASE("trigsimp: hyperbolic additive double-angle (HYP-DBLADD-1)",
+          "[5][trigsimp][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [](const Expr& e) { return pow(e, integer(2)); };
+    // cosh²x + sinh²x → cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(sq(cosh(x)) + sq(sinh(x)))->str(), "cosh(2*x)"));
+    // 1 + 2·sinh²x → cosh 2x ; 2·cosh²x − 1 → cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) + integer(2) * sq(sinh(x)))->str(), "cosh(2*x)"));
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(2) * sq(cosh(x)) - integer(1))->str(), "cosh(2*x)"));
+    // Shared coefficient carries through: 3cosh²x + 3sinh²x → 3·cosh 2x.
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(3) * sq(cosh(x)) + integer(3) * sq(sinh(x)))->str(),
+        "3*cosh(2*x)"));
+    // Pythagorean shapes keep their smaller form (no double-angle takeover).
+    REQUIRE(oracle.equivalent(
+        trigsimp(integer(1) + sq(sinh(x)))->str(), "cosh(x)**2"));
+    REQUIRE(trigsimp(sq(cosh(x)) - sq(sinh(x))) == integer(1));
 }
 
 TEST_CASE("trigsimp: cosh(x) ± sinh(x) → exp(±x) (TRIG-HYP-2)",
@@ -705,6 +929,36 @@ TEST_CASE("expand_trig: multiple angle sin/cos(n*x) (EXPAND-TRIG-MULTI-1)",
     // Combined with angle addition.
     REQUIRE(oracle.equivalent(expand_trig(cos(integer(2) * x + y))->str(),
                               "(2*cos(x)**2 - 1)*cos(y) - 2*sin(x)*sin(y)*cos(x)"));
+}
+
+// EXPAND-TRIG-HYP-1: hyperbolic angle-addition and multiple-angle expansion.
+// expand_trig handled sin/cos/tan but left sinh/cosh/tanh untouched; now it
+// applies the Osborn-rule analogues (sinh(a+b) = sinh a cosh b + cosh a sinh b,
+// cosh(a+b) = cosh a cosh b + sinh a sinh b, the +1 tanh denominator), matching
+// SymPy up to identity equivalence.
+TEST_CASE("expand_trig: hyperbolic angle/multiple angle (EXPAND-TRIG-HYP-1)",
+          "[5][expand_trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(expand_trig(sinh(x + y))->str(),
+                              "sinh(x)*cosh(y) + cosh(x)*sinh(y)"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(x + y))->str(),
+                              "cosh(x)*cosh(y) + sinh(x)*sinh(y)"));
+    REQUIRE(oracle.equivalent(
+        expand_trig(tanh(x + y))->str(),
+        "(tanh(x) + tanh(y))/(1 + tanh(x)*tanh(y))"));
+    REQUIRE(oracle.equivalent(expand_trig(sinh(integer(2) * x))->str(),
+                              "2*sinh(x)*cosh(x)"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(integer(2) * x))->str(),
+                              "sinh(x)**2 + cosh(x)**2"));
+    REQUIRE(oracle.equivalent(expand_trig(sinh(integer(3) * x))->str(),
+                              "sinh(x)**3 + 3*sinh(x)*cosh(x)**2"));
+    REQUIRE(oracle.equivalent(expand_trig(cosh(integer(3) * x))->str(),
+                              "3*sinh(x)**2*cosh(x) + cosh(x)**3"));
+    // Circular expansion is unaffected.
+    REQUIRE(oracle.equivalent(expand_trig(sin(x + y))->str(),
+                              "sin(x)*cos(y) + cos(x)*sin(y)"));
 }
 
 // ----- fu orchestrator ------------------------------------------------------
@@ -1164,4 +1418,93 @@ TEST_CASE("simplify: chains sqrtdenest (sqrt(3+2√2) → 1+√2)",
     auto e = sqrt(inner);
     auto s = simplify(e);
     REQUIRE(oracle.equivalent(s->str(), "1 + sqrt(2)"));
+}
+
+// SIMPLIFY-RADCOEFF-1: pull a perfect-power factor of a positive numeric
+// coefficient out of a radical. √(4a²) → 2√(a²), √(8x²) → 2√(2x²),
+// (8x³)^(1/3) → 2·x^(1/3). The non-perfect part stays under the radical with the
+// symbolic factors. Previously left as (4a²)^(1/2). Verified equivalent to SymPy.
+TEST_CASE("simplify: extract perfect-power radical coefficient (SIMPLIFY-RADCOEFF-1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // √(4a²) → 2√(a²).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(4) * sq(a)))->str(),
+                              "2*sqrt(a**2)"));
+    // √(9x²) → 3√(x²).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(9) * sq(x)))->str(),
+                              "3*sqrt(x**2)"));
+    // √(8x²) → 2√(2x²) (the non-perfect 2 stays under the radical).
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(8) * sq(x)))->str(),
+                              "2*sqrt(2*x**2)"));
+    // √(4x) → 2√x.
+    REQUIRE(oracle.equivalent(simplify(sqrt(integer(4) * x))->str(),
+                              "2*sqrt(x)"));
+    // (8x³)^(1/3) → 2·(x³)^(1/3) (the 8 = 2³ is pulled; (x³)^(1/3) is not reduced
+    // to x without a real assumption, matching SymPy).
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(8) * pow(x, integer(3)), rational(1, 3)))->str(),
+        "2*(x**3)**(1/3)"));
+    // No perfect-power factor: √(2x) is unchanged (not split into √2·√x here).
+    REQUIRE(simplify(sqrt(integer(2) * x))->str().find("2*x") != std::string::npos);
+}
+
+// SIMPLIFY-LOGRATIO-1: log(b)/log(a) → k when a and b are positive integer powers
+// of a common base (b = c^j, a = c^i ⇒ j/i): log(4)/log(2)→2, log(8)/log(2)→3,
+// log(2)/log(8)→1/3. Incommensurate args (log(2)/log(3)) stay. Previously left as
+// log(2)**(-1)*log(4); matches SymPy and cleans up exponential-equation roots.
+TEST_CASE("simplify: log ratio of commensurate integers (SIMPLIFY-LOGRATIO-1)",
+          "[5][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto two = integer(2);
+    auto ln = [&](int n) { return log(integer(n)); };
+    auto ratio = [&](int b, int a) { return mul(ln(b), pow(ln(a), integer(-1))); };
+    REQUIRE(simplify(ratio(4, 2)) == two);
+    REQUIRE(simplify(ratio(8, 2)) == integer(3));
+    REQUIRE(simplify(ratio(9, 3)) == two);
+    REQUIRE(simplify(ratio(16, 4)) == two);
+    REQUIRE(simplify(ratio(2, 8)) == rational(1, 3));
+    // Incommensurate bases are left alone.
+    REQUIRE(oracle.equivalent(simplify(ratio(2, 3))->str(), "log(2)/log(3)"));
+    REQUIRE(oracle.equivalent(simplify(ratio(6, 2))->str(), "log(6)/log(2)"));
+    // Other factors pass through: x·log(8)/log(2) → 3·x.
+    auto x = symbol("x");
+    REQUIRE(oracle.equivalent(simplify(mul({x, ln(8), pow(ln(2), integer(-1))}))
+                                  ->str(),
+                              "3*x"));
+}
+
+// CHANGE-OF-BASE-1: base^(num·log(base)⁻¹) = exp(num), so a change-of-base
+// exponential a^(log b / log a) collapses to b (and the coefficient k carries:
+// a^(k·log b/log a) = bᵏ). Closes 2^(log x/log 2) → x, x^(log y/log x) → y.
+TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
+          "[5][simplify][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto inv = [](const Expr& e) { return pow(e, integer(-1)); };
+    // 2^(log x / log 2) = x ; 10^(log x / log 10) = x.
+    REQUIRE(simplify(pow(integer(2), mul(log(x), inv(log(integer(2)))))) == x);
+    REQUIRE(simplify(pow(integer(10), mul(log(x), inv(log(integer(10)))))) == x);
+    // Coefficient in the exponent: 3^(2·log x / log 3) = x².
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(3),
+                     mul({integer(2), log(x), inv(log(integer(3)))})))->str(),
+        "x**2"));
+    // Symbolic base: x^(log y / log x) = y.
+    REQUIRE(simplify(pow(x, mul(log(y), inv(log(x))))) == y);
+    // Numeric cross-base: 5^(log 7 / log 5) = 7.
+    REQUIRE(simplify(pow(integer(5),
+                         mul(log(integer(7)), inv(log(integer(5)))))) ==
+            integer(7));
+    // Non-log exponent: 2^(x / log 2) = exp(x).
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(2), mul(x, inv(log(integer(2))))))->str(),
+        "exp(x)"));
+    // No misfire: a log(base) *factor* (not 1/log(base)) is left alone.
+    REQUIRE(oracle.equivalent(
+        simplify(pow(integer(2), mul(log(x), log(integer(2)))))->str(),
+        "2**(log(2)*log(x))"));
 }

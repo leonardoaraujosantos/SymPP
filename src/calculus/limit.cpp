@@ -1,6 +1,9 @@
 #include <sympp/calculus/limit.hpp>
 
+#include <cmath>
+#include <numeric>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -13,15 +16,19 @@
 #include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -64,6 +71,60 @@ struct NumDen { Expr num; Expr den; };
     return e->type_id() == TypeId::NaN;
 }
 
+// Recursively combine a rational expression into a single numerator/denominator,
+// descending into the bases of integer powers so nested reciprocals flatten —
+// (p/q)^(−k) = q^k/p^k. together() stops at a Pow base, so a compound fraction
+// like (−x⁻²)⁻¹ stays un-flattened; this clears it (used to rationalise the
+// L'Hôpital ratio when a derivative is itself a fraction).
+[[nodiscard]] NumDen flatten_fraction(const Expr& e) {
+    switch (e->type_id()) {
+        case TypeId::Mul: {
+            std::vector<Expr> nums, dens;
+            for (const auto& a : e->args()) {
+                auto r = flatten_fraction(a);
+                nums.push_back(r.num);
+                dens.push_back(r.den);
+            }
+            return {mul(std::move(nums)), mul(std::move(dens))};
+        }
+        case TypeId::Add: {
+            std::vector<NumDen> parts;
+            parts.reserve(e->args().size());
+            for (const auto& a : e->args()) parts.push_back(flatten_fraction(a));
+            Expr den = S::One();
+            for (const auto& p : parts) den = mul(den, p.den);
+            std::vector<Expr> terms;
+            terms.reserve(parts.size());
+            for (std::size_t i = 0; i < parts.size(); ++i) {
+                Expr cof = S::One();
+                for (std::size_t j = 0; j < parts.size(); ++j) {
+                    if (j != i) cof = mul(cof, parts[j].den);
+                }
+                terms.push_back(mul(parts[i].num, cof));
+            }
+            return {add(std::move(terms)), den};
+        }
+        case TypeId::Pow: {
+            const Expr& base = e->args()[0];
+            const Expr& ex = e->args()[1];
+            if (ex->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*ex);
+                if (z.fits_long()) {
+                    auto br = flatten_fraction(base);
+                    const long k = z.to_long();
+                    if (k < 0) {
+                        return {pow(br.den, integer(-k)), pow(br.num, integer(-k))};
+                    }
+                    if (k > 0) return {pow(br.num, ex), pow(br.den, ex)};
+                }
+            }
+            return {e, S::One()};
+        }
+        default:
+            return {e, S::One()};
+    }
+}
+
 // L'Hôpital on the fraction num/den. Resolves the 0/0 and ∞/∞ indeterminate
 // forms by differentiating top and bottom, re-rationalising the ratio each
 // step (so algebraic cancellation, e.g. x²/(x²+x) → x/(x+1), keeps the limit
@@ -100,9 +161,19 @@ struct NumDen { Expr num; Expr den; };
             Expr num_d = diff(num, var);
             Expr den_d = diff(den, var);
             if (den_d == S::Zero()) return std::nullopt;
-            // Re-rationalise the new ratio with together() (cheap) before the
-            // next step; full simplify() here is too slow over many iterations.
-            auto nd = split_after_together(num_d / den_d);
+            // Re-rationalise the new ratio before the next step. together() does
+            // not flatten a nested reciprocal like (−x⁻²)⁻¹, so when den_d is itself
+            // a fraction (e.g. d/dx(1/x) = −x⁻²) the naive num_d/den_d leaves a
+            // negative power in the denominator and the next substitution is nan.
+            // flatten_fraction recursively combines into a single numer/denom first;
+            // split_after_together then consolidates (cheaper than full simplify).
+            // together() cancels common factors (e.g. x²·cos(1/x)/x² → cos(1/x))
+            // but can leave a residual nested power when num and den have unrelated
+            // denominators (e.g. the atan case: a stray x⁻² stuck in the
+            // denominator); flatten_fraction then clears that nesting. Doing only
+            // one of the two breaks the other family, so apply both.
+            auto ff = flatten_fraction(together(num_d / den_d));
+            auto nd = split_after_together(ff.num / ff.den);
             num = std::move(nd.num);
             den = std::move(nd.den);
             continue;
@@ -149,7 +220,14 @@ struct NumDen { Expr num; Expr den; };
     const bool inf_zero = (is_infinity(bl) && el == S::Zero());
     const bool zero_zero = (bl == S::Zero() && el == S::Zero());
     if (!(one_inf || inf_zero || zero_zero)) return std::nullopt;
-    Expr inner = limit_impl(mul(ex, log(base)), var, target, depth + 1);
+    // For the 1^∞ form use log(base) ~ (base − 1) as base → 1, so
+    // lim ex·log(base) = lim ex·(base − 1). This avoids needing the Taylor series
+    // of log of a composite base — the series engine leaves log(sin x / x)
+    // unexpanded — letting e.g. (sin x / x)^(1/x²) resolve to e^(−1/6). The other
+    // forms (∞^0, 0^0) genuinely need log(base) and keep it.
+    Expr rate = one_inf ? mul(ex, add(base, S::NegativeOne()))
+                        : mul(ex, log(base));
+    Expr inner = limit_impl(rate, var, target, depth + 1);
     if (is_nan(inner)) return std::nullopt;
     return exp_of_limit(inner);
 }
@@ -214,6 +292,168 @@ struct NumDen { Expr num; Expr den; };
     std::vector<Expr> nf = inf_f;
     if (!(finite == S::One())) nf.push_back(finite);
     return lhopital_nd(prod(std::move(nf)), prod(recips(zero_f)), var, target);
+}
+
+// A product/ratio of constant-base exponentials sharing one var-monomial in the
+// exponent — e.g. 2^x/3^x = 2^x·3^(−x), or exp(x)/exp(2x) = exp(x)·exp(−2x).
+// Evaluated factor by factor these are an ∞·0 (or 0·∞) indeterminate that
+// L'Hôpital cannot crack (differentiating reproduces the same form), so the
+// product path returns nan. But the combined rate is a single exponential:
+// ∏ bᵢ^(cᵢ·m) · ∏ exp(dⱼ·m) = exp(m·log B), with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete
+// positive constant. The single-exponential path then resolves it (B<1 → 0,
+// B>1 → ∞, B=1 → 1 as m → +∞). Fixes lim 2^x/3^x = 0 (was nan).
+[[nodiscard]] std::optional<Expr> try_exponential_product(const Expr& expr,
+                                                          const Expr& var,
+                                                          const Expr& target,
+                                                          int depth) {
+    if (!is_infinity(target)) return std::nullopt;
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+
+    // Split an exponent e into (coeff, monomial) with e = coeff·monomial, coeff a
+    // number and monomial var-dependent; nullopt if e has no such factorization.
+    auto split = [&](const Expr& e) -> std::optional<std::pair<Expr, Expr>> {
+        if (!has(e, var)) return std::nullopt;
+        if (e->type_id() == TypeId::Mul) {
+            std::vector<Expr> nums, rest_f;
+            for (const auto& f : e->args()) {
+                if (f->type_id() == TypeId::Integer
+                    || f->type_id() == TypeId::Rational) {
+                    nums.push_back(f);
+                } else {
+                    rest_f.push_back(f);
+                }
+            }
+            Expr m = rest_f.empty() ? Expr{S::One()} : mul(rest_f);
+            if (!has(m, var)) return std::nullopt;
+            Expr c = nums.empty() ? Expr{S::One()} : mul(nums);
+            return std::make_pair(c, m);
+        }
+        return std::make_pair(Expr{S::One()}, e);
+    };
+
+    auto is_exp = [](const Expr& f) -> const Function* {
+        if (f->type_id() != TypeId::Function) return nullptr;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            return &fn;
+        }
+        return nullptr;
+    };
+
+    Expr shared_mono;             // the common var-monomial in every exponent
+    Expr base_prod = S::One();    // ∏ bᵢ^cᵢ for the constant-base power factors
+    Expr exp_csum = S::Zero();    // Σ dⱼ for the exp(dⱼ·m) factors
+    std::vector<Expr> rest;       // remaining (must be polynomial in var) factors
+    int combined = 0;
+    auto take_exp_arg = [&](const Expr& arg) -> bool {
+        auto sp = split(arg);
+        if (!sp || (shared_mono && !(shared_mono == sp->second))) return false;
+        shared_mono = sp->second;
+        exp_csum = add(exp_csum, sp->first);
+        ++combined;
+        return true;
+    };
+    for (const auto& f : expr->args()) {
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& b = f->args()[0];
+            const Expr& e = f->args()[1];
+            // Constant positive base ^ var-dependent exponent: bᵢ^(cᵢ·m).
+            if (!has(b, var) && is_positive(b) == true && has(e, var)) {
+                if (auto sp = split(e);
+                    sp && (!shared_mono || shared_mono == sp->second)) {
+                    shared_mono = sp->second;
+                    base_prod = mul(base_prod, pow(b, sp->first));
+                    ++combined;
+                    continue;
+                }
+            }
+            // exp(g)^k with numeric k = exp(k·g) — this is how a/exp(g) and
+            // exp(g)^2 surface after canonicalization (1/exp(2x) is Pow(exp,−1)).
+            if (const Function* fn = is_exp(b);
+                fn && (e->type_id() == TypeId::Integer
+                       || e->type_id() == TypeId::Rational)) {
+                if (take_exp_arg(mul(e, fn->args()[0]))) continue;
+            }
+        }
+        if (const Function* fn = is_exp(f); fn && has(fn->args()[0], var)) {
+            if (take_exp_arg(fn->args()[0])) continue;
+        }
+        // Anything else is kept as a residual factor; it must be polynomial in var
+        // (checked below) so growth dominance against the exponential is decidable.
+        rest.push_back(f);
+    }
+    if (combined < 2 && !(combined >= 1 && !rest.empty())) return std::nullopt;
+    if (!shared_mono) return std::nullopt;
+
+    // The residual factors must form a polynomial in var: the exponential's growth
+    // class strictly dominates any polynomial, so a decaying exponential drives
+    // the whole product to 0 and a growing one to ±∞ regardless of polynomial
+    // degree. A non-polynomial residual (another transcendental) would break that.
+    Expr rest_prod = rest.empty() ? Expr{S::One()} : mul(rest);
+    if (!rest.empty()) {
+        try {
+            Poly rp(expand(rest_prod), var);
+            for (const auto& cc : rp.coeffs()) {
+                if (has(cc, var)) return std::nullopt;
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;  // residual not polynomial in var
+        }
+    }
+
+    // The exponential part is B^m with B = ∏ bᵢ^cᵢ · e^(Σdⱼ) a concrete positive
+    // constant and m = shared_mono. As m → ±∞ its behaviour is set by B vs 1 —
+    // decide it from the sign of B−1 directly. (Going through exp(m·log B) instead
+    // lets simplify distribute log(2·e⁻³) → log 2 − 3, which the engine then can't
+    // sign — so we avoid symbolic logs here.)
+    Expr B = simplify(mul(base_prod, exp(exp_csum)));
+    // Sign of B−1, falling back to a numeric evaluation: the assumption system
+    // can sign a rational like 2/3−1 but not exp(−1)−1, which surfaces for the
+    // exp(·)/exp(·) and mixed base·exp cases.
+    auto sign_of = [&](const Expr& e) -> int {
+        if (is_positive(e) == true) return 1;
+        if (is_negative(e) == true) return -1;
+        Expr ef = evalf(e, 30);
+        if (is_positive(ef) == true) return 1;
+        if (is_negative(ef) == true) return -1;
+        return 0;
+    };
+    Expr Lm = limit_impl(shared_mono, var, target, depth + 1);
+    int dir;
+    if (Lm->type_id() == TypeId::Infinity) {
+        dir = 1;
+    } else if (Lm->type_id() == TypeId::NegativeInfinity) {
+        dir = -1;
+    } else {
+        return std::nullopt;  // monomial does not diverge — leave to other paths
+    }
+
+    if (B == S::One()) {
+        // B^m ≡ 1: the limit is just the residual's. (Reachable only with a
+        // residual, since a bare B=1 product collapses to 1 upstream.)
+        return rest.empty() ? Expr{S::One()}
+                            : limit_impl(rest_prod, var, target, depth + 1);
+    }
+    const int s = sign_of(simplify(add(B, S::NegativeOne())));
+    if (s == 0) return std::nullopt;  // B vs 1 undecidable
+
+    const bool exp_decays = (dir * s < 0);  // B^m → 0
+    if (exp_decays) {
+        // Geometric decay dominates any polynomial residual → 0.
+        return S::Zero();
+    }
+    // B^m → +∞ (B > 0 so the exponential itself is positive); the sign of the
+    // whole product is the sign of the polynomial residual's divergence.
+    Expr Lrest = limit_impl(rest_prod, var, target, depth + 1);
+    if (Lrest == S::Zero()) return S::Zero();  // residual ≡ 0
+    if (Lrest->type_id() == TypeId::Infinity || is_positive(Lrest) == true) {
+        return S::Infinity();
+    }
+    if (Lrest->type_id() == TypeId::NegativeInfinity
+        || is_negative(Lrest) == true) {
+        return S::NegativeInfinity();
+    }
+    return std::nullopt;  // residual sign undecidable
 }
 
 // Sign of `expr` evaluated at `point`: +1 / −1, or 0 when indeterminate (a
@@ -375,6 +615,39 @@ struct NumDen { Expr num; Expr den; };
     return xreplace(e, m);
 }
 
+// Rewrite reciprocal trig/hyperbolic functions as sin/cos ratios:
+//   cot→cos/sin, csc→1/sin, sec→1/cos, coth→cosh/sinh, csch→1/sinh,
+//   sech→1/cosh. The limit machinery (direct substitution, L'Hôpital) handles
+//   sin/cos but treats cot/csc/… as opaque, so e.g. x·cot(x) → nan instead of 1.
+[[nodiscard]] Expr rewrite_reciprocal_trig(const Expr& e) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            if (fn.args().size() == 1) {
+                const Expr& u = fn.args()[0];
+                const Expr inv_sin = pow(sin(u), S::NegativeOne());
+                const Expr inv_cos = pow(cos(u), S::NegativeOne());
+                const Expr inv_sinh = pow(sinh(u), S::NegativeOne());
+                const Expr inv_cosh = pow(cosh(u), S::NegativeOne());
+                switch (fn.function_id()) {
+                    case FunctionId::Cot:  m.emplace(x, mul(cos(u), inv_sin)); break;
+                    case FunctionId::Csc:  m.emplace(x, inv_sin); break;
+                    case FunctionId::Sec:  m.emplace(x, inv_cos); break;
+                    case FunctionId::Coth: m.emplace(x, mul(cosh(u), inv_sinh)); break;
+                    case FunctionId::Csch: m.emplace(x, inv_sinh); break;
+                    case FunctionId::Sech: m.emplace(x, inv_cosh); break;
+                    default: break;
+                }
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    if (m.empty()) return e;
+    return xreplace(e, m);
+}
+
 // Number of gamma/factorial applications anywhere in e.
 [[nodiscard]] int count_gamma_factorial(const Expr& e) {
     int n = 0;
@@ -511,8 +784,421 @@ struct Growth {
     return top_dir_sum > 0 ? S::Infinity() : S::Zero();
 }
 
+// True if e contains a non-integer power of a var-dependent base (a radical such
+// as √(x²+1) = (x²+1)^(1/2)), which the conjugate rationalization targets.
+[[nodiscard]] bool has_var_radical(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Pow
+        && e->args()[1]->type_id() != TypeId::Integer
+        && has(e->args()[0], var)) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_var_radical(a, var)) return true;
+    }
+    return false;
+}
+
+// LCM of the denominators of the fractional exponents over var-dependent bases —
+// the root order to raise a difference to so every radical clears (√ → 2, ∛ → 3,
+// a mix of √ and ∛ → 6). Returns 1 when there is no var-radical.
+[[nodiscard]] long radical_order(const Expr& e, const Expr& var) {
+    long n = 1;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Pow
+            && x->args()[1]->type_id() == TypeId::Rational
+            && has(x->args()[0], var)) {
+            const mpz_class den =
+                static_cast<const Rational&>(*x->args()[1]).value().get_den();
+            if (den.fits_slong_p()) n = std::lcm(n, den.get_si());
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
+
+// ∞ − ∞ involving a radical, resolved by the conjugate. For a two-term sum
+// t₁ + t₂ (one term a square root) whose direct limit is the indeterminate
+// ∞ − ∞: t₁ + t₂ = (t₁² − t₂²)/(t₁ − t₂). Squaring clears the radical and the
+// ratio resolves — e.g. x − √(x²+1) → 0, √(x²+x) − x → 1/2, √(x+1) − √x → 0.
+[[nodiscard]] std::optional<Expr> try_conjugate_difference(
+    const Expr& expr, const Expr& var, const Expr& target, int depth) {
+    if (expr->type_id() != TypeId::Add || expr->args().size() != 2) {
+        return std::nullopt;
+    }
+    if (!has_var_radical(expr, var)) return std::nullopt;
+    const Expr& t1 = expr->args()[0];
+    const Expr& t2 = expr->args()[1];
+    Expr num = simplify(mul(t1, t1) + mul(S::NegativeOne(), mul(t2, t2)));
+    Expr den = simplify(t1 + mul(S::NegativeOne(), t2));  // t₁ − t₂
+    if (den == S::Zero() || has_var_radical(num, var)) return std::nullopt;
+    // Pass the ratio UNSIMPLIFIED: simplify() would rationalize the denominator
+    // straight back to the original ∞ − ∞ form and loop. limit_impl substitutes
+    // before simplifying, so the genuine pole collapses first.
+    Expr val = limit_impl(mul(num, pow(den, S::NegativeOne())), var, target,
+                          depth + 1);
+    if (is_nan(val)) return std::nullopt;
+    return val;
+}
+
+// Leading asymptotic term of an algebraic expression as var → +∞: returns
+// (coeff, degree) with e ~ coeff · var^degree (coeff ≠ 0), or nullopt when the
+// behavior is not a single algebraic power (a non-algebraic function, a symbolic
+// exponent, or a leading cancellation the conjugate can't clear). Degrees may be
+// rational (√ halves them). This is the leading-order slice of the Gruntz/MRV
+// algorithm restricted to polynomials and their roots — enough to resolve the
+// √-difference limits (x − √(x²−x), √(x²+x) − √(x²−x), x·(√(x²+1) − x)) that
+// L'Hôpital can't (the radical never stabilises under repeated differentiation).
+[[nodiscard]] std::optional<std::pair<Expr, Expr>> leading_pos_inf(
+    const Expr& e, const Expr& var, int depth) {
+    // Bound the recursion: the conjugate-on-cancellation branch can re-enter a few
+    // levels deep on a single expression, but never unboundedly (each conjugate
+    // clears a leading cancellation). 24 covers realistic nesting and still
+    // terminates on a pathological input.
+    if (depth > 24) return std::nullopt;
+    if (!has(e, var)) {
+        if (e == S::Zero()) return std::nullopt;  // zero has no leading term
+        return std::make_pair(e, Expr{S::Zero()});
+    }
+    if (e == var) return std::make_pair(Expr{S::One()}, Expr{S::One()});
+    switch (e->type_id()) {
+        case TypeId::Pow: {
+            const Expr& b = e->args()[0];
+            const Expr& p = e->args()[1];
+            if (has(p, var)) return std::nullopt;  // var in exponent: not algebraic
+            auto lb = leading_pos_inf(b, var, depth + 1);
+            if (!lb) return std::nullopt;
+            // A fractional power needs a positive leading coefficient to stay real.
+            if (p->type_id() != TypeId::Integer
+                && is_positive(lb->first) != std::optional<bool>{true}) {
+                return std::nullopt;
+            }
+            return std::make_pair(simplify(pow(lb->first, p)),
+                                  simplify(mul(lb->second, p)));
+        }
+        case TypeId::Mul: {
+            Expr c = S::One();
+            Expr d = S::Zero();
+            for (const auto& f : e->args()) {
+                auto lf = leading_pos_inf(f, var, depth + 1);
+                if (!lf) return std::nullopt;
+                c = mul(c, lf->first);
+                d = add(d, lf->second);
+            }
+            return std::make_pair(simplify(c), simplify(d));
+        }
+        case TypeId::Add: {
+            std::optional<Expr> maxdeg;
+            Expr csum = S::Zero();
+            for (const auto& t : e->args()) {
+                auto lt = leading_pos_inf(t, var, depth + 1);
+                if (!lt) return std::nullopt;
+                if (!maxdeg) {
+                    maxdeg = lt->second;
+                    csum = lt->first;
+                    continue;
+                }
+                Expr dd = simplify(lt->second - *maxdeg);
+                if (is_positive(dd) == std::optional<bool>{true}) {
+                    maxdeg = lt->second;
+                    csum = lt->first;
+                } else if (dd == S::Zero()) {
+                    csum = simplify(csum + lt->first);
+                }
+            }
+            if (!maxdeg) return std::nullopt;
+            if (simplify(csum) != S::Zero()) {
+                return std::make_pair(simplify(csum), *maxdeg);
+            }
+            // Leading terms cancel. For a two-term sum u − v with a radical of order
+            // n, the n-th-root conjugate clears it:
+            //   u − v = (uⁿ − vⁿ) / Σ_{i=0}^{n-1} u^(n−1−i)·vⁱ.
+            // uⁿ, vⁿ raise the radicals to integer powers, so the numerator becomes
+            // radical-free; the denominator has no leading cancellation. Recurse on
+            // the quotient (no simplify — that would rationalize straight back).
+            // n = 2 is the classic √ conjugate; n = 3 handles (x³+x²)^(1/3) − x → 1/3.
+            if (e->args().size() == 2 && has_var_radical(e, var)) {
+                const Expr u = e->args()[0];
+                const Expr v = mul(S::NegativeOne(), e->args()[1]);  // e = u − v
+                const long n = radical_order(e, var);
+                if (n >= 2 && n <= 6) {
+                    Expr num = simplify(pow(u, integer(n))
+                                        + mul(S::NegativeOne(), pow(v, integer(n))));
+                    if (!has_var_radical(num, var)) {
+                        std::vector<Expr> dterms;
+                        dterms.reserve(static_cast<std::size_t>(n));
+                        for (long i = 0; i < n; ++i) {
+                            dterms.push_back(
+                                mul(pow(u, integer(n - 1 - i)), pow(v, integer(i))));
+                        }
+                        Expr den = add(std::move(dterms));
+                        if (!(simplify(den) == S::Zero())) {
+                            return leading_pos_inf(
+                                mul(num, pow(den, S::NegativeOne())), var,
+                                depth + 1);
+                        }
+                    }
+                }
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;  // trig/exp/log/… are not handled here
+    }
+}
+
+// Limit at +∞ of an algebraic (radical) expression via its leading term. Resolves
+// the ∞ − ∞ / 0·∞ forms that L'Hôpital abandons on radicals: e ~ c·x^d gives a
+// finite limit c when d = 0, ±∞ when d > 0, and 0 when d < 0.
+[[nodiscard]] std::optional<Expr> try_algebraic_inf(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& target) {
+    if (target->type_id() != TypeId::Infinity) return std::nullopt;  // +∞ only
+    if (!has_var_radical(expr, var)) return std::nullopt;
+    auto lead = leading_pos_inf(expr, var, 0);
+    if (!lead) return std::nullopt;
+    const Expr& c = lead->first;
+    const Expr& d = lead->second;
+    if (d == S::Zero()) return simplify(c);
+    if (is_positive(d) == std::optional<bool>{true}) {
+        if (is_positive(c) == std::optional<bool>{true}) return S::Infinity();
+        if (is_negative(c) == std::optional<bool>{true}) return S::NegativeInfinity();
+        return std::nullopt;
+    }
+    if (is_negative(d) == std::optional<bool>{true}) return S::Zero();
+    return std::nullopt;
+}
+
+// Asymptotic of log(g) at +∞ when g is dominated by an exponential — the
+// "log-sum-exp → max" identity. For g = Σ cᵢ·exp(eᵢ) (after rewriting cosh/sinh
+// and a^x into exp), factoring out the fastest-growing exp(e_dom) gives
+//   log(g) = e_dom + log(g·exp(−e_dom)),   g·exp(−e_dom) → (finite) > 0,
+// so the residual log has a finite limit. Rewrites the first such log(g) inside
+// `expr` and re-takes the limit. Resolves x − log(cosh x) → log 2,
+// log(2^x+3^x)/x → log 3, (2^x+3^x)^(1/x) → 3.
+[[nodiscard]] std::optional<Expr> try_log_exp_asymptotic(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& target,
+                                                         int depth) {
+    if (target->type_id() != TypeId::Infinity) return std::nullopt;  // +∞ only
+
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    // Find the first log(g) with g depending on var.
+    Expr the_log;
+    auto find = [&](auto&& self, const Expr& e) -> void {
+        if (the_log) return;
+        if (is_log(e) && has(e->args()[0], var)) { the_log = e; return; }
+        for (const auto& a : e->args()) {
+            if (the_log) return;
+            self(self, a);
+        }
+    };
+    find(find, expr);
+    if (!the_log) return std::nullopt;
+
+    // Rewrite cosh(u)/sinh(u) → (e^u ± e^(−u))/2 inside g, then expand to a sum.
+    ExprMap<Expr> hyp;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.args().size() == 1) {
+                const Expr& u = fn.args()[0];
+                if (fn.function_id() == FunctionId::Cosh) {
+                    hyp.emplace(e, (exp(u) + exp(mul(S::NegativeOne(), u)))
+                                       / integer(2));
+                } else if (fn.function_id() == FunctionId::Sinh) {
+                    hyp.emplace(e, (exp(u) - exp(mul(S::NegativeOne(), u)))
+                                       / integer(2));
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    const Expr& g = the_log->args()[0];
+    scan(scan, g);
+    Expr g_exp = expand(hyp.empty() ? g : xreplace(g, hyp));
+
+    // The exponent e such that `term = const·exp(e)` (a^h ↦ e = h·log a; a bare
+    // constant ↦ e = 0). Bails on a non-exponential var factor (e.g. x·eˣ).
+    auto exp_exponent = [&](const Expr& term) -> std::optional<Expr> {
+        if (!has(term, var)) return Expr{S::Zero()};
+        std::vector<Expr> facs;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) facs.push_back(f);
+        } else {
+            facs.push_back(term);
+        }
+        Expr exponent;
+        bool found = false;
+        for (const auto& f : facs) {
+            if (!has(f, var)) continue;
+            if (f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Exp) {
+                if (found) return std::nullopt;
+                exponent = f->args()[0];
+                found = true;
+            } else if (f->type_id() == TypeId::Pow && !has(f->args()[0], var)
+                       && is_positive(f->args()[0]) == std::optional<bool>{true}
+                       && has(f->args()[1], var)) {
+                if (found) return std::nullopt;
+                exponent = mul(f->args()[1], log(f->args()[0]));
+                found = true;
+            } else {
+                return std::nullopt;
+            }
+        }
+        return found ? exponent : Expr{S::Zero()};
+    };
+
+    // Pick the term with the fastest-growing exponent (max coefficient of x).
+    std::vector<Expr> terms;
+    if (g_exp->type_id() == TypeId::Add) {
+        for (const auto& t : g_exp->args()) terms.push_back(t);
+    } else {
+        terms.push_back(g_exp);
+    }
+    Expr e_dom;
+    double best_rate = 0.0;
+    for (const auto& t : terms) {
+        auto e = exp_exponent(t);
+        if (!e) return std::nullopt;
+        // Rate = coefficient of x in the exponent (must be affine in var).
+        Expr rate_coeff;
+        try {
+            Poly pe(expand(*e), var);
+            if (pe.degree() < 1) {
+                rate_coeff = S::Zero();  // constant exponent
+            } else if (pe.degree() == 1) {
+                rate_coeff = pe.coeffs()[1];
+            } else {
+                return std::nullopt;  // super-exponential — out of scope
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+        Expr rate_e = evalf(rate_coeff, 30);
+        double rate = 0.0;
+        try {
+            rate = std::stod(rate_e->str());
+        } catch (...) {
+            return std::nullopt;  // non-numeric rate (e.g. a symbolic coefficient)
+        }
+        if (!e_dom || rate > best_rate) {
+            best_rate = rate;
+            e_dom = *e;
+        }
+    }
+    if (!e_dom || best_rate <= 0.0) return std::nullopt;  // not exp-growing
+
+    // log(g) → e_dom + log(g·exp(−e_dom)); replace and re-limit. Use the
+    // exp-rewritten g_exp (cosh/sinh already in exponential form) so the residual
+    // collapses — e.g. cosh(x)·e^(−x) = (1 + e^(−2x))/2 → 1/2 rather than the
+    // unevaluated cosh(x)·e^(−x) the limit engine can't fold directly.
+    Expr residual = simplify(expand(mul(g_exp, exp(mul(S::NegativeOne(), e_dom)))));
+    Expr new_log = add(e_dom, log(residual));
+    ExprMap<Expr> repl;
+    repl.emplace(the_log, new_log);
+    // expand so a wrapping product distributes — log(g)/x must become
+    // e_dom/x + log(residual)/x for the per-term limits to resolve, rather than
+    // staying an (∞)·(0) Mul.
+    Expr expr2 = expand(xreplace(expr, repl));
+    Expr r = limit_impl(expr2, var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
+// Resolve logarithms at the target.
+//   (a) limit(log(g)) = log(limit g)   for a positive-finite or +∞ inner limit;
+//   (b) Σ cᵢ·log(gᵢ) + rest: factor a common κ so every cᵢ/κ is an integer,
+//       giving κ·log(∏ gᵢ^(cᵢ/κ)) with a single (rational) argument — this
+//       resolves the ∞ − ∞ between logs, e.g. log(x+1) − log(x) → 0 and the
+//       log terms of the ∫1/(1+x⁴) antiderivative at ∞.
+[[nodiscard]] std::optional<Expr> try_log_limit(const Expr& expr,
+                                                const Expr& var,
+                                                const Expr& target, int depth) {
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    if (is_log(expr)) {
+        Expr gl = limit_impl(expr->args()[0], var, target, depth + 1);
+        if (gl == S::Infinity()) return S::Infinity();
+        if (!is_nan(gl) && !is_infinity(gl)
+            && is_positive(gl) == std::optional<bool>{true}) {
+            return simplify(log(gl));
+        }
+        return std::nullopt;
+    }
+    // atan is continuous on the extended reals (atan(±∞) = ±π/2), so
+    // limit(atan(g)) = atan(limit g) whenever the inner limit is determinate.
+    if (expr->type_id() == TypeId::Function
+        && static_cast<const Function&>(*expr).function_id() == FunctionId::Atan
+        && expr->args().size() == 1) {
+        Expr gl = limit_impl(expr->args()[0], var, target, depth + 1);
+        if (!is_nan(gl)) return simplify(atan(gl));
+        return std::nullopt;
+    }
+    if (expr->type_id() != TypeId::Add) return std::nullopt;
+    auto as_clog =
+        [&](const Expr& t) -> std::optional<std::pair<Expr, Expr>> {  // (g, c)
+        if (is_log(t)) return std::make_pair(t->args()[0], Expr{S::One()});
+        if (t->type_id() == TypeId::Mul) {
+            Expr inner;
+            std::vector<Expr> coeff;
+            for (const auto& f : t->args()) {
+                if (!inner && is_log(f)) {
+                    inner = f->args()[0];
+                    continue;
+                }
+                if (has(f, var)) return std::nullopt;
+                coeff.push_back(f);
+            }
+            if (inner) return std::make_pair(inner, mul(std::move(coeff)));
+        }
+        return std::nullopt;
+    };
+    std::vector<std::pair<Expr, Expr>> logs;
+    std::vector<Expr> rest;
+    for (const auto& t : expr->args()) {
+        if (auto lp = as_clog(t)) logs.push_back(std::move(*lp));
+        else rest.push_back(t);
+    }
+    if (logs.size() < 2) return std::nullopt;
+    const Expr& kappa = logs[0].second;
+    if (kappa == S::Zero()) return std::nullopt;
+    std::vector<Expr> factors;
+    for (const auto& [g, c] : logs) {
+        Expr ratio = simplify(c * pow(kappa, integer(-1)));
+        if (ratio->type_id() != TypeId::Integer
+            || !static_cast<const Integer&>(*ratio).fits_long()) {
+            return std::nullopt;  // coefficients not commensurate
+        }
+        factors.push_back(pow(g, ratio));
+    }
+    Expr combined = mul(kappa, log(mul(std::move(factors))));
+    rest.push_back(combined);
+    Expr val = limit_impl(add(std::move(rest)), var, target, depth + 1);
+    if (is_nan(val)) return std::nullopt;
+    return val;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
+    // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
+    // rewrite them as sin/cos ratios (cot x → cos x/sin x, …) and retry, so
+    // forms like x·cot(x) resolve via L'Hôpital instead of returning nan.
+    if (depth < 12) {
+        Expr rw = rewrite_reciprocal_trig(expr);
+        if (!(rw == expr)) return limit_impl(rw, var, target, depth + 1);
+    }
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve
     // it from the one-sided signs rather than the point value sign(0)=0.
     if (depth < 12) {
@@ -546,6 +1232,28 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         if (!(g == expr)) return limit_impl(g, var, target, depth + 1);
     }
 
+    // Indeterminate power forms (1^∞, 0^0, ∞^0) must be resolved before direct
+    // substitution, which would collapse 1^∞ to 1 — e.g. (1+x)^(1/x) → E (not 1)
+    // as x → 0. try_power_form returns nullopt for any determinate power.
+    if (depth < 12 && expr->type_id() == TypeId::Pow) {
+        if (auto v = try_power_form(expr, var, target, depth)) return *v;
+    }
+
+    // Continuity of atan/log: limit(f(g)) = f(limit g). Done before direct
+    // substitution, which can leave atan(<unevaluated ∞ expression>) — e.g. the
+    // atan terms of the ∫1/(1+x⁴) antiderivative at ∞.
+    if (depth < 12 && expr->type_id() == TypeId::Function) {
+        if (auto v = try_log_limit(expr, var, target, depth)) return *v;
+    }
+
+    // log of an exponential-dominated sum (log(2^x+3^x)/x → log 3): resolve before
+    // direct substitution, which folds the inner log(∞) into an unevaluated
+    // ∞-arithmetic mess rather than nan, so the post-substitution path can't catch
+    // it. The handler bails fast unless such a log is present.
+    if (depth < 12) {
+        if (auto v = try_log_exp_asymptotic(expr, var, target, depth)) return *v;
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
@@ -576,7 +1284,18 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 } catch (const std::exception&) {
                     // not a polynomial in var — fall through to other methods
                 }
+                // ∞ − ∞ with a radical: rationalize via the conjugate.
+                if (auto v = try_conjugate_difference(expr, var, target, depth)) {
+                    return *v;
+                }
+                // Algebraic ∞−∞ / 0·∞ via the leading asymptotic term — resolves the
+                // radical ratios the conjugate produces and L'Hôpital abandons.
+                if (auto v = try_algebraic_inf(expr, var, target)) {
+                    return *v;
+                }
             }
+            // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
+            if (auto v = try_log_limit(expr, var, target, depth)) return *v;
             // Linearity over a sum: when every term has a determinate finite
             // limit, the limit is their sum. Direct substitution gives nan when
             // a single term is an ∞·0 product (e.g. the antiderivative
@@ -614,11 +1333,101 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 }
             }
             if (auto v = try_power_form(expr, var, target, depth)) return *v;
+            // Merge a product of constant-base exponentials (2^x/3^x,
+            // exp(x)/exp(2x)) into one exp(rate) before the generic product path,
+            // which would otherwise see ∞·0 and stall in L'Hôpital → nan.
+            if (auto v = try_exponential_product(expr, var, target, depth)) {
+                return *v;
+            }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
-        // substitution collapses to 0 or nan).
-        if (auto v = lhopital(expr, var, target)) return *v;
+        // substitution collapses to 0 or nan). A nan result is not an answer —
+        // fall through to the reciprocal substitution rather than returning it.
+        if (auto v = lhopital(expr, var, target); v && !is_nan(*v)) return *v;
+
+        // Reciprocal substitution for a limit at ±∞: x = ±1/t maps it to t → 0,
+        // where the series / L'Hôpital machinery resolves the asymptotic-expansion
+        // forms the direct ∞ methods abandon — cube-root (and general n-th-root)
+        // differences (x³+x²)^(1/3)−x → 1/3, and 0·∞ / ∞−∞ with a transcendental
+        // subleading term: x²(1−cos 1/x) → 1/2, x − x²·log(1+1/x) → 1/2. The
+        // candidate is accepted only after a numeric check against the original at
+        // large x, so a one-sided/two-sided mismatch (or a wrong t-limit) cannot
+        // slip through.
+        if (is_infinity(target) && depth < 8 && has(expr, var)) {
+            const Expr sgn = target->type_id() == TypeId::Infinity
+                                 ? S::One()
+                                 : S::NegativeOne();
+            Expr tt = symbol("__lim_recip_t");
+            Expr sub = subs(expr, var, mul(sgn, pow(tt, integer(-1))));
+            Expr cand = limit_impl(sub, tt, S::Zero(), depth + 1);
+            if (!is_nan(cand) && !is_infinity(cand) && !has(cand, tt)
+                && cand->type_id() != TypeId::ComplexInfinity) {
+                Expr cv = evalf(cand, 30);
+                if (cv->type_id() == TypeId::Float) {
+                    double cvd = 0.0;
+                    bool parsed = false;
+                    try {
+                        cvd = std::stod(cv->str());
+                        parsed = true;
+                    } catch (...) {
+                    }
+                    // Sample at increasing magnitudes and require convergence to
+                    // cand: the diff must shrink and the largest sample land very
+                    // close. A wrong candidate keeps an O(1) offset and is rejected;
+                    // the loose-to-tight ladder tolerates slow (∼1/x) convergence.
+                    bool ok = parsed;
+                    double prev = 1e300;
+                    int checks = 0;
+                    for (long xv : {1000L, 1000000L, 1000000000L}) {
+                        if (!ok) break;
+                        Expr at = evalf(
+                            simplify(subs(expr, var, mul(sgn, integer(xv)))), 40);
+                        if (at->type_id() != TypeId::Float) { ok = false; break; }
+                        try {
+                            const double d = std::fabs(std::stod(at->str()) - cvd);
+                            if (!(d <= prev + 1e-12)) ok = false;  // must not diverge
+                            prev = d;
+                            ++checks;
+                        } catch (...) {
+                            ok = false;
+                        }
+                    }
+                    if (ok && checks == 3 && prev < 1e-4) return cand;
+                }
+            }
+        }
+    }
+    // Essential singularity at a finite point (exp(1/x), 1/x² at 0): substitute
+    // u = 1/(x − a) and take u → ±∞; the two one-sided limits agree iff the
+    // two-sided limit exists. Only at a finite target with a non-finite direct
+    // value and a reciprocal singularity (a negative power of a factor that
+    // vanishes at the target), so ordinary limits are untouched. Resolves
+    // exp(−1/x²) → 0 and x/(exp(1/x)−1) → 0.
+    if (depth < 12 && is_number(target)
+        && (is_nan(direct) || direct->type_id() == TypeId::ComplexInfinity)) {
+        bool has_sing = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (has_sing) return;
+            if (e->type_id() == TypeId::Pow
+                && e->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*e->args()[1]).is_negative()
+                && has(e->args()[0], var)
+                && limit_impl(e->args()[0], var, target, depth + 1)
+                       == S::Zero()) {
+                has_sing = true;
+                return;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, expr);
+        if (has_sing) {
+            Expr u = symbol("__recip_pt_u");
+            Expr sub = subs(expr, var, add(target, pow(u, S::NegativeOne())));
+            Expr lr = limit_impl(sub, u, S::Infinity(), depth + 1);
+            Expr ll = limit_impl(sub, u, S::NegativeInfinity(), depth + 1);
+            if (!is_nan(lr) && !is_nan(ll) && lr == ll) return lr;
+        }
     }
     return direct;
 }

@@ -11,7 +11,11 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/expand.hpp>
+#include <sympp/core/expr_collections.hpp>
 #include <sympp/core/float.hpp>
+#include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
@@ -203,6 +207,15 @@ Expr abs(const Expr& arg) {
     // NumberSymbol — Pi, E, EulerGamma, Catalan are all positive.
     if (arg->type_id() == TypeId::NumberSymbol) {
         return arg;
+    }
+
+    // |exp(z)| = exp(re(z)). With re() already evaluating the imaginary part, this
+    // gives the unit modulus |exp(I·x)| = 1 for real x (re(I·x) = 0), the general
+    // |exp(x)| = exp(re(x)), and |exp(I·x)| = exp(−im(x)) for a complex x. SymPy
+    // does the same.
+    if (arg->type_id() == TypeId::Function
+        && static_cast<const Function&>(*arg).function_id() == FunctionId::Exp) {
+        return exp(re(arg->args()[0]));
     }
 
     // Complex number a + b·I with rational parts → sqrt(a² + b²) (the modulus).
@@ -417,7 +430,39 @@ struct MulComplexParts { Expr c; int k; Expr w; };
 
 }  // namespace
 
+// Rationalize a complex denominator: 1/(a+bI) = (a−bI)/(a²+b²). Rewrites every
+// Pow(d, −m) whose base d carries the imaginary unit and whose |d|² = d·conj(d)
+// is provably real (the numeric-complex case), so the expanded result is a real
+// + imaginary split. Symbolic denominators (where |d|² stays complex) are left
+// untouched.
+[[nodiscard]] Expr rationalize_complex(const Expr& e) {
+    ExprMap<Expr> repl;
+    std::function<void(const Expr&)> scan = [&](const Expr& x) {
+        if (x->type_id() == TypeId::Pow
+            && x->args()[1]->type_id() == TypeId::Integer) {
+            const Expr& base = x->args()[0];
+            const auto& z = static_cast<const Integer&>(*x->args()[1]);
+            if (z.is_negative() && z.fits_long() && has(base, S::I())
+                && is_real(base) != true) {
+                Expr cj = conjugate(base);
+                Expr denom = expand(mul(base, cj));
+                if (is_real(denom) == true) {
+                    const long m = -z.to_long();
+                    repl.emplace(x, mul(pow(cj, integer(m)),
+                                        pow(denom, integer(-m))));
+                }
+            }
+        }
+        for (const auto& a : x->args()) scan(a);
+    };
+    scan(e);
+    if (repl.empty()) return e;
+    return xreplace(e, repl);
+}
+
 Expr re(const Expr& arg) {
+    // Multiply out any complex denominator, then re-enter on the a+bI form.
+    if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return re(n);
     // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
     // Numeric complex a + b·I → a.
@@ -447,6 +492,7 @@ Expr re(const Expr& arg) {
 }
 
 Expr im(const Expr& arg) {
+    if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return im(n);
     if (is_real(arg) == true) return S::Zero();
     // Numeric complex a + b·I → b.
     if (auto z = rational_complex(arg); z.has_value()) return z->second;
@@ -525,6 +571,8 @@ Expr conjugate(const Expr& arg) {
 }
 
 Expr arg_(const Expr& arg) {
+    // arg(0) is undefined — the origin has no argument. SymPy returns nan.
+    if (arg == S::Zero()) return S::NaN();
     if (is_positive(arg) == true) return S::Zero();
     if (is_negative(arg) == true) return S::Pi();
     // arg(z) = atan2(im z, re z), applied when there is a (resolved) imaginary
@@ -642,9 +690,38 @@ namespace {
 // keeping symbolic args as-is.
 template <bool IsMin>
 [[nodiscard]] Expr min_max_impl(std::vector<Expr> args) {
+    // Flatten a nested same-kind Min/Max: Max(x, Max(y, z)) → Max(x, y, z).
+    {
+        const FunctionId same = IsMin ? FunctionId::Min : FunctionId::Max;
+        std::vector<Expr> flat;
+        flat.reserve(args.size());
+        for (auto& a : args) {
+            if (a->type_id() == TypeId::Function
+                && static_cast<const Function&>(*a).function_id() == same) {
+                for (const auto& inner : a->args()) flat.push_back(inner);
+            } else {
+                flat.push_back(std::move(a));
+            }
+        }
+        args = std::move(flat);
+    }
+
     std::vector<Expr> non_numeric;
-    Expr extreme;  // running min or max numeric
+    Expr extreme;            // running min or max numeric
+    bool dropped_identity = false;  // saw the identity ±∞ (kept as fallback)
     for (auto& a : args) {
+        // Infinity identities/absorbers: Max(…, +∞) = +∞ and −∞ is its identity;
+        // Min mirrors. The identity is dropped but remembered so Max(−∞, −∞) = −∞.
+        if (a->type_id() == TypeId::Infinity) {
+            if constexpr (!IsMin) return S::Infinity();
+            dropped_identity = true;
+            continue;
+        }
+        if (a->type_id() == TypeId::NegativeInfinity) {
+            if constexpr (IsMin) return S::NegativeInfinity();
+            dropped_identity = true;
+            continue;
+        }
         if (is_number(a)) {
             if (!extreme) {
                 extreme = a;
@@ -676,9 +753,12 @@ template <bool IsMin>
     for (auto& a : non_numeric) out.push_back(std::move(a));
 
     if (out.empty()) {
-        // Empty Min/Max — by convention, undefined; SymPy raises. Return
-        // a NaN-equivalent? For now build the empty form to surface the
-        // misuse; callers rarely hit this with proper inputs.
+        // Everything collapsed to the dropped identity ±∞ (e.g. Max(−∞, −∞)).
+        if (dropped_identity) {
+            return IsMin ? S::Infinity() : S::NegativeInfinity();
+        }
+        // Otherwise an empty Min/Max — by convention undefined; SymPy raises.
+        // Build the empty form to surface the misuse; rarely hit in practice.
     }
     if (out.size() == 1) return std::move(out[0]);
 

@@ -35,6 +35,7 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/polys/rootof.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -44,9 +45,54 @@ namespace {
 // Polynomial-only root finder. This is the original solve() body; it is
 // kept separate so solveset()'s internal fallback can use it WITHOUT
 // re-entering the transcendental solveset path below (which would recurse).
+// Largest polynomial degree for which the RootOf supplement runs factor_list.
+// Kronecker factorization is exponential in degree, so cap it to keep solve()
+// responsive; beyond this, an unsolvable polynomial still returns its radical
+// roots (possibly empty) rather than risking a pathological factorization.
+constexpr std::size_t kRootOfFactorDegreeCap = 12;
+
 [[nodiscard]] std::vector<Expr> solve_poly(const Expr& expr, const Expr& var) {
     Poly p(expr, var);
-    return p.roots();
+    std::vector<Expr> roots = p.roots();
+    // The closed-form solver covers factors of degree <= 4 (Cardano/Ferrari) plus
+    // rational roots of higher-degree factors. An irreducible factor of degree
+    // >= 5 is not solvable by radicals, so roots() leaves it unrepresented and
+    // solve() would return an empty list — implying "no solutions" for e.g.
+    // x^5 - x - 1, which has five. When roots are missing, represent each such
+    // factor's real roots as RootOf (rendered CRootOf(poly, k), as SymPy does).
+    // Complex roots of these factors are not yet representable (RootOf is
+    // real-root-only) and are left out — a known partial-parity limitation.
+    //
+    // Gated on degree to avoid paying for factorization on the common low-degree
+    // path (and to bound the exponential Kronecker cost): only attempt this when
+    // the polynomial is degree 5..cap and the radical solver left roots missing.
+    const std::size_t pdeg = p.degree();
+    if (pdeg < 5 || pdeg > kRootOfFactorDegreeCap || roots.size() >= pdeg) {
+        return roots;
+    }
+    try {
+        const FactorList fl = factor_list(p);
+        for (const auto& [factor, mult] : fl.factors) {
+            (void)mult;  // distinct roots only; multiplicity adds no new solution
+            const std::size_t deg = factor.degree();
+            if (deg < 5) continue;  // already handled by the radical solver
+            const Expr fexpr = factor.as_expr();
+            for (std::size_t k = 0; k < deg; ++k) {
+                Expr r = root_of(fexpr, var, k);
+                // try_evalf returns nullopt past the last real root: stop there.
+                if (!static_cast<const RootOf&>(*r).try_evalf(20).has_value()) {
+                    break;
+                }
+                if (std::none_of(roots.begin(), roots.end(),
+                                 [&](const Expr& u) { return u == r; })) {
+                    roots.push_back(std::move(r));
+                }
+            }
+        }
+    } catch (...) {
+        // Factorization/RootOf failure: fall back to the radical roots alone.
+    }
+    return roots;
 }
 
 // Does `expr` contain a function (log, exp, sin, …) that depends on `var`?
@@ -539,6 +585,298 @@ solve_exp_log_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve a sum of logarithms: Σ cᵢ·log(gᵢ(x)) + K = 0 with the cᵢ and K var-free.
+// Combine via log(∏ gᵢ^cᵢ) = −K ⇒ ∏ gᵢ^cᵢ = exp(−K), solve that, and keep only
+// roots in the log domain (every gᵢ(root) > 0). Mirrors SymPy's logcombine path:
+// log(x)+log(x−1)=0 → x(x−1)=1 → x=(1+√5)/2 (the negative root is dropped).
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_log_sum(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Add) return std::nullopt;
+    std::vector<std::pair<Expr, Expr>> logs;  // (g, coeff)
+    Expr konst = S::Zero();
+    auto as_log = [&](const Expr& t) -> std::optional<std::pair<Expr, Expr>> {
+        // log(g) or (var-free coeff)·log(g).
+        auto is_log = [&](const Expr& f) {
+            return f->type_id() == TypeId::Function
+                   && static_cast<const Function&>(*f).function_id()
+                          == FunctionId::Log
+                   && f->args().size() == 1;
+        };
+        if (is_log(t)) return std::make_pair(t->args()[0], Expr{S::One()});
+        if (t->type_id() == TypeId::Mul) {
+            Expr inner;
+            std::vector<Expr> coeff;
+            for (const auto& f : t->args()) {
+                if (!inner && is_log(f)) {
+                    inner = f->args()[0];
+                    continue;
+                }
+                if (has(f, var)) return std::nullopt;  // non-log var factor
+                coeff.push_back(f);
+            }
+            if (inner) return std::make_pair(inner, mul(std::move(coeff)));
+        }
+        return std::nullopt;
+    };
+    for (const auto& term : expr->args()) {
+        if (!has(term, var)) {
+            konst = konst + term;
+            continue;
+        }
+        auto lp = as_log(term);
+        if (!lp) return std::nullopt;  // a var-dependent non-log term
+        logs.push_back(std::move(*lp));
+    }
+    if (logs.size() < 2) return std::nullopt;  // single log: handled elsewhere
+
+    std::vector<Expr> factors;
+    for (const auto& [g, c] : logs) factors.push_back(pow(g, c));
+    Expr prod = mul(std::move(factors));
+    Expr target = simplify(exp(mul(S::NegativeOne(), konst)));
+    std::vector<Expr> raw = solve(simplify(prod - target), var);
+
+    // A log argument is in-domain when it is positive. is_positive can't judge an
+    // irrational like (1+√5)/2, so fall back to a numeric sign from evalf.
+    auto positive_arg = [&](const Expr& g, const Expr& r) -> bool {
+        Expr gv = simplify(subs(g, var, r));
+        if (is_positive(gv) == true) return true;
+        Expr fv = evalf(gv, 30);
+        if (fv->type_id() != TypeId::Float) return false;
+        try {
+            return std::stod(fv->str()) > 1e-12;
+        } catch (...) {
+            return false;
+        }
+    };
+    std::vector<Expr> out;
+    for (auto& r : raw) {
+        if (has(r, var)) continue;
+        bool valid = true;
+        for (const auto& [g, c] : logs) {
+            if (!positive_arg(g, r)) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid
+            && std::none_of(out.begin(), out.end(),
+                            [&](const Expr& u) { return u == r; })) {
+            out.push_back(std::move(r));
+        }
+    }
+    return out;
+}
+
+// True if e is a concrete positive real number (numeric sign via evalf).
+[[nodiscard]] bool numeric_positive(const Expr& e) {
+    if (is_positive(e) == true) return true;
+    Expr v = evalf(e, 30);
+    if (v->type_id() != TypeId::Float) return false;
+    try {
+        return std::stod(v->str()) > 1e-12;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Solve a sum of constant-base exponentials Σ cᵢ·∏ⱼ aⱼ^(pⱼ·x+qⱼ) = 0. Each term
+// reduces to coeffᵢ·exp(rateᵢ·x) with rateᵢ = Σ pⱼ·log(aⱼ) var-free. After
+// combining equal rates: (A) when every rate is an integer multiple of a common
+// r₀, substitute u = exp(r₀·x) → a polynomial in u (2^(2x)−5·2^x+4 → u²−5u+4);
+// (B) with exactly two rates, d₁·exp(r₁x)+d₂·exp(r₂x)=0 ⇒
+// x = log(−d₂/d₁)/(r₁−r₂) when −d₂/d₁ > 0 (2^x−3^x → 0).
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_const_base_exp_sum(const Expr& expr, const Expr& var) {
+    // Only claim equations with a genuine constant-base power a^(…) (a ≠ e).
+    // Pure exp(…) equations are left to solve_exp_sum, which keeps the complex
+    // (period 2πi) roots SymPy enumerates for base e.
+    bool has_const_pow = false;
+    std::function<void(const Expr&)> scan = [&](const Expr& e) {
+        if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+            && !has(e->args()[0], var) && !(e->args()[0] == S::E())) {
+            has_const_pow = true;
+        }
+        for (const auto& a : e->args()) scan(a);
+    };
+    scan(expr);
+    if (!has_const_pow) return std::nullopt;
+
+    // Normalize commensurate integer bases to a common base, so a quadratic in 2^x
+    // written with 4^x = (2²)^x is recognized: if every constant integer base is a
+    // power of the smallest one b, rewrite a^e = b^(k·e). (4^x − 2^x − 2 →
+    // 2^(2x) − 2^x − 2, which the u = 2^x substitution below then closes.) This
+    // sidesteps needing log(4)/log(2) = 2, which simplify() does not compute.
+    {
+        std::vector<long> ibases;
+        std::function<void(const Expr&)> collect = [&](const Expr& e) {
+            if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+                && e->args()[0]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*e->args()[0]);
+                if (z.fits_long() && z.to_long() >= 2) ibases.push_back(z.to_long());
+            }
+            for (const auto& a : e->args()) collect(a);
+        };
+        collect(expr);
+        auto power_of = [](long b, long base) -> long {  // k with base^k == b, else 0
+            if (base < 2 || b < base) return b == 1 ? 0 : (b == base ? 1 : 0);
+            long k = 0;
+            long t = 1;
+            while (t < b) { t *= base; ++k; }
+            return t == b ? k : 0;
+        };
+        if (ibases.size() >= 2) {
+            const long bmin = *std::min_element(ibases.begin(), ibases.end());
+            const long bmax = *std::max_element(ibases.begin(), ibases.end());
+            bool ok = bmax > bmin;
+            for (long b : ibases) {
+                if (power_of(b, bmin) == 0) { ok = false; break; }
+            }
+            if (ok) {
+                ExprMap<Expr> repl;
+                std::function<void(const Expr&)> rw = [&](const Expr& e) {
+                    if (e->type_id() == TypeId::Pow && has(e->args()[1], var)
+                        && e->args()[0]->type_id() == TypeId::Integer) {
+                        const long b =
+                            static_cast<const Integer&>(*e->args()[0]).to_long();
+                        const long k = power_of(b, bmin);
+                        if (b > bmin && k > 1) {
+                            repl.emplace(e, pow(integer(bmin),
+                                               mul(integer(k), e->args()[1])));
+                        }
+                    }
+                    for (const auto& a : e->args()) rw(a);
+                };
+                rw(expr);
+                if (!repl.empty()) {
+                    Expr norm = xreplace(expr, repl);
+                    if (!(norm == expr)) {
+                        return solve_const_base_exp_sum(norm, var);
+                    }
+                }
+            }
+        }
+    }
+
+    auto term_rate =
+        [&](const Expr& term) -> std::optional<std::pair<Expr, Expr>> {
+        Expr coeff = S::One();
+        Expr rate = S::Zero();
+        std::vector<Expr> factors;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) factors.push_back(f);
+        } else {
+            factors.push_back(term);
+        }
+        for (const auto& f : factors) {
+            if (!has(f, var)) {
+                coeff = mul(coeff, f);
+                continue;
+            }
+            Expr base;
+            Expr exponent;
+            if (f->type_id() == TypeId::Pow) {
+                base = f->args()[0];
+                exponent = f->args()[1];
+            } else if (f->type_id() == TypeId::Function
+                       && static_cast<const Function&>(*f).function_id()
+                              == FunctionId::Exp) {
+                base = S::E();
+                exponent = f->args()[0];
+            } else {
+                return std::nullopt;
+            }
+            if (has(base, var) || is_positive(base) != std::optional<bool>{true})
+                return std::nullopt;
+            Expr p;
+            Expr q;
+            try {
+                Poly pe(expand(exponent), var);
+                if (pe.degree() > 1) return std::nullopt;
+                const auto& cf = pe.coeffs();
+                p = cf.size() > 1 ? cf[1] : Expr{S::Zero()};
+                q = !cf.empty() ? cf[0] : Expr{S::Zero()};
+            } catch (...) {
+                return std::nullopt;
+            }
+            if (has(p, var) || has(q, var)) return std::nullopt;
+            coeff = mul(coeff, pow(base, q));
+            rate = add(rate, mul(p, log(base)));
+        }
+        return std::make_pair(simplify(coeff), simplify(rate));
+    };
+
+    std::vector<Expr> terms;
+    if (expr->type_id() == TypeId::Add) {
+        for (const auto& t : expr->args()) terms.push_back(t);
+    } else {
+        terms.push_back(expr);
+    }
+    std::vector<std::pair<Expr, Expr>> cr;  // (coeff, rate), combined by rate
+    for (const auto& t : terms) {
+        auto pr = term_rate(t);
+        if (!pr) return std::nullopt;
+        bool merged = false;
+        for (auto& [c, r] : cr) {
+            if (r == pr->second) {
+                c = simplify(c + pr->first);
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) cr.emplace_back(pr->first, pr->second);
+    }
+    std::erase_if(cr, [](const auto& e) { return e.first == S::Zero(); });
+    if (cr.size() < 2) return std::nullopt;
+
+    Expr r0;
+    for (const auto& [c, r] : cr) {
+        if (!(r == S::Zero())) {
+            r0 = r;
+            break;
+        }
+    }
+    // (A) commensurate rates → polynomial in u = exp(r₀·x).
+    if (r0) {
+        std::vector<std::pair<long, Expr>> pows;  // (exponent, coeff)
+        bool commensurate = true;
+        for (const auto& [c, r] : cr) {
+            Expr ratio = simplify(r * pow(r0, integer(-1)));
+            if (ratio->type_id() != TypeId::Integer
+                || !static_cast<const Integer&>(*ratio).fits_long()) {
+                commensurate = false;
+                break;
+            }
+            pows.emplace_back(static_cast<const Integer&>(*ratio).to_long(), c);
+        }
+        if (commensurate) {
+            auto u = symbol("__cbexp_u");
+            std::vector<Expr> uterms;
+            for (const auto& [nexp, c] : pows)
+                uterms.push_back(mul(c, pow(u, integer(nexp))));
+            std::vector<Expr> out;
+            for (auto& ur : solve(add(std::move(uterms)), u)) {
+                if (has(ur, u) || has(ur, var)) continue;
+                if (numeric_positive(ur)) {
+                    out.push_back(simplify(log(ur) * pow(r0, integer(-1))));
+                }
+            }
+            return out;
+        }
+    }
+    // (B) two incommensurate rates → ratio method.
+    if (cr.size() == 2) {
+        Expr ratio = simplify(
+            mul({S::NegativeOne(), cr[1].first, pow(cr[0].first, integer(-1))}));
+        Expr denom = simplify(cr[0].second - cr[1].second);
+        if (numeric_positive(ratio) && !(denom == S::Zero())) {
+            return std::vector<Expr>{
+                simplify(log(ratio) * pow(denom, integer(-1)))};
+        }
+        return std::vector<Expr>{};
+    }
+    return std::nullopt;
+}
+
 // Solve a (Laurent) polynomial in exp(var) whose terms are exp(m·var) for
 // integer m — e.g. exp(x)+exp(-x)-2, exp(2x)-3·exp(x)+2. Substitute u = exp(var)
 // (so exp(m·var) → uᵐ), solve the resulting equation in u (the rational/poly
@@ -659,12 +997,14 @@ solve_inverse_func_poly(const Expr& expr, const Expr& var) {
             roots.push_back(std::move(r));
         }
     };
-    // c is in range when known-numeric and within bounds; an unbounded range
-    // accepts anything (including a symbolic c).
+    // c is in range when known-numeric and within bounds. A symbolic c yields the
+    // formal principal-branch inverse (matching SymPy: solve(atan(z)−a) = tan(a));
+    // only a concrete out-of-range value is rejected. An unbounded range accepts
+    // anything.
     auto in_range = [&](const Expr& c, double lo, double hi, bool bounded) {
         if (!bounded) return true;
         auto v = numeric_value(c);
-        if (!v) return false;  // symbolic c with a bounded range — conservative
+        if (!v) return true;  // symbolic c: return the formal inverse
         return *v >= lo - kEps && *v <= hi + kEps;
     };
     for (auto& c : cvals) {
@@ -729,31 +1069,42 @@ solve_lambert(const Expr& expr, const Expr& var) {
     // term and a single exp/log(var) term (each coefficient 1).
     if (expr->type_id() == TypeId::Add) {
         Expr c = S::Zero();
+        Expr a = S::Zero();  // coefficient of the bare-var term a·var
         bool have_var = false, have_trans = false, trans_is_exp = false;
         bool ok = true;
         for (const auto& t : expr->args()) {
             if (!has(t, var)) {
-                c = (c == S::Zero()) ? t : add({c, t});
-            } else if (t == var && !have_var) {
+                c = add({c, t});
+                continue;
+            }
+            // A bare-var term a·var with a var-free (a is recovered as t/var).
+            Expr q = simplify(mul(t, pow(var, integer(-1))));
+            if (!has(q, var) && !have_var) {
+                a = q;
                 have_var = true;
-            } else if (auto id = as_exp_or_log_of_var(t, var);
-                       id && !have_trans) {
+                continue;
+            }
+            // The single exp(var) or log(var) term (unit coefficient, argument var).
+            if (auto id = as_exp_or_log_of_var(t, var); id && !have_trans) {
                 have_trans = true;
                 trans_is_exp = (*id == FunctionId::Exp);
-            } else {
-                ok = false;
-                break;
+                continue;
             }
+            ok = false;
+            break;
         }
-        if (ok && have_var && have_trans) {
-            Expr negc = simplify(mul(S::NegativeOne(), c));  // −c
+        if (ok && have_var && have_trans && !(a == S::Zero())) {
+            Expr inv_a = pow(a, integer(-1));
+            Expr cc = simplify(mul(c, inv_a));  // c/a
             if (trans_is_exp) {
-                // var + e^var + c = 0 → var = −c − W(e^(−c)).
-                return std::vector<Expr>{
-                    simplify(negc - lambertw(exp(negc)))};
+                // a·var + e^var + c = 0 → var = −W(e^(−c/a)/a) − c/a.
+                Expr z = simplify(mul(exp(mul(S::NegativeOne(), cc)), inv_a));
+                return std::vector<Expr>{simplify(
+                    mul(S::NegativeOne(), lambertw(z)) + mul(S::NegativeOne(), cc))};
             }
-            // var + log(var) + c = 0 → var = W(e^(−c)).
-            return std::vector<Expr>{simplify(lambertw(exp(negc)))};
+            // a·var + log(var) + c = 0 → var = W(a·e^(−c))/a.
+            Expr z = simplify(mul(a, exp(mul(S::NegativeOne(), c))));
+            return std::vector<Expr>{simplify(mul(lambertw(z), inv_a))};
         }
     }
 
@@ -987,6 +1338,131 @@ solve_radical_poly(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// Solve an equation with a single square root of a var-dependent radicand,
+// √(g(x)) appearing linearly — e.g. √(x+1) − x + 1 = 0. Isolate the radical and
+// square: writing the equation as A(x)·√(g) + B(x) = 0 (A, B radical-free), the
+// squared form A²·g − B² = 0 is a plain polynomial equation; its roots are
+// filtered back through the original to drop the extraneous ones introduced by
+// squaring (the √(g) = +B/A branch). Complements solve_radical_poly, which only
+// handles a polynomial in x^(1/d) of the bare variable.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_radical_isolate(const Expr& expr, const Expr& var) {
+    // Collect the distinct √(g) subexpressions (exponent exactly 1/2) of var.
+    std::vector<Expr> sqrts;
+    std::function<void(const Expr&)> collect = [&](const Expr& e) {
+        if (!has(e, var)) return;
+        if (e->type_id() == TypeId::Pow
+            && e->args()[1]->type_id() == TypeId::Rational
+            && static_cast<const Rational&>(*e->args()[1]).value()
+                   == mpq_class(1, 2)) {
+            if (std::none_of(sqrts.begin(), sqrts.end(),
+                             [&](const Expr& s) { return s == e; })) {
+                sqrts.push_back(e);
+            }
+            return;  // do not descend into the radicand
+        }
+        for (const auto& a : e->args()) collect(a);
+    };
+    collect(expr);
+    if (sqrts.empty() || sqrts.size() > 2) return std::nullopt;
+
+    // Keep only candidates that satisfy the *original* equation, dropping the
+    // extraneous roots squaring introduces. Verify numerically — a symbolic check
+    // can't denest forms like √((3−√5)/2) = (√5−1)/2 — and fall back to the
+    // symbolic test only when the root doesn't evaluate to a concrete Float.
+    auto satisfies = [&](const Expr& r) -> bool {
+        Expr resid = simplify(subs(expr, var, r));
+        if (resid == S::Zero()) return true;
+        Expr v = evalf(resid, 40);
+        if (v == S::Zero()) return true;  // collapsed to an exact 0
+        if (v->type_id() == TypeId::Float) {
+            try {
+                return std::fabs(std::stod(v->str())) < 1e-20;
+            } catch (...) {
+                // inconclusive — reject (squaring only ever adds roots)
+            }
+        }
+        return false;
+    };
+    auto verified_roots =
+        [&](const Expr& poly_or_radical_eq) -> std::vector<Expr> {
+        std::vector<Expr> roots;
+        for (const auto& r : solve(poly_or_radical_eq, var)) {
+            if (has(r, var) || !satisfies(r)) continue;
+            if (std::none_of(roots.begin(), roots.end(),
+                             [&](const Expr& u) { return u == r; })) {
+                roots.push_back(r);
+            }
+        }
+        return roots;
+    };
+
+    if (sqrts.size() == 2) {
+        // Two radicals √g1, √g2: isolate one and square once, leaving a single
+        // radical the recursive solve (this same path, size 1) then clears.
+        // expr = A1·√g1 + A2·√g2 + P (A1, A2, P radical-free) ⇒
+        //   A1·√g1 = −(A2·√g2 + P) ⇒ A1²·g1 = A2²·g2 + 2·A2·P·√g2 + P².
+        Expr w1 = symbol("__rad_w1");
+        Expr w2 = symbol("__rad_w2");
+        Expr ew = subs(subs(expr, sqrts[0], w1), sqrts[1], w2);
+        if (has_radical_of_var(ew, var)) return std::nullopt;
+        Expr A1;
+        Expr A2;
+        Expr P;
+        try {
+            Poly p1(expand(ew), w1);
+            if (p1.degree() != 1) return std::nullopt;
+            A1 = p1.coeffs()[1];
+            Poly p2(expand(p1.coeffs()[0]), w2);  // P + A2·w2
+            if (p2.degree() != 1) return std::nullopt;
+            A2 = p2.coeffs()[1];
+            P = p2.coeffs()[0];
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+        // A1, A2, P must be free of both radical placeholders (no √g1·√g2 cross
+        // term, no radical-dependent coefficients).
+        if (has(A1, w1) || has(A1, w2) || has(A2, w1) || has(A2, w2)
+            || has(P, w1) || has(P, w2)) {
+            return std::nullopt;
+        }
+        const Expr& g1 = sqrts[0]->args()[0];
+        const Expr& g2 = sqrts[1]->args()[0];
+        Expr new_eq = expand(mul(mul(A1, A1), g1) - mul(mul(A2, A2), g2)
+                             - mul(P, P)
+                             - mul({integer(2), A2, P, sqrts[1]}));
+        if (new_eq == S::Zero()) return std::nullopt;
+        auto roots = verified_roots(new_eq);
+        if (roots.empty()) return std::nullopt;
+        return roots;
+    }
+
+    const Expr& s = sqrts[0];
+    const Expr& g = s->args()[0];
+    // Linearize in the radical: √(g) → w. The result must be radical-free and
+    // degree 1 in w, i.e. A·w + B with A, B radical-free polynomials in x.
+    Expr w = symbol("__rad_w");
+    Expr ew = subs(expr, s, w);
+    if (has_radical_of_var(ew, var)) return std::nullopt;  // nested/other radical
+    Expr A;
+    Expr B;
+    try {
+        Poly p(expand(ew), w);
+        if (p.degree() != 1) return std::nullopt;
+        B = p.coeffs()[0];
+        A = p.coeffs()[1];
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+
+    // A·√(g) = −B  ⇒  A²·g − B² = 0.
+    Expr eq = expand(mul(mul(A, A), g) - mul(B, B));
+    if (eq == S::Zero()) return std::nullopt;  // underdetermined
+    auto roots = verified_roots(eq);
+    if (roots.empty()) return std::nullopt;
+    return roots;
+}
+
 // Solve a*sin(B*var) + b*cos(B*var) + c = 0 (the linear-combination / R-method
 // case) for representative roots over one principal period, matching SymPy's
 // solve. Requires both sin and cos of the SAME argument B*var, with var-free
@@ -1107,17 +1583,179 @@ solve_rational(const Expr& expr, const Expr& var) {
     return roots;
 }
 
+// A factor that can never be zero contributes no roots to a zero-product: exp(·)
+// is nonzero over all of ℂ, as is any nonzero constant.
+[[nodiscard]] bool is_never_zero(const Expr& f) {
+    if (f->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp) return true;
+    }
+    if (is_number(f) && !(f == S::Zero())) return true;
+    return false;
+}
+
+// Zero-product: a product vanishes iff one of its factors does. Solve each factor
+// (recursively, via full solve) and union the roots, skipping factors that can
+// never be zero (exp(·)) and denominator factors (negative powers). Handles an
+// explicit Mul, and an Add with a common factor — x²·eˣ − eˣ = eˣ·(x²−1) — that
+// the polynomial path cannot see through (eˣ is not polynomial). Without this such
+// equations returned [] and a Mul like eˣ·(x²−4) emitted a spurious zoo from
+// solving eˣ = 0.
+[[nodiscard]] std::optional<std::vector<Expr>>
+solve_zero_product(const Expr& expr, const Expr& var) {
+    std::vector<Expr> factors;  // factors whose =0 we solve and union
+
+    // Split a term into base→exponent (positive integer powers folded together).
+    auto term_factors = [](const Expr& t) {
+        std::vector<std::pair<Expr, long>> fs;
+        auto add_one = [&](const Expr& f) {
+            Expr base = f;
+            long e = 1;
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*f->args()[1]);
+                if (z.fits_long() && z.to_long() > 0) {
+                    e = z.to_long();
+                    base = f->args()[0];
+                }
+            }
+            for (auto& p : fs) {
+                if (p.first == base) { p.second += e; return; }
+            }
+            fs.push_back({base, e});
+        };
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) add_one(f);
+        } else {
+            add_one(t);
+        }
+        return fs;
+    };
+
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else if (expr->type_id() == TypeId::Add) {
+        const auto& terms = expr->args();
+        if (terms.size() < 2) return std::nullopt;
+        // Common factors = intersection of the per-term factor maps (min power).
+        auto common = term_factors(terms[0]);
+        for (std::size_t i = 1; i < terms.size() && !common.empty(); ++i) {
+            auto tf = term_factors(terms[i]);
+            std::vector<std::pair<Expr, long>> next;
+            for (const auto& [b, e] : common) {
+                for (const auto& [b2, e2] : tf) {
+                    if (b2 == b) { next.push_back({b, std::min(e, e2)}); break; }
+                }
+            }
+            common = std::move(next);
+        }
+        bool has_var_common = false;
+        for (const auto& [b, e] : common) {
+            if (has(b, var)) has_var_common = true;
+        }
+        if (!has_var_common) return std::nullopt;
+        // Cofactor = Σ (term ÷ ∏ commonᵢ): subtract the common exponents per term.
+        std::vector<Expr> cofactor_terms;
+        for (const auto& t : terms) {
+            auto tf = term_factors(t);
+            std::vector<Expr> remaining;
+            for (const auto& [b, e] : tf) {
+                long ce = 0;
+                for (const auto& [cb, cee] : common) {
+                    if (cb == b) { ce = cee; break; }
+                }
+                const long left = e - ce;
+                if (left > 0) {
+                    remaining.push_back(left == 1 ? b : pow(b, integer(left)));
+                }
+            }
+            cofactor_terms.push_back(remaining.empty() ? Expr{S::One()}
+                                                       : mul(remaining));
+        }
+        for (const auto& [b, e] : common) factors.push_back(b);
+        factors.push_back(add(cofactor_terms));
+    } else {
+        return std::nullopt;
+    }
+
+    if (factors.size() < 2) return std::nullopt;
+    std::vector<Expr> roots;
+    std::vector<Expr> denoms;  // bases of negative-power (denominator) factors
+    bool progressed = false;
+    for (const auto& f : factors) {
+        if (!has(f, var)) continue;        // constant factor: no roots
+        if (is_never_zero(f)) { progressed = true; continue; }
+        // A denominator factor (negative power) is never a root, and its zeros are
+        // poles that must be excluded from the numerator roots below.
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*f->args()[1]).is_negative()) {
+            denoms.push_back(f->args()[0]);
+            progressed = true;
+            continue;
+        }
+        if (f == expr) return std::nullopt;  // no reduction — avoid infinite loop
+        progressed = true;
+        for (const auto& r : solve(f, var)) {
+            if (std::none_of(roots.begin(), roots.end(),
+                             [&](const Expr& u) { return u == r; })) {
+                roots.push_back(r);
+            }
+        }
+    }
+    if (!progressed) return std::nullopt;
+    // Drop poles: a numerator root that also vanishes a denominator factor is not
+    // a solution ((x²−1)/(x−1) = 0 has root −1 only, not the cancelled pole 1).
+    if (!denoms.empty()) {
+        std::erase_if(roots, [&](const Expr& r) {
+            return std::any_of(denoms.begin(), denoms.end(), [&](const Expr& d) {
+                return simplify(subs(d, var, r)) == S::Zero();
+            });
+        });
+    }
+    return roots;
+}
+
 }  // namespace
 
 std::vector<Expr> solve(const Expr& expr, const Expr& var) {
+    // An equation Eq(lhs, rhs) reduces to solving lhs − rhs = 0 (matching
+    // SymPy's solve(Eq(...))). Other relations (inequalities) describe a region,
+    // not a discrete root list, so they don't fit this vector API.
+    if (expr->type_id() == TypeId::Relational) {
+        const auto& r = static_cast<const Relational&>(*expr);
+        if (r.kind() == RelKind::Eq) return solve(r.lhs() - r.rhs(), var);
+        return {};
+    }
+    // A product with a transcendental/radical factor (x·cos x, eˣ·(x²−4)) is
+    // mis-read by solve_poly as a polynomial in var whose "coefficients" are the
+    // functions, yielding only a partial root set. Zero-product over the factors
+    // is complete, so prefer it when a function/radical of var is present.
+    if (has_function_of_var(expr, var) || has_radical_of_var(expr, var)) {
+        if (auto zp = solve_zero_product(expr, var); zp && !zp->empty()) {
+            return *zp;
+        }
+    }
     // Expand first so a factored polynomial reaches the Poly machinery:
     // solve((x-1)*(x-2)) was empty because Poly couldn't build from the Mul.
     auto roots = solve_poly(expand(expr), var);
     // A genuine solution x = c must be free of x. solve_poly treats a
     // var-dependent "coefficient" (e.g. exp(x) in x·exp(x) − 1) as constant and
     // can hand back a rearrangement such as x = exp(x)**(-1); discard any
-    // candidate that still contains var rather than return a non-solution.
-    std::erase_if(roots, [&](const Expr& r) { return has(r, var); });
+    // candidate that still contains var rather than return a non-solution. A
+    // RootOf is exempt: it legitimately embeds the defining polynomial in var.
+    std::erase_if(roots, [&](const Expr& r) {
+        return r->type_id() != TypeId::RootOf && has(r, var);
+    });
+    // Normalize each root to distributed form. Cardano/quadratic emit a complex
+    // root as ½·(−1 ± I·√3) etc.; expand distributes the rational prefactor so it
+    // reads as the a + b·I that SymPy returns (−1 + √3·I), and collapses the
+    // factor-of-2 (½·(2·I − 2) → I − 1). Applied before dedup so forms that only
+    // differ by distribution collapse to one. A RootOf carries its defining poly
+    // and must stay intact.
+    for (auto& r : roots) {
+        if (r->type_id() != TypeId::RootOf) r = expand(r);
+    }
     // Deduplicate: solve_poly emits a root once per factor, so a repeated factor
     // ((x+2)² , x²·(x−1)) yields duplicates. SymPy's solve returns the distinct
     // solution set, so collapse structurally-equal roots (order preserved).
@@ -1133,6 +1771,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         roots = std::move(distinct);
     }
     if (!roots.empty()) return roots;
+    // Zero-product: a Mul, or an Add with a common factor (x²·eˣ − eˣ), vanishes
+    // iff a factor does. Solve each factor, skipping the never-zero ones (eˣ) —
+    // this also removes the spurious zoo that solving eˣ = 0 would inject.
+    if (auto zp = solve_zero_product(expr, var); zp) return *zp;
     // Rational equation (1/x + … = 0): clear the denominator and solve the
     // numerator, dropping pole roots. The polynomial path above can't build a
     // Poly from a negative-power term, so these reach here empty.
@@ -1141,6 +1783,11 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
     // it skips the transcendental branch below).
     if (auto ce = solve_const_base_exp(expr, var); ce && !ce->empty())
         return *ce;
+    // Sums of constant-base exponentials (2^x − 3^x, 2^(2x) − 5·2^x + 4, …),
+    // which a^x being a Pow (not the exp function) also keeps out of the
+    // transcendental branch below.
+    if (auto ces = solve_const_base_exp_sum(expr, var); ces && !ces->empty())
+        return *ces;
     // The polynomial path can't see through log/exp/sinh/… so transcendental
     // equations like log(x) - 1 = 0 come back empty. solveset() has the
     // _invert chain; route through it and surface any finite solution set as
@@ -1154,22 +1801,57 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
             return *tp;
         if (auto el = solve_exp_log_poly(expr, var); el && !el->empty())
             return *el;
+        if (auto ls = solve_log_sum(expr, var); ls && !ls->empty()) return *ls;
         if (auto es = solve_exp_sum(expr, var); es && !es->empty()) return *es;
         if (auto inv = solve_inverse_func_poly(expr, var); inv && !inv->empty())
             return *inv;
         if (auto lw = solve_lambert(expr, var); lw && !lw->empty()) return *lw;
         if (auto rp = solve_radical_poly(expr, var); rp && !rp->empty())
             return *rp;
+        if (auto ri = solve_radical_isolate(expr, var); ri && !ri->empty())
+            return *ri;
         if (auto tl = solve_trig_linear(expr, var); tl && !tl->empty())
             return *tl;
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
         if (auto tm = solve_trig_reduce(expr, var); tm && !tm->empty())
             return *tm;
         SetPtr s = solveset(expr, var);
-        if (s && s->kind() == SetKind::FiniteSet) {
-            auto elems = static_cast<const FiniteSet&>(*s).elements();
-            std::erase_if(elems, [&](const Expr& r) { return has(r, var); });
-            return elems;
+        // Flatten a finite solution set — a FiniteSet, or a Union of finite sets
+        // (e.g. solveset(|x−1|−2) = {3} ∪ {−1}). Anything containing a
+        // non-finite component (ImageSet, Interval, …) is not a discrete root
+        // list and is left empty.
+        std::function<std::optional<std::vector<Expr>>(const SetPtr&)> flatten =
+            [&](const SetPtr& set) -> std::optional<std::vector<Expr>> {
+            if (!set) return std::nullopt;
+            switch (set->kind()) {
+                case SetKind::Empty:
+                    return std::vector<Expr>{};
+                case SetKind::FiniteSet:
+                    return static_cast<const FiniteSet&>(*set).elements();
+                case SetKind::Union: {
+                    const auto& u = static_cast<const Union&>(*set);
+                    auto a = flatten(u.lhs());
+                    if (!a) return std::nullopt;
+                    auto b = flatten(u.rhs());
+                    if (!b) return std::nullopt;
+                    a->insert(a->end(), b->begin(), b->end());
+                    return a;
+                }
+                default:
+                    return std::nullopt;
+            }
+        };
+        if (auto elems = flatten(s)) {
+            std::erase_if(*elems, [&](const Expr& r) { return has(r, var); });
+            // Deduplicate (a union may repeat a shared root).
+            std::vector<Expr> out;
+            for (auto& r : *elems) {
+                if (std::none_of(out.begin(), out.end(),
+                                 [&](const Expr& u) { return u == r; })) {
+                    out.push_back(std::move(r));
+                }
+            }
+            return out;
         }
     }
     return roots;
@@ -1380,6 +2062,9 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
                               solveset_impl(g + p, var, domain));
         }
         case FunctionId::Abs: {
+            // |g| = c has real solutions only for c ≥ 0; a concrete negative c
+            // (e.g. |x+1| = −2 from |x+1|+2 = 0) has none.
+            if (is_negative(c) == true) return empty_set();
             if (g == var) return finite_set({c, -c});
             return set_union(solveset_impl(g - c, var, domain),
                               solveset_impl(g + c, var, domain));

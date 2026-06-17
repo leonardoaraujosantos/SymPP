@@ -612,6 +612,41 @@ TEST_CASE("Poly: factor x^2 + 2x + 1 = (x+1)^2", "[4][poly][factor][oracle]") {
     REQUIRE(oracle.equivalent(f->str(), "(x + 1)**2"));
 }
 
+// FACTOR-NONMONIC-POW-1: a perfect power of a non-monic linear factor must not
+// leak its leading coefficient into the content. 4x²+4x+1 = (2x+1)² (content 1),
+// previously mis-factored as 2·(2x+1)² (= 8x²+8x+2, numerically wrong). The
+// primitive-part scalar of a multiplicity-m factor enters the content as qᵐ.
+TEST_CASE("Poly: factor non-monic perfect powers (FACTOR-NONMONIC-POW-1)",
+          "[4][poly][factor][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // (2x+1)² = 4x²+4x+1 — content must be 1, not 2.
+    REQUIRE(oracle.equivalent(
+        factor(integer(4) * sq(x) + integer(4) * x + integer(1), x)->str(),
+        "(2*x + 1)**2"));
+    // (3x+1)² and a cube (2x+1)³ = 8x³+12x²+6x+1.
+    REQUIRE(oracle.equivalent(
+        factor(integer(9) * sq(x) + integer(6) * x + integer(1), x)->str(),
+        "(3*x + 1)**2"));
+    REQUIRE(oracle.equivalent(
+        factor(integer(8) * pow(x, integer(3)) + integer(12) * sq(x)
+                   + integer(6) * x + integer(1),
+               x)->str(),
+        "(2*x + 1)**3"));
+    // Genuine content is still pulled out: 2x²+4x+2 = 2·(x+1)².
+    REQUIRE(oracle.equivalent(
+        factor(integer(2) * sq(x) + integer(4) * x + integer(2), x)->str(),
+        "2*(x + 1)**2"));
+    // Round-trip: factor(p) expands back to p exactly.
+    auto p = integer(16) * pow(x, integer(4)) - integer(8) * sq(x) + integer(1);
+    REQUIRE(expand(factor(p, x)) == expand(p));
+    // Distinct non-monic linears (multiplicity 1) unaffected: 6x²+11x+3.
+    REQUIRE(oracle.equivalent(
+        factor(integer(6) * sq(x) + integer(11) * x + integer(3), x)->str(),
+        "(2*x + 3)*(3*x + 1)"));
+}
+
 TEST_CASE("Poly: factor x^3 - 1", "[4][poly][factor][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
@@ -780,6 +815,34 @@ TEST_CASE("together: shared denominator uses the LCM (TOGETHER-LCM-1)",
         "(x + y)/(x*y)"));
 }
 
+// TOGETHER-NESTED-1: compound (nested) fractions collapse bottom-up. together
+// now recurses into Add/Mul/Pow children, so a reciprocal of a sum of fractions
+// reduces — 1/(1 + 1/x) → x/(x + 1) — and nests arbitrarily deep. Matches SymPy.
+TEST_CASE("together: nested compound fractions (TOGETHER-NESTED-1)",
+          "[4][together][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto one = integer(1);
+    auto recip = [](const Expr& e) { return pow(e, integer(-1)); };
+    // 1/(1 + 1/x) → x/(x + 1) ; 1/(1 − 1/x) → x/(x − 1).
+    REQUIRE(oracle.equivalent(
+        together(recip(one + recip(x)))->str(), "x/(x + 1)"));
+    REQUIRE(oracle.equivalent(
+        together(recip(one - recip(x)))->str(), "x/(x - 1)"));
+    // Twice-nested: 1/(1 + 1/(1 + 1/x)) → (x + 1)/(2x + 1).
+    REQUIRE(oracle.equivalent(
+        together(recip(one + recip(one + recip(x))))->str(),
+        "(x + 1)/(2*x + 1)"));
+    // Mixed symbols: a/(b + c/d) → a*d/(b*d + c).
+    auto a = symbol("a"), b = symbol("b"), c = symbol("c"), d = symbol("d");
+    REQUIRE(oracle.equivalent(
+        together(a * recip(b + c * recip(d)))->str(), "a*d/(b*d + c)"));
+    // No regression: a plain sum of reciprocals is unaffected.
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(
+        together(recip(x) + recip(y))->str(), "(x + y)/(x*y)"));
+}
+
 TEST_CASE("cancel: (x^2 - 1)/(x - 1) = x + 1", "[4][cancel][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
@@ -805,6 +868,48 @@ TEST_CASE("cancel: nothing in common returns input", "[4][cancel][oracle]") {
     auto e = (x + integer(1)) / (x - integer(1));
     auto c = cancel(e, x);
     REQUIRE(oracle.equivalent(c->str(), "(x + 1)/(x - 1)"));
+}
+
+// POLYOP-1: parser-facing univariate polynomial operations with the variable
+// inferred from the single free symbol — degree, quo, rem, and 1-argument
+// cancel. Previously these parsed to opaque unevaluated function nodes.
+TEST_CASE("poly ops: degree/quo/rem/cancel infer the variable (POLYOP-1)",
+          "[4][poly][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // degree.
+    REQUIRE(degree(pow(x, integer(3)) + integer(2) * x) == integer(3));
+    REQUIRE(degree(integer(5)) == integer(0));
+    // quo / rem: x²−1 = (x+1)(x−1) + 0; x² = (x+1)(x−1) + 1.
+    REQUIRE(oracle.equivalent(quo(sq(x) - integer(1), x - integer(1))->str(),
+                              "x + 1"));
+    REQUIRE(rem(sq(x), x - integer(1)) == integer(1));
+    REQUIRE(oracle.equivalent(
+        quo(pow(x, integer(3)) - integer(1), x - integer(1))->str(),
+        "x**2 + x + 1"));
+    // 1-argument cancel infers the variable.
+    REQUIRE(oracle.equivalent(
+        cancel((sq(x) - integer(1)) / (x - integer(1)))->str(), "x + 1"));
+}
+
+// POLYOP-2: parser-facing resultant (two-arg) and discriminant (one-arg) with
+// the variable inferred from the free symbols. Previously opaque function nodes.
+TEST_CASE("poly ops: resultant/discriminant infer the variable (POLYOP-2)",
+          "[4][poly][regression]") {
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // discriminant of a quadratic: b² − 4ac.
+    REQUIRE(discriminant(sq(x) + integer(2) * x + integer(1)) == integer(0));
+    REQUIRE(discriminant(sq(x) - integer(5) * x + integer(6)) == integer(1));
+    REQUIRE(discriminant(sq(x) + integer(1)) == integer(-4));
+    REQUIRE(discriminant(sq(x) - integer(2)) == integer(8));
+    // resultant: zero iff the polynomials share a root.
+    REQUIRE(resultant(sq(x) - integer(1), x - integer(1)) == integer(0));
+    REQUIRE(resultant(sq(x) + integer(1), x - integer(2)) == integer(5));
+    // Sign convention matches SymPy: res(x−1, x−2) = −1, res(x−2, x−1) = 1.
+    REQUIRE(resultant(x - integer(1), x - integer(2)) == integer(-1));
+    REQUIRE(resultant(x - integer(2), x - integer(1)) == integer(1));
 }
 
 TEST_CASE("apart: (3x + 5)/((x-1)(x+2))", "[4][apart][oracle]") {

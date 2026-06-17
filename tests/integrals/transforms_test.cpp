@@ -89,6 +89,30 @@ TEST_CASE("laplace: sinh/cosh and the s-shift theorem (LAPLACE-SHIFT-1)",
         "(s - 2)/((s - 2)**2 + 1)"));
 }
 
+// LAPLACE-TMULT-1: multiplication by t^n — L{tⁿ·g(t)} = (−1)ⁿ·dⁿ/dsⁿ L{g(t)} — for
+// the trig/hyperbolic families the s-shift (exp-only) does not reach. L{t·cos t} =
+// (s²−1)/(s²+1)², L{t·sin t} = 2s/(s²+1)², L{t·sinh t} = 2s/(s²−1)². Matches SymPy.
+TEST_CASE("laplace: multiplication by t^n for trig/hyperbolic (LAPLACE-TMULT-1)",
+          "[8][laplace][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto s = symbol("s");
+    REQUIRE(oracle.equivalent(laplace_transform(t * cos(t), t, s)->str(),
+                              "(s**2 - 1)/(s**2 + 1)**2"));
+    REQUIRE(oracle.equivalent(laplace_transform(t * sin(t), t, s)->str(),
+                              "2*s/(s**2 + 1)**2"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(t * cos(integer(2) * t), t, s)->str(),
+        "(s**2 - 4)/(s**2 + 4)**2"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(t, integer(2)) * cos(t), t, s)->str(),
+        "(2*s**3 - 6*s)/(s**2 + 1)**3"));
+    REQUIRE(oracle.equivalent(laplace_transform(t * sinh(t), t, s)->str(),
+                              "2*s/(s**2 - 1)**2"));
+    REQUIRE(oracle.equivalent(laplace_transform(t * cosh(t), t, s)->str(),
+                              "(s**2 + 1)/(s**2 - 1)**2"));
+}
+
 TEST_CASE("laplace: linearity over Add", "[8][laplace][oracle]") {
     auto& oracle = Oracle::instance();
     auto t = symbol("t");
@@ -232,6 +256,38 @@ TEST_CASE("inverse_laplace: linear numerator over quadratic (ILAPLACE-QUAD-2)",
             s * pow(pow(s, integer(2)) + integer(4), S::NegativeOne()), s, t)
             ->str(),
         "cos(2*t)"));
+}
+
+// ILAPLACE-REPQUAD-1: numerator over a repeated irreducible quadratic
+// N(s)/(s²+a²)² → t·sin/t·cos family (the inverse of the multiplication-by-t
+// Laplace rule). Closes the previously-unevaluated repeated-pole case.
+TEST_CASE("inverse_laplace: numerator over repeated quadratic (ILAPLACE-REPQUAD-1)",
+          "[8][inverse_laplace][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto s = symbol("s");
+    auto t = symbol("t");
+    auto sq = [&](int a) {
+        return pow(pow(s, integer(2)) + integer(a), integer(2));
+    };
+    // s/(s²+4)² → t·sin(2t)/4.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(s * pow(sq(4), S::NegativeOne()), s, t)->str(),
+        "t*sin(2*t)/4"));
+    // 1/(s²+1)² → (sin t − t·cos t)/2.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(pow(sq(1), S::NegativeOne()), s, t)->str(),
+        "(sin(t) - t*cos(t))/2"));
+    // s/(s²+1)² → t·sin(t)/2.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(s * pow(sq(1), S::NegativeOne()), s, t)->str(),
+        "t*sin(t)/2"));
+    // (s²−1)/(s²+1)² → t·cos t.
+    REQUIRE(oracle.equivalent(
+        inverse_laplace_transform(
+            (pow(s, integer(2)) - integer(1)) * pow(sq(1), S::NegativeOne()), s,
+            t)
+            ->str(),
+        "t*cos(t)"));
 }
 
 // ----- Fourier --------------------------------------------------------------

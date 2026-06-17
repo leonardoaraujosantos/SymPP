@@ -19,6 +19,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/parsing/parser.hpp>
 
@@ -74,6 +75,28 @@ TEST_CASE("sin/cos: radical exact values match SymPy",
     REQUIRE(oracle.equivalent(cos(mul(rational(1, 6), pi))->str(), "sqrt(3)/2"));
     REQUIRE(oracle.equivalent(tan(mul(rational(1, 6), pi))->str(), "sqrt(3)/3"));
     REQUIRE(oracle.equivalent(cos(mul(rational(5, 6), pi))->str(), "-sqrt(3)/2"));
+}
+
+// TRIG-IMAG-1: imaginary-argument identities, applied at construction like SymPy.
+// sin(I·y)=I·sinh(y), cos(I·y)=cosh(y), tan(I·y)=I·tanh(y) and the hyperbolic
+// mirrors sinh(I·y)=I·sin(y), cosh(I·y)=cos(y), tanh(I·y)=I·tan(y). Hold for all
+// complex y, so no assumption is needed; a mixed real+imaginary argument is left.
+TEST_CASE("trig/hyperbolic: imaginary argument identities (TRIG-IMAG-1)",
+          "[3b][trig][hyperbolic][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    REQUIRE(oracle.equivalent(sin(I * x)->str(), "I*sinh(x)"));
+    REQUIRE(oracle.equivalent(cos(I * x)->str(), "cosh(x)"));
+    REQUIRE(oracle.equivalent(tan(I * x)->str(), "I*tanh(x)"));
+    REQUIRE(oracle.equivalent(sinh(I * x)->str(), "I*sin(x)"));
+    REQUIRE(oracle.equivalent(cosh(I * x)->str(), "cos(x)"));
+    REQUIRE(oracle.equivalent(tanh(I * x)->str(), "I*tan(x)"));
+    // A coefficient on the imaginary part carries through; a bare I works too.
+    REQUIRE(oracle.equivalent(sin(integer(2) * I * x)->str(), "I*sinh(2*x)"));
+    REQUIRE(oracle.equivalent(cos(I)->str(), "cosh(1)"));
+    // A genuinely mixed argument is not a pure imaginary factor — left intact.
+    REQUIRE(cos(x + I * symbol("y"))->type_id() == TypeId::Function);
 }
 
 TEST_CASE("tan: pole at π/2 stays unevaluated",
@@ -196,12 +219,27 @@ TEST_CASE("sin/cos: half-integer π co-function shift", "[3b][trig][regression]"
     REQUIRE(cos(x + mul(rational(3, 2), pi)) == sin(x));
 }
 
-TEST_CASE("tan: half-integer π shift stays symbolic (−cot, no cot type)",
-          "[3b][trig][tan][regression]") {
-    // tan(x+π/2) = −cot(x); SymPP has no cot, so it is left unevaluated.
+// TRIG-COFUNC-1: the half-period co-function identities. tan(x+π/2) = −cot(x),
+// and the full family for tan/cot/sec/csc at a (m/2)π shift, matching SymPy.
+TEST_CASE("tan/cot/sec/csc: half-period co-function shift (TRIG-COFUNC-1)",
+          "[3b][trig][tan][cot][regression]") {
     auto x = symbol("x");
-    auto r = tan(x + mul(rational(1, 2), S::Pi()));
-    REQUIRE(r->type_id() == TypeId::Function);
+    auto neg_x = mul(S::NegativeOne(), x);
+    auto pi = S::Pi();
+    auto half_pi = mul(rational(1, 2), pi);
+    auto neg = [](const Expr& e) { return mul(S::NegativeOne(), e); };
+    // tan(π/2 ± x) = ∓cot(x); cot(π/2 ± x) = ∓tan(x) (π-periodic, sign by ± only).
+    REQUIRE(tan(x + half_pi) == neg(cot(x)));
+    REQUIRE(tan(neg_x + half_pi) == cot(x));   // tan(π/2 − x) = cot(x)
+    REQUIRE(cot(x + half_pi) == neg(tan(x)));
+    REQUIRE(cot(neg_x + half_pi) == tan(x));   // cot(π/2 − x) = tan(x)
+    // sec(π/2 + x) = −csc(x); csc(π/2 + x) = sec(x) (period 2π, sign by m mod 4).
+    REQUIRE(sec(x + half_pi) == neg(csc(x)));
+    REQUIRE(csc(x + half_pi) == sec(x));
+    // A shift by 3π/2: tan(3π/2 + x) = −cot(x); sec(3π/2 + x) = +csc(x).
+    auto three_half_pi = mul(rational(3, 2), pi);
+    REQUIRE(tan(x + three_half_pi) == neg(cot(x)));
+    REQUIRE(sec(x + three_half_pi) == csc(x));
 }
 
 TEST_CASE("sin: odd identity sin(-x) = -sin(x)", "[3b][trig][sin]") {

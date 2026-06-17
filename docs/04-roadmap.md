@@ -10,9 +10,9 @@ parity.
 
 **Current position**: **v0.5 release-candidate.** 14 of 15 phases
 shipped at minimal-viable scope; Phase 16 partial. A sustained
-SymPy-parity push has since closed ~29 cross-validated gaps (see
+SymPy-parity push has since closed 300+ cross-validated gaps (see
 [docs/09-known-issues.md](09-known-issues.md)) across calculus, simplify,
-solvers, transforms, sets, and core. Everyday CAS workflow coverage is now
+solvers, transforms, sets, assumptions, and core. Everyday CAS workflow coverage is now
 ≈ 85 % (textbook-shaped inputs ≈ 100 %), composite SymPy parity ≈ 55 %.
 Critical path forward: parallelizable.
 
@@ -64,7 +64,7 @@ Critical path forward: parallelizable.
 - Critical-path diagram: §[Critical path](#critical-path)
 - Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
 
-**Test surface to maintain**: 1287 cases / 3157 assertions (501
+**Test surface to maintain**: 1426 cases / 4408 assertions (628
 oracle-validated against SymPy 1.13+). Run:
 
 ```bash
@@ -80,7 +80,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 ## Status snapshot
 
 ```
-1287 tests / 3157 assertions  all passing (501 oracle-validated vs SymPy)
+1426 tests / 4408 assertions  all passing (628 oracle-validated vs SymPy)
 14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
@@ -88,7 +88,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 |---|---|---|
 | 0  | Foundation & oracle harness            | ✅ shipped |
 | 1  | Core expression tree                   | ✅ shipped |
-| 2  | Assumptions                            | 🟡 minimal subset (SAT-based deferred) |
+| 2  | Assumptions                            | 🟡 full sign/number ontology + closure + Add/Mul/Pow propagation, at SymPy parity on common predicates (prime/irrational/algebraic + SAT-based `ask` deferred) |
 | 3  | Elementary & special functions         | ✅ shipped |
 | 4  | Polynomials                            | ✅ shipped (multivariate factor + BZ deferred) |
 | 5  | Simplification                         | ✅ shipped (hyperexpand subset shipped — full Slater + Meijer-G expansion deferred) |
@@ -551,8 +551,8 @@ the same scope-discipline as Phases 0–13.
 ## Summary
 
 ```
-Where we are:        14/15 phases shipped, Phase 16 partial; 962 tests
-                     (307 oracle-validated against SymPy 1.14, all passing).
+Where we are:        14/15 phases shipped, Phase 16 partial; 1426 tests
+                     (628 oracle-validated against SymPy 1.14, all passing).
 Cat A shipped:       Fu trig rules, transcendental solveset (_invert),
                      variation of parameters, Jordan + matrix exp,
                      hyperexpand subset.

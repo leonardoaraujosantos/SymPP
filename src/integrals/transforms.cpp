@@ -6,6 +6,7 @@
 
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/function.hpp>
 #include <sympp/core/imaginary_unit.hpp>
 #include <sympp/core/integer.hpp>
@@ -24,6 +25,7 @@
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/calculus/diff.hpp>
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -153,6 +155,40 @@ namespace {
                 return mul(cfac, shifted);
             }
             return std::nullopt;
+        }
+
+        // Multiplication by t^n: L{tⁿ·g(t)} = (−1)ⁿ·dⁿ/dsⁿ L{g(t)}. Split the
+        // (positive integer) powers of t from the rest g; if g transforms, repeatedly
+        // differentiate its transform. Closes t·cos t, t·sin t, t²·cos t, t·sinh t —
+        // the trig/hyperbolic families the s-shift (exp-only) does not reach.
+        {
+            long t_power = 0;
+            std::vector<Expr> nonpow;
+            for (const auto& vf : var_factors) {
+                if (vf == t) {
+                    t_power += 1;
+                    continue;
+                }
+                if (vf->type_id() == TypeId::Pow && vf->args()[0] == t
+                    && vf->args()[1]->type_id() == TypeId::Integer) {
+                    const auto& z = static_cast<const Integer&>(*vf->args()[1]);
+                    if (z.is_positive() && z.fits_long() && z.to_long() <= 20) {
+                        t_power += z.to_long();
+                        continue;
+                    }
+                }
+                nonpow.push_back(vf);
+            }
+            if (t_power > 0 && !nonpow.empty()) {
+                Expr g = mul(std::move(nonpow));
+                if (auto G = laplace_term(g, t, s); G.has_value()) {
+                    Expr d = *G;
+                    for (long i = 0; i < t_power; ++i) d = diff(d, s);
+                    Expr sign = (t_power % 2 == 0) ? Expr{S::One()}
+                                                   : Expr{S::NegativeOne()};
+                    return mul(cfac, simplify(mul(sign, d)));
+                }
+            }
         }
 
         // No exp factor — just pull out the constant and recurse on the rest.
@@ -453,6 +489,70 @@ inverse_laplace_s_over_quad(const Expr& F, const Expr& s, const Expr& t) {
                mul({B, pow(b, S::NegativeOne()), exp(mul(a, t)), sin(mul(b, t))}));
 }
 
+// N(s) / (s²+a²)² with a deg-≤2 numerator and a²>0 — the repeated-irreducible-
+// quadratic inverse (the inverse of the multiplication-by-t Laplace rule). Decompose
+// the numerator over the three basis transforms:
+//   iL{1/(s²+a²)²}  = (sin at − a t·cos at)/(2a³)
+//   iL{s/(s²+a²)²}  = t·sin at / (2a)
+//   iL{s²/(s²+a²)²} = sin at/(2a) + t·cos at / 2
+// Closes s/(s²+4)² → t·sin 2t/4, 1/(s²+1)² → (sin t − t·cos t)/2,
+// (s²−1)/(s²+1)² → t·cos t.
+[[nodiscard]] std::optional<Expr> inverse_laplace_repeated_quad(
+    const Expr& F, const Expr& s, const Expr& t) {
+    Expr den;
+    std::vector<Expr> num_factors;
+    auto take_den = [&](const Expr& f) -> bool {
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z == Integer(-1)) { den = f->args()[0]; return true; }
+            if (z == Integer(-2)) {
+                den = pow(f->args()[0], integer(2));
+                return true;
+            }
+        }
+        return false;
+    };
+    if (F->type_id() == TypeId::Mul) {
+        for (const auto& f : F->args()) {
+            if (!den && take_den(f)) continue;
+            num_factors.push_back(f);
+        }
+    } else if (!take_den(F)) {
+        return std::nullopt;
+    }
+    if (!den) return std::nullopt;
+
+    Poly pd(expand(den), s);
+    if (pd.degree() != 4) return std::nullopt;
+    const auto& dc = pd.coeffs();  // [c0,…,c4], ascending
+    if (!(dc[1] == S::Zero()) || !(dc[3] == S::Zero())) return std::nullopt;
+    const Expr inv_c4 = pow(dc[4], S::NegativeOne());
+    const Expr a2 = simplify(mul(mul(dc[2], inv_c4), rational(1, 2)));  // p/2
+    if (simplify(mul(a2, a2) - mul(dc[0], inv_c4)) != S::Zero()) {
+        return std::nullopt;  // not a perfect square (s²+a²)²
+    }
+    if (is_positive(a2) != std::optional<bool>{true}) return std::nullopt;
+    const Expr a = sqrt(a2);
+
+    Expr N = num_factors.empty() ? Expr{S::One()} : mul(num_factors);
+    Poly pn(expand(mul(N, inv_c4)), s);
+    if (pn.degree() > 2) return std::nullopt;
+    auto co = [&](std::size_t i) {
+        return i < pn.coeffs().size() ? pn.coeffs()[i] : Expr{S::Zero()};
+    };
+    const Expr at = mul(a, t);
+    const Expr two_a = mul(integer(2), a);
+    const Expr il_1 = mul(sin(at) - mul(at, cos(at)),
+                          pow(mul(integer(2), pow(a, integer(3))),
+                              S::NegativeOne()));
+    const Expr il_s = mul(mul(t, sin(at)), pow(two_a, S::NegativeOne()));
+    const Expr il_s2 = add(mul(sin(at), pow(two_a, S::NegativeOne())),
+                           mul(mul(t, cos(at)), rational(1, 2)));
+    return simplify(
+        add({mul(co(0), il_1), mul(co(1), il_s), mul(co(2), il_s2)}));
+}
+
 }  // namespace
 
 Expr inverse_laplace_transform(const Expr& F, const Expr& s, const Expr& t) {
@@ -472,6 +572,10 @@ Expr inverse_laplace_transform(const Expr& F, const Expr& s, const Expr& t) {
     }
     // (α·s+β)/(irreducible quadratic with a linear term).
     if (auto r = inverse_laplace_linear_quad(F, s, t); r.has_value()) {
+        return *r;
+    }
+    // N(s)/(s²+a²)² — repeated irreducible quadratic (t·sin / t·cos family).
+    if (auto r = inverse_laplace_repeated_quad(F, s, t); r.has_value()) {
         return *r;
     }
     if (auto r = inverse_laplace_term(F, s, t); r.has_value()) {

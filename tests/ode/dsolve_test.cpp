@@ -12,6 +12,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/matrices/matrix.hpp>
@@ -526,4 +527,107 @@ TEST_CASE("dae_structural_index: index-1 algebraic constraint",
     std::vector<Expr> F = {y1p - y2, y1 + y2 - integer(1)};
     auto idx = dae_structural_index(F, {y1, y2}, {y1p, y2p});
     REQUIRE(idx >= 1);
+}
+
+// DSOLVE-UNIFIED-1: the single-entry dsolve(eq, y, x) detects the ODE order and
+// dispatches — first-order, constant-coefficient (homogeneous, repeated roots,
+// nonhomogeneous), Cauchy-Euler, and higher order. Each general solution is
+// verified by substituting it back: the ODE residual must simplify to 0.
+TEST_CASE("dsolve: unified order-detecting entry point (DSOLVE-UNIFIED-1)",
+          "[11][dsolve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto ypp = diff(y, x, 2);
+    auto yppp = diff(y, x, 3);
+    auto satisfies = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        Expr r = subs(ode, yppp, diff(sol, x, 3));
+        r = subs(r, ypp, diff(sol, x, 2));
+        r = subs(r, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return oracle.equivalent(simplify(expand(r))->str(), "0");
+    };
+    // First-order (delegates to dsolve_first_order).
+    REQUIRE(satisfies(yp - y));            // y' = y
+    REQUIRE(satisfies(yp + y - x));        // y' + y = x
+    // Constant-coefficient, second order.
+    REQUIRE(satisfies(ypp + y));                               // y'' + y = 0
+    REQUIRE(satisfies(ypp - integer(3) * yp + integer(2) * y)); // distinct roots
+    REQUIRE(satisfies(ypp - integer(2) * yp + y));             // repeated root
+    REQUIRE(satisfies(ypp + y - x));                          // nonhomogeneous
+    // Cauchy-Euler: x²y'' − 2y = 0.
+    REQUIRE(satisfies(pow(x, integer(2)) * ypp - integer(2) * y));
+    // Third order, constant coefficient.
+    REQUIRE(satisfies(yppp - yp));
+}
+
+// DSOLVE-RESONANCE-1: a forcing term that is itself a homogeneous solution
+// (resonance). The complex basis e^(±iβx) made the cyclic exp·trig integrator in
+// variation of parameters divide by a²+g² = 0, producing zoo. Emitting the real
+// cos/sin basis for complex-conjugate roots fixes it; the particular solution
+// carries the expected x·(…) resonance factor.
+TEST_CASE("dsolve: resonant forcing and real-form complex roots (DSOLVE-RESONANCE-1)",
+          "[11][dsolve][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto ypp = diff(y, x, 2);
+    auto yppp = diff(y, x, 3);
+    auto satisfies = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        REQUIRE(sol->str().find("zoo") == std::string::npos);  // no garbage
+        Expr r = subs(ode, yppp, diff(sol, x, 3));
+        r = subs(r, ypp, diff(sol, x, 2));
+        r = subs(r, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return oracle.equivalent(simplify(expand(r))->str(), "0");
+    };
+    // Resonant forcing: sin x / cos x solve y'' + y = 0; sin 2x solves y'' + 4y.
+    REQUIRE(satisfies(ypp + y - sin(x)));
+    REQUIRE(satisfies(ypp + y - cos(x)));
+    REQUIRE(satisfies(ypp + integer(4) * y - sin(integer(2) * x)));
+    // Non-resonant complex roots still solve (and now in real cos/sin form).
+    REQUIRE(satisfies(ypp + y - exp(x)));
+    REQUIRE(satisfies(ypp + integer(4) * y));  // y'' + 4y = 0
+    // Real cos/sin form, not complex exponentials.
+    REQUIRE(dsolve(ypp + integer(4) * y, y, x)->str().find("I") ==
+            std::string::npos);
+}
+
+// DSOLVE-SEPARABLE-NONLIN-1: separable equations y' = f(x)·g(y) where the
+// dependent variable y is the function application y(x). The x-dependence test
+// in try_separate previously used has(rhs, x), which saw the x *inside* y(x), so
+// autonomous/nonlinear separable equations (y' = y², √y, x·y²) fell through.
+// Testing x-dependence with y held fixed fixes it; the explicit-form solve falls
+// back to a symbol so y can be isolated.
+TEST_CASE("dsolve: nonlinear separable equations (DSOLVE-SEPARABLE-NONLIN-1)",
+          "[11][dsolve][separable][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = function_symbol("y")(x);
+    auto yp = diff(y, x);
+    auto residual = [&](const Expr& ode) {
+        Expr sol = dsolve(ode, y, x);
+        REQUIRE(sol->str().rfind("Dsolve(", 0) != 0);  // actually solved
+        Expr r = subs(ode, yp, diff(sol, x));
+        r = subs(r, y, sol);
+        return simplify(expand(r));
+    };
+    // y' = y² → y = −1/(x+C); y' = x·y² → y = −2/(x²+C).
+    REQUIRE(oracle.equivalent(residual(yp - pow(y, integer(2)))->str(), "0"));
+    REQUIRE(oracle.equivalent(residual(yp - x * pow(y, integer(2)))->str(), "0"));
+    // Autonomous with a numeric constant term: y' = 1 + y² is solved (implicitly
+    // via atan, since solve() can't invert atan against a symbolic RHS) — the
+    // point is it no longer returns an unevaluated Dsolve marker.
+    REQUIRE(dsolve(yp - integer(1) - pow(y, integer(2)), y, x)->str().rfind(
+                "Dsolve(", 0) != 0);
+    // The linear/Bernoulli paths still win where they give a cleaner closed form:
+    // the logistic y' = y(1−y) stays explicit (not an implicit log form).
+    Expr logistic = dsolve(yp - y * (integer(1) - y), y, x);
+    REQUIRE(logistic->str().find("log(") == std::string::npos);
 }

@@ -100,6 +100,18 @@ private:
 //
 // Reference: sympy/polys/polytools.py::cancel
 [[nodiscard]] SYMPP_EXPORT Expr cancel(const Expr& expr, const Expr& var);
+// cancel/degree with the polynomial variable inferred from the single free
+// symbol — the forms exposed to the parser. Fall back to an unevaluated node
+// when the argument is not a univariate polynomial expression.
+[[nodiscard]] SYMPP_EXPORT Expr cancel(const Expr& expr);
+[[nodiscard]] SYMPP_EXPORT Expr degree(const Expr& expr);
+
+// Polynomial quotient and remainder of a ÷ b (the variable inferred from the
+// single free symbol): a = quo(a,b)·b + rem(a,b) with deg(rem) < deg(b).
+//
+// Reference: sympy/polys/polytools.py::quo / rem
+[[nodiscard]] SYMPP_EXPORT Expr quo(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr rem(const Expr& a, const Expr& b);
 
 // Partial-fraction decomposition over ℚ of a rational expression in `var`.
 // Minimal implementation: handles distinct rational linear factors via
@@ -127,6 +139,8 @@ private:
 [[nodiscard]] SYMPP_EXPORT Expr resultant(const Poly& p, const Poly& q);
 [[nodiscard]] SYMPP_EXPORT Expr resultant(const Expr& p, const Expr& q,
                                             const Expr& var);
+// Variable inferred from the single free symbol — the parser-facing form.
+[[nodiscard]] SYMPP_EXPORT Expr resultant(const Expr& p, const Expr& q);
 
 // Discriminant of a polynomial. By definition:
 //   disc(p) = (-1)^(n(n-1)/2) * resultant(p, p') / lc(p)
@@ -135,6 +149,8 @@ private:
 // Reference: sympy/polys/polytools.py::discriminant
 [[nodiscard]] SYMPP_EXPORT Expr discriminant(const Poly& p);
 [[nodiscard]] SYMPP_EXPORT Expr discriminant(const Expr& p, const Expr& var);
+// Variable inferred from the single free symbol — the parser-facing form.
+[[nodiscard]] SYMPP_EXPORT Expr discriminant(const Expr& p);
 
 // Univariate polynomial GCD via Euclidean algorithm. Result is monic
 // (leading coefficient 1) for non-zero inputs. Behaves correctly over ℚ.

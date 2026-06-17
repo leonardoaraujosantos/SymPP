@@ -112,6 +112,10 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr re(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr im(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr conjugate(const Expr& arg);
+// Rationalize complex denominators: rewrite Pow(d, −m) whose base d carries the
+// imaginary unit and has a real |d|² as conj(d)^m/|d|^(2m), i.e.
+// 1/(a+bI) = (a−bI)/(a²+b²). `expand` the result for the a+bI form.
+[[nodiscard]] SYMPP_EXPORT Expr rationalize_complex(const Expr& e);
 // Note: 'arg' clashes with the parameter name `const Expr& arg`, so the public
 // factory is named `arg_`. The class type is `Arg`.
 [[nodiscard]] SYMPP_EXPORT Expr arg_(const Expr& arg);

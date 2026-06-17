@@ -1,10 +1,14 @@
 #include <sympp/integrals/integrate.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <optional>
 #include <utility>
 #include <vector>
 
 #include <sympp/calculus/limit.hpp>
+#include <sympp/core/float.hpp>
+#include <sympp/solvers/solve.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
@@ -40,6 +44,8 @@ namespace {
 [[nodiscard]] bool depends_on(const Expr& e, const Expr& var) noexcept {
     return has(e, var);
 }
+
+[[nodiscard]] bool is_rational_in(const Expr& e, const Expr& t);
 
 // Decompose `e` as (a, b) such that e == a*var + b, with a, b independent
 // of var. Returns nullopt if e isn't affine in var.
@@ -309,6 +315,27 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_linear_radical_substitution(
     const Expr& expr, const Expr& var);
 
+// Exponential substitution u = eˣ for an integrand that is a rational function
+// of eˣ: every exp factor is exp(k·x+d) with integer k, so exp(k·x+d) → e^d·uᵏ
+// and dx = du/u turn the integrand into a rational function of u, which
+// try_rational/integrate closes. Closes ∫1/(eˣ+e⁻ˣ)=atan(eˣ),
+// ∫eˣ/(e²ˣ+1)=atan(eˣ), ∫e²ˣ/(1+eˣ)=eˣ−log(1+eˣ).
+[[nodiscard]] std::optional<Expr> try_exp_substitution(const Expr& expr,
+                                                       const Expr& var);
+
+// Substitution u = log(x) (x = eᵘ, dx = eᵘ du) for an integrand built from
+// log(var): replaces log(var)→u and the remaining bare var→eᵘ, leaving ∫f(u)·eᵘ du
+// in u. Closes ∫cos(log x), ∫sin(log x), ∫log(log x)/x, ∫cos(2·log x), …
+[[nodiscard]] std::optional<Expr> try_log_substitution(const Expr& expr,
+                                                       const Expr& var);
+
+// Reciprocal substitution x = 1/u for ∫ dx/(xⁿ·√(a·x²+c)): substituting clears
+// the x in the denominator and, after pulling u out of the radical
+// ((a·u⁻²+c)^e = u^(−2e)·(a+c·u²)^e), leaves an ordinary √-of-quadratic integral.
+// Closes ∫1/(x·√(x²+1)) = −asinh(1/x), ∫1/(x²·√(x²+1)) = −√(x²+1)/x.
+[[nodiscard]] std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
+                                                              const Expr& var);
+
 // Integration by parts: ∫u dv = uv - ∫v du. Handles two patterns:
 //   * standalone log(affine) → x*log(ax+b) + (b/a)*log(ax+b) - x
 //   * Mul where one factor is a single sin/cos/exp of affine and the
@@ -330,6 +357,14 @@ namespace {
 // polynomial; both even → half-angle reduction, recursing via integrate.
 [[nodiscard]] std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var);
 
+// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient with one odd exponent (u-sub → rational).
+[[nodiscard]] std::optional<Expr> try_sin_cos_quotient(const Expr& expr,
+                                                       const Expr& var);
+
+// ∫ ∏ sin/cos(affineᵢ)^kᵢ dx (mixed arguments) via product-to-sum linearization.
+[[nodiscard]] std::optional<Expr> try_trig_product_expand(const Expr& expr,
+                                                          const Expr& var);
+
 // ∫ tan(g)^n dx (n ≥ 2 integer, g affine) via the reduction
 // ∫tanⁿ = tan^(n-1)/((n-1)·g') − ∫tan^(n-2), recursing through integrate.
 [[nodiscard]] std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var);
@@ -345,6 +380,11 @@ namespace {
 // ∫cscⁿ = −csc^(n-2)·cot/((n-1)·g') + (n-2)/(n-1)·∫csc^(n-2). n=1 is the table
 // case (INT-24) and n=2 the trig-reduction square (INT-25).
 [[nodiscard]] std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var);
+
+// ∫ tan(g)^m·sec(g)^n dx (and the cot/csc analogue), g affine. m odd ⇒ u = sec(g)
+// turns it into a polynomial in u; m even ⇒ rewrite tan²=sec²−1 to pure sec
+// powers and reduce via try_sec_csc_power. Closes ∫tan³·sec, ∫tan²·sec, …
+[[nodiscard]] std::optional<Expr> try_tan_sec_product(const Expr& expr, const Expr& var);
 
 // ∫ sech(g)^n / csch(g)^n dx (n ≥ 3 integer, g affine) — the hyperbolic analogue
 // of try_sec_csc_power. The Pythagorean sign differs (coth²−csch²=1 vs
@@ -423,6 +463,11 @@ namespace {
 // inverse-trig/hyperbolic by-parts integrals reduce to.
 [[nodiscard]] std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var);
 
+// ∫ P(x)·√(a·x²+b·x+c) dx for a polynomial P — rewrite P·√Q = (P·Q)/√Q and hand
+// the polynomial-over-√(quadratic) result to the reduction above. Closes the
+// even-power cases (∫x²·√(1−x²), ∫x⁴·√(1−x²)) that the u = Q substitution misses.
+[[nodiscard]] std::optional<Expr> try_poly_times_sqrt_quadratic(const Expr& expr, const Expr& var);
+
 // ∫ P(x)/√(a·x²+b·x+c) dx for a polynomial P of degree ≥ 2, via the reduction
 // ∫xᵏ/√Q = [xᵏ⁻¹√Q − (k−1)c·∫xᵏ⁻²/√Q]/(k·a) (pure quadratic; a linear term is
 // removed first by completing the square). Closes ∫x²/√(1−x²) and the
@@ -434,6 +479,21 @@ namespace {
 // exponent is a pure quadratic (no linear/constant term) with negative
 // rational leading coefficient.
 [[nodiscard]] std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var);
+
+// ∫ P(x)·exp(c·x²) dx for a polynomial P and a pure-quadratic exponent c·x² — the
+// Gaussian moments. Reduces ∫xⁿ·exp(c·x²) by parts to lower powers, bottoming out
+// at ∫exp(c·x²) (erf/erfi) for even n and ∫x·exp(c·x²) = exp(c·x²)/(2c) for odd n.
+[[nodiscard]] std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var);
+
+// ∫ P(x)·a^(b·x+c) dx for a polynomial P and a constant positive base a ≠ 1 with
+// an affine exponent — the constant-base analogue of ∫P(x)·eˣ. Reduces by parts to
+// lower powers, bottoming out at ∫a^(b·x+c) = a^(b·x+c)/(b·ln a). Closes ∫2ˣ, ∫x·2ˣ.
+[[nodiscard]] std::optional<Expr> try_const_base_exp_integral(const Expr& expr, const Expr& var);
+
+// ∫ P(x)·exp(a·x²+b·x+c) dx with a linear term (b ≠ 0) — completes the square via
+// the shift u = x + b/(2a) so the exponent becomes pure-quadratic in u, then
+// delegates to the Gaussian/moment rules. Closes ∫exp(−(x−1)²), ∫x·exp(−x²+x), …
+[[nodiscard]] std::optional<Expr> try_shifted_gaussian(const Expr& expr, const Expr& var);
 
 // ∫ sin(c·x)/x = Si(c·x), ∫ cos(c·x)/x = Ci(c·x), ∫ exp(c·x)/x = Ei(c·x) — the
 // special-integral functions, for a monomial argument c·x (no constant term).
@@ -498,6 +558,15 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_sec_csc_power(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_tan_sec_product(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_sin_cos_quotient(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_trig_product_expand(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_sech_csch_power(expr, var); r.has_value()) {
         return *r;
     }
@@ -543,16 +612,37 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_heurisch(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_exp_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_radical_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_linear_radical_substitution(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_reciprocal_substitution(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_poly_times_sqrt_quadratic(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_const_base_exp_integral(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_poly_times_gaussian(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_shifted_gaussian(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_log_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_weierstrass(expr, var); r.has_value()) {
@@ -732,8 +822,30 @@ std::optional<Expr> try_heurisch(const Expr& expr, const Expr& var) {
         rec_check(rec_check, integrated);
         if (has_marker) return std::nullopt;
         // Substitute u back to g.
-        Expr result = subs(integrated, u, g);
-        return simplify(result);
+        Expr result = simplify(subs(integrated, u, g));
+        // Numeric diff-back: heurisch is a heuristic, and a mis-integrated
+        // substituted form (e.g. dropping the 1/(n+1) power factor in
+        // ∫asinⁿ/√(1−x²)) yields a *wrong* antiderivative, not a marker. Verify
+        // d/dx result == integrand at sample points so such cases fail cleanly
+        // (fall through to a marker) rather than returning a wrong answer.
+        Expr resid = diff(result, var) - expr;
+        int checks = 0;
+        int bad = 0;
+        for (int num : {3, 7, 13, 19}) {
+            Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+            if (val->type_id() != TypeId::Float) continue;
+            double d = 0.0;
+            try {
+                d = std::stod(val->str());
+            } catch (...) {
+                continue;
+            }
+            if (!std::isfinite(d)) continue;
+            ++checks;
+            if (std::fabs(d) > 1e-6) ++bad;
+        }
+        if (checks > 0 && bad > 0) return std::nullopt;  // verified wrong
+        return result;
     };
     for (const auto& g : candidates) {
         Expr gp_simplified = simplify(diff(g, var));
@@ -899,6 +1011,161 @@ std::optional<Expr> try_linear_radical_substitution(const Expr& expr,
     return simplify(subs(anti, u, pow(a * var + b, rational(1, 2))));
 }
 
+std::optional<Expr> try_reciprocal_substitution(const Expr& expr,
+                                                const Expr& var) {
+    // Gate: the integrand must have a negative integer power of var (the xⁿ in
+    // the denominator) AND a half-integer power of a degree-2 polynomial in var
+    // (the √(a·x²+c)). This keeps the substitution to the form it closes.
+    // Flatten (x·√(a·x²+c))⁻¹ → x⁻¹·(a·x²+c)^(−1/2) so the gate sees both factors.
+    Expr e0 = expand(expr);
+    bool has_neg_pow = false;
+    bool has_sqrt_quad = false;
+    auto gate = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow && e->args()[0] == var
+            && e->args()[1]->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*e->args()[1]).is_negative()) {
+            has_neg_pow = true;
+        }
+        if (e->type_id() == TypeId::Pow && e->args()[1]->type_id() == TypeId::Rational
+            && depends_on(e->args()[0], var)) {
+            const auto& q = static_cast<const Rational&>(*e->args()[1]);
+            if (q.denominator() == 2) {
+                try {
+                    if (Poly(expand(e->args()[0]), var).degree() == 2) {
+                        has_sqrt_quad = true;
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    gate(gate, e0);
+    if (!has_neg_pow || !has_sqrt_quad) return std::nullopt;
+
+    auto u = symbol("__recip_u");
+    Expr inv_u = pow(u, integer(-1));
+    // f(1/u) · dx, with dx = −1/u² du.
+    Expr sub = mul({subs(e0, var, inv_u), S::NegativeOne(),
+                    pow(u, integer(-2))});
+
+    // Pull u out of each radical so the integrand becomes an ordinary
+    // √(quadratic) form: (a·u⁻² + c)^e = u^(−2e)·(a + c·u²)^e (valid u > 0).
+    ExprMap<Expr> repl;
+    auto clear = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow
+            && e->args()[1]->type_id() == TypeId::Rational
+            && e->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = e->args()[0];
+            const auto& ex = static_cast<const Rational&>(*e->args()[1]);
+            Expr a_coeff = S::Zero();  // coefficient of u⁻²
+            Expr c_const = S::Zero();  // constant term
+            bool ok = true;
+            for (const auto& term : base->args()) {
+                if (!depends_on(term, u)) {
+                    c_const = c_const + term;
+                    continue;
+                }
+                // term is (var-free)·u⁻²?
+                Expr coeff = simplify(term * pow(u, integer(2)));
+                if (depends_on(coeff, u)) { ok = false; break; }
+                a_coeff = a_coeff + coeff;
+            }
+            if (ok && !(a_coeff == S::Zero())) {
+                mpq_class out = mpq_class(-2) * ex.value();
+                if (out.get_den() == 1) {
+                    Expr lifted = mul(
+                        pow(u, integer(out.get_num().get_si())),
+                        pow(add(a_coeff, mul(c_const, pow(u, integer(2)))),
+                            e->args()[1]));
+                    repl.emplace(e, lifted);
+                    return;
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    clear(clear, sub);
+    Expr integrand_u = simplify(repl.empty() ? sub : xreplace(sub, repl));
+
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, pow(var, integer(-1))));
+}
+
+std::optional<Expr> try_log_substitution(const Expr& expr, const Expr& var) {
+    // Only worth attempting when log(var) actually appears — that is the signal
+    // that u = log(x) collapses the integrand.
+    Expr logx = log(var);
+    bool has_logx = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (has_logx) return;
+        if (e == logx) { has_logx = true; return; }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (!has_logx) return std::nullopt;
+
+    // u = log(x): replace log(var) → u, then every remaining bare var → eᵘ. With
+    // dx = eᵘ du the integrand becomes f(u)·eᵘ. If a var survives (e.g. log(2x),
+    // which is not the log(x) node), the substitution is incomplete — bail.
+    Expr u = symbol("__logsub_u");
+    Expr e1 = subs(expr, logx, u);
+    Expr e2 = subs(e1, var, exp(u));
+    if (depends_on(e2, var)) return std::nullopt;
+
+    Expr integrand_u = e2 * exp(u);
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, logx));
+}
+
+std::optional<Expr> try_exp_substitution(const Expr& expr, const Expr& var) {
+    // Collect every exp(arg) subexpression; each arg must be k·var + d with k a
+    // non-zero integer and d var-free, so exp(arg) = e^d · (eˣ)^k.
+    auto u = symbol("__exp_u");
+    ExprMap<Expr> repl;
+    bool ok = true;
+    bool found = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (!ok || !depends_on(e, var)) return;
+        if (e->type_id() == TypeId::Function
+            && static_cast<const Function&>(*e).function_id()
+                   == FunctionId::Exp) {
+            const Expr& arg = e->args()[0];
+            try {
+                Poly p(expand(arg), var);
+                if (p.degree() != 1) { ok = false; return; }
+                const auto& cf = p.coeffs();
+                Expr d = cf[0];
+                Expr k = cf[1];
+                if (has(d, var) || k->type_id() != TypeId::Integer) {
+                    ok = false;
+                    return;
+                }
+                const long kl = static_cast<const Integer&>(*k).to_long();
+                if (kl == 0) { ok = false; return; }
+                repl.emplace(e, mul(exp(d), pow(u, integer(kl))));
+                found = true;
+            } catch (const std::exception&) {
+                ok = false;
+            }
+            return;  // do not descend into the exp argument
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (!ok || !found) return std::nullopt;
+
+    Expr g = xreplace(expr, repl);
+    if (depends_on(g, var)) return std::nullopt;  // bare var outside an exp
+    // dx = du/u (u = eˣ), so the integrand becomes (rational in u)/u.
+    Expr integrand_u = simplify(mul(g, pow(u, integer(-1))));
+    Expr anti = integrate(integrand_u, u);
+    if (is_integral_marker(anti)) return std::nullopt;
+    return simplify(subs(anti, u, exp(var)));
+}
+
 // True if `e` is a polynomial in `var` (only non-negative integer powers of
 // var). Such a `u` differentiates to zero in finitely many steps, so using it
 // as the `u` factor of integration by parts terminates. A factor like x^(-1)
@@ -1002,6 +1269,43 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
                 if (!is_integral_marker(remaining)) {
                     return expand(var * expr - remaining);
                 }
+            }
+        }
+    }
+
+    // Standalone f(affine)^n (n ≥ 2) for a whitelisted inverse function f: by
+    // parts u = f^n, dv = dx, v = x → ∫f^n = x·f^n − ∫x·(f^n)'. The residual is the
+    // polynomial × f^(n−1) case the Mul block recurses on; closes ∫asin(x)².
+    if (expr->type_id() == TypeId::Pow
+        && expr->args()[1]->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*expr->args()[1]).is_positive()
+        && expr->args()[0]->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*expr->args()[0]);
+        if (is_by_parts_fn(fn.function_id()) && fn.args().size() == 1
+            && as_affine(fn.args()[0], var)) {
+            Expr remaining = integrate(expand(var * diff(expr, var)), var);
+            if (!contains_integral_marker(remaining)) {
+                Expr result = expand(var * expr - remaining);
+                // Numeric diff-back: verify before returning (the residual recurses
+                // through several integrators).
+                Expr resid = diff(result, var) - expr;
+                int checks = 0;
+                int bad = 0;
+                for (int num : {3, 7, 13, 19}) {
+                    Expr val =
+                        evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+                    if (val->type_id() != TypeId::Float) continue;
+                    double dd = 0.0;
+                    try {
+                        dd = std::stod(val->str());
+                    } catch (...) {
+                        continue;
+                    }
+                    if (!std::isfinite(dd)) continue;
+                    ++checks;
+                    if (std::fabs(dd) > 1e-6) ++bad;
+                }
+                if (!(checks > 0 && bad > 0)) return result;
             }
         }
     }
@@ -1144,53 +1448,169 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
         }
     }
 
-    // Polynomial × f(affine) for a whitelisted by-parts function f (inverse
-    // trig/hyperbolic, erf, Si, …), by parts with u = f, dv = rest dx:
+    // Polynomial (or 1/xⁿ) × f(affine) for a whitelisted by-parts function f
+    // (inverse trig/hyperbolic, erf, Si, …), by parts with u = f, dv = rest dx:
     //   ∫ rest·f dx = f·∫rest − ∫(∫rest)·f' dx.
     // For atan/acot/atanh, f' is rational so the remaining integral is rational
     // (closed by try_rational); for asin/acos/asinh/acosh it is a polynomial over
-    // √(quadratic), closed when low-degree. The marker guard bails otherwise.
+    // √(quadratic), closed when low-degree. A negative-power dv = x^(−n) is also
+    // admitted — ∫atan(x)/x² needs v = −1/x — since ∫x^(−n) is elementary and the
+    // remaining v·f' is still rational/closable. The marker guard bails on the
+    // non-elementary residuals (e.g. ∫atan(x)/x, whose v·f' = log(x)/(x²+1)).
     if (expr->type_id() == TypeId::Mul) {
+        // The by-parts function factor, as a bare f(affine) or a positive integer
+        // power f(affine)^k. For k ≥ 2 the parts step lowers the power by one each
+        // time (u = f^k, du = k·f^(k−1)·f'), recursing down to the f^1 case —
+        // closing e.g. ∫x·atan(x)².
+        auto match_fn = [&](const Expr& f) -> bool {
+            const Function* fn = nullptr;
+            if (f->type_id() == TypeId::Function) {
+                fn = &static_cast<const Function&>(*f);
+            } else if (f->type_id() == TypeId::Pow
+                       && f->args()[1]->type_id() == TypeId::Integer
+                       && static_cast<const Integer&>(*f->args()[1]).is_positive()
+                       && f->args()[0]->type_id() == TypeId::Function) {
+                fn = &static_cast<const Function&>(*f->args()[0]);
+            }
+            return fn && is_by_parts_fn(fn->function_id())
+                   && fn->args().size() == 1 && as_affine(fn->args()[0], var);
+        };
         Expr fn_factor;
         std::vector<Expr> rest_factors;
         for (const auto& f : expr->args()) {
-            if (!fn_factor && f->type_id() == TypeId::Function) {
-                const auto& fn = static_cast<const Function&>(*f);
-                if (is_by_parts_fn(fn.function_id()) && fn.args().size() == 1
-                    && as_affine(fn.args()[0], var)) {
-                    fn_factor = f;
-                    continue;
-                }
+            if (!fn_factor && match_fn(f)) {
+                fn_factor = f;
+                continue;
             }
             rest_factors.push_back(f);
         }
         if (fn_factor && !rest_factors.empty()) {
             Expr rest = mul(rest_factors);
-            if (is_polynomial_in(rest, var)) {
+            const bool fn_is_power = fn_factor->type_id() == TypeId::Pow;
+            auto contains_marker = [](const Expr& e) {
+                bool found = false;
+                auto rec = [&](auto&& self, const Expr& x) -> void {
+                    if (found) return;
+                    if (is_integral_marker(x)) { found = true; return; }
+                    for (const auto& a : x->args()) self(self, a);
+                };
+                rec(rec, e);
+                return found;
+            };
+            // dv is a polynomial, or a bare reciprocal power x^(−n) of the
+            // variable. The negative power is only admitted for functions with a
+            // *rational* derivative (atan/acot/atanh/acoth): then v·f' is rational
+            // and try_rational closes it exactly. The √-derivative functions
+            // (asin/acos/…) over a 1/x factor produce a non-rational residual that
+            // the rational path can mis-handle (∫asin(x)/x² collapsed to a bogus 0),
+            // so they keep the polynomial-only gate. The marker guard still bails
+            // on the non-elementary n = 1 case (∫atan(x)/x).
+            const Expr& base_fn =
+                fn_is_power ? fn_factor->args()[0] : fn_factor;
+            const FunctionId fid =
+                static_cast<const Function&>(*base_fn).function_id();
+            // The reciprocal-power dv = x^(−n) shortcut is only for a bare f with a
+            // rational derivative; for f^k the parts residual already recurses.
+            const bool rational_deriv =
+                fid == FunctionId::Atan || fid == FunctionId::Acot
+                || fid == FunctionId::Atanh || fid == FunctionId::Acoth;
+            const bool neg_power = rational_deriv && !fn_is_power
+                && rest->type_id() == TypeId::Pow
+                && rest->args()[0] == var
+                && rest->args()[1]->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*rest->args()[1]).is_negative();
+            // For atan/acot/atanh/acoth (rational f'), a rational dv keeps the
+            // residual ∫v·f' rational too, so the recursion closes — this is what
+            // ∫x·atan² needs (its parts residual is x²·atan/(1+x²)). The marker
+            // guard bails on anything that doesn't reduce.
+            const bool rational_rest = rational_deriv && is_rational_in(rest, var);
+            // For asin/acos/asinh/acosh (f' = 1/√(quadratic)), admit a dv of the
+            // form P(x)/√(quadratic): ∫P/√Q closes and the residual ∫v·f' = ∫v/√Q
+            // again has this shape — so ∫x·asin² closes. (P·Q^(−1/2), P polynomial,
+            // Q quadratic.) The diff-back self-check below catches any mis-step.
+            const bool sqrt_deriv =
+                fid == FunctionId::Asin || fid == FunctionId::Acos
+                || fid == FunctionId::Asinh || fid == FunctionId::Acosh;
+            auto is_poly_over_sqrt_quad = [&](const Expr& r) -> bool {
+                std::vector<Expr> facs;
+                if (r->type_id() == TypeId::Mul) {
+                    for (const auto& f : r->args()) facs.push_back(f);
+                } else {
+                    facs.push_back(r);
+                }
+                Expr poly_acc = S::One();
+                bool found_sqrt = false;
+                for (const auto& f : facs) {
+                    if (!found_sqrt && f->type_id() == TypeId::Pow
+                        && f->args()[1]->type_id() == TypeId::Rational
+                        && static_cast<const Rational&>(*f->args()[1]).value()
+                               == mpq_class(-1, 2)
+                        && depends_on(f->args()[0], var)) {
+                        try {
+                            Poly q(expand(f->args()[0]), var);
+                            if (q.degree() == 2) { found_sqrt = true; continue; }
+                        } catch (const std::exception&) {
+                        }
+                    }
+                    poly_acc = mul(poly_acc, f);
+                }
+                return found_sqrt && is_polynomial_in(poly_acc, var);
+            };
+            const bool sqrt_rest = sqrt_deriv && is_poly_over_sqrt_quad(rest);
+            if (is_polynomial_in(rest, var) || neg_power || rational_rest
+                || sqrt_rest) {
                 Expr v = integrate(rest, var);
-                if (!is_integral_marker(v)) {
-                    Expr remaining = integrate(v * diff(fn_factor, var), var);
-                    if (!is_integral_marker(remaining)) {
-                        return expand(fn_factor * v - remaining);
+                if (!contains_marker(v)) {
+                    // expand so a residual like (x − atan x)/(1+x²) distributes
+                    // into x/(1+x²) − atan(x)/(1+x²), which linearity integrates
+                    // term-by-term (the unexpanded Mul matches no single strategy).
+                    Expr remaining =
+                        integrate(expand(v * diff(fn_factor, var)), var);
+                    if (!contains_marker(remaining)) {
+                        Expr result = expand(fn_factor * v - remaining);
+                        // Numeric diff-back: the broadened gates (rational / √Q dv)
+                        // recurse through several integrators; verify d/dx == the
+                        // integrand so a mis-step fails to a marker, not a wrong
+                        // answer.
+                        Expr resid = diff(result, var) - expr;
+                        int checks = 0;
+                        int bad = 0;
+                        for (int num : {3, 7, 13, 19}) {
+                            Expr val = evalf(
+                                simplify(subs(resid, var, rational(num, 29))), 30);
+                            if (val->type_id() != TypeId::Float) continue;
+                            double dd = 0.0;
+                            try {
+                                dd = std::stod(val->str());
+                            } catch (...) {
+                                continue;
+                            }
+                            if (!std::isfinite(dd)) continue;
+                            ++checks;
+                            if (std::fabs(dd) > 1e-6) ++bad;
+                        }
+                        if (!(checks > 0 && bad > 0)) return result;
                     }
                 }
             }
         }
     }
 
-    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) — or a positive
+    // Mul with one factor being sin/cos/exp/sinh/cosh(affine) — or a non-zero
     // integer power of sin/cos/sinh/cosh(affine), whose antiderivative integrate
     // already supplies — and the rest forming a non-trivial polynomial u. The
     // polynomial is differentiated down each step, so the recursion terminates
     // (the depth guard backs it up); sinh/cosh don't cycle the way exp·sin/cos
-    // does. This closes ∫x·cos²(x), ∫x·sin³(x), ∫x·cosh²(x), etc.
+    // does. This closes ∫x·cos²(x), ∫x·sin³(x), ∫x·cosh²(x), and the reciprocal
+    // powers ∫x·sec²(x) = ∫x/cos²(x) (the ∫target = tan etc. is tabulated; the
+    // marker guard below bails when an odd reciprocal power like sec doesn't
+    // yield an elementary ∫v·u').
     auto is_byparts_target = [&](const Expr& f) -> bool {
         const Function* fn = nullptr;
         if (f->type_id() == TypeId::Function) {
             fn = &static_cast<const Function&>(*f);
         } else if (f->type_id() == TypeId::Pow
                    && f->args()[1]->type_id() == TypeId::Integer
-                   && static_cast<const Integer&>(*f->args()[1]).is_positive()
                    && f->args()[0]->type_id() == TypeId::Function) {
             fn = &static_cast<const Function&>(*f->args()[0]);
         }
@@ -1225,15 +1645,30 @@ std::optional<Expr> try_integration_by_parts(const Expr& expr, const Expr& var) 
     // which is non-elementary — bail to the marker instead of looping.
     if (!is_polynomial_in(u, var)) return std::nullopt;
 
+    // A marker may be buried in a sum (e.g. an odd reciprocal power like sec,
+    // whose ∫v·u' is non-elementary, leaves Integral(...) terms inside an Add) —
+    // check recursively, not just the top node, so we bail instead of returning a
+    // partial garbage answer.
+    auto contains_marker = [](const Expr& e) {
+        bool found = false;
+        auto rec = [&](auto&& self, const Expr& x) -> void {
+            if (found) return;
+            if (is_integral_marker(x)) { found = true; return; }
+            for (const auto& a : x->args()) self(self, a);
+        };
+        rec(rec, e);
+        return found;
+    };
+
     Expr v = integrate(target, var);
-    if (is_integral_marker(v)) return std::nullopt;
+    if (contains_marker(v)) return std::nullopt;
 
     Expr du = diff(u, var);
     // expand so a product like (x/2 + sin(2x)/4)·2x distributes into a sum the
     // linearity path can integrate term by term (else it stays a Mul·Add that no
     // single strategy matches — e.g. ∫x²·cos²(x)).
     Expr remaining = integrate(expand(v * du), var);
-    if (is_integral_marker(remaining)) return std::nullopt;
+    if (contains_marker(remaining)) return std::nullopt;
 
     return u * v - remaining;
 }
@@ -1301,36 +1736,112 @@ std::optional<Expr> try_trig_reduction(const Expr& expr, const Expr& var) {
         }
     }
 
-    // sin(p)cos(q) → (sin(p+q) + sin(p-q))/2 — product-to-sum.
+    // A sin²(u) / cos²(u) factor inside a product: rewrite via the half-angle
+    // identity and recurse. Closes ∫sin²(x)/xⁿ = ∫(1−cos 2x)/(2xⁿ), which the
+    // linearity + Si/Ci power-reduction paths then integrate (the standalone
+    // Pow block above only handles a bare sin²(u)).
     if (expr->type_id() == TypeId::Mul) {
-        Expr sin_arg, cos_arg;
+        Expr half_angle;  // (1∓cos 2u)/2 replacing one trig-square factor
         std::vector<Expr> rest;
         for (const auto& f : expr->args()) {
-            if (!sin_arg && f->type_id() == TypeId::Function) {
-                const auto& fn = static_cast<const Function&>(*f);
-                if (fn.function_id() == FunctionId::Sin
-                    && fn.args().size() == 1) {
-                    sin_arg = f->args()[0];
-                    continue;
+            if (!half_angle && f->type_id() == TypeId::Pow
+                && f->args()[1] == integer(2)
+                && f->args()[0]->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f->args()[0]);
+                const FunctionId fid = fn.function_id();
+                if (fn.args().size() == 1
+                    && (fid == FunctionId::Sin || fid == FunctionId::Cos)) {
+                    const Expr& u = fn.args()[0];
+                    auto aff = as_affine(u, var);
+                    if (aff && !(aff->first == S::Zero())) {
+                        half_angle = (fid == FunctionId::Sin)
+                                         ? (integer(1) - cos(integer(2) * u))
+                                               / integer(2)
+                                         : (integer(1) + cos(integer(2) * u))
+                                               / integer(2);
+                        continue;
+                    }
                 }
             }
-            if (!cos_arg && f->type_id() == TypeId::Function) {
+            rest.push_back(f);
+        }
+        // Only rewrite when the remaining factors are non-trig (a power of x, an
+        // exponential, …). A trig × trig product (e.g. sin³·cos²) is better served
+        // by the dedicated sin^m·cos^n integrator, so leave it for that path.
+        auto is_trig = [](const Expr& f) -> bool {
+            const Expr& base =
+                f->type_id() == TypeId::Pow ? f->args()[0] : f;
+            if (base->type_id() != TypeId::Function) return false;
+            switch (static_cast<const Function&>(*base).function_id()) {
+                case FunctionId::Sin: case FunctionId::Cos:
+                case FunctionId::Tan: case FunctionId::Cot:
+                case FunctionId::Sec: case FunctionId::Csc:
+                case FunctionId::Sinh: case FunctionId::Cosh:
+                case FunctionId::Tanh: case FunctionId::Coth:
+                case FunctionId::Sech: case FunctionId::Csch:
+                    return true;
+                default:
+                    return false;
+            }
+        };
+        if (half_angle && !rest.empty()
+            && std::none_of(rest.begin(), rest.end(), is_trig)) {
+            Expr r = integrate(expand(half_angle * mul(rest)), var);
+            if (!is_integral_marker(r)) return r;
+        }
+    }
+
+    // Product-to-sum: collapse a product of two sin/cos factors of distinct
+    // var-dependent arguments p, q into a sum that linearity integrates —
+    //   sin p·cos q = (sin(p+q) + sin(p−q))/2
+    //   sin p·sin q = (cos(p−q) − cos(p+q))/2
+    //   cos p·cos q = (cos(p−q) + cos(p+q))/2
+    // and recurse on the rest (so cos x·cos 2x·cos 3x reduces pair by pair).
+    if (expr->type_id() == TypeId::Mul) {
+        Expr arg1;
+        Expr arg2;
+        FunctionId id1 = FunctionId::Sin;
+        FunctionId id2 = FunctionId::Sin;
+        int found = 0;
+        std::vector<Expr> rest;
+        for (const auto& f : expr->args()) {
+            if (found < 2 && f->type_id() == TypeId::Function) {
                 const auto& fn = static_cast<const Function&>(*f);
-                if (fn.function_id() == FunctionId::Cos
-                    && fn.args().size() == 1) {
-                    cos_arg = f->args()[0];
+                if ((fn.function_id() == FunctionId::Sin
+                     || fn.function_id() == FunctionId::Cos)
+                    && fn.args().size() == 1
+                    && depends_on(fn.args()[0], var)) {
+                    if (found == 0) {
+                        arg1 = fn.args()[0];
+                        id1 = fn.function_id();
+                    } else {
+                        arg2 = fn.args()[0];
+                        id2 = fn.function_id();
+                    }
+                    ++found;
                     continue;
                 }
             }
             rest.push_back(f);
         }
-        if (sin_arg && cos_arg
-            && depends_on(sin_arg, var) && depends_on(cos_arg, var)) {
-            Expr rewritten = (sin(sin_arg + cos_arg)
-                              + sin(sin_arg - cos_arg))
-                             / integer(2);
+        if (found == 2) {
+            const bool s1 = (id1 == FunctionId::Sin);
+            const bool s2 = (id2 == FunctionId::Sin);
+            Expr rewritten;
+            if (s1 && s2) {
+                rewritten = (cos(arg1 - arg2) - cos(arg1 + arg2)) / integer(2);
+            } else if (!s1 && !s2) {
+                rewritten = (cos(arg1 - arg2) + cos(arg1 + arg2)) / integer(2);
+            } else {
+                const Expr& sp = s1 ? arg1 : arg2;  // the sin argument
+                const Expr& cq = s1 ? arg2 : arg1;  // the cos argument
+                rewritten = (sin(sp + cq) + sin(sp - cq)) / integer(2);
+            }
             for (const auto& r : rest) rewritten = rewritten * r;
-            return integrate(rewritten, var);
+            // expand so the (cos±cos)/2 · rest product distributes into a sum that
+            // linearity integrates term by term (each remaining trig product then
+            // recurses) — needed for cos x·cos 2x·cos 3x and x·sin 2x·cos 3x.
+            return integrate(expand(rewritten), var);
         }
     }
     return std::nullopt;
@@ -1354,7 +1865,7 @@ struct SinCosPowers { Expr g; long m; long n; };
             const Expr& e = f->args()[1];
             if (e->type_id() != TypeId::Integer) return false;
             const auto& z = static_cast<const Integer&>(*e);
-            if (!z.is_positive() || !z.fits_long()) return false;
+            if (z.is_zero() || !z.fits_long()) return false;
             k = z.to_long();
             base = f->args()[0];
         }
@@ -1375,7 +1886,8 @@ struct SinCosPowers { Expr g; long m; long n; };
     } else if (!take(expr)) {
         return std::nullopt;
     }
-    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    const long deg = (m < 0 ? -m : m) + (n < 0 ? -n : n);
+    if (!g || deg == 0 || deg > 24) return std::nullopt;
     return SinCosPowers{g, m, n};
 }
 
@@ -1387,6 +1899,7 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     const Expr& g = parsed->g;
     const long m = parsed->m;
     const long n = parsed->n;
+    if (m < 0 || n < 0) return std::nullopt;  // quotients: try_sin_cos_quotient
     auto aff = as_affine(g, var);
     if (!aff || aff->first == S::Zero()) return std::nullopt;
     const Expr& a = aff->first;  // dg/dx
@@ -1420,6 +1933,220 @@ std::optional<Expr> try_trig_power(const Expr& expr, const Expr& var) {
     Expr c2 = (integer(1) + cos(two_g)) / integer(2);
     Expr rewritten = pow(s2, integer(m / 2)) * pow(c2, integer(n / 2));
     return integrate(expand(rewritten), var);
+}
+
+// ∫ sinᵐ(g)cosⁿ(g) dx for a sin/cos quotient (m<0 or n<0). With at least one ODD
+// exponent, substituting u=sin(g) (n odd) or u=cos(g) (m odd) makes the integrand
+// rational in u. With BOTH exponents even, t=tan(g) makes it rational in t. Either
+// way integrate()/try_rational closes it. Covers ∫cos²/sin, ∫sin³/cos², ∫cos²/sin³,
+// ∫cos⁴/sin², ∫cos²/sin², ∫sin⁴/cos², …
+std::optional<Expr> try_sin_cos_quotient(const Expr& expr, const Expr& var) {
+    auto parsed = parse_sin_cos_powers(expr);
+    if (!parsed) return std::nullopt;
+    const Expr& g = parsed->g;
+    const long m = parsed->m;
+    const long n = parsed->n;
+    if (m >= 0 && n >= 0) return std::nullopt;  // positives: try_trig_power
+    const bool m_odd = (m % 2) != 0;
+    const bool n_odd = (n % 2) != 0;
+    auto aff = as_affine(g, var);
+    if (!aff || aff->first == S::Zero()) return std::nullopt;
+    const Expr& a = aff->first;  // dg/dx
+
+    Expr u = symbol("_u_trigquot");
+    Expr result;
+    if (!m_odd && !n_odd) {
+        // Both even: t = tan(g). sinᵐcosⁿ dx = (1/a)·tᵐ/(1+t²)^((m+n)/2+1) dt,
+        // rational in t. (Positive both-even is handled by try_trig_power.)
+        Expr t = symbol("_t_trigquot");
+        const long p = (m + n) / 2 + 1;  // power of (1+t²) in the denominator
+        Expr integrand = pow(t, integer(m))
+                         * pow(integer(1) + pow(t, integer(2)), integer(-p));
+        Expr anti = integrate(integrand, t);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = subs(anti, t, tan(g)) / a;
+    } else if (n_odd) {
+        // u = sin(g): cosⁿ = cos·(1−u²)^k, cos·dx = du/a.
+        const long k = (n - 1) / 2;
+        Expr integrand = pow(u, integer(m))
+                         * pow(integer(1) - pow(u, integer(2)), integer(k));
+        Expr anti = integrate(integrand, u);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = subs(anti, u, sin(g)) / a;
+    } else {
+        // m odd: u = cos(g): sinᵐ = sin·(1−u²)^k, sin·dx = −du/a.
+        const long k = (m - 1) / 2;
+        Expr integrand = pow(integer(1) - pow(u, integer(2)), integer(k))
+                         * pow(u, integer(n));
+        Expr anti = integrate(integrand, u);
+        if (contains_integral_marker(anti)) return std::nullopt;
+        result = mul(S::NegativeOne(), subs(anti, u, cos(g))) / a;
+    }
+
+    // Diff-back self-check: the rational sub-integral recurses through several
+    // integrators; verify d/dx == the integrand so a mis-step fails to a marker,
+    // not a wrong answer. An exactly-zero residual is the best possible outcome.
+    Expr resid = simplify(diff(result, var) - expr);
+    if (resid == S::Zero()) return expand(result);
+    int checks = 0;
+    int bad = 0;
+    for (int num : {3, 7, 13, 19}) {
+        Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+        if (val == S::Zero()) {
+            ++checks;
+            continue;
+        }
+        if (val->type_id() != TypeId::Float) continue;
+        double dd = 0.0;
+        try {
+            dd = std::stod(val->str());
+        } catch (...) {
+            continue;
+        }
+        if (!std::isfinite(dd)) continue;
+        ++checks;
+        if (std::fabs(dd) > 1e-6) ++bad;
+    }
+    if (checks == 0 || bad > 0) return std::nullopt;
+    return expand(result);
+}
+
+// ∫ ∏ sin/cos(affineᵢ)^(kᵢ) dx — a product of sin/cos powers whose arguments are
+// affine in var but NOT all equal (e.g. sin²(x)·cos(2x), cos²(x)·cos(2x)). Product-
+// to-sum and power reduction linearize any such product into a sum of single
+// sin(affine)/cos(affine) terms, each of which the table integrates. Same-argument
+// products (sin^m·cos^n) are left to try_trig_power.
+std::optional<Expr> try_trig_product_expand(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<std::pair<FunctionId, Expr>> trigs;
+    Expr coeff = S::One();
+    auto add_factor = [&](const Expr& f) -> bool {
+        Expr base = f;
+        long k = 1;
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& e = f->args()[1];
+            if (e->type_id() != TypeId::Integer) return false;
+            const auto& z = static_cast<const Integer&>(*e);
+            if (!z.is_positive() || !z.fits_long() || z.to_long() > 24) return false;
+            k = z.to_long();
+            base = f->args()[0];
+        }
+        if (base->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*base);
+            const FunctionId id = fn.function_id();
+            if ((id == FunctionId::Sin || id == FunctionId::Cos)
+                && fn.args().size() == 1 && as_affine(fn.args()[0], var)) {
+                for (long i = 0; i < k; ++i)
+                    trigs.emplace_back(id, fn.args()[0]);
+                return true;
+            }
+        }
+        if (depends_on(f, var)) return false;  // non-trig var factor: not our job
+        coeff = coeff * f;
+        return true;
+    };
+    for (const auto& f : expr->args())
+        if (!add_factor(f)) return std::nullopt;
+    if (trigs.size() < 2 || trigs.size() > 16) return std::nullopt;
+    bool distinct = false;
+    for (size_t i = 1; i < trigs.size(); ++i)
+        if (!(trigs[i].second == trigs[0].second)) { distinct = true; break; }
+    if (!distinct) return std::nullopt;  // same-arg product: try_trig_power
+
+    auto make_trig = [](FunctionId id, const Expr& arg) -> Expr {
+        return id == FunctionId::Sin ? sin(arg) : cos(arg);
+    };
+    auto p2s = [](FunctionId f1, const Expr& a1, FunctionId f2,
+                  const Expr& a2) -> Expr {
+        Expr s = a1 + a2;
+        Expr d = a1 - a2;
+        if (f1 == FunctionId::Sin && f2 == FunctionId::Sin)
+            return (cos(d) - cos(s)) / integer(2);
+        if (f1 == FunctionId::Cos && f2 == FunctionId::Cos)
+            return (cos(d) + cos(s)) / integer(2);
+        if (f1 == FunctionId::Sin && f2 == FunctionId::Cos)
+            return (sin(s) + sin(d)) / integer(2);
+        return (sin(s) - sin(d)) / integer(2);  // Cos · Sin
+    };
+    // Split an additive term into a var-free coefficient and at most one sin/cos
+    // factor. Returns the trig count (0 or 1); -1 if a term unexpectedly carries
+    // two trig factors (a broken invariant — bail safely).
+    auto split = [](const Expr& term, Expr& c, FunctionId& fid, Expr& arg) -> int {
+        c = S::One();
+        int cnt = 0;
+        std::vector<Expr> fac = term->type_id() == TypeId::Mul
+                                    ? std::vector<Expr>(term->args().begin(),
+                                                        term->args().end())
+                                    : std::vector<Expr>{term};
+        for (const auto& f : fac) {
+            if (f->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*f);
+                const FunctionId id = fn.function_id();
+                if ((id == FunctionId::Sin || id == FunctionId::Cos)
+                    && fn.args().size() == 1) {
+                    if (++cnt > 1) return -1;
+                    fid = id;
+                    arg = fn.args()[0];
+                    continue;
+                }
+            }
+            c = c * f;
+        }
+        return cnt;
+    };
+
+    // Fold the factors pairwise into a linear combination of single sin/cos terms.
+    Expr lin = make_trig(trigs[0].first, trigs[0].second);
+    for (size_t i = 1; i < trigs.size(); ++i) {
+        Expr ex = expand(lin);
+        std::vector<Expr> terms = ex->type_id() == TypeId::Add
+                                      ? std::vector<Expr>(ex->args().begin(),
+                                                          ex->args().end())
+                                      : std::vector<Expr>{ex};
+        Expr next = S::Zero();
+        for (const auto& term : terms) {
+            Expr c;
+            FunctionId fid = FunctionId::Sin;
+            Expr arg;
+            const int cnt = split(term, c, fid, arg);
+            if (cnt < 0) return std::nullopt;
+            next = next + (cnt == 0
+                               ? c * make_trig(trigs[i].first, trigs[i].second)
+                               : c * p2s(fid, arg, trigs[i].first,
+                                         trigs[i].second));
+        }
+        lin = next;
+    }
+
+    Expr result = integrate(simplify(expand(coeff * lin)), var);
+    if (is_integral_marker(result) || contains_integral_marker(result))
+        return std::nullopt;
+
+    // Numeric diff-back guard: the product-to-sum fold is exact, but verify so any
+    // future regression fails to a marker rather than a wrong answer. (SymPy-style
+    // symbolic simplify can't always reduce a trig product, so sample numerically.)
+    Expr resid = diff(result, var) - expr;
+    int checks = 0;
+    int bad = 0;
+    for (int num : {3, 7, 13, 19}) {
+        Expr val = evalf(simplify(subs(resid, var, rational(num, 29))), 30);
+        if (val == S::Zero()) {
+            ++checks;
+            continue;
+        }
+        if (val->type_id() != TypeId::Float) continue;
+        double dd = 0.0;
+        try {
+            dd = std::stod(val->str());
+        } catch (...) {
+            continue;
+        }
+        if (!std::isfinite(dd)) continue;
+        ++checks;
+        if (std::fabs(dd) > 1e-6) ++bad;
+    }
+    if (checks == 0 || bad > 0) return std::nullopt;
+    return expand(result);
 }
 
 std::optional<Expr> try_tan_power(const Expr& expr, const Expr& var) {
@@ -1489,6 +2216,73 @@ std::optional<Expr> try_tanh_coth_power(const Expr& expr, const Expr& var) {
     Expr rest = integrate(pow(base, integer(n - 2)), var);
     if (is_integral_marker(rest)) return std::nullopt;
     return rest - first;
+}
+
+std::optional<Expr> try_tan_sec_product(const Expr& expr, const Expr& var) {
+    struct Pair { FunctionId tan_id; FunctionId sec_id; };
+    for (const Pair pr : {Pair{FunctionId::Tan, FunctionId::Sec},
+                          Pair{FunctionId::Cot, FunctionId::Csc}}) {
+        // Parse expr as tan(g)^m · sec(g)^n (same affine g; m,n ≥ 0 integers).
+        Expr g;
+        long m = 0;
+        long n = 0;
+        bool ok = true;
+        bool have_g = false;
+        std::vector<Expr> factors;
+        if (expr->type_id() == TypeId::Mul) {
+            for (const auto& f : expr->args()) factors.push_back(f);
+        } else {
+            factors.push_back(expr);
+        }
+        for (const auto& f : factors) {
+            Expr base = f;
+            long k = 1;
+            if (f->type_id() == TypeId::Pow
+                && f->args()[1]->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*f->args()[1]);
+                if (!z.is_positive() || !z.fits_long()) { ok = false; break; }
+                k = z.to_long();
+                base = f->args()[0];
+            }
+            if (base->type_id() != TypeId::Function) { ok = false; break; }
+            const auto& bfn = static_cast<const Function&>(*base);
+            if (bfn.args().size() != 1) { ok = false; break; }
+            const FunctionId id = bfn.function_id();
+            if (id != pr.tan_id && id != pr.sec_id) { ok = false; break; }
+            if (have_g && !(g == bfn.args()[0])) { ok = false; break; }
+            g = bfn.args()[0];
+            have_g = true;
+            if (id == pr.tan_id) m += k; else n += k;
+        }
+        if (!ok || !have_g || (m == 0 && n == 0)) continue;
+        auto aff = as_affine(g, var);
+        if (!aff || aff->first == S::Zero()) continue;
+        const Expr& a = aff->first;
+        Expr sec_g = (pr.sec_id == FunctionId::Sec) ? sec(g) : csc(g);
+
+        if (m % 2 == 1 && n >= 1) {
+            // u = sec(g): tan^m·sec^n = (sec²−1)^((m−1)/2)·sec^(n−1)·(sec·tan),
+            // and d(sec) = sec·tan·g' (d(csc) = −csc·cot·g'). → polynomial in u.
+            Expr u = symbol("__tansec_u");
+            Expr poly_u = expand(pow(u * u - integer(1), integer((m - 1) / 2))
+                                 * pow(u, integer(n - 1)));
+            Expr anti = integrate(poly_u, u);
+            if (is_integral_marker(anti)) continue;
+            Expr sign = (pr.tan_id == FunctionId::Cot) ? S::NegativeOne()
+                                                       : S::One();
+            return simplify(mul(sign, subs(anti, u, sec_g)) / a);
+        }
+        if (m % 2 == 0 && m > 0) {
+            // tan^m = (sec²−1)^(m/2): expand to pure sec powers, integrate those.
+            Expr rewritten = pow(pow(sec_g, integer(2)) - integer(1),
+                                 integer(m / 2))
+                             * pow(sec_g, integer(n));
+            Expr r = integrate(expand(rewritten), var);
+            if (is_integral_marker(r)) continue;
+            return r;
+        }
+    }
+    return std::nullopt;
 }
 
 std::optional<Expr> try_sec_csc_power(const Expr& expr, const Expr& var) {
@@ -1605,7 +2399,8 @@ namespace {
     } else if (!take(expr)) {
         return std::nullopt;
     }
-    if (!g || (m + n) == 0 || (m + n) > 24) return std::nullopt;
+    const long deg = (m < 0 ? -m : m) + (n < 0 ? -n : n);
+    if (!g || deg == 0 || deg > 24) return std::nullopt;
     return SinCosPowers{g, m, n};
 }
 
@@ -1878,6 +2673,68 @@ std::optional<Expr> try_hyperbolic_to_exp(const Expr& expr, const Expr& var) {
     return false;
 }
 
+namespace {
+// Recursively combine a finite rational expression into a single numerator /
+// denominator pair, descending into the bases of integer powers so that nested
+// fractions flatten. The library as_numer_denom() deliberately does NOT recurse
+// into a Pow base (doing so globally perturbs the limit engine when a base
+// carries infinities). Here the Weierstrass-substituted integrand is a finite
+// rational function of t, so the recursion is safe — and necessary: for
+// numerator-bearing integrands like cos(x)/(1+cos x) the half-angle denominator
+// is itself a fraction (1 + (1−t²)/(1+t²)) that together()/cancel() leave
+// un-reduced, which then makes try_rational emit garbage.
+struct FlatRatio { Expr num; Expr den; };
+[[nodiscard]] FlatRatio flatten_ratio(const Expr& e) {
+    if (!e) return {S::One(), S::One()};
+    switch (e->type_id()) {
+        case TypeId::Mul: {
+            std::vector<Expr> nums, dens;
+            for (const auto& a : e->args()) {
+                auto r = flatten_ratio(a);
+                nums.push_back(r.num);
+                dens.push_back(r.den);
+            }
+            return {mul(std::move(nums)), mul(std::move(dens))};
+        }
+        case TypeId::Add: {
+            std::vector<FlatRatio> parts;
+            parts.reserve(e->args().size());
+            for (const auto& a : e->args()) parts.push_back(flatten_ratio(a));
+            Expr den = S::One();
+            for (const auto& p : parts) den = mul(den, p.den);
+            // Common denom = product of part denoms; cancel() reduces afterwards.
+            std::vector<Expr> terms;
+            terms.reserve(parts.size());
+            for (std::size_t i = 0; i < parts.size(); ++i) {
+                Expr cof = S::One();
+                for (std::size_t j = 0; j < parts.size(); ++j) {
+                    if (j != i) cof = mul(cof, parts[j].den);
+                }
+                terms.push_back(mul(parts[i].num, cof));
+            }
+            return {add(std::move(terms)), den};
+        }
+        case TypeId::Pow: {
+            const Expr& base = e->args()[0];
+            const Expr& ex = e->args()[1];
+            if (ex->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*ex);
+                if (z.fits_long()) {
+                    auto br = flatten_ratio(base);
+                    const long k = z.to_long();
+                    if (k < 0) return {pow(br.den, integer(-k)),
+                                       pow(br.num, integer(-k))};
+                    if (k > 0) return {pow(br.num, ex), pow(br.den, ex)};
+                }
+            }
+            return {e, S::One()};
+        }
+        default:
+            return {e, S::One()};
+    }
+}
+}  // namespace
+
 std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     if (!depends_on(expr, var)) return std::nullopt;
     // Exclude integrands with a trig function raised to a power — their
@@ -1907,8 +2764,14 @@ std::optional<Expr> try_weierstrass(const Expr& expr, const Expr& var) {
     // affine trig argument like sin(2x), or exp/log of var) — bail.
     if (depends_on(e, var)) return std::nullopt;
 
-    // dx = 2/(1+t²) dt; bring to a single fraction.
-    Expr integrand = together(e * integer(2) / one_pt2);
+    // dx = 2/(1+t²) dt. Flatten the (possibly nested) rational into a single
+    // numerator/denominator pair, then cancel to lowest terms. together()/cancel
+    // alone leave nested fractions inside a Pow base un-reduced — e.g. for
+    // 1/(1+cos x) and cos(x)/(1+cos x) the half-angle denominator is itself a
+    // fraction 1 + (1−t²)/(1+t²) — and feeding the un-reduced form to integrate()
+    // makes try_rational misparse the denominator and emit garbage (zoo).
+    FlatRatio fr = flatten_ratio(e * integer(2) / one_pt2);
+    Expr integrand = cancel(fr.num / fr.den, t);
 
     // A non-rational integrand (e.g. √(tan x) → √(2t/(1−t²))) would hand
     // `integrate` a non-elementary algebraic integral that can loop — bail.
@@ -2028,25 +2891,28 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     const Expr& b = p.coeffs()[1];
     const Expr& a = p.coeffs()[2];
 
-    // Need rational coefficients to decide irreducibility from the sign of the
-    // discriminant. Symbolic coefficients (e.g. 1/(k²+x²)) are out of scope.
-    if (is_rational(a) != true || is_rational(b) != true
-        || is_rational(c) != true) {
-        return std::nullopt;
-    }
+    // The branch is chosen from the sign of the discriminant. Rational
+    // coefficients let us decide it directly; symbolic coefficients are allowed
+    // only when the discriminant is *provably* positive (e.g. 1/(x²+a²) with
+    // a > 0 → atan(x/a)/a), matching SymPy under positivity assumptions. When
+    // the sign can't be decided the integral is left unevaluated.
+    const bool rational_coeffs = is_rational(a) == true
+                                 && is_rational(b) == true
+                                 && is_rational(c) == true;
 
     // D = 4ac − b². D > 0 ⇒ no real roots ⇒ arctangent. D = 0 ⇒ a repeated
     // real root. D < 0 ⇒ distinct real roots, which try_rational splits into
     // logs, so leave those alone.
     Expr disc = integer(4) * a * c - b * b;
 
-    if (disc == S::Zero()) {
+    if (rational_coeffs && disc == S::Zero()) {
         // a·x² + b·x + c = a·(x − r)², r = −b/(2a):
         //   ∫ 1/(a·(x − r)²) dx = −2/(2a·x + b).
         return integer(-2) / (integer(2) * a * var + b);
     }
     if (is_positive(disc) == true) {
-        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D.
+        // D > 0 ⇒ no real roots: ∫ = 2·atan((2a·x + b)/√D) / √D. Works for
+        // symbolic coefficients too (e.g. 1/(x²+a²), a > 0).
         Expr root_d = sqrt(disc);
         Expr arg = (integer(2) * a * var + b) / root_d;
         return simplify(integer(2) * atan(arg) / root_d);
@@ -2055,6 +2921,8 @@ std::optional<Expr> try_arctan_quadratic(const Expr& expr, const Expr& var) {
     // by try_rational (which runs first); irrational roots reach here, where the
     // partial-fraction logs carry √Δ (Δ = b²−4ac = −D):
     //   ∫ 1/(a·x²+b·x+c) = [log(2a·x+b−√Δ) − log(2a·x+b+√Δ)] / √Δ.
+    // Fires for symbolic coefficients too when Δ is provably positive
+    // (e.g. 1/(a²−x²), a > 0 → log((a+x)/(x−a))/(2a)).
     Expr delta = simplify(mul(S::NegativeOne(), disc));  // b² − 4ac > 0
     if (is_positive(delta) != true) return std::nullopt;
     Expr root_delta = sqrt(delta);
@@ -2234,7 +3102,9 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
         if (!inner.has_value()) return std::nullopt;
         return simplify(subs(inner.value(), var, var + shift));
     }
-    if (is_rational(a) != true || is_rational(c) != true) return std::nullopt;
+    // Symbolic coefficients are allowed: each branch below is gated on a
+    // *provable* sign (is_positive/is_negative), so 1/√(x²+a²) (c = a² > 0) →
+    // asinh(x/a). Coefficients of undecidable sign fall through unevaluated.
 
     // ∫ √(a·x² + c) dx = (x/2)·√(a·x²+c) + (c/2)·∫ 1/√(a·x²+c) dx (by parts).
     // Reduce to the reciprocal case below and reuse its asin/asinh/log result;
@@ -2266,6 +3136,48 @@ std::optional<Expr> try_sqrt_quadratic(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+std::optional<Expr> try_poly_times_sqrt_quadratic(const Expr& expr,
+                                                  const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // Isolate a (quadratic)^(m/2) factor with odd m > 0; the rest is the polynomial.
+    Expr sqrt_factor;
+    Expr quad;
+    long half_pow = 0;  // m in (quadratic)^(m/2)
+    std::vector<Expr> rest;
+    for (const auto& f : expr->args()) {
+        if (!sqrt_factor && f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Rational
+            && depends_on(f->args()[0], var)) {
+            const auto& r = static_cast<const Rational&>(*f->args()[1]).value();
+            if (r.get_den() == 2 && r.get_num() > 0
+                && (r.get_num() % 2) == 1 && r.get_num().fits_slong_p()) {
+                try {
+                    Poly q(expand(f->args()[0]), var);
+                    if (q.degree() == 2) {
+                        sqrt_factor = f;
+                        quad = f->args()[0];
+                        half_pow = r.get_num().get_si();
+                        continue;
+                    }
+                } catch (const std::exception&) {
+                }
+            }
+        }
+        rest.push_back(f);
+    }
+    if (!sqrt_factor || rest.empty()) return std::nullopt;
+    Expr poly_part = mul(std::move(rest));
+    if (!is_polynomial_in(poly_part, var)) return std::nullopt;
+
+    // P·Q^(m/2) = (P·Q^((m+1)/2)) / √Q  (m odd ⇒ (m+1)/2 integer), a polynomial
+    // over √Q that the reduction handler closes.
+    Expr q_power = pow(quad, integer((half_pow + 1) / 2));
+    Expr rewritten = expand(poly_part * q_power) * pow(quad, rational(-1, 2));
+    Expr r = integrate(rewritten, var);
+    if (is_integral_marker(r)) return std::nullopt;
+    return simplify(r);
+}
+
 std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     // Split into the √-reciprocal factor (quadratic)^(-1/2) and a numerator that
@@ -2292,9 +3204,15 @@ std::optional<Expr> try_x_over_sqrt_quadratic(const Expr& expr, const Expr& var)
         return std::nullopt;
     }
 
-    // The numerator must be linear in var: N = p·x + q.
+    // The numerator must be linear in var: N = p·x + q. A non-polynomial factor
+    // such as asin(x) is seen by Poly as an opaque degree-0 "coefficient" — so the
+    // coefficients must be checked var-free, else asin(x)/√(1−x²) would be treated
+    // as the *constant* asin(x) times ∫1/√Q = asin(x), giving the wrong asin(x)².
     Poly n_poly(expand(mul(num_factors)), var);
     if (n_poly.degree() > 1) return std::nullopt;
+    for (const auto& cf : n_poly.coeffs()) {
+        if (has(cf, var)) return std::nullopt;
+    }
     const Expr p = n_poly.degree() >= 1 ? n_poly.coeffs()[1] : S::Zero();
     const Expr& qn = n_poly.coeffs()[0];
 
@@ -2381,6 +3299,208 @@ std::optional<Expr> try_poly_over_sqrt_quadratic(const Expr& expr, const Expr& v
     return simplify(lead * Jk);
 }
 
+std::optional<Expr> try_const_base_exp_integral(const Expr& expr, const Expr& var) {
+    // Match a constant-base power a^(affine in var): base var-free and provably
+    // positive (so ln a is real), a ≠ 1, exponent depending on var and affine.
+    auto match_pow = [&](const Expr& f) -> bool {
+        if (f->type_id() != TypeId::Pow) return false;
+        const Expr& base = f->args()[0];
+        const Expr& exn = f->args()[1];
+        if (has(base, var)) return false;
+        if (!(is_positive(base) == true)) return false;
+        if (base == S::One()) return false;
+        if (!has(exn, var)) return false;
+        return as_affine(exn, var).has_value();
+    };
+
+    Expr powfac;
+    std::vector<Expr> rest;
+    if (match_pow(expr)) {
+        powfac = expr;  // bare a^(b·x+c), P = 1
+    } else if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!powfac && match_pow(f)) {
+                powfac = f;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!powfac) return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+
+    const Expr& base = powfac->args()[0];
+    auto aff = as_affine(powfac->args()[1], var);  // exponent = b·var + c
+    const Expr& b = aff->first;
+    if (b == S::Zero()) return std::nullopt;
+    // d/dx a^(b·x+c) = a^(b·x+c)·b·ln a, so ∫a^(b·x+c) = a^(b·x+c)/(b·ln a).
+    Expr k = mul(b, log(base));
+
+    // The residual factor must be a polynomial in var with var-free coefficients.
+    Expr poly_part = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    Poly pp(expand(poly_part), var);
+    for (const auto& cc : pp.coeffs()) {
+        if (depends_on(cc, var)) return std::nullopt;
+    }
+
+    // ∫xⁿ·a^g = xⁿ·a^g/k − (n/k)·∫xⁿ⁻¹·a^g, bottoming at ∫a^g = a^g/k.
+    auto moment = [&](auto&& self, long n) -> Expr {
+        if (n == 0) return powfac / k;
+        Expr head = pow(var, integer(n)) * powfac / k;
+        Expr tail = integer(n) / k * self(self, n - 1);
+        return head - tail;
+    };
+
+    const long deg = static_cast<long>(pp.degree());
+    std::vector<Expr> terms;
+    for (long i = 0; i <= deg; ++i) {
+        const Expr& ai = pp.coeffs()[static_cast<std::size_t>(i)];
+        if (ai == S::Zero()) continue;
+        terms.push_back(mul(ai, moment(moment, i)));
+    }
+    if (terms.empty()) return std::nullopt;
+    return simplify(add(std::move(terms)));
+}
+
+std::optional<Expr> try_shifted_gaussian(const Expr& expr, const Expr& var) {
+    // Isolate the exp factor; the remaining factors (if any) must be polynomial.
+    Expr expfac;
+    std::vector<Expr> rest;
+    auto is_exp1 = [](const Expr& f) -> const Function* {
+        if (f->type_id() != TypeId::Function) return nullptr;
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            return &fn;
+        }
+        return nullptr;
+    };
+    if (is_exp1(expr)) {
+        expfac = expr;  // bare exp(quadratic), P = 1
+    } else if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) {
+            if (!expfac && is_exp1(f)) {
+                expfac = f;
+                continue;
+            }
+            rest.push_back(f);
+        }
+        if (!expfac) return std::nullopt;
+    } else {
+        return std::nullopt;
+    }
+
+    // Exponent must be a genuine quadratic a·x²+b·x+c with a linear term (b ≠ 0).
+    // A pure quadratic (b = 0) is try_gaussian / try_poly_times_gaussian's job.
+    const auto& efn = static_cast<const Function&>(*expfac);
+    Poly ep(expand(efn.args()[0]), var);
+    if (ep.degree() != 2) return std::nullopt;
+    Expr a = ep.coeffs()[2];
+    Expr b = ep.coeffs()[1];
+    Expr c = ep.coeffs()[0];
+    if (b == S::Zero()) return std::nullopt;
+    if (depends_on(a, var) || depends_on(b, var) || depends_on(c, var)) {
+        return std::nullopt;
+    }
+
+    // The residual factor must be polynomial in var (with var-free coefficients).
+    Expr poly_part = rest.empty() ? Expr{S::One()} : mul(std::move(rest));
+    if (!rest.empty() || !(poly_part == S::One())) {
+        try {
+            Poly pp(expand(poly_part), var);
+            for (const auto& cc : pp.coeffs()) {
+                if (depends_on(cc, var)) return std::nullopt;
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+
+    // Complete the square: a·x²+b·x+c = a·(x−x₀)² + K, x₀ = −b/(2a),
+    // K = c − b²/(4a). Substitute u = x − x₀ so exp becomes e^K·exp(a·u²), a pure
+    // Gaussian — then let integrate() apply the moment/erf rules in u.
+    Expr x0 = mul(S::NegativeOne(), b) / (integer(2) * a);
+    Expr K = simplify(c - pow(b, integer(2)) / (integer(4) * a));
+    Expr u = symbol("__shifted_gauss_u");
+    Expr u_to_x = u + x0;                       // x = u + x₀
+    Expr shifted_poly = subs(poly_part, var, u_to_x);
+    Expr shifted = exp(K) * shifted_poly * exp(a * pow(u, integer(2)));
+
+    Expr R = integrate(shifted, u);
+    if (is_integral_marker(R)) return std::nullopt;
+    return simplify(subs(R, u, var - x0));       // u = x − x₀
+}
+
+std::optional<Expr> try_poly_times_gaussian(const Expr& expr, const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+
+    // Isolate the exp(quadratic) factor; the rest must be a polynomial in var.
+    Expr expfac;
+    std::vector<Expr> rest;
+    for (const auto& f : expr->args()) {
+        if (!expfac && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                expfac = f;
+                continue;
+            }
+        }
+        rest.push_back(f);
+    }
+    if (!expfac || rest.empty()) return std::nullopt;
+
+    // Exponent must be a pure quadratic c·x² (no linear/constant term — those need
+    // completing the square, out of scope, as in try_gaussian).
+    const auto& efn = static_cast<const Function&>(*expfac);
+    Poly ep(expand(efn.args()[0]), var);
+    if (ep.degree() != 2) return std::nullopt;
+    if (!(ep.coeffs()[0] == S::Zero()) || !(ep.coeffs()[1] == S::Zero())) {
+        return std::nullopt;
+    }
+    Expr c = ep.coeffs()[2];
+    // The erf/erfi base case needs a provable sign for c (numeric is fine).
+    const bool c_neg = is_negative(c) == true;
+    const bool c_pos = is_positive(c) == true;
+    if (!c_neg && !c_pos) return std::nullopt;
+
+    // The remaining factor must be a polynomial in var with var-free coefficients.
+    Expr poly_part = mul(std::move(rest));
+    Poly pp(expand(poly_part), var);
+    for (const auto& cc : pp.coeffs()) {
+        if (depends_on(cc, var)) return std::nullopt;
+    }
+
+    Expr two_c = mul(integer(2), c);
+    // ∫xⁿ·exp(c·x²) dx by the parts reduction
+    //   ∫xⁿ e^{cx²} = xⁿ⁻¹ e^{cx²}/(2c) − (n−1)/(2c) · ∫xⁿ⁻² e^{cx²},
+    // bottoming out at n = 0 (erf/erfi) and n = 1 (exp(c·x²)/(2c)).
+    auto moment = [&](auto&& self, long n) -> Expr {
+        if (n == 0) {
+            if (c_neg) {
+                Expr a = mul(S::NegativeOne(), c);  // a = −c > 0
+                Expr sa = sqrt(a);
+                return sqrt(S::Pi()) * erf(sa * var) / (integer(2) * sa);
+            }
+            Expr sa = sqrt(c);
+            return sqrt(S::Pi()) * erfi(sa * var) / (integer(2) * sa);
+        }
+        if (n == 1) return expfac / two_c;
+        Expr head = pow(var, integer(n - 1)) * expfac / two_c;
+        Expr tail = integer(n - 1) / two_c * self(self, n - 2);
+        return head - tail;
+    };
+
+    const long deg = static_cast<long>(pp.degree());
+    std::vector<Expr> terms;
+    for (long k = 0; k <= deg; ++k) {
+        const Expr& ak = pp.coeffs()[static_cast<std::size_t>(k)];
+        if (ak == S::Zero()) continue;
+        terms.push_back(mul(ak, moment(moment, k)));
+    }
+    if (terms.empty()) return std::nullopt;
+    return simplify(add(std::move(terms)));
+}
+
 std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Function) return std::nullopt;
     const auto& fn = static_cast<const Function&>(*expr);
@@ -2393,10 +3513,10 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     const Expr& c1 = p.coeffs()[1];
     const Expr& c2 = p.coeffs()[2];
     // Pure c·x² only (no linear or constant term — a linear/constant part needs
-    // completing the square, out of scope), with c a non-zero rational.
-    // Negative c → real erf; positive c → the imaginary error function erfi.
+    // completing the square, out of scope). Negative c → real erf; positive c →
+    // the imaginary error function erfi. A symbolic coefficient is allowed when
+    // its sign is provable (e.g. exp(−a·x²) with a > 0 → √π·erf(√a·x)/(2√a)).
     if (!(c0 == S::Zero()) || !(c1 == S::Zero())) return std::nullopt;
-    if (is_rational(c2) != true) return std::nullopt;
 
     if (is_negative(c2) == true) {
         // ∫ exp(−a·x²) dx = √π·erf(√a·x) / (2·√a),  a = −c₂ > 0.
@@ -2415,13 +3535,16 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
 std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr func;                    // the sin/cos/exp factor
-    bool has_recip = false;       // saw a 1/var factor
+    long n = 0;                   // the integrand carries x^(−n), n ≥ 1
     std::vector<Expr> consts;     // constant prefactors
     for (const auto& f : expr->args()) {
-        if (!has_recip && f->type_id() == TypeId::Pow
-            && f->args()[0] == var && f->args()[1] == S::NegativeOne()) {
-            has_recip = true;
-            continue;
+        if (n == 0 && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && f->args()[1]->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*f->args()[1]);
+            if (z.is_negative() && z.fits_long()) {
+                n = -z.to_long();
+                continue;
+            }
         }
         if (!func && f->type_id() == TypeId::Function) {
             const auto& fn = static_cast<const Function&>(*f);
@@ -2442,18 +3565,41 @@ std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
         if (depends_on(f, var)) return std::nullopt;  // some other var factor
         consts.push_back(f);
     }
-    if (!has_recip || !func) return std::nullopt;
+    if (n == 0 || !func) return std::nullopt;
 
     const auto& fn = static_cast<const Function&>(*func);
+    const FunctionId id = fn.function_id();
     const Expr& g = fn.args()[0];
     Expr result;
-    switch (fn.function_id()) {
-        case FunctionId::Sin: result = sinint(g); break;     // ∫sin(c·x)/x = Si
-        case FunctionId::Cos: result = cosint(g); break;     // ∫cos(c·x)/x = Ci
-        case FunctionId::Exp: result = expint_ei(g); break;  // ∫exp(c·x)/x = Ei
-        case FunctionId::Sinh: result = sinhint(g); break;   // ∫sinh(c·x)/x = Shi
-        case FunctionId::Cosh: result = coshint(g); break;   // ∫cosh(c·x)/x = Chi
-        default: return std::nullopt;
+    if (n == 1) {
+        switch (id) {
+            case FunctionId::Sin: result = sinint(g); break;   // ∫sin(c·x)/x = Si
+            case FunctionId::Cos: result = cosint(g); break;   // ∫cos(c·x)/x = Ci
+            case FunctionId::Exp: result = expint_ei(g); break;  // = Ei
+            case FunctionId::Sinh: result = sinhint(g); break;   // = Shi
+            case FunctionId::Cosh: result = coshint(g); break;   // = Chi
+            default: return std::nullopt;
+        }
+    } else {
+        // ∫f(c·x)/xⁿ by parts (u = f, dv = x^(−n) dx, v = x^(1−n)/(1−n)):
+        //   = f(c·x)/((1−n)·x^(n−1)) − c/(1−n)·∫f'(c·x)/x^(n−1) dx,
+        // recursing on the residual down to the n = 1 Si/Ci/Ei base case.
+        Expr c = as_affine(g, var)->first;
+        Expr deriv;  // f'(c·x)
+        switch (id) {
+            case FunctionId::Sin: deriv = cos(g); break;
+            case FunctionId::Cos: deriv = mul(S::NegativeOne(), sin(g)); break;
+            case FunctionId::Exp: deriv = exp(g); break;
+            case FunctionId::Sinh: deriv = cosh(g); break;
+            case FunctionId::Cosh: deriv = sinh(g); break;
+            default: return std::nullopt;
+        }
+        Expr inv_1mn = pow(integer(1 - n), S::NegativeOne());
+        Expr boundary = mul(mul(func, pow(var, integer(1 - n))), inv_1mn);
+        Expr residual = integrate(mul(deriv, pow(var, integer(1 - n))), var);
+        if (is_integral_marker(residual)) return std::nullopt;
+        result = boundary - mul(mul(c, inv_1mn), residual);
+        result = simplify(result);
     }
     if (!consts.empty()) result = mul(mul(consts), result);
     return result;
@@ -2527,11 +3673,135 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(subs(result_u, u, root_base));
 }
 
+// A definite integral of an integrand containing abs(g)/sign(g): the
+// antiderivative is generally not elementary, but |g| and sign(g) are piecewise
+// over the sign of g. Split [lower, upper] at the real roots of each g, replace
+// abs(g)→±g and sign(g)→±1 by the sign on each subinterval, and integrate the now
+// smooth pieces. Finite bounds only. Returns nullopt unless every piece closes.
+[[nodiscard]] std::optional<Expr> try_abs_definite(const Expr& expr,
+                                                   const Expr& var,
+                                                   const Expr& lower,
+                                                   const Expr& upper) {
+    if (is_infinity(lower) || is_infinity(upper)) return std::nullopt;
+
+    // Collect the abs(g)/sign(g) nodes that depend on var.
+    std::vector<Expr> nodes;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            const FunctionId id = fn.function_id();
+            if ((id == FunctionId::Abs || id == FunctionId::Sign)
+                && fn.args().size() == 1 && depends_on(fn.args()[0], var)) {
+                if (std::none_of(nodes.begin(), nodes.end(),
+                                 [&](const Expr& n) { return n == e; })) {
+                    nodes.push_back(e);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (nodes.empty()) return std::nullopt;
+
+    auto to_double = [](const Expr& e) -> std::optional<double> {
+        Expr v = evalf(e, 30);
+        if (v->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            return std::stod(v->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    };
+    auto lo_d = to_double(lower);
+    auto hi_d = to_double(upper);
+    if (!lo_d || !hi_d || !(*lo_d < *hi_d)) return std::nullopt;
+
+    // Breakpoints: real roots of each g strictly inside (lower, upper).
+    std::vector<std::pair<double, Expr>> bps;
+    for (const auto& nd : nodes) {
+        const Expr& g = nd->args()[0];
+        for (const auto& r : solve(g, var)) {
+            if (depends_on(r, var)) continue;
+            auto rd = to_double(r);
+            if (!rd || *rd <= *lo_d + 1e-9 || *rd >= *hi_d - 1e-9) continue;
+            if (std::none_of(bps.begin(), bps.end(), [&](const auto& p) {
+                    return std::fabs(p.first - *rd) < 1e-9;
+                })) {
+                bps.emplace_back(*rd, r);
+            }
+        }
+    }
+    std::sort(bps.begin(), bps.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    std::vector<Expr> points;
+    points.push_back(lower);
+    for (const auto& [d, r] : bps) points.push_back(r);
+    points.push_back(upper);
+
+    auto sign_at = [&](const Expr& g, const Expr& pt) -> int {
+        Expr v = evalf(simplify(subs(g, var, pt)), 30);
+        if (is_positive(v) == true) return 1;
+        if (is_negative(v) == true) return -1;
+        return 0;
+    };
+
+    std::vector<Expr> pieces;
+    for (std::size_t i = 0; i + 1 < points.size(); ++i) {
+        const Expr& p = points[i];
+        const Expr& q = points[i + 1];
+        Expr mid = (p + q) / integer(2);
+        ExprMap<Expr> repl;
+        bool ok = true;
+        for (const auto& nd : nodes) {
+            const auto& fn = static_cast<const Function&>(*nd);
+            const Expr& g = fn.args()[0];
+            const int s = sign_at(g, mid);
+            if (s == 0) { ok = false; break; }
+            if (fn.function_id() == FunctionId::Abs) {
+                repl.emplace(nd, s > 0 ? g : mul(S::NegativeOne(), g));
+            } else {
+                repl.emplace(nd, s > 0 ? Expr{S::One()} : Expr{S::NegativeOne()});
+            }
+        }
+        if (!ok) return std::nullopt;
+        Expr smooth = xreplace(expr, repl);
+        Expr piece = integrate(smooth, var, p, q);  // recursive (now smooth)
+        bool has_marker = false;
+        auto check = [&](auto&& self, const Expr& e) -> void {
+            if (is_integral_marker(e)) { has_marker = true; return; }
+            for (const auto& a : e->args()) {
+                if (has_marker) return;
+                self(self, a);
+            }
+        };
+        check(check, piece);
+        if (has_marker || piece->type_id() == TypeId::NaN) return std::nullopt;
+        pieces.push_back(std::move(piece));
+    }
+    return simplify(add(std::move(pieces)));
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
     auto antider = integrate(expr, var);
+    // An integrand with abs/sign has no elementary antiderivative (the marker can
+    // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is
+    // piecewise-smooth: split the interval at the sign changes and sum the pieces.
+    bool antider_has_marker = false;
+    auto find_marker = [&](auto&& self, const Expr& e) -> void {
+        if (is_integral_marker(e)) { antider_has_marker = true; return; }
+        for (const auto& a : e->args()) {
+            if (antider_has_marker) return;
+            self(self, a);
+        }
+    };
+    find_marker(find_marker, antider);
+    if (antider_has_marker) {
+        if (auto r = try_abs_definite(expr, var, lower, upper)) return *r;
+    }
     // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
     // (or when direct substitution lands on the unevaluated nan / an infinity —
     // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative

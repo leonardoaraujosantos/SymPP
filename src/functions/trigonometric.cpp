@@ -22,10 +22,32 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 
 namespace sympp {
 
 namespace {
+
+// If `arg` has an overall factor of the imaginary unit — arg = I·y — return y,
+// else nullopt. Drives the imaginary-argument identities sin(I·y) = I·sinh(y),
+// cos(I·y) = cosh(y), tan(I·y) = I·tanh(y) (and the hyperbolic mirrors), which
+// hold for every complex y.
+[[nodiscard]] std::optional<Expr> extract_i_factor(const Expr& arg) {
+    if (arg->type_id() == TypeId::ImaginaryUnit) return S::One();
+    if (arg->type_id() != TypeId::Mul) return std::nullopt;
+    std::vector<Expr> rest;
+    bool found = false;
+    for (const auto& f : arg->args()) {
+        if (!found && f->type_id() == TypeId::ImaginaryUnit) {
+            found = true;
+            continue;
+        }
+        rest.push_back(f);
+    }
+    if (!found) return std::nullopt;
+    if (rest.empty()) return S::One();
+    return mul(std::move(rest));
+}
 
 // Detect a leading minus sign on a Mul: i.e. -1 * rest. Returns the
 // stripped tail if so, std::nullopt otherwise.
@@ -467,6 +489,11 @@ Expr sin(const Expr& arg) {
         return mul(*v, pow(add(S::One(), pow(*v, integer(2))), rational(-1, 2)));
     }
 
+    // sin(I·y) = I·sinh(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), sinh(*y));
+    }
+
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
     // π and all their quadrant images).
     if (auto r = pi_coefficient(arg); r.has_value()) {
@@ -524,6 +551,11 @@ Expr cos(const Expr& arg) {
     // cos(atan(x)) = 1 / √(1 + x²).
     if (auto v = arg_of(arg, FunctionId::Atan); v.has_value()) {
         return pow(add(S::One(), pow(*v, integer(2))), rational(-1, 2));
+    }
+
+    // cos(I·y) = cosh(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return cosh(*y);
     }
 
     // Exact value at a rational multiple of π (covers 0, π/6, π/4, π/3, π/2,
@@ -584,6 +616,11 @@ Expr tan(const Expr& arg) {
                    pow(*v, integer(-1)));
     }
 
+    // tan(I·y) = I·tanh(y).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), tanh(*y));
+    }
+
     // Exact value at a rational multiple of π. Poles (π/2 + kπ) and
     // out-of-table denominators are left unevaluated.
     if (auto r = pi_coefficient(arg); r.has_value()) {
@@ -598,6 +635,11 @@ Expr tan(const Expr& arg) {
     // Period π: tan(rest + k·π) = tan(rest) for any integer k.
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         return tan(rest);
+    }
+    // Co-function at a half-period shift: tan(rest + (m/2)π) = −cot(rest) for any
+    // odd m (π-periodic, so the sign is m-independent). tan(π/2 − x) = cot(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        return mul(S::NegativeOne(), cot(rest));
     }
 
     // Odd: tan(-x) = -tan(x)
@@ -643,6 +685,11 @@ Expr cot(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         return cot(rest);
     }
+    // Co-function at a half-period shift: cot(rest + (m/2)π) = −tan(rest) for any
+    // odd m. cot(π/2 − x) = tan(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        return mul(S::NegativeOne(), tan(rest));
+    }
     // Odd: cot(-x) = -cot(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Cot>(*pos));
@@ -677,6 +724,12 @@ Expr sec(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         bool odd = mpz_odd_p(c.get_num_mpz_t());
         return odd ? mul(S::NegativeOne(), sec(rest)) : sec(rest);
+    }
+    // Co-function at a half-period shift (period 2π): sec(rest + (m/2)π) =
+    // −csc(rest) for m ≡ 1 (mod 4), +csc(rest) for m ≡ 3. sec(π/2 − x) = csc(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+        return (m4 == 1) ? mul(S::NegativeOne(), csc(rest)) : csc(rest);
     }
     // Even: sec(-x) = sec(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -714,6 +767,12 @@ Expr csc(const Expr& arg) {
     if (auto [c, rest] = split_pi_term(arg); c.get_den() == 1 && c != 0) {
         bool odd = mpz_odd_p(c.get_num_mpz_t());
         return odd ? mul(S::NegativeOne(), csc(rest)) : csc(rest);
+    }
+    // Co-function at a half-period shift (period 2π): csc(rest + (m/2)π) =
+    // +sec(rest) for m ≡ 1 (mod 4), −sec(rest) for m ≡ 3. csc(π/2 − x) = sec(x).
+    if (auto [c, rest] = split_pi_term(arg); c.get_den() == 2) {
+        mpz_class m4 = ((c.get_num() % 4) + 4) % 4;
+        return (m4 == 1) ? sec(rest) : mul(S::NegativeOne(), sec(rest));
     }
     // Odd: csc(-x) = -csc(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -928,6 +987,10 @@ Expr asin(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_asin, arg);
     }
+    // asin(I·y) = I·asinh(y) (inverse of sin(I·y) = I·sinh(y)).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), asinh(*y));
+    }
     // Odd: asin(-x) = -asin(x). Recurse through the factory so the positive
     // part still gets the special-value table.
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -958,6 +1021,11 @@ Expr atan(const Expr& arg) {
     }
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_atan, arg);
+    }
+    // atan(I·y) = I·atanh(y) (inverse of tan(I·y) = I·tanh(y)). Note atan(±I) is a
+    // logarithmic branch point (±I·∞) — atanh(±1) already folds to ±∞, giving zoo.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), atanh(*y));
     }
     // Odd: atan(-x) = -atan(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {

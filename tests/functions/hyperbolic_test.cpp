@@ -11,11 +11,13 @@
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
@@ -124,11 +126,66 @@ TEST_CASE("acosh(1) = 0", "[3f][acosh]") {
     REQUIRE(acosh(S::One()) == S::Zero());
 }
 
+// ACOSH-IMAG-1: acosh(x) = i·acos(x) for a real x ∈ [−1, 1] whose acos has a
+// closed form — acosh(0)=iπ/2, acosh(½)=iπ/3, acosh(−1)=iπ. A rational with no
+// nice acos value (acosh(⅓)) or |x|>1 (acosh(2)) is left symbolic, as SymPy does.
+TEST_CASE("acosh: imaginary values on [−1, 1] (ACOSH-IMAG-1)",
+          "[3f][acosh][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(acosh(S::Zero())->str(), "I*pi/2"));
+    REQUIRE(oracle.equivalent(acosh(rational(1, 2))->str(), "I*pi/3"));
+    REQUIRE(oracle.equivalent(acosh(rational(-1, 2))->str(), "2*I*pi/3"));
+    REQUIRE(oracle.equivalent(acosh(integer(-1))->str(), "I*pi"));
+    // No over-reach: no closed form, or outside [−1, 1], stays an Acosh node.
+    REQUIRE(acosh(rational(1, 3))->type_id() == TypeId::Function);
+    REQUIRE(acosh(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(acosh(integer(-2))->type_id() == TypeId::Function);
+    // Inverse composition still collapses.
+    auto x = symbol("x");
+    REQUIRE(cosh(acosh(x)) == x);
+}
+
 TEST_CASE("atanh: canonical and odd", "[3f][atanh]") {
     REQUIRE(atanh(S::Zero()) == S::Zero());
     auto x = symbol("x");
     auto neg = mul(S::NegativeOne(), x);
     REQUIRE(atanh(neg) == mul(S::NegativeOne(), atanh(x)));
+}
+
+// ATANH-POLE-1: atanh(±1) = ±∞ (the real pole, since ½·log((1+x)/(1−x)) → ±∞),
+// and acoth(±1) = ±∞ follows via acoth = atanh of the reciprocal. Matches SymPy.
+TEST_CASE("atanh/acoth: poles at ±1 (ATANH-POLE-1)", "[3f][atanh][acoth][regression]") {
+    REQUIRE(atanh(S::One()) == S::Infinity());
+    REQUIRE(atanh(integer(-1)) == S::NegativeInfinity());
+    REQUIRE(acoth(S::One()) == S::Infinity());
+    REQUIRE(acoth(integer(-1)) == S::NegativeInfinity());
+    // No over-reach: interior and exterior arguments stay symbolic.
+    REQUIRE(atanh(rational(1, 2))->type_id() == TypeId::Function);
+    REQUIRE(atanh(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(acoth(integer(2))->type_id() == TypeId::Function);
+}
+
+// INVHYP-IMAG-1: imaginary-argument identities for the inverse functions, the
+// inverses of TRIG-IMAG-1. asinh(I·y)=I·asin(y), atanh(I·y)=I·atan(y), and the
+// mirror asin(I·y)=I·asinh(y), atan(I·y)=I·atanh(y). Hold for all y; matches SymPy.
+TEST_CASE("asinh/atanh/asin/atan: imaginary argument (INVHYP-IMAG-1)",
+          "[3f][asinh][atanh][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    // Inverse hyperbolic of I·y → I·(inverse circular).
+    REQUIRE(oracle.equivalent(asinh(mul(I, x))->str(), "I*asin(x)"));
+    REQUIRE(oracle.equivalent(atanh(mul(I, x))->str(), "I*atan(x)"));
+    REQUIRE(oracle.equivalent(asinh(I)->str(), "I*pi/2"));
+    REQUIRE(oracle.equivalent(atanh(I)->str(), "I*pi/4"));
+    REQUIRE(oracle.equivalent(asinh(mul(integer(2), I))->str(), "I*asin(2)"));
+    // Inverse circular of I·y → I·(inverse hyperbolic).
+    REQUIRE(oracle.equivalent(asin(mul(I, x))->str(), "I*asinh(x)"));
+    REQUIRE(oracle.equivalent(atan(mul(I, x))->str(), "I*atanh(x)"));
+    REQUIRE(oracle.equivalent(asin(mul(integer(2), I))->str(), "I*asinh(2)"));
+    // No misfire: a real argument is unaffected.
+    REQUIRE(asinh(x)->type_id() == TypeId::Function);
+    REQUIRE(asin(rational(1, 2))->str().find("pi") != std::string::npos);
 }
 
 // ----- Numeric evalf ---------------------------------------------------------

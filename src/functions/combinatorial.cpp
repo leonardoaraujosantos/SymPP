@@ -1,4 +1,5 @@
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/exponential.hpp>  // log
 #include <sympp/functions/special.hpp>  // zeta
 
 #include <optional>
@@ -18,9 +19,12 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/expand.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/miscellaneous.hpp>
+#include <sympp/polys/poly.hpp>
 
 namespace sympp {
 
@@ -95,10 +99,9 @@ Expr factorial(const Expr& arg) {
     if (arg->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*arg);
         if (z.is_negative()) {
-            // factorial of a negative integer: SymPy returns ComplexInfinity;
-            // we keep it unevaluated for now since ComplexInfinity isn't
-            // wired into the singletons yet.
-            return make<Factorial>(arg);
+            // (−n)! = Γ(−n+1) has a pole for every positive integer n, so a
+            // negative-integer factorial is ComplexInfinity (matching SymPy).
+            return S::ComplexInfinity();
         }
         if (!z.fits_long()) {
             // Astronomically huge — keep symbolic.
@@ -158,6 +161,48 @@ Expr fibonacci(const Expr& arg) {
         return make<Integer>(std::move(r));
     }
     return make<Fibonacci>(arg);
+}
+
+Lucas::Lucas(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Lucas);
+}
+Expr Lucas::rebuild(std::vector<Expr> new_args) const {
+    return lucas(new_args[0]);
+}
+std::optional<bool> Lucas::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            // L(n) ≥ 1 for every non-negative integer n (L(0)=2, L(1)=1, …).
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr lucas(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // Negative-index Lucas L(-n) = (-1)^n·L(n) deferred; keep symbolic.
+        if (z.is_negative()) return make<Lucas>(arg);
+        if (!z.fits_long()) return make<Lucas>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Lucas>(arg);  // safety bound
+        mpz_class r;
+        mpz_lucnum_ui(r.get_mpz_t(), static_cast<unsigned long>(n));
+        return make<Integer>(std::move(r));
+    }
+    return make<Lucas>(arg);
 }
 
 // ============================================================================
@@ -367,7 +412,12 @@ Expr divisor_count(const Expr& arg) {
 DivisorSigma::DivisorSigma(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::DivisorSigma);
 }
+DivisorSigma::DivisorSigma(Expr n, Expr k)
+    : Function(std::vector<Expr>{std::move(n), std::move(k)}) {
+    compute_hash(FunctionId::DivisorSigma);
+}
 Expr DivisorSigma::rebuild(std::vector<Expr> new_args) const {
+    if (new_args.size() == 2) return divisor_sigma(new_args[0], new_args[1]);
     return divisor_sigma(new_args[0]);
 }
 std::optional<bool> DivisorSigma::ask(AssumptionKey k) const noexcept {
@@ -392,6 +442,36 @@ Expr divisor_sigma(const Expr& arg) {
     return make<DivisorSigma>(arg);
 }
 
+// σ_k(n) = Σ_{d|n} d^k = ∏_p (p^(k(eᵢ+1)) − 1)/(p^k − 1) for k ≥ 1; σ_0(n) =
+// ∏ (eᵢ+1) is the divisor count. Evaluated for a positive integer n and a
+// non-negative integer order k; symbolic otherwise.
+Expr divisor_sigma(const Expr& n, const Expr& k) {
+    if (n->type_id() == TypeId::Integer && k->type_id() == TypeId::Integer) {
+        const auto& zn = static_cast<const Integer&>(*n);
+        const auto& zk = static_cast<const Integer&>(*k);
+        if (zn.is_positive() && !zk.is_negative() && zk.fits_long()) {
+            const unsigned long ek = static_cast<unsigned long>(zk.to_long());
+            if (ek == 1) return divisor_sigma(n);  // σ₁ — reuse the 1-arg path
+            mpz_class result = 1;
+            for (const auto& [p, e] : factorize(zn.value())) {
+                if (ek == 0) {
+                    result *= (e + 1);  // divisor count
+                    continue;
+                }
+                mpz_class pk;
+                mpz_pow_ui(pk.get_mpz_t(), p.get_mpz_t(), ek);  // p^k
+                mpz_class num;
+                mpz_pow_ui(num.get_mpz_t(), p.get_mpz_t(),
+                           ek * static_cast<unsigned long>(e + 1));  // p^(k(e+1))
+                num -= 1;
+                result *= num / (pk - 1);
+            }
+            return make<Integer>(std::move(result));
+        }
+    }
+    return make<DivisorSigma>(n, k);
+}
+
 // ============================================================================
 // Harmonic / Factorial2
 // ============================================================================
@@ -399,7 +479,12 @@ Expr divisor_sigma(const Expr& arg) {
 Harmonic::Harmonic(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::Harmonic);
 }
+Harmonic::Harmonic(Expr n, Expr m)
+    : Function(std::vector<Expr>{std::move(n), std::move(m)}) {
+    compute_hash(FunctionId::Harmonic);
+}
 Expr Harmonic::rebuild(std::vector<Expr> new_args) const {
+    if (new_args.size() == 2) return harmonic(new_args[0], new_args[1]);
     return harmonic(new_args[0]);
 }
 std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
@@ -427,6 +512,34 @@ Expr harmonic(const Expr& arg) {
         return rational(sum.get_num(), sum.get_den());
     }
     return make<Harmonic>(arg);
+}
+
+// Generalized harmonic number Hₙ⁽ᵐ⁾ = Σ_{k=1}^n k^(−m). For m = 1 it is the
+// ordinary Hₙ; m ≤ 0 gives a power sum. Evaluated exactly as a rational when n
+// is a non-negative integer and m a (bounded) integer; symbolic otherwise.
+Expr harmonic(const Expr& n, const Expr& m) {
+    if (n->type_id() == TypeId::Integer && m->type_id() == TypeId::Integer) {
+        const auto& zn = static_cast<const Integer&>(*n);
+        const auto& zm = static_cast<const Integer&>(*m);
+        if (!zn.is_negative() && zn.fits_long() && zm.fits_long()) {
+            long N = zn.to_long();
+            long M = zm.to_long();
+            if (N <= 100'000 && M >= -1000 && M <= 1000) {
+                mpq_class sum(0);
+                for (long k = 1; k <= N; ++k) {
+                    mpz_class kp;
+                    mpz_class base(k);
+                    mpz_pow_ui(kp.get_mpz_t(), base.get_mpz_t(),
+                               static_cast<unsigned long>(M >= 0 ? M : -M));
+                    // 1/kᴹ for M ≥ 0, else k^(−M) = k^|M|.
+                    sum += (M >= 0) ? mpq_class(mpz_class(1), kp) : mpq_class(kp);
+                }
+                sum.canonicalize();
+                return rational(sum.get_num(), sum.get_den());
+            }
+        }
+    }
+    return make<Harmonic>(n, m);
 }
 
 Factorial2::Factorial2(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
@@ -642,6 +755,60 @@ std::optional<bool> Gcd::ask(AssumptionKey k) const noexcept {
     }
 }
 
+namespace {
+// Integer content of a polynomial: gcd of its coefficients. Returns nullopt if
+// any coefficient is not an integer (so the caller skips content scaling).
+[[nodiscard]] std::optional<mpz_class> integer_content(const Poly& p) {
+    mpz_class g = 0;
+    for (const auto& c : p.coeffs()) {
+        if (c->type_id() != TypeId::Integer) return std::nullopt;
+        mpz_gcd(g.get_mpz_t(), g.get_mpz_t(),
+                static_cast<const Integer&>(*c).value().get_mpz_t());
+    }
+    return g;
+}
+
+// Convert the monic gcd `g` to SymPy's convention: the primitive integer
+// polynomial (integer coefficients, content 1, positive leading) scaled by
+// `content` — e.g. monic x+3/2 with content 2 → 2·(2x+3) is wrong; with
+// content 1 → 2x+3. Clears denominators, divides by the integer content, then
+// multiplies by the requested content factor.
+[[nodiscard]] Expr gcd_to_primitive(const Poly& g, const mpz_class& content,
+                                    const Expr& var) {
+    const auto& cs = g.coeffs();
+    mpz_class lcm_den = 1;
+    for (const auto& c : cs) {
+        if (c->type_id() == TypeId::Rational) {
+            mpz_lcm(lcm_den.get_mpz_t(), lcm_den.get_mpz_t(),
+                    static_cast<const Rational&>(*c).denominator().get_mpz_t());
+        }
+    }
+    std::vector<mpz_class> ints(cs.size());
+    mpz_class g_int = 0;
+    for (std::size_t i = 0; i < cs.size(); ++i) {
+        mpz_class m;
+        if (cs[i]->type_id() == TypeId::Integer) {
+            m = static_cast<const Integer&>(*cs[i]).value() * lcm_den;
+        } else {
+            const auto& q = static_cast<const Rational&>(*cs[i]);
+            m = q.numerator() * lcm_den / q.denominator();
+        }
+        ints[i] = m;
+        mpz_gcd(g_int.get_mpz_t(), g_int.get_mpz_t(), m.get_mpz_t());
+    }
+    if (g_int == 0) g_int = 1;
+    std::vector<Expr> terms;
+    for (std::size_t i = 0; i < ints.size(); ++i) {
+        mpz_class coeff = content * (ints[i] / g_int);
+        if (coeff == 0) continue;
+        terms.push_back(mul(make<Integer>(std::move(coeff)),
+                            pow(var, integer(static_cast<long>(i)))));
+    }
+    if (terms.empty()) return S::Zero();
+    return add(std::move(terms));
+}
+}  // namespace
+
 Expr gcd(const Expr& a, const Expr& b) {
     if (a->type_id() == TypeId::Integer && b->type_id() == TypeId::Integer) {
         // mpz_gcd yields the non-negative gcd (handles signs and zero:
@@ -650,6 +817,34 @@ Expr gcd(const Expr& a, const Expr& b) {
         mpz_gcd(r.get_mpz_t(), static_cast<const Integer&>(*a).value().get_mpz_t(),
                 static_cast<const Integer&>(*b).value().get_mpz_t());
         return make<Integer>(std::move(r));
+    }
+    // Univariate polynomial GCD. SymPy's convention is
+    //   gcd = gcd(int-content a, int-content b) · monic-gcd(primitive parts),
+    // e.g. gcd(x²−1, x−1) = x−1 and gcd(2x²−2, 2x−2) = 2x−2.
+    {
+        ExprSet vars;
+        for (const auto& s : free_symbols(a)) vars.insert(s);
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+        if (vars.size() == 1) {
+            const Expr& var = *vars.begin();
+            try {
+                Poly pa(expand(a), var);
+                Poly pb(expand(b), var);
+                Poly g = gcd(pa, pb);  // monic gcd over ℚ
+                // Content factor: gcd of the integer contents (1 if either side
+                // has non-integer coefficients).
+                mpz_class content = 1;
+                if (auto ca = integer_content(pa)) {
+                    if (auto cb = integer_content(pb)) {
+                        mpz_gcd(content.get_mpz_t(), ca->get_mpz_t(),
+                                cb->get_mpz_t());
+                    }
+                }
+                return gcd_to_primitive(g, content, var);
+            } catch (const std::exception&) {
+                // not polynomial in `var` — fall through to the symbolic node
+            }
+        }
     }
     return make<Gcd>(a, b);
 }
@@ -687,6 +882,30 @@ Expr lcm(const Expr& a, const Expr& b) {
         mpz_lcm(r.get_mpz_t(), static_cast<const Integer&>(*a).value().get_mpz_t(),
                 static_cast<const Integer&>(*b).value().get_mpz_t());
         return make<Integer>(std::move(r));
+    }
+    // Univariate polynomial LCM via lcm(a, b) = a·b / gcd(a, b), reusing the
+    // SymPy-convention polynomial gcd. The exact division restores the right
+    // content, so lcm(x²−1, x−1) = x²−1 and lcm(2x−2, 3x−3) = 6x−6.
+    {
+        ExprSet vars;
+        for (const auto& s : free_symbols(a)) vars.insert(s);
+        for (const auto& s : free_symbols(b)) vars.insert(s);
+        if (vars.size() == 1) {
+            const Expr& var = *vars.begin();
+            try {
+                Poly pa(expand(a), var);
+                Poly pb(expand(b), var);
+                Poly pg(expand(gcd(a, b)), var);
+                Poly prod = pa * pb;
+                auto [q, r] = prod.divmod(pg);
+                if (!(r.as_expr() == S::Zero())) {
+                    return make<Lcm>(a, b);  // not an exact division (shouldn't happen)
+                }
+                return q.as_expr();
+            } catch (const std::exception&) {
+                // not polynomial in `var` — fall through to the symbolic node
+            }
+        }
     }
     return make<Lcm>(a, b);
 }
@@ -1013,10 +1232,23 @@ Expr LogGamma::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr loggamma(const Expr& arg) {
-    if (arg == S::One()) return S::Zero();      // log(0!) = 0
-    if (arg == integer(2)) return S::Zero();    // log(1!) = 0
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // loggamma(oo)=oo
     if (arg->type_id() == TypeId::Float) {
         return float_unary_op(mpfr_lngamma, arg);
+    }
+    // Pole: loggamma at a nonpositive integer is +∞ (the Γ pole, log of |Γ|→∞).
+    if (arg->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*arg).is_positive()) {
+        return S::Infinity();
+    }
+    // loggamma(x) = log(Γ(x)) for x > 0, where Γ(x) is a positive closed form:
+    // log((n−1)!) for a positive integer (loggamma(3)=log 2), log(√π·…) for a
+    // positive half-integer (loggamma(½)=log√π). Restricted to positive x — for
+    // x < 0, loggamma ≠ log∘Γ (branch cuts), so it is left as loggamma(x), matching
+    // SymPy. A symbolic positive p keeps loggamma(p) (Γ(p) does not reduce).
+    if (is_positive(arg) == true) {
+        Expr g = gamma(arg);
+        if (!has_gamma(g)) return log(g);
     }
     return make<LogGamma>(arg);
 }
@@ -1049,6 +1281,15 @@ Expr PolyGammaFn::diff_arg(std::size_t i) const {
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
+    // Pole at the nonpositive integers: ψ⁽ⁿ⁾(x) → zoo for x ∈ {0, −1, −2, …} and a
+    // non-negative integer order n (the underlying Γ pole). digamma(0)/digamma(−k)
+    // inherit this via polygamma(0, ·). Matches SymPy.
+    if (x->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*x).is_positive()
+        && n->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*n).is_negative()) {
+        return S::ComplexInfinity();
+    }
     // Special values at x = 1 for a non-negative integer order:
     //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
     if (x == S::One() && n->type_id() == TypeId::Integer) {

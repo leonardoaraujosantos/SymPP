@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1287%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1426%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1287 tests / 3157 assertions  all passing
-501 cases (1246 assertions) oracle-validated against SymPy
+1426 tests / 4408 assertions  all passing
+628 cases (2365 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
 
@@ -31,7 +31,7 @@ for the multi-metric parity breakdown.
 |---|---|---|
 | 0  | Foundation & oracle harness            | ✅ |
 | 1  | Core expression tree                   | ✅ |
-| 2  | Assumptions                            | 🟡 core ontology (real/int/rational/sign/finite/parity) with closure + Add/Mul/Pow propagation; complex/imaginary/prime/irrational/commutative predicates + SAT-based `ask` deferred |
+| 2  | Assumptions                            | 🟡 full sign/number ontology with closure + Add/Mul/Pow propagation, consumed by simplify/integrate/refine; **at SymPy parity on the common predicates** (see [Assumptions](#assumptions) below). Only prime/irrational/algebraic/commutative predicates + a SAT-based `ask` solver remain deferred |
 | 3  | Elementary & special functions         | ✅ |
 | 4  | Polynomials                            | ✅ |
 | 5  | Simplification                         | ✅ |
@@ -95,6 +95,119 @@ exp(x)*sin(x) + exp(x)*cos(x)
 
 More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
 
+## More examples
+
+Every call below returns an `Expr`; the comment shows its `->str()`. All
+outputs are produced by the current build and cross-checked against SymPy.
+
+**Calculus, algebra, solving**
+
+```cpp
+using namespace sympp;
+auto x = symbol("x");
+
+diff(pow(x, integer(3)), x);                          // → 3*x**2
+integrate(log(x), x);                                 // → -x + x*log(x)
+integrate(pow(integer(1) + x * x, integer(-1)), x);   // → atan(x)
+limit(pow(integer(1) + integer(1) / x, x),
+      x, S::Infinity());                              // → E
+factor(pow(x, integer(4)) - integer(1), x);           // → (x + 1)*(x - 1)*(x**2 + 1)
+solve(pow(x, integer(2)) - integer(2), x);            // → [2**(1/2), -2**(1/2)]
+```
+
+**Sums & simplification** — including closed forms recently brought to parity:
+
+```cpp
+auto n = symbol("n");
+auto oo = S::Infinity();
+
+summation(pow(n, integer(-2)), n, integer(1), oo);    // → 1/6*pi**2  (Basel)
+summation(pow(n * n + integer(1), integer(-1)),
+          n, integer(1), oo);                         // → 1/2*(pi*coth(pi) - 1)
+
+simplify(pow(sin(x), integer(2))
+         + pow(cos(x), integer(2)));                  // → 1
+simplify(sin(integer(2) * x)
+         * pow(sin(x), integer(-1)));                 // → 2*cos(x)
+```
+
+**Transforms & ODEs**
+
+```cpp
+auto s = symbol("s"), t = symbol("t");
+
+laplace_transform(sin(t), t, s);                      // → (s**2 + 1)**(-1)
+inverse_laplace_transform(
+    pow(pow(s + integer(1), integer(2)) + integer(1),
+        integer(-1)), s, t);                          // → exp(-t)*sin(t)
+inverse_laplace_transform(
+    pow(pow(s, integer(2)) + integer(1), integer(-2)),
+    s, t);                                            // → 1/2*(-t*cos(t) + sin(t))
+
+FunctionSymbol y("y");
+auto ode = diff(y(x), x, 2) + y(x);                   // y'' + y = 0
+dsolve(ode, y(x), x);                                 // → __C0*cos(x) + __C1*sin(x)
+```
+
+**Assumptions & linear algebra**
+
+```cpp
+auto p = symbol("p", AssumptionMask{}.set_positive(true));
+is_positive(pow(p, integer(2)) + integer(1));         // → std::optional<bool>{true}
+
+Matrix M = {{integer(2), integer(0)}, {integer(0), integer(3)}};
+M.eigenvals();                                        // → [3, 2]
+```
+
+## Assumptions
+
+Symbols carry an **assumptions ontology** — the same idea as SymPy's
+`Symbol('x', positive=True)`. You attach predicates at construction, the system
+closes them under their logical consequences, propagates them through
+`Add`/`Mul`/`Pow`, and feeds the result back into `simplify`, `integrate`, and
+`refine`. Queries are **three-valued** (`std::optional<bool>`: `true` / `false` /
+`unknown` (`std::nullopt`)) — an honest "I can't prove it" is never confused with
+"false".
+
+```cpp
+using namespace sympp;
+
+// Declare predicates with the AssumptionMask builder.
+auto p = symbol("p", AssumptionMask{}.set_positive(true));   // p > 0
+auto n = symbol("n", AssumptionMask{}.set_integer(true));    // n ∈ ℤ
+auto x = symbol("x");                                        // generic (complex)
+
+// Closure: positive ⇒ real, finite, nonzero; integer ⇒ rational ⇒ real.
+is_real(p);                          // → true
+is_nonzero(p);                       // → true
+
+// Propagation through Add / Mul / Pow (incl. sign-by-parity).
+is_positive(pow(p, integer(2)) + integer(1));   // → true   (p² ≥ 0, +1 > 0)
+is_negative(mul(S::NegativeOne(), p));          // → true   (−p < 0)
+is_integer(integer(2) * n + integer(1));        // → true   (2n+1 ∈ ℤ)
+is_positive(mul(p, n));                          // → unknown (n's sign is open)
+
+// Abs is always real and nonnegative — even for a generic complex x.
+is_nonnegative(abs(x));              // → true   (SymPy returns None here)
+
+// simplify / integrate consume the assumptions.
+simplify(sqrt(pow(p, integer(2))));  // → p          (nonneg base)
+simplify(sqrt(pow(x, integer(2))));  // → sqrt(x**2)  (generic — Abs, not x)
+```
+
+**Declarable predicates** (via `AssumptionMask::set_*`): `real`, `positive`,
+`negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`, `finite`, `integer`,
+`rational`, `even`, `odd`, `complex`, `imaginary`. They are closed under the
+obvious implications (e.g. `zero ⇒ integer ∧ nonnegative ∧ nonpositive`,
+`real ⇒ finite`, `nonnegative ⇒ real ∧ ¬negative`) before propagation.
+
+**Parity with SymPy.** On a battery of sign/number queries the subsystem matches
+SymPy's `ask` on every common predicate; the only divergences are cases where
+SymPP is *strictly more decisive* — e.g. `Abs(x)` is reported `real`/`nonnegative`
+for a generic `x`, where SymPy returns `None`. Still **deferred** (and tracked in
+the roadmap): the `prime` / `irrational` / `algebraic` / `commutative` predicates
+and a general SAT-based `ask` solver for arbitrary boolean combinations.
+
 ## What's in the box
 
 - **Symbolic algebra** — Add/Mul/Pow with full canonical form,
@@ -102,6 +215,12 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
 - **Number tower** — `Integer` / `Rational` (GMP) / `Float` (MPFR
   arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E` / `oo` / `-oo` /
   `zoo` / `nan` (full infinity arithmetic).
+- **Assumptions** — declarable predicates (`real`, sign, `nonzero`,
+  `nonnegative`/`nonpositive`, `finite`, `integer`/`rational`, parity,
+  `complex`/`imaginary`) with logical closure and Add/Mul/Pow propagation;
+  three-valued `is_positive` / `is_real` / … queries consumed by
+  `simplify`/`integrate`/`refine`. At SymPy parity on the common predicates —
+  see [Assumptions](#assumptions).
 - **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
   factorial/gamma/erf/heaviside/dirac_delta plus `Hyper` and
   `MeijerG` (proper Function classes with auto-eval) and the rest of
@@ -114,16 +233,24 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   `∫₀^∞ xⁿe^(-x) = n!`), `series`, `limit` with L'Hôpital (finite points,
   signed `±∞` at even poles, polynomial and 0·∞ exponential dominance at ±∞;
   `1^∞` / `0·∞` / `∞/∞` forms; size-bounded so it never hangs),
-  `summation`, Padé, Euler-Lagrange, asymptotes.
+  `summation` (p-series → ζ, telescoping, geometric/arithmetic-geometric,
+  irreducible-quadratic `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`),
+  Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
   bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
   Cardano cubic, Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
 - **Simplification** — `simplify` orchestrator (anti-bloat-guarded so it never
   returns a form larger than its input) chaining trigsimp (Pythagorean +
-  double-angle / power-reduction `(1∓cos2x)/2 → sin²/cos²` / 2sin·cos collapses),
-  `expand_trig` (angle-addition + multiple-angle `sin(nx)`), `fu`, powsimp,
-  exp folds (`(eˣ)ⁿ → e^(nx)`, `eˣ+e⁻ˣ → 2cosh x`), radsimp, sqrtdenest,
-  combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators,
+  double-angle / power-reduction `(1∓cos2x)/2 → sin²/cos²` / `2sin·cos → sin2x`
+  collapses + double-angle ratio reduction `sin(2x)/sin(x) → 2cos(x)`),
+  `expand_trig` (circular **and hyperbolic** angle-addition + multiple-angle
+  `sin(nx)`/`sinh(nx)`), `fu`, powsimp, exp folds (`(eˣ)ⁿ → e^(nx)`,
+  `eˣ+e⁻ˣ → 2cosh x`), hyperbolic double-angle (`2sinh·cosh → sinh2x`,
+  `cosh²+sinh² → cosh2x`, `sinh2x/sinh x → 2cosh x`), imaginary-argument folds
+  (`cos(I·x) → cosh x`, `|exp(I·x)| → 1`), `Abs`/`sign` identities
+  (`sign(x)·|x| → x`, `|x|·|y| → |x·y|`), `log(√x) → ½log x`, radsimp, sqrtdenest,
+  combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators
+  (incl. nested compound fractions `1/(1+1/x) → x/(x+1)`),
   `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁(1;2;z), ₂F₁(1,1;2;z), parameter cancellation).
 - **Linear algebra** — det, inverse, eigendecomposition, LU/QR/
   Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
@@ -145,10 +272,12 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   defective A). PDE for first-order linear, heat, wave. IVP
   application + `checkodesol`.
 - **Transforms** — Laplace (table + s-shift theorem: `sinh`/`cosh`,
-  damped oscillations `e^(at)sin/cos`, `tⁿe^(at)`) and inverse Laplace
+  damped oscillations `e^(at)sin/cos`, `tⁿe^(at)`, and the multiplication-by-`tⁿ`
+  rule `L{t·cos t} = (s²−1)/(s²+1)²`) and inverse Laplace
   (incl. completed-square quadratics `1/((s+1)²+1) → e^(-t)sin t`, linear
-  numerators), Fourier, Mellin, Z, sine/cosine — forward and inverse,
-  table-driven with linearity.
+  numerators, and repeated irreducible quadratics
+  `1/(s²+1)² → (sin t − t·cos t)/2`), Fourier, Mellin, Z, sine/cosine —
+  forward and inverse, table-driven with linearity.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
   constants with exact post-2019-redef values, affine
   temperature conversion.
@@ -160,7 +289,7 @@ More worked examples: [docs/08-tutorial.md](docs/08-tutorial.md).
   `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy (1.13+) via a long-lived Python
-  subprocess; 501 oracle-validated test cases. New `hyperexpand` op
+  subprocess; 628 oracle-validated test cases. New `hyperexpand` op
   cross-validates SymPP's hypergeometric rewrites against SymPy's
   reference implementation.
 

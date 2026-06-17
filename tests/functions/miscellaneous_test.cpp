@@ -191,6 +191,25 @@ TEST_CASE("Abs: pulls out a numeric coefficient", "[3d][abs][oracle][regression]
                               "2*Abs(x*y)"));
 }
 
+// ABS-EXP-1: |exp(z)| = exp(re(z)). With re() evaluating the imaginary part, this
+// yields the unit modulus |exp(I·x)| = 1 for real x (re(I·x) = 0), the general
+// |exp(x)| = exp(re(x)), and |exp(I·x)| = exp(−im(x)) for a complex x. Matches SymPy.
+TEST_CASE("Abs: |exp(z)| = exp(re(z)) (ABS-EXP-1)",
+          "[3d][abs][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto xr = symbol("x", AssumptionMask{}.set_real(true));
+    auto x = symbol("x");  // generic
+    auto I = S::I();
+    // Real argument under I → unit modulus.
+    REQUIRE(abs(exp(mul(I, xr))) == integer(1));
+    REQUIRE(abs(exp(mul(integer(2), mul(I, xr)))) == integer(1));
+    // Generic complex argument → exp(re) / exp(-im).
+    REQUIRE(oracle.equivalent(abs(exp(x))->str(), "exp(re(x))"));
+    REQUIRE(oracle.equivalent(abs(exp(mul(I, x)))->str(), "exp(-im(x))"));
+    // Real argument (no I) stays a positive exponential.
+    REQUIRE(oracle.equivalent(abs(exp(xr))->str(), "exp(x)"));
+}
+
 TEST_CASE("Abs: pulls out positive/negative symbolic factors (ASSUME-5)",
           "[3d][abs][assumptions][regression]") {
     auto p = symbol("p", AssumptionMask{}.set_positive(true));
@@ -351,6 +370,31 @@ TEST_CASE("re/im/conjugate: numeric complex a+b·I",
     REQUIRE(oracle.equivalent(conjugate(w)->str(), "1/2 - I/3"));
 }
 
+// REIM-CXDIV-1: re/im of an expression with a complex denominator. The
+// denominator is rationalized (1/(a+bI) = (a−bI)/(a²+b²)) so the value reaches
+// the a+bI form re/im already handle: re((1+I)/(1−I)) = 0, im = 1. Previously
+// these stayed an unevaluated re(...)/im(...).
+TEST_CASE("re/im: complex denominators are rationalized (REIM-CXDIV-1)",
+          "[3h][complex][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto I = S::I();
+    auto z = (integer(1) + I) / (integer(1) - I);  // = I
+    REQUIRE(oracle.equivalent(re(z)->str(), "0"));
+    REQUIRE(oracle.equivalent(im(z)->str(), "1"));
+    // 1/(1+I) = 1/2 − I/2.
+    auto w = pow(integer(1) + I, integer(-1));
+    REQUIRE(oracle.equivalent(re(w)->str(), "1/2"));
+    REQUIRE(oracle.equivalent(im(w)->str(), "-1/2"));
+    // (2+3I)/(1+I) = 5/2 − I/2.
+    auto v = (integer(2) + integer(3) * I) / (integer(1) + I);
+    REQUIRE(oracle.equivalent(re(v)->str(), "5/2"));
+    REQUIRE(oracle.equivalent(im(v)->str(), "1/2"));
+    // A real-denominator / symbolic case is unaffected.
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(oracle.equivalent(re(x + I * y)->str(), "re(x) - im(y)"));
+}
+
 // CONJ-DIST-1: conjugate is a ring homomorphism — distributes over products,
 // sums and integer powers (conjugate(I·x) = −I·conjugate(x)). Matches SymPy.
 TEST_CASE("conjugate: distributes over Mul/Add/Pow (CONJ-DIST-1)",
@@ -407,6 +451,13 @@ TEST_CASE("arg_: positive -> 0; negative -> pi", "[3h][arg]") {
     REQUIRE(arg_(p) == S::Zero());
     REQUIRE(arg_(n) == S::Pi());
     REQUIRE(arg_(integer(5)) == S::Zero());
+}
+
+// ARG-ZERO-1: arg(0) is undefined (the origin has no argument) → nan, as SymPy.
+TEST_CASE("arg_: arg(0) = nan (ARG-ZERO-1)", "[3h][arg][regression]") {
+    REQUIRE(arg_(S::Zero())->type_id() == TypeId::NaN);
+    // A generic symbol still stays unevaluated (no spurious nan).
+    REQUIRE(arg_(symbol("x"))->type_id() == TypeId::Function);
 }
 
 // ARG-CX-1: arg(z) = atan2(im z, re z) for a complex value.
@@ -511,4 +562,30 @@ TEST_CASE("min/max: oracle structural agreement", "[3h][minmax][oracle]") {
     auto& oracle = Oracle::instance();
     REQUIRE(oracle.equivalent(min(integer(3), integer(7))->str(), "3"));
     REQUIRE(oracle.equivalent(max(integer(3), integer(7))->str(), "7"));
+}
+
+// MINMAX-FLAT-1: a nested same-kind Min/Max flattens, and ±∞ acts as the
+// absorber/identity — Max(x, Max(y, z)) → Max(x, y, z), Max(x, −∞) → x,
+// Max(x, +∞) → +∞ (Min mirrors). Matches SymPy.
+TEST_CASE("min/max: flatten nested + infinity identity (MINMAX-FLAT-1)",
+          "[3h][minmax][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto z = symbol("z");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    // Nested same-kind flattens to a single n-ary node.
+    REQUIRE(max(x, max(y, z))->args().size() == 3);
+    REQUIRE(min(min(x, y), z)->args().size() == 3);
+    REQUIRE(oracle.equivalent(max(x, max(y, z))->str(), "Max(x, y, z)"));
+    // ±∞ identity / absorber.
+    REQUIRE(max(x, noo) == x);
+    REQUIRE(min(x, oo) == x);
+    REQUIRE(max(x, oo) == oo);
+    REQUIRE(min(x, noo) == noo);
+    // Flatten and identity-drop compose: Max(x, Max(y, −∞)) → Max(x, y).
+    REQUIRE(oracle.equivalent(max(x, max(y, noo))->str(), "Max(x, y)"));
+    // Degenerate all-identity collapses to the identity element.
+    REQUIRE(max(noo, noo) == noo);
 }
