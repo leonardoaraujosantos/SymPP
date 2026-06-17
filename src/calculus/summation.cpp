@@ -450,10 +450,15 @@ namespace {
         factors.push_back(expr);
     }
     bool have_binom = false;
+    bool linear_k = false;       // a single bare `var` factor: Σ k·C(n,k)·rᵏ
     Expr ratio = S::One();       // ∏ base^a from the geometric factors
     Expr prefactor = S::One();   // ∏ base^b
     Expr coeff = S::One();
     for (const auto& f : factors) {
+        if (!linear_k && f == var) {  // the k in k·C(n,k)·rᵏ
+            linear_k = true;
+            continue;
+        }
         if (!have_binom && f->type_id() == TypeId::Function) {
             const auto& fn = static_cast<const Function&>(*f);
             if (fn.function_id() == FunctionId::Binomial
@@ -487,6 +492,15 @@ namespace {
     }
     if (!have_binom) return std::nullopt;
     Expr base_sum = simplify(integer(1) + ratio);
+    if (linear_k) {
+        // Differentiating Σ C(n,k)·rᵏ = (1+r)ⁿ in r and multiplying by r gives
+        //   Σ k·C(n,k)·rᵏ = n·r·(1+r)^(n−1).
+        // The alternating r = −1 base would leave the ambiguous 0^(n−1) for
+        // symbolic n (SymPy returns a Piecewise), so bail there.
+        if (base_sum == S::Zero()) return std::nullopt;
+        Expr power = pow(base_sum, simplify(hi - integer(1)));
+        return simplify(mul({coeff, prefactor, hi, ratio, power}));
+    }
     // (1 + r)ⁿ, with (1−1)ⁿ = 0 for the alternating sum (n ≥ 1).
     Expr power = (base_sum == S::Zero()) ? Expr{S::Zero()} : pow(base_sum, hi);
     return simplify(mul(mul(coeff, prefactor), power));

@@ -794,6 +794,34 @@ TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
     REQUIRE(oracle.equivalent(s->str(), "n*(n+1)*(2*n+1)/6"));
 }
 
+// SUM-BINOM-K-1: Σ_{k=0}^n k·C(n,k)·rᵏ = n·r·(1+r)^(n−1), the r-derivative of the
+// binomial theorem Σ C(n,k)·rᵏ = (1+r)ⁿ. Gives Σ k·C(n,k) = n·2^(n−1). Previously
+// returned unevaluated. Matches SymPy (and closes the geometric-weighted form
+// k·C(n,k)·2ᵏ that SymPy leaves as a Sum).
+TEST_CASE("summation: Σ k·C(n,k)·rᵏ binomial identity (SUM-BINOM-K-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    // Σ k·C(n,k) = n·2^(n−1).
+    REQUIRE(oracle.equivalent(
+        summation(k * binomial(n, k), k, integer(0), n)->str(),
+        "n*2**(n-1)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * k * binomial(n, k), k, integer(0), n)->str(),
+        "3*n*2**(n-1)"));
+    // Geometric weight: Σ k·C(n,k)·2ᵏ = 2·n·3^(n−1) (verified numerically).
+    REQUIRE(oracle.equivalent(
+        summation(k * binomial(n, k) * pow(integer(2), k), k, integer(0), n)
+            ->str(),
+        "2*n*3**(n-1)"));
+    // The plain binomial theorem is unchanged.
+    REQUIRE(oracle.equivalent(
+        summation(binomial(n, k), k, integer(0), n)->str(), "2**n"));
+}
+
 // SUM-HARMONIC-1: Σ 1/kᵖ over a finite/symbolic range is a generalized harmonic
 // number H_hi^(p) − H_(lo−1)^(p) (the 1-argument harmonic(n) for p = 1). These
 // were previously returned unevaluated. Matches SymPy's Sum(1/k**p).doit().

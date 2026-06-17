@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-BINOM-K-1 — Σ k·C(n,k)·rᵏ binomial identity was unevaluated
+- **Problem:** `Σ_{k=0}^n k·C(n,k)` returned unevaluated where the closed form is `n·2^(n−1)`.
+  The summation engine handled the plain binomial theorem `Σ C(n,k)·rᵏ = (1+r)ⁿ` but not a
+  `k`-weighted summand.
+- **Fix:** extended `sum_binomial_theorem` to accept a single bare `k` factor. Differentiating
+  the binomial theorem in `r` and multiplying by `r` gives `Σ k·C(n,k)·rᵏ = n·r·(1+r)^(n−1)`,
+  so `Σ k·C(n,k) = n·2^(n−1)`, `Σ k·C(n,k)·2ᵏ = 2n·3^(n−1)`, with a constant prefactor carried
+  through. The alternating `r = −1` base is left unevaluated (its `0^(n−1)` is ambiguous for
+  symbolic `n`, as SymPy's Piecewise reflects). The plain binomial theorem is unchanged. Matches
+  SymPy — and closes the geometric-weighted `k·C(n,k)·2ᵏ` form that SymPy itself leaves as a
+  `Sum` (numerically verified).
+
 ### INT-SINSQ-1 / LIMIT-ADD-MIX-1 — ∫₀^∞ sin²x/x² and mixed finite + cancelling ∞ − ∞
 - **Problem:** `∫₀^∞ sin²x/x² = π/2` came back `nan`. The antiderivative is correct but factored
   (`−½·(−2·Si(2x) − cos(2x)/x) − 1/(2x)`), which (a) hid the bounded `Si` inside a product so its
