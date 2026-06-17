@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### FACTOR-NONMONIC-POW-1 — `factor(4x²+4x+1)` gave the wrong result `2·(2x+1)²`
+- **Problem (a correctness bug, not just a gap):** factoring a perfect power of a *non-monic*
+  linear leaked the leading coefficient into the content. `factor(4x²+4x+1)` returned
+  `2·(2x+1)²` — which expands to `8x²+8x+2`, **numerically wrong** (should be `(2x+1)²`).
+  Same for `9x²+6x+1 → 3·(3x+1)²`, `(2x+1)³`, etc.
+- **Root cause:** in `factor_list` (`src/polys/poly.cpp`), the primitive-part `scalar` that
+  relates a monic root/Kronecker factor to its integer-content form was multiplied into the
+  running content **once**, but that factor is stored with multiplicity `m`. For `(2x+1)²`
+  the content should be `4·(½)² = 1`, but the code computed `4·½ = 2`.
+- **Fix:** apply `scalarᵐ` (a new `pow_mq` helper) at all four content-accumulation sites,
+  so a multiplicity-`m` factor contributes its scalar `m` times. `mult = 1` is unchanged.
+  Verified by a round-trip sweep (`expand(factor(p)) == p`) over squares, cubes, and mixed
+  products; genuine content (`2x²+4x+2 → 2·(x+1)²`) is still pulled out. Matches SymPy.
+
 ### SUM-LOG-1 — `Σ 1/(n·2ⁿ)` was unevaluated (logarithm series)
 - **Problem:** the logarithm series `Σ_{n=1}^∞ rⁿ/n = −log(1−r)` (for `|r| < 1`) had no
   handler, so `Σ 1/(n·2ⁿ)`, `Σ 1/(n·3ⁿ)` stayed unevaluated where SymPy returns `log 2`,

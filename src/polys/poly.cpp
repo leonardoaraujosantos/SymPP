@@ -805,6 +805,16 @@ FactorList factor_list(const Poly& f) {
     }
     std::vector<std::pair<Poly, std::size_t>> out;
 
+    // A primitive-part scalar relates a monic root/Kronecker factor to its
+    // integer-content form; since that factor is stored with multiplicity `mult`,
+    // the scalar enters the content `mult` times — qᵐ, not q. (Without this,
+    // (2n+1)² = 4n²+4n+1 mis-factored as 2·(2n+1)², which is 2× too large.)
+    auto pow_mq = [](mpq_class b, std::size_t m) {
+        mpq_class r(1);
+        for (std::size_t i = 0; i < m; ++i) r *= b;
+        return r;
+    };
+
     for (auto& [g_monic, mult] : sqf.factors) {
         // g_monic is square-free monic over ℚ. Pull out rational roots first.
         Poly remaining = g_monic;
@@ -814,7 +824,7 @@ FactorList factor_list(const Poly& f) {
             Poly lin(std::vector<Expr>{mul(S::NegativeOne(), r), S::One()},
                      remaining.var());
             auto [prim, scalar] = primitive_part(lin);
-            running_content *= scalar;
+            running_content *= pow_mq(scalar, mult);
             // Multiplicity: rational_roots returns repeats already, so each
             // call here corresponds to one (x - r) factor; track separately.
             // We'll consolidate at the end.
@@ -829,12 +839,12 @@ FactorList factor_list(const Poly& f) {
             if (!k_factor) {
                 // remaining is irreducible.
                 auto [prim, scalar] = primitive_part(remaining);
-                running_content *= scalar;
+                running_content *= pow_mq(scalar, mult);
                 out.emplace_back(prim, mult);
                 break;
             }
             auto [prim, scalar] = primitive_part(*k_factor);
-            running_content *= scalar;
+            running_content *= pow_mq(scalar, mult);
             out.emplace_back(prim, mult);
             remaining = remaining / *k_factor;
         }
@@ -842,7 +852,7 @@ FactorList factor_list(const Poly& f) {
         // gets absorbed into content.
         if (remaining.degree() == 0 && !remaining.is_zero()) {
             if (auto qc = coeff_as_mpq(remaining.leading_coeff()); qc) {
-                running_content *= *qc;
+                running_content *= pow_mq(*qc, mult);
             }
         }
     }

@@ -612,6 +612,41 @@ TEST_CASE("Poly: factor x^2 + 2x + 1 = (x+1)^2", "[4][poly][factor][oracle]") {
     REQUIRE(oracle.equivalent(f->str(), "(x + 1)**2"));
 }
 
+// FACTOR-NONMONIC-POW-1: a perfect power of a non-monic linear factor must not
+// leak its leading coefficient into the content. 4x²+4x+1 = (2x+1)² (content 1),
+// previously mis-factored as 2·(2x+1)² (= 8x²+8x+2, numerically wrong). The
+// primitive-part scalar of a multiplicity-m factor enters the content as qᵐ.
+TEST_CASE("Poly: factor non-monic perfect powers (FACTOR-NONMONIC-POW-1)",
+          "[4][poly][factor][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto sq = [&](const Expr& e) { return pow(e, integer(2)); };
+    // (2x+1)² = 4x²+4x+1 — content must be 1, not 2.
+    REQUIRE(oracle.equivalent(
+        factor(integer(4) * sq(x) + integer(4) * x + integer(1), x)->str(),
+        "(2*x + 1)**2"));
+    // (3x+1)² and a cube (2x+1)³ = 8x³+12x²+6x+1.
+    REQUIRE(oracle.equivalent(
+        factor(integer(9) * sq(x) + integer(6) * x + integer(1), x)->str(),
+        "(3*x + 1)**2"));
+    REQUIRE(oracle.equivalent(
+        factor(integer(8) * pow(x, integer(3)) + integer(12) * sq(x)
+                   + integer(6) * x + integer(1),
+               x)->str(),
+        "(2*x + 1)**3"));
+    // Genuine content is still pulled out: 2x²+4x+2 = 2·(x+1)².
+    REQUIRE(oracle.equivalent(
+        factor(integer(2) * sq(x) + integer(4) * x + integer(2), x)->str(),
+        "2*(x + 1)**2"));
+    // Round-trip: factor(p) expands back to p exactly.
+    auto p = integer(16) * pow(x, integer(4)) - integer(8) * sq(x) + integer(1);
+    REQUIRE(expand(factor(p, x)) == expand(p));
+    // Distinct non-monic linears (multiplicity 1) unaffected: 6x²+11x+3.
+    REQUIRE(oracle.equivalent(
+        factor(integer(6) * sq(x) + integer(11) * x + integer(3), x)->str(),
+        "(2*x + 3)*(3*x + 1)"));
+}
+
 TEST_CASE("Poly: factor x^3 - 1", "[4][poly][factor][oracle]") {
     auto& oracle = Oracle::instance();
     auto x = symbol("x");
