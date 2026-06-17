@@ -16,6 +16,15 @@ truth and links the issue number.
 
 ## Fixed
 
+### LUCAS-1 — Lucas numbers `lucas(n)` were unsupported (new function)
+- **Problem:** SymPP had `fibonacci`/`catalan`/`bernoulli`/`harmonic` but no `lucas`, so
+  `lucas(5)` parsed as an unknown function and stayed unevaluated where SymPy returns `11`.
+- **Fix:** added the `Lucas` function (mirroring `Fibonacci`) — `FunctionId::Lucas`, the
+  `Lucas` class, the `lucas()` builder using GMP's `mpz_lucnum_ui`, and the parser alias.
+  `L(0)=2`, `L(1)=1`, `L(n)=L(n-1)+L(n-2)`; evaluates for a non-negative integer, stays
+  symbolic for symbolic/negative arguments (negative-index `L(-n)=(-1)ⁿ·L(n)` deferred).
+  `lucas(5)=11`, `lucas(10)=123`, `lucas(20)=15127`. Matches SymPy.
+
 ### EI-NEGINF-1 — `Ei(−∞)` was left unevaluated instead of `0`
 - **Problem:** the exponential integral `Ei(x) → 0` as `x → −∞` (the `eˣ` decay dominates
   the `1/x` growth), but `Ei(−∞)` stayed symbolic where SymPy returns `0`. (`Ei(0)=−∞` and

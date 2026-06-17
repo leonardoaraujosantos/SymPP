@@ -87,6 +87,7 @@ enum class FunctionId : std::uint16_t {
     Factorial2,
     Bernoulli,
     Euler,
+    Lucas,
 
     // -- Special functions (Phase 3+) --------------------------------------
     Gamma = 1000,

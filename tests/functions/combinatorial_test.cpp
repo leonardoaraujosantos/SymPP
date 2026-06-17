@@ -287,6 +287,24 @@ TEST_CASE("fibonacci: integer values", "[3i][fibonacci]") {
     REQUIRE(fibonacci(integer(-1))->type_id() == TypeId::Function);
 }
 
+// LUCAS-1: Lucas numbers L(0)=2, L(1)=1, L(n)=L(n-1)+L(n-2). Evaluates for a
+// non-negative integer; symbolic and negative arguments stay symbolic. New
+// function, matching SymPy's lucas.
+TEST_CASE("lucas: integer values (LUCAS-1)", "[3i][lucas][regression]") {
+    REQUIRE(lucas(integer(0)) == integer(2));
+    REQUIRE(lucas(integer(1)) == integer(1));
+    REQUIRE(lucas(integer(2)) == integer(3));
+    REQUIRE(lucas(integer(5)) == integer(11));
+    REQUIRE(lucas(integer(10)) == integer(123));
+    REQUIRE(lucas(integer(20)) == integer(15127));
+    // Symbolic / negative arguments stay unevaluated; parses round-trip.
+    auto x = symbol("x");
+    REQUIRE(lucas(x)->type_id() == TypeId::Function);
+    REQUIRE(lucas(x)->str() == "lucas(x)");
+    REQUIRE(parsing::parse("lucas(7)") == lucas(integer(7)));
+    REQUIRE(lucas(integer(-3))->type_id() == TypeId::Function);
+}
+
 // TOTIENT-1: Euler's totient φ(n) evaluates for positive integers (φ(p)=p−1
 // for prime p, φ(p^k·…) via the product formula), stays symbolic for symbols
 // and non-positive integers. Matches SymPy's totient.

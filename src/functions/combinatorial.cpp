@@ -163,6 +163,48 @@ Expr fibonacci(const Expr& arg) {
     return make<Fibonacci>(arg);
 }
 
+Lucas::Lucas(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Lucas);
+}
+Expr Lucas::rebuild(std::vector<Expr> new_args) const {
+    return lucas(new_args[0]);
+}
+std::optional<bool> Lucas::ask(AssumptionKey k) const noexcept {
+    const auto& a = args_[0];
+    switch (k) {
+        case AssumptionKey::Complex:
+        case AssumptionKey::Imaginary:
+            return std::nullopt;  // derived by the generic ask() layer
+
+        case AssumptionKey::Integer:
+        case AssumptionKey::Real:
+        case AssumptionKey::Rational:
+            if (is_integer(a) == true) return true;
+            return std::nullopt;
+        case AssumptionKey::Positive:
+            // L(n) ≥ 1 for every non-negative integer n (L(0)=2, L(1)=1, …).
+            if (is_integer(a) == true && is_nonnegative(a) == true) return true;
+            return std::nullopt;
+        default:
+            return std::nullopt;
+    }
+}
+
+Expr lucas(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        // Negative-index Lucas L(-n) = (-1)^n·L(n) deferred; keep symbolic.
+        if (z.is_negative()) return make<Lucas>(arg);
+        if (!z.fits_long()) return make<Lucas>(arg);
+        long n = z.to_long();
+        if (n > 1'000'000) return make<Lucas>(arg);  // safety bound
+        mpz_class r;
+        mpz_lucnum_ui(r.get_mpz_t(), static_cast<unsigned long>(n));
+        return make<Integer>(std::move(r));
+    }
+    return make<Lucas>(arg);
+}
+
 // ============================================================================
 // Totient (Euler's φ)
 // ============================================================================
