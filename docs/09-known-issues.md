@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### ACOSH-IMAG-1 — `acosh(0)`, `acosh(½)`, `acosh(−1)` were left unevaluated (imaginary values)
+- **Problem:** for a real `x ∈ [−1, 1]`, `acosh(x) = i·acos(x)` is purely imaginary, but
+  `acosh(0)`, `acosh(½)`, `acosh(−½)`, `acosh(−1)` stayed symbolic where SymPy returns
+  `iπ/2`, `iπ/3`, `2iπ/3`, `iπ`.
+- **Fix:** in the `acosh()` builder (`src/functions/hyperbolic.cpp`), for an Integer/Rational
+  argument compute `acos(arg)` and, when it reduces to a closed form (i.e. is not a bare
+  `Acos` node), return `i·acos(arg)`. That single gate covers both conditions: a rational
+  with no nice acos value (`acosh(⅓)`) and any `|x|>1` (`acosh(2)`, `acosh(−2)`) leave `acos`
+  a bare node, so `acosh` is kept — exactly as SymPy does. The `cosh(acosh(x))=x` inverse
+  composition is unaffected.
+
 ### ATANH-POLE-1 — `atanh(±1)` and `acoth(±1)` were left unevaluated (real poles)
 - **Problem:** `atanh(x) = ½·log((1+x)/(1−x))` has real poles at `x = ±1`, but `atanh(1)`,
   `atanh(−1)`, `acoth(1)`, `acoth(−1)` stayed symbolic where SymPy returns `±∞`. (The

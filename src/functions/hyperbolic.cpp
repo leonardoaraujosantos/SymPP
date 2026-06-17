@@ -451,6 +451,17 @@ Expr acosh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_acosh, arg);
     }
+    // acosh(x) = i·acos(x) for a real x ∈ [−1, 1]: acosh(0)=iπ/2, acosh(½)=iπ/3,
+    // acosh(−1)=iπ. Gated on acos(x) actually reducing to a closed form — for a
+    // rational with no nice acos value (acosh(⅓)) or |x|>1 (acosh(2)), acos stays
+    // a bare node and acosh is left as-is, matching SymPy.
+    if (arg->type_id() == TypeId::Integer
+        || arg->type_id() == TypeId::Rational) {
+        Expr ac = acos(arg);
+        if (!is_bare_inverse(ac, FunctionId::Acos)) {
+            return mul(S::I(), ac);
+        }
+    }
     return make<Acosh>(arg);
 }
 

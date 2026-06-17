@@ -125,6 +125,25 @@ TEST_CASE("acosh(1) = 0", "[3f][acosh]") {
     REQUIRE(acosh(S::One()) == S::Zero());
 }
 
+// ACOSH-IMAG-1: acosh(x) = i·acos(x) for a real x ∈ [−1, 1] whose acos has a
+// closed form — acosh(0)=iπ/2, acosh(½)=iπ/3, acosh(−1)=iπ. A rational with no
+// nice acos value (acosh(⅓)) or |x|>1 (acosh(2)) is left symbolic, as SymPy does.
+TEST_CASE("acosh: imaginary values on [−1, 1] (ACOSH-IMAG-1)",
+          "[3f][acosh][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(acosh(S::Zero())->str(), "I*pi/2"));
+    REQUIRE(oracle.equivalent(acosh(rational(1, 2))->str(), "I*pi/3"));
+    REQUIRE(oracle.equivalent(acosh(rational(-1, 2))->str(), "2*I*pi/3"));
+    REQUIRE(oracle.equivalent(acosh(integer(-1))->str(), "I*pi"));
+    // No over-reach: no closed form, or outside [−1, 1], stays an Acosh node.
+    REQUIRE(acosh(rational(1, 3))->type_id() == TypeId::Function);
+    REQUIRE(acosh(integer(2))->type_id() == TypeId::Function);
+    REQUIRE(acosh(integer(-2))->type_id() == TypeId::Function);
+    // Inverse composition still collapses.
+    auto x = symbol("x");
+    REQUIRE(cosh(acosh(x)) == x);
+}
+
 TEST_CASE("atanh: canonical and odd", "[3f][atanh]") {
     REQUIRE(atanh(S::Zero()) == S::Zero());
     auto x = symbol("x");
