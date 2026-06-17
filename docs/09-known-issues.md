@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### POW-NUMMUL-1 — `acot(√3/3)` was unevaluated (numeric Mul base didn't reciprocate)
+- **Problem:** `acot(x) = atan(1/x)`, but for `x = 1/√3` (stored rationalised as `⅓·√3`),
+  `pow(⅓·√3, −1)` stayed an unevaluated `Pow` instead of folding to `√3`, so
+  `atan(√3) = π/3` was never reached and `acot(1/√3)` stayed symbolic. SymPy returns `π/3`.
+  The root cause was general: an integer power of a symbol-free `Mul` of radicals did not
+  distribute, so reciprocals like `(√3/3)⁻¹` did not reduce to `√3`.
+- **Fix:** in `pow()` (`src/core/pow.cpp`), distribute an integer exponent over a `Mul` base
+  with **no free symbols** — `(∏ aᵢ)ⁿ = ∏ aᵢⁿ` — so the radical factors re-fold
+  (`(⅓·√3)⁻¹ = 3·3^(−½) = √3`). Restricted to symbol-free bases, so the compact form of
+  `(2·x)ⁿ` (a deliberate canonical choice) is untouched. `acot(1/√3) = π/3` now reaches the
+  table; `(√3/3)⁻¹ = √3`. Matches SymPy.
+
 ### POW-NEGROOT-1 — `(−8)^(1/3)` did not pull out the perfect cube `2`
 - **Problem:** SymPP extracted perfect-power factors from positive radicands
   (`16^(2/3)=4·2^(2/3)`) but left a negative integer base untouched, so `(−8)^(1/3)`,

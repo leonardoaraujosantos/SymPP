@@ -17,6 +17,7 @@
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/traversal.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
@@ -543,6 +544,19 @@ Expr pow(const Expr& base, const Expr& exp) {
         const auto& inner_exp = base->args()[1];
         Expr new_exp = mul(inner_exp, exp);
         return pow(base->args()[0], new_exp);
+    }
+
+    // ---- Distribute an integer power over a symbol-free (numeric) Mul base ----
+    // (∏ aᵢ)ⁿ = ∏ aᵢⁿ folds radical coefficients that the rationalised form leaves
+    // split: (⅓·√3)⁻¹ = 3·3^(−½) = √3, so reciprocals of such products reduce (this
+    // unblocks e.g. acot(√3/3) = atan(√3) = π/3). Restricted to a base with no free
+    // symbols, so the compact form of (2·x)ⁿ is untouched.
+    if (exp->type_id() == TypeId::Integer && base->type_id() == TypeId::Mul
+        && free_symbols(base).empty()) {
+        std::vector<Expr> factors;
+        factors.reserve(base->args().size());
+        for (const auto& f : base->args()) factors.push_back(pow(f, exp));
+        return mul(std::move(factors));
     }
 
     // ---- I^Integer cycles through {1, I, -1, -I} ----

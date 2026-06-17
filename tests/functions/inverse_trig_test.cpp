@@ -279,6 +279,23 @@ TEST_CASE("acot: canonical values and odd parity", "[3e][acot]") {
     REQUIRE(acot(x)->type_id() == TypeId::Function);
 }
 
+// POW-NUMMUL-1: a symbol-free Mul base distributes under an integer power so the
+// rationalised √3/3 = ⅓·√3 reciprocates to √3, letting acot(√3/3)=atan(√3)=π/3
+// reach the special-value table (it previously stayed acot(√3/3)).
+TEST_CASE("acot: rationalised reciprocal table angle (POW-NUMMUL-1)",
+          "[3e][acot][pow][regression]") {
+    auto pi = S::Pi();
+    auto inv_sqrt3 = pow(integer(3), rational(-1, 2));  // 1/√3 = √3/3
+    REQUIRE(acot(inv_sqrt3) == mul(rational(1, 3), pi));   // acot(1/√3) = π/3
+    REQUIRE(acot(mul(S::NegativeOne(), inv_sqrt3))
+            == mul(rational(-1, 3), pi));                 // odd → −π/3
+    // The underlying numeric fold: (√3/3)⁻¹ = √3.
+    REQUIRE(pow(inv_sqrt3, integer(-1)) == pow(integer(3), rational(1, 2)));
+    // A Mul base with a symbol is left compact (no distribution at construction).
+    auto x = symbol("x");
+    REQUIRE(pow(mul(integer(2), x), integer(-1))->type_id() == TypeId::Pow);
+}
+
 TEST_CASE("asec: canonical values, pole, no simple parity", "[3e][asec]") {
     auto pi = S::Pi();
     REQUIRE(asec(S::One()) == S::Zero());                 // asec(1) = 0
