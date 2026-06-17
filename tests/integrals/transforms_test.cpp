@@ -432,3 +432,42 @@ TEST_CASE("cosine_transform: exp(-3t) → 3/(9 + ω²)",
     auto F = cosine_transform(e, t, w);
     REQUIRE(oracle.equivalent(F->str(), "3/(9 + w**2)"));
 }
+
+// LAPLACE-TRIGSQ-1: Laplace transforms of trig squares / products, via
+// power-reduction to single-frequency form (cos²t → ½+½cos2t, etc.) before the
+// linear rules apply. Previously these were left as unevaluated LaplaceTransform
+// markers. Matches SymPy.
+TEST_CASE("laplace: trig squares and products (LAPLACE-TRIGSQ-1)",
+          "[8][laplace_transform][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto s = symbol("s");
+
+    // cos²t → (s²+2)/(s(s²+4)), sin²t → 2/(s(s²+4)).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(cos(t), integer(2)), t, s)->str(),
+        "(s**2 + 2)/(s*(s**2 + 4))"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(sin(t), integer(2)), t, s)->str(),
+        "2/(s*(s**2 + 4))"));
+    // sin t·cos t → 1/(s²+4).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(sin(t) * cos(t), t, s)->str(), "1/(s**2 + 4)"));
+    // Scaled frequency: cos²(2t) → (s²+8)/(s(s²+16)).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(cos(integer(2) * t), integer(2)), t, s)->str(),
+        "(s**2 + 8)/(s*(s**2 + 16))"));
+    // Polynomial / exponential weights linearize the square in place.
+    REQUIRE(oracle.equivalent(
+        laplace_transform(t * pow(cos(t), integer(2)), t, s)->str(),
+        "(s**4 + 2*s**2 + 8)/(s**2*(s**2 + 4)**2)"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(exp(mul(S::NegativeOne(), t)) * pow(sin(t), integer(2)),
+                          t, s)
+            ->str(),
+        "2/((s + 1)*((s + 1)**2 + 4))"));
+
+    // A plain sin t is unaffected.
+    REQUIRE(oracle.equivalent(laplace_transform(sin(t), t, s)->str(),
+                              "1/(s**2 + 1)"));
+}

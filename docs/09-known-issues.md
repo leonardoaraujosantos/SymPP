@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LAPLACE-TRIGSQ-1 — Laplace transforms of trig squares/products were unevaluated
+- **Problem:** `laplace_transform(cos²t)`, `sin²t`, `sin t·cos t` returned the unevaluated
+  `LaplaceTransform(…)` marker, where SymPy gives `(s²+2)/(s(s²+4))`, `2/(s(s²+4))`, `1/(s²+4)`.
+  The transform handled single-frequency trig and polynomial/exponential weights but not a trig
+  power or product.
+- **Fix:** added a `linearize_trig` power-reduction pre-step, applied before emitting the marker:
+  `cos²(g) → ½ + ½cos(2g)`, `sin²(g) → ½ − ½cos(2g)`, `sin(g)·cos(g) → ½sin(2g)`. The squares are
+  rewritten in place (so a weighted form like `t·cos²t` or `e^(−t)·sin²t` linearizes too) and the
+  single-frequency result is handled by the existing linear rules. `L[cos²t] = (s²+2)/(s(s²+4))`,
+  `L[sin²t] = 2/(s(s²+4))`, `L[sin t·cos t] = 1/(s²+4)`, `L[cos²2t] = (s²+8)/(s(s²+16))`,
+  `L[t·cos²t] = (s⁴+2s²+8)/(s²(s²+4)²)`. Plain trig transforms are unaffected. Matches SymPy.
+
 ### LIMIT-STIRLING-1 — n-th roots of factorial gave wrong/1 answers
 - **Problem:** `(n!)^{1/n}/n` should be `1/e`, `(n!)^{1/n}` should be `∞`, `n/(n!)^{1/n}` should
   be `e`, and `(n!/nⁿ)^{1/n}` should be `1/e`, but all returned wrong values (`0`, `1`, `∞`, `1`)

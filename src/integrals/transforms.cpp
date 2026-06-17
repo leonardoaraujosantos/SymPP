@@ -203,6 +203,75 @@ namespace {
     return std::nullopt;
 }
 
+// Power-reduce trig squares and the sin·cos product to single-frequency form so
+// the linear Laplace rules apply: cos²(g) → ½ + ½cos(2g), sin²(g) → ½ − ½cos(2g),
+// sin(g)·cos(g) → ½sin(2g). The squares are rewritten in place (so a product such
+// as t·cos²(t) linearizes too); the sin·cos product is matched at the Mul level.
+// Returns nullopt when nothing matched.
+[[nodiscard]] std::optional<Expr> linearize_trig(const Expr& f) {
+    ExprMap<Expr> m;
+    bool any = false;
+    auto collect = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow && e->args()[1] == integer(2)
+            && e->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e->args()[0]);
+            const auto id = fn.function_id();
+            if ((id == FunctionId::Cos || id == FunctionId::Sin)
+                && fn.args().size() == 1 && m.find(e) == m.end()) {
+                const Expr two_g = mul(integer(2), fn.args()[0]);
+                m.emplace(e, id == FunctionId::Cos
+                                 ? add(rational(1, 2),
+                                       mul(rational(1, 2), cos(two_g)))
+                                 : add(rational(1, 2),
+                                       mul(rational(-1, 2), cos(two_g))));
+                any = true;
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    collect(collect, f);
+    if (any) return expand(xreplace(f, m));
+
+    // sin(g)·cos(g) within a product (same argument g).
+    if (f->type_id() == TypeId::Mul) {
+        Expr sg, cg, coeff = S::One();
+        bool dup = false;
+        for (const auto& fac : f->args()) {
+            if (fac->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*fac);
+                if (fn.function_id() == FunctionId::Sin && fn.args().size() == 1
+                    && !sg) {
+                    sg = fn.args()[0];
+                    continue;
+                }
+                if (fn.function_id() == FunctionId::Cos && fn.args().size() == 1
+                    && !cg) {
+                    cg = fn.args()[0];
+                    continue;
+                }
+            }
+            coeff = mul(coeff, fac);
+        }
+        if (sg && cg && sg == cg && !dup) {
+            return mul(coeff, mul(rational(1, 2), sin(mul(integer(2), sg))));
+        }
+    }
+    return std::nullopt;
+}
+
+// Does any subexpression carry the unevaluated LaplaceTransform marker?
+[[nodiscard]] bool contains_laplace_marker(const Expr& e) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).name() == "LaplaceTransform") {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_laplace_marker(a)) return true;
+    }
+    return false;
+}
+
 }  // namespace
 
 Expr laplace_transform(const Expr& f, const Expr& t, const Expr& s) {
@@ -218,6 +287,12 @@ Expr laplace_transform(const Expr& f, const Expr& t, const Expr& s) {
     }
     if (auto r = laplace_term(f, t, s); r.has_value()) {
         return *r;
+    }
+    // Power-reduce trig squares / products (cos²t, sin²t, sin t·cos t) and retry:
+    // the linearized single-frequency form is handled by the rules above.
+    if (auto lin = linearize_trig(f)) {
+        Expr r = laplace_transform(*lin, t, s);
+        if (!contains_laplace_marker(r)) return r;
     }
     return function_symbol("LaplaceTransform")(f, t, s);
 }
