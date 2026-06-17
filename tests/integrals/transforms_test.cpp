@@ -323,6 +323,37 @@ TEST_CASE("fourier: exp(-a·t²) → sqrt(π/a)·exp(-ω²/4a)",
     REQUIRE(resp.raw.at("result").get<bool>());
 }
 
+// FOURIER-LORENTZ-1: the Fourier transform of the Lorentzian exp(-a·|t|) is
+// 2a/(a²+ω²) in this engine's convention F(ω) = ∫ f(t)·e^(-iωt) dt (the same one
+// the Gaussian above uses). Previously left as an unevaluated FourierTransform
+// marker. Verified against the closed form (SymPy uses a 2π-scaled convention,
+// so the numeric form differs but the symbolic closed form here is exact).
+TEST_CASE("fourier: exp(-a·|t|) → 2a/(a²+ω²) (FOURIER-LORENTZ-1)",
+          "[8][fourier][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto w = symbol("w");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+
+    // exp(-a·|t|) → 2a/(a² + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(mul(S::NegativeOne(), a), abs(t))), t, w)
+            ->str(),
+        "2*a/(a**2 + w**2)"));
+    // exp(-|t|) → 2/(1 + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(S::NegativeOne(), abs(t))), t, w)->str(),
+        "2/(1 + w**2)"));
+    // exp(-2|t|) → 4/(4 + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(integer(-2), abs(t))), t, w)->str(),
+        "4/(4 + w**2)"));
+    // exp(+|t|) diverges — left unevaluated, not a bogus value.
+    REQUIRE(fourier_transform(exp(abs(t)), t, w)->str().rfind("FourierTransform",
+                                                              0)
+            == 0);
+}
+
 TEST_CASE("inverse_fourier: roundtrip on δ(t) ∘ exp(-a·t²) gives back original up to constant",
           "[8][inverse_fourier]") {
     auto t = symbol("t");

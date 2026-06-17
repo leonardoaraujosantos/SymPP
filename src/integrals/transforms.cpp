@@ -730,6 +730,37 @@ namespace {
             }
         }
     }
+    // exp(-a·|t|) → 2a/(a² + ω²) for a > 0 (the Lorentzian, in the convention
+    // F(ω) = ∫ f(t)·e^(-iωt) dt that this engine uses — cf. the Gaussian above).
+    if (f->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*f);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1
+            && fn.args()[0]->type_id() == TypeId::Mul) {
+            const Expr& inner = fn.args()[0];
+            Expr absnode;
+            std::vector<Expr> coef;
+            bool ok = true;
+            for (const auto& factor : inner->args()) {
+                if (!absnode && factor->type_id() == TypeId::Function) {
+                    const auto& af = static_cast<const Function&>(*factor);
+                    if (af.function_id() == FunctionId::Abs
+                        && af.args().size() == 1 && af.args()[0] == t) {
+                        absnode = factor;
+                        continue;
+                    }
+                }
+                if (has(factor, t)) { ok = false; break; }
+                coef.push_back(factor);
+            }
+            if (ok && absnode && !coef.empty()) {
+                Expr a = mul(S::NegativeOne(), mul(coef));  // a = −c, c = ∏coef
+                if (is_positive(a) == std::optional<bool>{true}) {
+                    return (integer(2) * a)
+                           / (pow(a, integer(2)) + pow(w, integer(2)));
+                }
+            }
+        }
+    }
     // Mul: pull constants out.
     if (f->type_id() == TypeId::Mul) {
         std::vector<Expr> consts, rest;

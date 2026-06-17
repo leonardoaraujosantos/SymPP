@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### FOURIER-LORENTZ-1 — Fourier transform of exp(-a·|t|) was unevaluated
+- **Problem:** `fourier_transform(exp(-a·|t|))` returned the unevaluated `FourierTransform(…)`
+  marker. The engine handled the Gaussian `exp(-a·t²)` but not the Lorentzian `exp(-a·|t|)`.
+- **Fix:** added the case `exp(-a·|t|) → 2a/(a² + ω²)` (a > 0) to `fourier_term`, in the engine's
+  convention `F(ω) = ∫ f(t)·e^(-iωt) dt` (the same one the Gaussian uses; note SymPy scales the
+  exponent by 2π, so its numeric form differs while the symbolic closed form here is exact). The
+  coefficient `a` is required provably positive, so `exp(+|t|)` (divergent) is left unevaluated
+  rather than given a bogus value. `F[exp(-|t|)] = 2/(1+ω²)`, `F[exp(-2|t|)] = 4/(4+ω²)`,
+  `F[exp(-a|t|)] = 2a/(a²+ω²)`. The Gaussian and other transforms are unaffected.
+
 ### LAPLACE-TRIGSQ-1 — Laplace transforms of trig squares/products were unevaluated
 - **Problem:** `laplace_transform(cos²t)`, `sin²t`, `sin t·cos t` returned the unevaluated
   `LaplaceTransform(…)` marker, where SymPy gives `(s²+2)/(s(s²+4))`, `2/(s(s²+4))`, `1/(s²+4)`.
