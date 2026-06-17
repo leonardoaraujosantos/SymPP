@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-LOG-1 — `Σ 1/(n·2ⁿ)` was unevaluated (logarithm series)
+- **Problem:** the logarithm series `Σ_{n=1}^∞ rⁿ/n = −log(1−r)` (for `|r| < 1`) had no
+  handler, so `Σ 1/(n·2ⁿ)`, `Σ 1/(n·3ⁿ)` stayed unevaluated where SymPy returns `log 2`,
+  `log(3/2)`.
+- **Fix:** added `sum_log_series` in `src/calculus/summation.cpp`, dispatched after the
+  poly·geometric handler. It detects a summand `coeff · n⁻¹ · base^(c·n+d)` with a var-free
+  base and a numeric ratio `r = base^c` of magnitude `< 1`, returning
+  `coeff · base^d · log(1/(1−r))` (the reciprocal form matches SymPy's display and gives a
+  clean rational log argument). A normalization step first distributes the
+  reciprocal-of-a-product form (`1/(2ⁿ·n)` is stored as `(2ⁿ·n)⁻¹`) to expose the `n⁻¹·rⁿ`
+  factors. `Σ 1/(n·2ⁿ) = log 2`, `Σ 3/(n·2ⁿ) = 3·log 2`. The divergent harmonic (`|r| = 1`)
+  and symbolic-ratio (`Σ xⁿ/n`) cases are left unevaluated; the alternating `Σ(−1)ⁿ/n` is
+  still handled by the existing eta path. Matches SymPy.
+
 ### POW-NUMMUL-1 — `acot(√3/3)` was unevaluated (numeric Mul base didn't reciprocate)
 - **Problem:** `acot(x) = atan(1/x)`, but for `x = 1/√3` (stored rationalised as `⅓·√3`),
   `pow(⅓·√3, −1)` stayed an unevaluated `Pow` instead of folding to `√3`, so

@@ -1597,6 +1597,38 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     }
 }
 
+// SUM-LOG-1: the logarithm series Σ_{n=1}^∞ rⁿ/n = −log(1−r) = log(1/(1−r)) for
+// a constant |r| < 1. Σ 1/(n·2ⁿ) = log 2, Σ 1/(n·3ⁿ) = log(3/2). A coefficient
+// carries through; a divergent (|r| ≥ 1, e.g. the harmonic Σ1/n) or symbolic ratio
+// is left unevaluated. Matches SymPy.
+TEST_CASE("summation: logarithm series rⁿ/n → log(1/(1−r)) (SUM-LOG-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto oo = S::Infinity();
+    auto one = integer(1);
+    // 1/(n·cⁿ) = n⁻¹·c⁻ⁿ.
+    auto term = [&](int c) {
+        return mul(pow(n, integer(-1)), pow(integer(c), mul(integer(-1), n)));
+    };
+    REQUIRE(oracle.equivalent(summation(term(2), n, one, oo)->str(), "log(2)"));
+    REQUIRE(oracle.equivalent(summation(term(3), n, one, oo)->str(),
+                              "log(3/2)"));
+    REQUIRE(oracle.equivalent(summation(term(4), n, one, oo)->str(),
+                              "log(4/3)"));
+    // Coefficient carries through: Σ 3/(n·2ⁿ) = 3·log 2.
+    REQUIRE(oracle.equivalent(
+        summation(mul(integer(3), term(2)), n, one, oo)->str(), "3*log(2)"));
+    // (1/2)ⁿ/n form (base written as the ratio) also closes.
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(rational(1, 2), n), pow(n, integer(-1))), n, one, oo)
+            ->str(),
+        "log(2)"));
+    // No misfire: the divergent harmonic series stays an unevaluated Sum.
+    REQUIRE(summation(pow(n, integer(-1)), n, one, oo)->type_id()
+            == TypeId::Function);
+}
+
 // SUM-EXP-SHIFT-1: a shifted factorial (k+m)! re-indexes (j=k+m) to the k! case,
 // closing the e-valued sums Σ P(k)/(k+m)! that don't telescope. Σ1/(k+1)!=e−2,
 // Σ(2k+1)/(k+1)!=e, Σ k/(k+2)!=3−e. Previously unevaluated. Matches SymPy.

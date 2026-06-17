@@ -222,6 +222,62 @@ namespace {
     return simplify(prefactor * (s_hi - s_lo));
 }
 
+// Σ_{n=1}^∞ rⁿ / n = −log(1 − r) for a constant ratio r with |r| < 1 (the n = 1
+// logarithm series, Li₁). The summand is coeff · n⁻¹ · base^(c·n + d) with a
+// var-free base and a numeric ratio r = base^c of magnitude < 1; the constant
+// shift contributes base^d. Σ 1/(n·2ⁿ) = log 2, Σ 1/(n·3ⁿ) = log(3/2).
+[[nodiscard]] std::optional<Expr> sum_log_series(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (lo != S::One() || hi->type_id() != TypeId::Infinity) return std::nullopt;
+    // Normalize the reciprocal-of-a-product form: 1/(2ⁿ·n) is stored as (2ⁿ·n)⁻¹
+    // (a single Pow, since the base carries the var), so distribute an integer
+    // power over the Mul base to expose the n⁻¹·rⁿ factors.
+    Expr e = expr;
+    if (e->type_id() == TypeId::Pow
+        && e->args()[0]->type_id() == TypeId::Mul
+        && e->args()[1]->type_id() == TypeId::Integer) {
+        std::vector<Expr> fs;
+        for (const auto& f : e->args()[0]->args()) {
+            fs.push_back(pow(f, e->args()[1]));
+        }
+        e = mul(std::move(fs));
+    }
+    if (e->type_id() != TypeId::Mul) return std::nullopt;
+    Expr geo;
+    bool have_recip = false;
+    std::vector<Expr> coeff_factors;
+    for (const auto& f : e->args()) {
+        if (!have_recip && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && f->args()[1] == S::NegativeOne()) {
+            have_recip = true;  // the exact n⁻¹ factor
+        } else if (!geo && f->type_id() == TypeId::Pow
+                   && !has(f->args()[0], var) && has(f->args()[1], var)) {
+            geo = f;            // base^(linear in var), base var-free
+        } else if (!has(f, var)) {
+            coeff_factors.push_back(f);
+        } else {
+            return std::nullopt;  // another var-bearing factor — not this form
+        }
+    }
+    if (!have_recip || !geo) return std::nullopt;
+    Expr c = diff(geo->args()[1], var);
+    if (has(c, var)) return std::nullopt;  // exponent must be linear in var
+    Expr d = simplify(geo->args()[1] - c * var);
+    if (has(d, var)) return std::nullopt;
+    Expr ratio = simplify(pow(geo->args()[0], c));
+    // Convergence: r must be a number with |r| < 1.
+    if (!is_number(ratio)
+        || is_negative(abs(ratio) - S::One()) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr coeff = coeff_factors.empty() ? Expr{S::One()} : mul(coeff_factors);
+    Expr prefactor = pow(geo->args()[0], d);  // base^d
+    // −log(1−r) = log(1/(1−r)); the reciprocal form matches SymPy's display
+    // (Σ1/(n·2ⁿ) = log 2, not −log ½) and collapses to a clean rational argument.
+    return simplify(mul(mul(coeff, prefactor),
+                        log(pow(S::One() - ratio, S::NegativeOne()))));
+}
+
 // Σ_{k=lo}^∞ c·r^k / k! = c·e^r, minus the omitted head Σ_{k=0}^{lo-1} when
 // lo > 0. The exponential series converges for every r, so no convergence test
 // is needed. Recognizes c · P(var) · (∏ baseᵢ^(aᵢ·var + bᵢ)) · factorial(var)^(-1):
@@ -1272,6 +1328,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // r ≠ 1 (covers k²·2^k, (2k+1)·3^k, k³/2^k — the general arithmetic-geometric
     // case the degree-1 block above doesn't reach).
     if (auto pg = sum_poly_geometric(expr, var, lo, hi); pg) return *pg;
+
+    // Logarithm series Σ_{n=1}^∞ rⁿ/n = −log(1−r) for |r| < 1 (e.g. Σ1/(n·2ⁿ)=log2).
+    if (auto r = sum_log_series(expr, var, lo, hi)) return *r;
 
     // Telescoping rational summand (e.g. 1/(k(k+1)), 1/(4k²−1)).
     if (auto t = telescope_rational(expr, var, lo, hi); t) return *t;
