@@ -240,6 +240,8 @@ TEST_CASE("Si/Ci/Ei: special values and derivatives", "[3h][expint][oracle]") {
     REQUIRE(sinint(S::Zero()) == S::Zero());                 // Si(0)=0
     REQUIRE(sinint(S::Infinity()) == mul(S::Half(), S::Pi())); // Si(oo)=pi/2
     REQUIRE(cosint(S::Infinity()) == S::Zero());             // Ci(oo)=0
+    // CI-POLE-1: Ci(0) = zoo (the log singularity at the origin).
+    REQUIRE(cosint(S::Zero()) == S::ComplexInfinity());      // Ci(0)=zoo
     REQUIRE(expint_ei(S::Infinity()) == S::Infinity());      // Ei(oo)=oo
     // Odd parity of Si.
     REQUIRE(sinint(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), sinint(x)));
@@ -266,6 +268,7 @@ TEST_CASE("Shi/Chi: special values and derivatives", "[3h][expint][oracle]") {
     REQUIRE(sinhint(S::Zero()) == S::Zero());                  // Shi(0)=0
     REQUIRE(sinhint(S::Infinity()) == S::Infinity());          // Shi(oo)=oo
     REQUIRE(coshint(S::Infinity()) == S::Infinity());          // Chi(oo)=oo
+    REQUIRE(coshint(S::Zero()) == S::ComplexInfinity());       // Chi(0)=zoo (CI-POLE-1)
     REQUIRE(sinhint(mul(S::NegativeOne(), x))
             == mul(S::NegativeOne(), sinhint(x)));             // odd
     REQUIRE(oracle.equivalent(diff(sinhint(x), x)->str(), "sinh(x)/x"));

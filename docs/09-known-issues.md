@@ -16,6 +16,15 @@ truth and links the issue number.
 
 ## Fixed
 
+### CI-POLE-1 — `Ci(0)` and `Chi(0)` were left unevaluated (log singularity)
+- **Problem:** the cosine-integral `Ci(x)` and hyperbolic cosine-integral `Chi(x)` have a
+  logarithmic singularity at the origin, but `Ci(0)`, `Chi(0)` stayed symbolic where SymPy
+  returns `zoo`. (Their `Si`/`Shi` siblings already evaluated at 0; only the `Ci`/`Chi` `∞`
+  values were handled.)
+- **Fix:** added `arg == 0 → ComplexInfinity` to the `cosint`/`coshint` builders in
+  `src/functions/special.cpp`. `Ci(0) = zoo`, `Chi(0) = zoo`. The `∞` values and symbolic
+  arguments are unchanged. Matches SymPy.
+
 ### SUM-PERFSQ-DENOM-1 — `Σ 1/(4n²+4n+1)` (expanded `(2n+1)²`) was unevaluated
 - **Problem:** `Σ 1/(2n+1)²` evaluates to `π²/8`, but the *expanded* denominator
   `Σ 1/(4n²+4n+1)` stayed an unevaluated `Sum` — the arithmetic-p-series handler matches a

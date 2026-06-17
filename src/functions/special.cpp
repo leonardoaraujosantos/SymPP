@@ -417,6 +417,7 @@ Expr Ci::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr cosint(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();  // Ci(0) = zoo (log pole)
     if (arg->type_id() == TypeId::Infinity) return S::Zero();  // Ci(oo) = 0
     return make<Ci>(arg);
 }
@@ -460,6 +461,7 @@ Expr Chi::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr coshint(const Expr& arg) {
+    if (arg == S::Zero()) return S::ComplexInfinity();  // Chi(0) = zoo (log pole)
     if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // Chi(oo) = oo
     return make<Chi>(arg);
 }
