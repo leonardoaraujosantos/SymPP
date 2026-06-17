@@ -236,6 +236,17 @@ std::optional<bool> DiracDeltaFn::ask(AssumptionKey k) const noexcept {
 
 Expr dirac_delta(const Expr& arg) {
     if (is_nonzero(arg) == true) return S::Zero();
+    // DiracDelta is even: δ(−c·x) = δ(c·x). Pull a negative numeric coefficient out
+    // of a Mul argument — δ(−x) = δ(x), δ(−2x) = δ(2x). An Add shift (δ(1−x)) is
+    // left intact, matching SymPy. The negated arg has a positive leading
+    // coefficient, so the recursive call terminates.
+    if (arg->type_id() == TypeId::Mul) {
+        const auto& factors = arg->args();
+        if (!factors.empty() && is_number(factors[0])
+            && static_cast<const Number&>(*factors[0]).is_negative()) {
+            return dirac_delta(mul(S::NegativeOne(), arg));
+        }
+    }
     return make<DiracDeltaFn>(arg);
 }
 

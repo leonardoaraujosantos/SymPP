@@ -121,6 +121,28 @@ TEST_CASE("DiracDelta(generic) stays unevaluated", "[3j][dirac]") {
     REQUIRE(e->str() == "DiracDelta(x)");
 }
 
+// DIRAC-EVEN-1: DiracDelta is even — δ(−c·x) = δ(c·x). A negative numeric
+// coefficient is pulled out of a Mul argument; an Add shift (δ(1−x)) is left
+// intact, matching SymPy.
+TEST_CASE("DiracDelta: even, pulls sign from a scaled argument (DIRAC-EVEN-1)",
+          "[3j][dirac][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(dirac_delta(mul(S::NegativeOne(), x)) == dirac_delta(x));
+    REQUIRE(dirac_delta(mul(integer(-2), x)) == dirac_delta(mul(integer(2), x)));
+    REQUIRE(oracle.equivalent(
+        dirac_delta(mul(rational(-1, 3), x))->str(), "DiracDelta(x/3)"));
+    // An Add argument (a shift) keeps its sign — δ(−x−1) is not normalized.
+    REQUIRE(oracle.equivalent(
+        dirac_delta(mul(S::NegativeOne(), x) - integer(1))->str(),
+        "DiracDelta(-x - 1)"));
+    REQUIRE(dirac_delta(mul(S::NegativeOne(), x) + y)->type_id()
+            == TypeId::Function);
+    // Positive scaling is unaffected.
+    REQUIRE(dirac_delta(mul(integer(2), x)) == dirac_delta(mul(integer(2), x)));
+}
+
 // ----- Substitution ----------------------------------------------------------
 
 TEST_CASE("erf/erfc/Heaviside: subs propagates", "[3j][subs]") {

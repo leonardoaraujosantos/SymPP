@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### DIRAC-EVEN-1 — `DiracDelta(−x)` was not normalized to `DiracDelta(x)`
+- **Problem:** `DiracDelta` is even (`δ(−x) = δ(x)`), but `DiracDelta(−x)`, `DiracDelta(−2x)`
+  kept their negated argument where SymPy returns `DiracDelta(x)`, `DiracDelta(2x)`.
+- **Fix:** in the `dirac_delta()` builder (`src/functions/special.cpp`), when the argument
+  is a `Mul` with a negative numeric leading coefficient, recurse on the negated argument
+  (`δ(−c·x) = δ(c·x)`). The negated arg has a positive leading coefficient so the recursion
+  terminates. An `Add` shift (`δ(1−x)`) is deliberately left intact — SymPy only normalizes
+  the scaling (`Mul`) case, not shifts. `δ(−x)→δ(x)`, `δ(−2x)→δ(2x)`, `δ(−x/3)→δ(x/3)`.
+  Matches SymPy. (`Heaviside` is *not* even and is correctly untouched.)
+
 ### INVHYP-IMAG-1 — inverse functions of an imaginary argument were unevaluated
 - **Problem:** the inverses of the TRIG-IMAG-1 forward identities were missing, so
   `asinh(I·y)`, `atanh(I·y)`, `asin(I·y)`, `atan(I·y)` stayed symbolic where SymPy returns
