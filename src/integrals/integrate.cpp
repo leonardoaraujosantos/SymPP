@@ -93,6 +93,10 @@ as_affine(const Expr& e, const Expr& var) {
 Expr integrate(const Expr& expr, const Expr& var);
 namespace {
 
+// Forward decls of the Integral-marker helpers (defined below integrate()).
+[[nodiscard]] bool is_integral_marker(const Expr& e);
+[[nodiscard]] bool contains_integral_marker(const Expr& e);
+
 // Try the elementary table on a single term. Returns std::nullopt if the
 // term is outside the table.
 [[nodiscard]] std::optional<Expr> integrate_term(const Expr& term, const Expr& var) {
@@ -647,6 +651,18 @@ Expr integrate(const Expr& expr, const Expr& var) {
     }
     if (auto r = try_weierstrass(expr, var); r.has_value()) {
         return *r;
+    }
+
+    // Last resort before giving up: expand a product or power that distributes
+    // into a sum (x³·(1−x)² → x³ − 2x⁴ + x⁵, x²·(1−x) → x² − x³) and integrate
+    // term-wise via linearity. Guarded to only recurse when expansion actually
+    // produced a different Add, so already-expanded input can't loop.
+    if (expr->type_id() == TypeId::Mul || expr->type_id() == TypeId::Pow) {
+        Expr ex = expand(expr);
+        if (!(ex == expr) && ex->type_id() == TypeId::Add) {
+            Expr r = integrate(ex, var);
+            if (!contains_integral_marker(r)) return r;
+        }
     }
 
     // Outside the closed-form table — return an unevaluated marker. Use an

@@ -2464,6 +2464,45 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
             == rational(1, 3));
 }
 
+// INT-POLYPROD-1: a product or power of polynomials — x³·(1−x)², x²·(1−x) — was
+// returned unevaluated (no handler expands a product of polynomial factors), so
+// the definite integral garbled. integrate() now expands such a product into a
+// sum and integrates term-wise as a last resort. Matches SymPy.
+TEST_CASE("integrate: products of polynomials (INT-POLYPROD-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+    auto one = integer(1);
+
+    // Indefinite: x³·(1−x)² now integrates instead of returning the marker; its
+    // derivative recovers the (expanded) integrand.
+    {
+        auto F = integrate(pow(x, integer(3)) * pow(one - x, integer(2)), x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);
+        REQUIRE(simplify(diff(F, x)
+                         - (pow(x, integer(3)) * pow(one - x, integer(2))))
+                == S::Zero());
+    }
+
+    // Definite Beta-like integrals: ∫₀¹ x³(1−x)² = ∫₀¹ x²(1−x)³ = 1/60.
+    REQUIRE(integrate(pow(x, integer(3)) * pow(one - x, integer(2)), x,
+                      S::Zero(), one)
+            == rational(1, 60));
+    REQUIRE(integrate(pow(x, integer(2)) * pow(one - x, integer(3)), x,
+                      S::Zero(), one)
+            == rational(1, 60));
+    // ∫₀¹ x²(1−x) = 1/12, ∫₀¹ x(x+1)(x+2) = 9/4, ∫₀¹ (2x−1)³ = 0.
+    REQUIRE(integrate(pow(x, integer(2)) * (one - x), x, S::Zero(), one)
+            == rational(1, 12));
+    REQUIRE(integrate(x * (x + one) * (x + integer(2)), x, S::Zero(), one)
+            == rational(9, 4));
+    REQUIRE(integrate(pow(integer(2) * x - one, integer(3)), x, S::Zero(), one)
+            == S::Zero());
+
+    // By-parts and rational integrands are unaffected by the expand fallback.
+    REQUIRE(integrate(x * sin(x), x) == sin(x) - x * cos(x));
+    REQUIRE(integrate(pow(x * x + one, integer(-1)), x) == atan(x));
+}
+
 // INT-GAUSSFOURIER-1: the Fourier integral of a real Gaussian. The integrand
 // exp(-a x²)·cos(b x) has no elementary antiderivative, so Newton-Leibniz
 // garbled it; the closed form is ∫_{-∞}^{∞} = √(π/a)·exp(-b²/(4a)), half that

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-POLYPROD-1 — products of polynomials were not integrated
+- **Problem:** an integrand that is a product or power of polynomial factors — `x³·(1−x)²`,
+  `x²·(1−x)`, `x·(x+1)·(x+2)` — was returned unevaluated (`Integral(…)`), since no handler
+  expands such a product. The definite integral then garbled (`∫₀¹ x³(1−x)² → −Integral(0,0) +
+  Integral(0,1)` instead of `1/60`), even though the expanded integrand integrates trivially.
+- **Fix:** added a last-resort step to `integrate(expr, var)`: when every closed-form handler
+  has failed and the integrand is a `Mul`/`Pow`, expand it; if expansion yields a different
+  `Add`, integrate term-wise via linearity (guarded so already-expanded input cannot loop, and
+  only accepted when the expanded result carries no leftover `Integral` marker). `∫ x³(1−x)²`
+  now integrates, and `∫₀¹ x³(1−x)² = ∫₀¹ x²(1−x)³ = 1/60`, `∫₀¹ x²(1−x) = 1/12`, `∫₀¹
+  x(x+1)(x+2) = 9/4`. By-parts and rational integrands are untouched (the fallback runs after
+  the closed-form table). Matches SymPy.
+
 ### SUM-BINOM-SQ-1 — Σ C(n,k)² = C(2n,n) was unevaluated
 - **Problem:** the central-binomial identity `Σ_{k=0}^n C(n,k)² = C(2n,n)` returned unevaluated.
 - **Fix:** added a `sum_binomial_square` detector: a summand `C·binomial(n,k)²` over `k = 0…n`
