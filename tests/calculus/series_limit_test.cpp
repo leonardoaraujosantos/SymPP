@@ -1421,6 +1421,38 @@ TEST_CASE("summation: arithmetic-argument p-series (SUM-ARITH-PSERIES-1)",
         summation(pow(odd, integer(-3)), k, one, oo)->str(), "7*zeta(3)/8"));
 }
 
+// SUM-PERFSQ-DENOM-1: a perfect-power-of-a-linear denominator written expanded —
+// 1/(4n²+4n+1) is 1/(2n+1)² — is normalized (via factor) so the (a·n+b)^(−s)
+// handlers reach it. Σ_{n=0}^∞ 1/(4n²+4n+1) = π²/8, Σ_{n=0}^∞ 1/(n²+2n+1) = π²/6.
+TEST_CASE("summation: expanded perfect-square denominator (SUM-PERFSQ-DENOM-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto n = symbol("n");
+    auto oo = S::Infinity();
+    auto recip = [&](const Expr& p) { return pow(p, integer(-1)); };
+    auto n2 = pow(n, integer(2));
+    // (2n+1)² and (n+1)² in expanded form.
+    REQUIRE(oracle.equivalent(
+        summation(recip(integer(4) * n2 + integer(4) * n + integer(1)), n,
+                  integer(0), oo)->str(),
+        "pi**2/8"));
+    REQUIRE(oracle.equivalent(
+        summation(recip(n2 + integer(2) * n + integer(1)), n, integer(0), oo)
+            ->str(),
+        "pi**2/6"));
+    // (2n−1)² from n=1 → π²/8 (the odd squares).
+    REQUIRE(oracle.equivalent(
+        summation(recip(integer(4) * n2 - integer(4) * n + integer(1)), n,
+                  integer(1), oo)->str(),
+        "pi**2/8"));
+    // No misfire: distinct linear factors telescope, not this path
+    // (Σ 1/(n²+3n+2) = Σ 1/((n+1)(n+2)) = 1/2).
+    REQUIRE(oracle.equivalent(
+        summation(recip(n2 + integer(3) * n + integer(2)), n, integer(1), oo)
+            ->str(),
+        "1/2"));
+}
+
 // SUM-SHIFT-1: an infinite sum whose index starts at an integer ≠ 1 is
 // re-expressed as Σ_{m=1}^∞ f(m + lo − 1), so the lo=1 closed-form handlers
 // (arithmetic p-series, ζ, …) reach it. Closes the standard odd p-series written

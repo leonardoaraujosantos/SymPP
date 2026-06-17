@@ -1343,6 +1343,46 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // telescoping part (j = 1 poles). Closes Σ1/(k²(k+1)) = π²/6 − 1.
     if (auto r = sum_rational_via_apart(expr, var, lo, hi)) return *r;
 
+    // Perfect-power-of-a-linear denominator: 1/(4n²+4n+1) is the expanded form of
+    // 1/(2n+1)², which the (a·n+b)^(−s) handlers above don't recognize. When the
+    // summand is P(n)^e (e a negative integer, 2 ≤ deg P ≤ 12) and P factors to a
+    // (numeric)·(linear)^m, rewrite to (linear)^(m·e) and recurse — the rewritten
+    // form has a linear base, so it cannot re-enter here. Adopt only a var-free
+    // (truly evaluated) result. Closes Σ1/(4n²+4n+1) = π²/8, Σ1/(n²+2n+1) = π²/6.
+    if (expr->type_id() == TypeId::Pow
+        && expr->args()[1]->type_id() == TypeId::Integer
+        && static_cast<const Integer&>(*expr->args()[1]).is_negative()
+        && has(expr->args()[0], var)) {
+        const Expr& base = expr->args()[0];
+        const Expr& e = expr->args()[1];
+        try {
+            Poly pb(base, var);
+            if (pb.degree() >= 2 && pb.degree() <= 12) {
+                Expr fac = factor(base, var);
+                Expr content = S::One();
+                Expr powpart = fac;
+                if (fac->type_id() == TypeId::Mul) {
+                    std::vector<Expr> rest;
+                    for (const auto& f : fac->args()) {
+                        if (is_number(f)) content = mul(content, f);
+                        else rest.push_back(f);
+                    }
+                    powpart = rest.size() == 1 ? rest[0] : Expr{};
+                }
+                if (powpart && powpart->type_id() == TypeId::Pow
+                    && powpart->args()[1]->type_id() == TypeId::Integer
+                    && Poly(powpart->args()[0], var).degree() == 1) {
+                    Expr rewritten =
+                        mul(pow(content, e),
+                            pow(powpart->args()[0], mul(powpart->args()[1], e)));
+                    Expr r = summation(rewritten, var, lo, hi);
+                    if (!has(r, var)) return r;
+                }
+            }
+        } catch (const std::exception&) {
+        }
+    }
+
     // Index-shift fallback for an infinite sum with an integer start ≠ 1:
     // Σ_{n=lo}^∞ f(n) = Σ_{m=1}^∞ f(m + lo − 1). Re-expressing from m=1 lets the
     // many lo=1 handlers above (arithmetic p-series, cotangent, …) reach a series

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-PERFSQ-DENOM-1 — `Σ 1/(4n²+4n+1)` (expanded `(2n+1)²`) was unevaluated
+- **Problem:** `Σ 1/(2n+1)²` evaluates to `π²/8`, but the *expanded* denominator
+  `Σ 1/(4n²+4n+1)` stayed an unevaluated `Sum` — the arithmetic-p-series handler matches a
+  `(a·n+b)^(−s)` form, not the equivalent quadratic.
+- **Fix:** added a normalization in `src/calculus/summation.cpp` (after the direct rational
+  handlers, so `factor` is only called as a fallback): when the summand is `P(n)^e` (`e` a
+  negative integer, `2 ≤ deg P ≤ 12`) and `P` factors to `(numeric)·(linear)^m`, rewrite to
+  `(linear)^(m·e)` and recurse. The rewritten form has a linear base so it cannot re-enter
+  the rule, and the result is adopted only when it is var-free (truly evaluated).
+  `Σ 1/(4n²+4n+1) = π²/8`, `Σ 1/(n²+2n+1) = π²/6`. Distinct linear factors (`n²+3n+2`)
+  telescope as before; a non-square (`n²+1`) or `a ≥ 3` (`9n²+6n+1`) is left unevaluated,
+  matching SymPy. (Relies on the FACTOR-NONMONIC-POW-1 fix to factor `4n²+4n+1` correctly.)
+
 ### FACTOR-NONMONIC-POW-1 — `factor(4x²+4x+1)` gave the wrong result `2·(2x+1)²`
 - **Problem (a correctness bug, not just a gap):** factoring a perfect power of a *non-monic*
   linear leaked the leading coefficient into the content. `factor(4x²+4x+1)` returned
