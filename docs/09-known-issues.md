@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### INVHYP-IMAG-1 — inverse functions of an imaginary argument were unevaluated
+- **Problem:** the inverses of the TRIG-IMAG-1 forward identities were missing, so
+  `asinh(I·y)`, `atanh(I·y)`, `asin(I·y)`, `atan(I·y)` stayed symbolic where SymPy returns
+  `I·asin(y)`, `I·atan(y)`, `I·asinh(y)`, `I·atanh(y)` (e.g. `asinh(I)=iπ/2`, `atanh(I)=iπ/4`).
+- **Fix:** wired the four rules into the `asinh`/`atanh` builders
+  (`src/functions/hyperbolic.cpp`) and `asin`/`atan` builders
+  (`src/functions/trigonometric.cpp`) using the existing `extract_i_factor` helper:
+  `asinh(I·y)=I·asin(y)`, `atanh(I·y)=I·atan(y)`, `asin(I·y)=I·asinh(y)`,
+  `atan(I·y)=I·atanh(y)`. They hold for all `y`, so no assumption is needed; the cross-calls
+  reuse the trig↔hyperbolic headers already included for the forward identities. After one
+  extraction the cofactor has no `I` factor, so there is no infinite recursion. Edge cases
+  fall out cleanly: `atan(I)=I·atanh(1)=I·∞=oo*I`, `asin(I)=I·asinh(1)` (= SymPy's
+  `I·log(1+√2)`). Matches SymPy.
+
 ### ACOSH-IMAG-1 — `acosh(0)`, `acosh(½)`, `acosh(−1)` were left unevaluated (imaginary values)
 - **Problem:** for a real `x ∈ [−1, 1]`, `acosh(x) = i·acos(x)` is purely imaginary, but
   `acosh(0)`, `acosh(½)`, `acosh(−½)`, `acosh(−1)` stayed symbolic where SymPy returns

@@ -17,6 +17,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
@@ -162,6 +163,29 @@ TEST_CASE("atanh/acoth: poles at ±1 (ATANH-POLE-1)", "[3f][atanh][acoth][regres
     REQUIRE(atanh(rational(1, 2))->type_id() == TypeId::Function);
     REQUIRE(atanh(integer(2))->type_id() == TypeId::Function);
     REQUIRE(acoth(integer(2))->type_id() == TypeId::Function);
+}
+
+// INVHYP-IMAG-1: imaginary-argument identities for the inverse functions, the
+// inverses of TRIG-IMAG-1. asinh(I·y)=I·asin(y), atanh(I·y)=I·atan(y), and the
+// mirror asin(I·y)=I·asinh(y), atan(I·y)=I·atanh(y). Hold for all y; matches SymPy.
+TEST_CASE("asinh/atanh/asin/atan: imaginary argument (INVHYP-IMAG-1)",
+          "[3f][asinh][atanh][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto I = S::I();
+    // Inverse hyperbolic of I·y → I·(inverse circular).
+    REQUIRE(oracle.equivalent(asinh(mul(I, x))->str(), "I*asin(x)"));
+    REQUIRE(oracle.equivalent(atanh(mul(I, x))->str(), "I*atan(x)"));
+    REQUIRE(oracle.equivalent(asinh(I)->str(), "I*pi/2"));
+    REQUIRE(oracle.equivalent(atanh(I)->str(), "I*pi/4"));
+    REQUIRE(oracle.equivalent(asinh(mul(integer(2), I))->str(), "I*asin(2)"));
+    // Inverse circular of I·y → I·(inverse hyperbolic).
+    REQUIRE(oracle.equivalent(asin(mul(I, x))->str(), "I*asinh(x)"));
+    REQUIRE(oracle.equivalent(atan(mul(I, x))->str(), "I*atanh(x)"));
+    REQUIRE(oracle.equivalent(asin(mul(integer(2), I))->str(), "I*asinh(2)"));
+    // No misfire: a real argument is unaffected.
+    REQUIRE(asinh(x)->type_id() == TypeId::Function);
+    REQUIRE(asin(rational(1, 2))->str().find("pi") != std::string::npos);
 }
 
 // ----- Numeric evalf ---------------------------------------------------------

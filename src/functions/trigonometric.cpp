@@ -987,6 +987,10 @@ Expr asin(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_asin, arg);
     }
+    // asin(I·y) = I·asinh(y) (inverse of sin(I·y) = I·sinh(y)).
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), asinh(*y));
+    }
     // Odd: asin(-x) = -asin(x). Recurse through the factory so the positive
     // part still gets the special-value table.
     if (auto pos = strip_neg(arg); pos.has_value()) {
@@ -1017,6 +1021,11 @@ Expr atan(const Expr& arg) {
     }
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_atan, arg);
+    }
+    // atan(I·y) = I·atanh(y) (inverse of tan(I·y) = I·tanh(y)). Note atan(±I) is a
+    // logarithmic branch point (±I·∞) — atanh(±1) already folds to ±∞, giving zoo.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), atanh(*y));
     }
     // Odd: atan(-x) = -atan(x).
     if (auto pos = strip_neg(arg); pos.has_value()) {

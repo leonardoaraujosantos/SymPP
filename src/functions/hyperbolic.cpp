@@ -435,6 +435,10 @@ Expr asinh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_asinh, arg);
     }
+    // asinh(I·y) = I·asin(y) (inverse of sinh(I·y) = I·sin(y)). asinh(I) = I·π/2.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), asin(*y));
+    }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Asinh>(*pos));
     }
@@ -474,6 +478,10 @@ Expr atanh(const Expr& arg) {
     if (arg == S::NegativeOne()) return S::NegativeInfinity();
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_atanh, arg);
+    }
+    // atanh(I·y) = I·atan(y) (inverse of tanh(I·y) = I·tan(y)). atanh(I) = I·π/4.
+    if (auto y = extract_i_factor(arg); y.has_value()) {
+        return mul(S::I(), atan(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
         return mul(S::NegativeOne(), make<Atanh>(*pos));
