@@ -182,6 +182,31 @@ TEST_CASE("pow: non-unit rational power extraction", "[1][pow][regression][oracl
     REQUIRE(pow(integer(2), rational(2, 3))->type_id() == TypeId::Pow);
 }
 
+// POW-NEGROOT-1: a perfect q-th-power factor pulls out of a negative integer base
+// under a rational power, keeping the principal-branch sign on the residual:
+// (−a)^(p/q) = sᵖ·(−m)^(p/q) where a = sᵠ·m. (−8)^(1/3) = 2·(−1)^(1/3),
+// (−24)^(1/3) = 2·(−3)^(1/3); perfect-square radicands give the I·√ form.
+TEST_CASE("pow: perfect-power factor from a negative base (POW-NEGROOT-1)",
+          "[1][pow][regression][oracle]") {
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(pow(integer(-8), rational(1, 3))->str(),
+                              "2*(-1)**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(-27), rational(1, 3))->str(),
+                              "3*(-1)**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(-8), rational(2, 3))->str(),
+                              "4*(-1)**Rational(2,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(-24), rational(1, 3))->str(),
+                              "2*(-3)**Rational(1,3)"));
+    REQUIRE(oracle.equivalent(pow(integer(-32), rational(1, 5))->str(),
+                              "2*(-1)**Rational(1,5)"));
+    // Perfect-square radicands fold to the I·√ form (subsumes √(−a)).
+    REQUIRE(oracle.equivalent(pow(integer(-12), rational(1, 2))->str(),
+                              "2*sqrt(3)*I"));
+    // No perfect-power factor → left as the irreducible negative-base Pow.
+    REQUIRE(pow(integer(-2), rational(1, 3))->type_id() == TypeId::Pow);
+    REQUIRE(pow(integer(-1), rational(1, 3))->type_id() == TypeId::Pow);
+}
+
 // Rational base, non-unit power (POW-RAT-2): (a/b)^(p/q) = (a·b^(q-1))^(p/q)/b^p
 // rationalises the denominator. (2/3)^(2/3) = 2^(2/3)·3^(1/3)/3, (1/2)^(3/2) =
 // √2/4, and a perfect rational power collapses fully ((8/27)^(2/3) = 4/9).

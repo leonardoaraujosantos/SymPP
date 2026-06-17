@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### POW-NEGROOT-1 — `(−8)^(1/3)` did not pull out the perfect cube `2`
+- **Problem:** SymPP extracted perfect-power factors from positive radicands
+  (`16^(2/3)=4·2^(2/3)`) but left a negative integer base untouched, so `(−8)^(1/3)`,
+  `(−24)^(1/3)`, `(−8)^(2/3)` stayed as written where SymPy returns `2·(−1)^(1/3)`,
+  `2·(−3)^(1/3)`, `4·(−1)^(2/3)`. (Square roots of negatives already worked via a
+  ½-only special case.)
+- **Fix:** added `try_negative_root_factor_extraction` in `src/core/pow.cpp`, dispatched
+  before the ½-only `try_sqrt_of_negative`. With `a = |base| = sᵠ·m` (`m` q-th-power-free)
+  and exponent `p/q`, it returns `sᵖ·(−m)^(p/q)` — the principal-branch identity
+  `(−a)^(p/q) = a^(p/q)·(−1)^(p/q)` with the perfect factor pulled out and the residual `m`
+  kept under the negative root. A base with no perfect-power factor (`(−2)^(1/3)`, `s = 1`)
+  is left symbolic; the residual `(−m)^(p/q)` re-enters with `s = 1`, so no recursion. It
+  also subsumes the perfect-square case (`(−12)^(1/2) = 2√3·I`). Matches SymPy.
+
 ### ARG-ZERO-1 — `arg(0)` was left unevaluated instead of `nan`
 - **Problem:** `arg(0)` stayed an unevaluated `Arg` node — the builder handled positive
   (`0`), negative (`π`), and complex (`atan2`) but not zero, whose argument is undefined.
