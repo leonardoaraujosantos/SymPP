@@ -8,7 +8,9 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/function.hpp>
+#include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/imaginary_unit.hpp>
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
@@ -16,10 +18,12 @@
 #include <sympp/core/queries.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/integrals/integrate.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
@@ -268,6 +272,19 @@ namespace {
     }
     for (const auto& a : e->args()) {
         if (contains_laplace_marker(a)) return true;
+    }
+    return false;
+}
+
+// Does any subexpression carry the unevaluated Integral failure marker?
+[[nodiscard]] bool contains_integral_marker(const Expr& e) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).name() == "Integral") {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (contains_integral_marker(a)) return true;
     }
     return false;
 }
@@ -1092,6 +1109,17 @@ Expr sine_transform(const Expr& f, const Expr& t, const Expr& w) {
         const Expr& a = *a_opt;
         return w / (pow(a, integer(2)) + pow(w, integer(2)));
     }
+    // Definition fallback: ∫₀^∞ f(t)·sin(ω·t) dt with ω treated as real (a
+    // transform variable), so the integral engine's Gaussian/trig rules apply.
+    {
+        Expr wr = symbol("__st_w", AssumptionMask{}.set_real(true));
+        Expr r = integrate(mul(f, sin(mul(wr, t))), t, S::Zero(),
+                           S::Infinity());
+        if (!contains_integral_marker(r) && r->type_id() != TypeId::NaN
+            && !is_infinity(r)) {
+            return subs(r, wr, w);
+        }
+    }
     return function_symbol("SineTransform")(f, t, w);
 }
 
@@ -1118,6 +1146,17 @@ Expr cosine_transform(const Expr& f, const Expr& t, const Expr& w) {
     if (auto a_opt = match_exp_neg(f, t); a_opt) {
         const Expr& a = *a_opt;
         return a / (pow(a, integer(2)) + pow(w, integer(2)));
+    }
+    // Definition fallback: ∫₀^∞ f(t)·cos(ω·t) dt with ω treated as real, so the
+    // integral engine's Gaussian-cosine rule resolves e.g. the Gaussian.
+    {
+        Expr wr = symbol("__ct_w", AssumptionMask{}.set_real(true));
+        Expr r = integrate(mul(f, cos(mul(wr, t))), t, S::Zero(),
+                           S::Infinity());
+        if (!contains_integral_marker(r) && r->type_id() != TypeId::NaN
+            && !is_infinity(r)) {
+            return subs(r, wr, w);
+        }
     }
     return function_symbol("CosineTransform")(f, t, w);
 }

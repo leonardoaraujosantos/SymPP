@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### COSINE-GAUSS-1 — cosine/sine transforms fell back to nothing for the Gaussian
+- **Problem:** `cosine_transform(exp(-a·t²))` returned the unevaluated `CosineTransform(…)` marker.
+  The pattern rules covered `exp(-a·t)` but not the Gaussian, and the transforms did not fall back
+  to their integral definition.
+- **Fix:** added an integral-definition fallback to `cosine_transform` / `sine_transform`:
+  `∫₀^∞ f(t)·cos(ωt) dt` (resp. `sin`) with `ω` treated as **real** (a transform variable is
+  real by definition — without this the integral engine's Gaussian-cosine rule, which needs a
+  real trig coefficient, would not fire). `cosine_transform(exp(-a·t²)) = √π·exp(-ω²/4a)/(2√a)` in
+  this engine's unnormalized convention. The result is adopted only when fully evaluated (no
+  leftover `Integral` marker / nan / ∞), so the sine transform of a Gaussian (a non-elementary
+  erfi/Dawson value) is correctly left unevaluated. The `exp(-a·t)` patterns and other transforms
+  are unaffected.
+
 ### FOURIER-LORENTZ-1 — Fourier transform of exp(-a·|t|) was unevaluated
 - **Problem:** `fourier_transform(exp(-a·|t|))` returned the unevaluated `FourierTransform(…)`
   marker. The engine handled the Gaussian `exp(-a·t²)` but not the Lorentzian `exp(-a·|t|)`.

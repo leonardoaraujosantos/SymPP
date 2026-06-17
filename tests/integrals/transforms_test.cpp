@@ -323,6 +323,30 @@ TEST_CASE("fourier: exp(-a·t²) → sqrt(π/a)·exp(-ω²/4a)",
     REQUIRE(resp.raw.at("result").get<bool>());
 }
 
+// COSINE-GAUSS-1: the cosine transform of a Gaussian, ∫₀^∞ exp(-a·t²)·cos(ωt) dt
+// = ½·√(π/a)·exp(-ω²/(4a)). The pattern rules covered exp(-a·t), and the
+// transform now falls back to the integral definition (with ω real), where the
+// Gaussian-cosine rule resolves it. The sine transform of a Gaussian (a
+// non-elementary erfi/Dawson value) is correctly left unevaluated.
+TEST_CASE("cosine_transform: Gaussian via integral fallback (COSINE-GAUSS-1)",
+          "[8][cosine_transform][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto w = symbol("w");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    auto gauss = exp(mul(S::NegativeOne(), mul(a, pow(t, integer(2)))));
+
+    // ∫₀^∞ exp(-a t²)·cos(ωt) dt = √π·exp(-ω²/(4a))/(2√a).
+    REQUIRE(oracle.equivalent(cosine_transform(gauss, t, w)->str(),
+                              "sqrt(pi)*exp(-w**2/(4*a))/(2*sqrt(a))"));
+    // The exp(-a t) pattern is unchanged.
+    REQUIRE(oracle.equivalent(
+        cosine_transform(exp(mul(mul(S::NegativeOne(), a), t)), t, w)->str(),
+        "a/(a**2 + w**2)"));
+    // The sine transform of a Gaussian has no elementary form — left unevaluated.
+    REQUIRE(sine_transform(gauss, t, w)->str().rfind("SineTransform", 0) == 0);
+}
+
 // FOURIER-LORENTZ-1: the Fourier transform of the Lorentzian exp(-a·|t|) is
 // 2a/(a²+ω²) in this engine's convention F(ω) = ∫ f(t)·e^(-iωt) dt (the same one
 // the Gaussian above uses). Previously left as an unevaluated FourierTransform
