@@ -2160,3 +2160,27 @@ TEST_CASE("limit: sum of a special function and a vanishing term (LIMIT-ADD-SF-1
     REQUIRE(limit(cos(integer(2) * x) * inv2x - inv2x, x, S::Zero())
             == S::Zero());
 }
+
+// LIMIT-CONST-MUL-1: a var-free constant factor is pulled out before
+// substitution, so c·(convergent sum) isn't collapsed by the substitution /
+// L'Hôpital paths. limit(−1·(−Si(x) − cos(x)/x), x, ∞) = π/2 (the antiderivative
+// of (1−cos x)/x²); previously this folded to a wrong 0. Matches SymPy.
+TEST_CASE("limit: constant factor times a convergent sum (LIMIT-CONST-MUL-1)",
+          "[7][limit][add]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr half_pi = S::Pi() / integer(2);
+
+    REQUIRE(simplify(limit(mul(S::NegativeOne(),
+                               mul(S::NegativeOne(), sinint(x))
+                                   - cos(x) * pow(x, integer(-1))),
+                           x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(integer(3) * atan(x), x, oo))
+            == integer(3) * half_pi);
+    REQUIRE(simplify(limit(integer(-2) * sinint(x), x, oo))
+            == mul(S::NegativeOne(), S::Pi()));
+    // Constant times a vanishing / diverging factor still behaves.
+    REQUIRE(limit(integer(5) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(integer(2) * x, x, oo) == oo);
+}

@@ -1338,6 +1338,26 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         }
     }
 
+    // Pull var-free constant factors out of a product before substitution:
+    // lim c·g(x) = c·lim g(x). Done early so c·(convergent special-function sum)
+    // isn't collapsed by the fragile substitution / L'Hôpital paths — e.g.
+    // −1·(−Si(x) − cos(x)/x) → π/2 (the antiderivative of (1−cos x)/x²). Only
+    // taken when the inner limit is determinate (not nan).
+    if (depth < 12 && expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> const_factors;
+        std::vector<Expr> var_factors;
+        for (const auto& f : expr->args()) {
+            (has(f, var) ? var_factors : const_factors).push_back(f);
+        }
+        if (!const_factors.empty() && !var_factors.empty()) {
+            Expr inner = limit_impl(mul(std::move(var_factors)), var, target,
+                                    depth + 1);
+            if (!is_nan(inner)) {
+                return simplify(mul(mul(std::move(const_factors)), inner));
+            }
+        }
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides

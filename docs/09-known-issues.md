@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-DIRICHLET-1 / LIMIT-CONST-MUL-1 — ∫₀^∞ (1−cos x)/x² and constant·sum limits
+- **Problem:** `∫₀^∞ (1−cos x)/x²` should be `π/2`, but returned a wrong `0`. Its antiderivative
+  (now found, after INT-POLYPROD-1 made the integrand integrable) is the factored form
+  `−1·(−Si(x) − cos(x)/x) − 1/x`, and `limit(−1·(−Si(x) − cos(x)/x), x, ∞)` folded to `0` instead
+  of `π/2`: a var-free constant factor multiplying a convergent special-function sum was
+  collapsed by the substitution / L'Hôpital paths. Separately, definite integrals with no closed
+  form emitted garbage like `−Integral(nan, a) + Integral(…, b)` instead of a clean result.
+- **Fix (two parts):**
+  - *Limit engine:* pull var-free constant factors out of a product before substitution —
+    `lim c·g(x) = c·lim g(x)` — when the inner limit is determinate. `limit(−1·(−Si(x) −
+    cos(x)/x)) = π/2`, `limit(3·atan x) = 3π/2`, `limit(−2·Si(x)) = −π`. This is the root-cause
+    fix the earlier `sin²x/x²` work (INT-SINSQ-1) only worked around.
+  - *Definite integrate:* when the antiderivative is an unevaluated `Integral` marker (and the
+    abs/sign path does not apply), return a clean unevaluated definite integral `Integral(f, x,
+    a, b)` rather than running Newton–Leibniz, which would leak the marker or fold an
+    `Integral(0, b)` term into a bogus `0`.
+  - `∫₀^∞ (1−cos x)/x² = π/2`; an unintegrable `∫₀^∞ x/(eˣ+1)` returns a clean `Integral(…)`;
+    `∫₀^∞ sin²x/x²`, the Gaussian and polynomial integrals are unchanged. Matches SymPy.
+
 ### DSOLVE-LINVAR-1 — first-order linear ODEs with a variable coefficient unsolved
 - **Problem:** `dsolve` returned the unevaluated `Dsolve(…)` marker for a first-order linear ODE
   with a variable coefficient — `x·y' + y = x²`, `y' + y/x = x²`, `y' − y/x = x` — even though

@@ -2503,6 +2503,39 @@ TEST_CASE("integrate: products of polynomials (INT-POLYPROD-1)",
     REQUIRE(integrate(pow(x * x + one, integer(-1)), x) == atan(x));
 }
 
+// INT-DIRICHLET-1 / INT-CLEANMARKER-1: ∫₀^∞ (1−cos x)/x² = π/2 (a Dirichlet
+// integral). Its antiderivative Si(x) + cos(x)/x − 1/x is in a factored form
+// −1·(−Si(x) − cos(x)/x) − 1/x whose c·(sum) limit folded to a wrong 0; with the
+// constant-factor pull-out in the limit engine it resolves. Separately, a
+// genuinely unintegrable definite integral now returns a clean unevaluated
+// Integral instead of garbled −Integral(nan,a)+Integral(…,b). Matches SymPy.
+TEST_CASE("integrate: Dirichlet (1-cos x)/x² and clean markers (INT-DIRICHLET-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+
+    // ∫₀^∞ (1−cos x)/x² = π/2.
+    REQUIRE(oracle.equivalent(
+        integrate((integer(1) - cos(x)) * pow(x, integer(-2)), x, S::Zero(), oo)
+            ->str(),
+        "pi/2"));
+
+    // A definite integral with no closed form returns a clean unevaluated
+    // Integral marker — not garbage with embedded nan.
+    auto uneval =
+        integrate(x * pow(exp(x) + integer(1), integer(-1)), x, S::Zero(), oo);
+    REQUIRE(uneval->str().find("nan") == std::string::npos);
+    REQUIRE(uneval->str().rfind("Integral(", 0) == 0);
+
+    // Previously-working improper integrals are unchanged.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, S::Zero(),
+                  oo)
+            ->str(),
+        "pi/2"));
+}
+
 // INT-GAUSSFOURIER-1: the Fourier integral of a real Gaussian. The integrand
 // exp(-a x²)·cos(b x) has no elementary antiderivative, so Newton-Leibniz
 // garbled it; the closed form is ∫_{-∞}^{∞} = √(π/a)·exp(-b²/(4a)), half that

@@ -3898,6 +3898,12 @@ Expr integrate(const Expr& expr, const Expr& var,
     find_marker(find_marker, antider);
     if (antider_has_marker) {
         if (auto r = try_abs_definite(expr, var, lower, upper)) return *r;
+        // The antiderivative is unevaluated, so Newton–Leibniz cannot give a
+        // meaningful value — it would leak the marker or, worse, let simplify
+        // fold an Integral(0, b) term into a bogus 0. Return a clean unevaluated
+        // definite integral instead.
+        return function_symbol("Integral")(
+            std::vector<Expr>{expr, var, lower, upper});
     }
     // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
     // (or when direct substitution lands on the unevaluated nan / an infinity —
@@ -3928,6 +3934,14 @@ Expr integrate(const Expr& expr, const Expr& var,
                 return retried;
             }
         }
+    }
+    // If the boundary evaluation still leaked an Integral marker — the
+    // antiderivative was unevaluated and Newton–Leibniz produced noise like
+    // −Integral(nan, a) + Integral(…, b) — fall back to a clean unevaluated
+    // definite integral rather than emitting that garbage.
+    if (contains_integral_marker(result)) {
+        return function_symbol("Integral")(
+            std::vector<Expr>{expr, var, lower, upper});
     }
     return result;
 }
