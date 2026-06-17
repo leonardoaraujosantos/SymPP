@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-TRIGEXPAND-1 — multiple-angle trig identities did not cancel
+- **Problem:** `simplify(sin(3x) − 3·sin x + 4·sin³x)` returned the input unchanged instead of
+  `0`, and likewise `cos(3x) − 4·cos³x + 3·cos x`. simplify reduced double-angle forms
+  (`cos(2x) − 1 + 2·sin²x → 0`) but never expanded a triple/compound angle to expose the
+  cancellation.
+- **Fix:** added a trig-expansion step to `simplify`: it computes
+  `trigsimp(expand(expand_trig(current)))` — expanding compound angles (`sin(3x) = 3·sin x −
+  4·sin³x`, …), distributing, then re-applying the Pythagorean reduction — and adopts the result
+  only when it is *strictly* smaller (node count). `sin(3x) − 3·sin x + 4·sin³x → 0`,
+  `cos(3x) − 4·cos³x + 3·cos x → 0`; a lone `sin(3x)` or `cos(2x)` (which expansion would inflate)
+  and non-trig forms are left unchanged. Matches SymPy.
+
 ### LIMIT-SUPERPOW-1 — n!/nⁿ and nⁿ/n! returned nan
 - **Problem:** `limit(n!/nⁿ, n, ∞)` is `0` and `limit(nⁿ/n!, n, ∞)` is `∞`, but both returned
   `nan`. The super-power `nⁿ` (which grows faster than `n!`) is outside the limit engine's growth

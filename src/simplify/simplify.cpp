@@ -230,6 +230,21 @@ Expr simplify(const Expr& e) {
         }
     }
 
+    // 5b. Trig multiple-angle cancellation. Expanding compound angles
+    //     (sin(3x) = 3 sin x − 4 sin³x, cos(2x) = 1 − 2 sin²x, …) and re-applying
+    //     trigsimp can collapse an expression to a much smaller form, e.g.
+    //     sin(3x) − 3 sin x + 4 sin³x → 0. Adopt only when strictly simpler so a
+    //     lone sin(3x), which expand_trig would inflate, is left untouched.
+    try {
+        Expr te =
+            re_canonicalize(trigsimp(expand(expand_trig(current))));
+        if (node_count(te) < node_count(current)) {
+            current = te;
+        }
+    } catch (const std::exception&) {
+        // expand_trig / trigsimp rejected the form; keep the pipeline result.
+    }
+
     // 6. Global anti-bloat guard. simplify() must never return something
     //    structurally larger than its (canonical) input — SymPy's simplify
     //    makes the same guarantee via a complexity measure. The pattern

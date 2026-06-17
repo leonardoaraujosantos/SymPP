@@ -1509,6 +1509,39 @@ TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
         "2**(log(2)*log(x))"));
 }
 
+// SIMP-TRIGEXPAND-1: a multiple-angle trig expression that cancels collapses to
+// a smaller form when compound angles are expanded — sin(3x) − 3·sin x +
+// 4·sin³x → 0, cos(3x) − 4·cos³x + 3·cos x → 0. simplify expands and re-applies
+// trigsimp, adopting the result only when strictly simpler, so a lone sin(3x)
+// (which expansion would inflate) is left unchanged. Matches SymPy.
+TEST_CASE("simplify: multiple-angle trig cancellation (SIMP-TRIGEXPAND-1)",
+          "[10][simplify]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+
+    // Triple-angle identities collapse to 0.
+    REQUIRE(simplify(sin(integer(3) * x) - integer(3) * sin(x)
+                     + integer(4) * pow(sin(x), integer(3)))
+            == S::Zero());
+    REQUIRE(simplify(cos(integer(3) * x) - integer(4) * pow(cos(x), integer(3))
+                     + integer(3) * cos(x))
+            == S::Zero());
+    // Double-angle and angle-addition identities.
+    REQUIRE(simplify(sin(integer(2) * x) - integer(2) * sin(x) * cos(x))
+            == S::Zero());
+    REQUIRE(simplify(sin(x + y) - sin(x) * cos(y) - cos(x) * sin(y))
+            == S::Zero());
+
+    // Non-cancelling compound angles are left unchanged (no inflation).
+    REQUIRE(simplify(sin(integer(3) * x)) == sin(integer(3) * x));
+    REQUIRE(simplify(cos(integer(2) * x)) == cos(integer(2) * x));
+    // Pythagorean identity and a non-trig form are unaffected.
+    REQUIRE(simplify(pow(sin(x), integer(2)) + pow(cos(x), integer(2)))
+            == S::One());
+    REQUIRE(simplify(pow(x, integer(2)) + integer(1))
+            == pow(x, integer(2)) + integer(1));
+}
+
 // SIMP-LOGSUM-1: a sum of numeric logarithms combines into a single
 // log(product), collapsing to 0 when the product is 1: log(2)+log(3)−log(6) = 0,
 // log(2)+log(3) = log(6), log(4)−2·log(2) = 0. Symbolic logs (log(x)+log(y)) and
