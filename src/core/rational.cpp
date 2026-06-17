@@ -91,6 +91,11 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
             if (!is_int || value_ < 2) return false;
             return mpz_probab_prime_p(value_.get_num_mpz_t(), 25) != 0;
         }
+        case AssumptionKey::Composite: {
+            // Only an integer-valued rational ≥ 4 can be composite.
+            if (!is_int || value_ < 4) return false;
+            return mpz_probab_prime_p(value_.get_num_mpz_t(), 25) == 0;
+        }
     }
     return std::nullopt;
 }

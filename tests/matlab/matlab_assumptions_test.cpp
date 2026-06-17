@@ -114,3 +114,18 @@ TEST_CASE("matlab::assume supports the prime property",
     REQUIRE(is_positive(x) == true);
     matlab::clearAssumptions(x);
 }
+
+TEST_CASE("matlab::assume supports the composite property",
+          "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xcomp");
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "composite");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "composite"));
+    REQUIRE(is_composite(x) == true);
+    REQUIRE(is_integer(x) == true);   // composite ⇒ integer, positive, ¬prime
+    REQUIRE(is_positive(x) == true);
+    REQUIRE(is_prime(x) == false);
+    matlab::clearAssumptions(x);
+}

@@ -44,6 +44,9 @@ enum class AssumptionKey : std::uint8_t {
     // Number theory (integers only).
     Prime,         // a prime ≥ 2 (implies integer, positive; NOT odd — 2 is prime
                    // and even). ¬integer ⇒ ¬prime.
+    Composite,     // a composite ≥ 4: integer > 1 that is not prime (implies
+                   // integer, positive, ¬prime; NOT a parity). ¬integer ⇒
+                   // ¬composite. Mutually exclusive with Prime; 1 is neither.
 };
 
 }  // namespace sympp

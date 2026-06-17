@@ -209,7 +209,9 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Prime:
-            // Primality of a symbolic power isn't decided structurally.
+        case AssumptionKey::Composite:
+            // Primality / compositeness of a symbolic power isn't decided
+            // structurally.
             return std::nullopt;
     }
     return std::nullopt;

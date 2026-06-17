@@ -17,6 +17,7 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Even: return even;
         case AssumptionKey::Odd: return odd;
         case AssumptionKey::Prime: return prime;
+        case AssumptionKey::Composite: return composite;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -66,6 +67,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Even: even = value; break;
         case AssumptionKey::Odd: odd = value; break;
         case AssumptionKey::Prime: prime = value; break;
+        case AssumptionKey::Composite: composite = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -86,7 +88,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
-           && !complex_ && !imaginary && !prime;
+           && !complex_ && !imaginary && !prime && !composite;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -112,6 +114,7 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(complex_));
     mix(encode(imaginary));
     mix(encode(prime));
+    mix(encode(composite));
     return h;
 }
 
@@ -193,18 +196,29 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (m.even == false && !m.odd) m.odd = true;
             if (m.odd == false && !m.even) m.even = true;
         }
-        // ¬integer => ¬even, ¬odd, ¬prime
+        // ¬integer => ¬even, ¬odd, ¬prime, ¬composite
         if (m.integer == false) {
             if (!m.even) m.even = false;
             if (!m.odd) m.odd = false;
             if (!m.prime) m.prime = false;
+            if (!m.composite) m.composite = false;
         }
-        // prime => integer, positive (≥ 2). The positive/integer closures above
-        // then cascade to real, finite, nonzero, nonnegative, rational. Note a
-        // prime is NOT necessarily odd (2 is prime and even), so no parity rule.
+        // prime => integer, positive (≥ 2), ¬composite. The positive/integer
+        // closures above then cascade to real, finite, nonzero, nonnegative,
+        // rational. Note a prime is NOT necessarily odd (2 is prime and even),
+        // so no parity rule.
         if (m.prime == true) {
             if (!m.integer) m.integer = true;
             if (!m.positive) m.positive = true;
+            if (!m.composite) m.composite = false;
+        }
+        // composite => integer, positive (≥ 4), ¬prime. Same cascade as prime;
+        // again no parity rule (4 is even, 9 is odd). Mutually exclusive with
+        // prime; the integer value 1 is neither prime nor composite.
+        if (m.composite == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.positive) m.positive = true;
+            if (!m.prime) m.prime = false;
         }
         // integer => rational => real
         if (m.integer == true) {

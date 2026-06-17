@@ -225,7 +225,9 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             if (any_arg_has(args_, AssumptionKey::Even, true)) return false;
             return std::nullopt;
         case AssumptionKey::Prime:
-            // Primality of a symbolic product isn't decided structurally.
+        case AssumptionKey::Composite:
+            // Primality / compositeness of a symbolic product isn't decided
+            // structurally.
             return std::nullopt;
     }
     return std::nullopt;

@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### COMPOSITE-1 — no `composite` assumption predicate
+- **Problem:** the assumption vocabulary had no `composite` predicate (the natural pair to
+  `prime`). `is_composite(4)` was unanswerable, and a symbol could not be declared composite
+  (SymPy: `Symbol('c', composite=True)`, `Q.composite`, `Integer(4).is_composite is True`).
+- **Fix:** added `AssumptionKey::Composite` and wired it through the stack exactly as PRIME-1:
+  an `AssumptionMask::composite` field with a `set_composite` builder; closure rules
+  `composite ⇒ integer ∧ positive ∧ ¬prime` (cascading to real/finite/nonzero/nonnegative/
+  rational), `prime ⇒ ¬composite`, and `¬integer ⇒ ¬composite` — no parity rule (4 is even,
+  9 is odd); `Integer::ask`/`Rational::ask` decide it via `mpz_probab_prime_p` (composite iff
+  value `≥ 4` and not prime, so values `< 4` — including 1, 0 and negatives — are False);
+  every other node answers structurally (`I`/π/∞ → False, `Float`/`Mul`/`Add`/`Pow` →
+  Unknown); generic-layer derive case (`¬integer ∨ prime ⇒ ¬composite`) and forward
+  derivations (`composite ⇒ integer/nonzero/real`); an `is_composite(e)` query helper; and the
+  MATLAB surface (`assume(x,"composite")`, `assumptions()` listing). `is_composite(4/6/9)=True`,
+  `is_composite(2/3/5)=False` (prime), `is_composite(1/0/−4)=False`; a declared-composite
+  symbol is integer/positive/nonzero/¬prime with unknown parity, and prime/composite are
+  mutually exclusive. Matches SymPy.
+
 ### PRIME-1 — no `prime` assumption predicate
 - **Problem:** the assumption vocabulary had no `prime` predicate. `is_prime(7)` was
   unanswerable, and a symbol could not be declared prime (SymPy: `Symbol('p', prime=True)`,

@@ -669,3 +669,48 @@ TEST_CASE("AssumptionMask: prime predicate (PRIME-1)", "[2a][assumptions]") {
     REQUIRE(is_prime(x) == U);
     REQUIRE(is_prime(S::I()) == F);
 }
+
+// COMPOSITE-1: the `composite` predicate (integer > 1 that is not prime, so
+// ≥ 4). Concrete integers answer via GMP primality (n < 4 → False); a
+// declared-composite symbol closes to integer ∧ positive ∧ nonzero ∧ real ∧
+// ¬prime, but NOT a fixed parity (4 even, 9 odd). Prime and composite are
+// mutually exclusive; 1 is neither. Matches SymPy's Q.composite.
+TEST_CASE("AssumptionMask: composite predicate (COMPOSITE-1)", "[2a][assumptions]") {
+    using sympp::is_composite;
+    using sympp::is_prime;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    // Concrete integers: composite iff ≥ 4 and not prime.
+    REQUIRE(is_composite(integer(4)) == T);
+    REQUIRE(is_composite(integer(6)) == T);
+    REQUIRE(is_composite(integer(9)) == T);
+    REQUIRE(is_composite(integer(2)) == F);   // prime
+    REQUIRE(is_composite(integer(3)) == F);   // prime
+    REQUIRE(is_composite(integer(5)) == F);   // prime
+    REQUIRE(is_composite(integer(1)) == F);   // neither prime nor composite
+    REQUIRE(is_composite(integer(0)) == F);
+    REQUIRE(is_composite(integer(-4)) == F);  // negatives are not composite
+
+    // Declared-composite symbol: composite ⇒ integer, positive, nonzero, real,
+    // ¬prime; parity stays Unknown.
+    auto c = symbol("c", AssumptionMask{}.set_composite(true));
+    REQUIRE(is_composite(c) == T);
+    REQUIRE(is_integer(c) == T);
+    REQUIRE(is_positive(c) == T);
+    REQUIRE(is_nonzero(c) == T);
+    REQUIRE(is_real(c) == T);
+    REQUIRE(is_prime(c) == F);   // mutually exclusive
+    REQUIRE(is_even(c) == U);
+    REQUIRE(is_odd(c) == U);
+
+    // A declared-prime symbol is not composite; non-integers never composite.
+    auto p = symbol("p", AssumptionMask{}.set_prime(true));
+    REQUIRE(is_composite(p) == F);
+    auto q = symbol("q", AssumptionMask{}.set_rational(true).set_integer(false));
+    REQUIRE(is_composite(q) == F);
+    auto i = symbol("i", AssumptionMask{}.set_integer(true).set_positive(true));
+    REQUIRE(is_composite(i) == U);  // a generic positive integer is unknown
+    REQUIRE(is_composite(S::I()) == F);
+}

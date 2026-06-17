@@ -34,6 +34,7 @@ std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Even: return false;   // irrational ⇒ not an integer
         case AssumptionKey::Odd: return false;
         case AssumptionKey::Prime: return false;
+        case AssumptionKey::Composite: return false;
     }
     return std::nullopt;
 }

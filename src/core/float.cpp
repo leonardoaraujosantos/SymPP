@@ -239,6 +239,7 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Even: return std::nullopt;
         case AssumptionKey::Odd: return std::nullopt;
         case AssumptionKey::Prime: return std::nullopt;
+        case AssumptionKey::Composite: return std::nullopt;
     }
     return std::nullopt;
 }
