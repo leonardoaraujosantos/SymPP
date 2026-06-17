@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### FACT-NEGINT-1 — `factorial(−1)` was left unevaluated instead of `zoo`
+- **Problem:** the `factorial()` builder kept a negative-integer argument symbolic, with a
+  stale comment that `ComplexInfinity` "isn't wired into the singletons yet" — but it now
+  is (`gamma(0)` etc. already return `zoo`). So `factorial(−1)`, `factorial(−2)` stayed as
+  `factorial(−1)` where SymPy returns `zoo`.
+- **Fix:** in `src/functions/combinatorial.cpp`, return `S::ComplexInfinity()` for a negative
+  integer — `(−n)! = Γ(−n+1)` has a pole at every positive integer `n`. `factorial(−1)=zoo`,
+  `factorial(−10)=zoo`, and `1/(−1)! = 0` falls out. Non-integer negatives (`factorial(−½)`)
+  keep their node, and the positive/zero paths are unchanged. Matches SymPy.
+
 ### DIRAC-EVEN-1 — `DiracDelta(−x)` was not normalized to `DiracDelta(x)`
 - **Problem:** `DiracDelta` is even (`δ(−x) = δ(x)`), but `DiracDelta(−x)`, `DiracDelta(−2x)`
   kept their negated argument where SymPy returns `DiracDelta(x)`, `DiracDelta(2x)`.

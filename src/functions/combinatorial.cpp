@@ -98,10 +98,9 @@ Expr factorial(const Expr& arg) {
     if (arg->type_id() == TypeId::Integer) {
         const auto& z = static_cast<const Integer&>(*arg);
         if (z.is_negative()) {
-            // factorial of a negative integer: SymPy returns ComplexInfinity;
-            // we keep it unevaluated for now since ComplexInfinity isn't
-            // wired into the singletons yet.
-            return make<Factorial>(arg);
+            // (−n)! = Γ(−n+1) has a pole for every positive integer n, so a
+            // negative-integer factorial is ComplexInfinity (matching SymPy).
+            return S::ComplexInfinity();
         }
         if (!z.fits_long()) {
             // Astronomically huge — keep symbolic.

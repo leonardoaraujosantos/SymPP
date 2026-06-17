@@ -47,6 +47,19 @@ TEST_CASE("factorial: stays unevaluated on a symbol", "[3i][factorial]") {
     REQUIRE(factorial(x)->type_id() == TypeId::Function);
 }
 
+// FACT-NEGINT-1: (−n)! = Γ(−n+1) has a pole, so a negative-integer factorial is
+// ComplexInfinity (matching SymPy). A non-integer negative arg keeps its node.
+TEST_CASE("factorial: negative integers are zoo (FACT-NEGINT-1)",
+          "[3i][factorial][regression]") {
+    REQUIRE(factorial(integer(-1)) == S::ComplexInfinity());
+    REQUIRE(factorial(integer(-2)) == S::ComplexInfinity());
+    REQUIRE(factorial(integer(-10)) == S::ComplexInfinity());
+    // 1/(−1)! = 0 (the reciprocal of the pole).
+    REQUIRE(pow(factorial(integer(-1)), integer(-1)) == S::Zero());
+    // A non-integer (no pole) stays a Factorial node.
+    REQUIRE(factorial(rational(-1, 2))->type_id() == TypeId::Function);
+}
+
 // ----- binomial --------------------------------------------------------------
 
 TEST_CASE("binomial: classic values", "[3i][binomial]") {
