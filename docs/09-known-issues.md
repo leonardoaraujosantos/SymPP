@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-LOGSUM-1 — sums of numeric logarithms were not combined
+- **Problem:** `simplify(log(2) + log(3) − log(6))` returned the input unchanged instead of `0`,
+  and `log(2) + log(3)` was not folded to `log(6)`. SymPP had a `log(b)/log(a)` ratio rule but no
+  rule for a *sum* of logarithms.
+- **Fix:** added a `log_sum` node to the simplify pipeline. A sum of numeric logarithms `Σ cᵢ·
+  log(qᵢ)` — each `qᵢ` a positive rational and `cᵢ` an integer — combines into `log(∏ qᵢ^cᵢ)`,
+  collapsing to `0` when the product is 1. `log(2)+log(3)−log(6) = 0`, `log(4)−2·log(2) = 0`,
+  `log(2)+log(3) = log(6)`, `log(6)−log(2) = log(3)`, `2·log(3)+log(2) = log(18)`; a non-log
+  addend is preserved (`log(2)+log(3)+x = x + log(6)`). Symbolic logs (`log(x)+log(y)`, which
+  needs assumptions) and a lone numeric log are left unchanged, matching SymPy's `simplify`. The
+  existing `log` ratio rule is untouched. The combiner is capped to small coefficients (|c| ≤ 64)
+  and bases (≤ 128 bits) so the huge `c·log(q)` terms the limit engine's numeric sampling
+  produces — e.g. `−10¹²·log(1000001/1000000)` — are left alone rather than exploding `qᶜ`.
+
 ### INT-DIRICHLET-1 / LIMIT-CONST-MUL-1 — ∫₀^∞ (1−cos x)/x² and constant·sum limits
 - **Problem:** `∫₀^∞ (1−cos x)/x²` should be `π/2`, but returned a wrong `0`. Its antiderivative
   (now found, after INT-POLYPROD-1 made the integrand integrable) is the factored form

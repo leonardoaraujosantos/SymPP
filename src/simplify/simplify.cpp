@@ -165,6 +165,7 @@ namespace {
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 [[nodiscard]] Expr radical_coeff(const Expr& e);
 [[nodiscard]] Expr log_ratio(const Expr& e);
+[[nodiscard]] Expr log_sum(const Expr& e);
 [[nodiscard]] Expr sign_abs_mul(const Expr& e);
 [[nodiscard]] Expr abs_mul_combine(const Expr& e);
 [[nodiscard]] Expr change_of_base_pow(const Expr& e);
@@ -186,6 +187,7 @@ Expr simplify(const Expr& e) {
     current = abs_mul_combine(current);
     current = powsimp(current);
     current = log_ratio(current);
+    current = log_sum(current);
     current = combine_exp(current);
     current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
@@ -452,6 +454,102 @@ namespace {
     return mul(std::move(rest));
 }
 
+// Combine a sum of numeric logarithms: Σ cᵢ·log(qᵢ) → log(∏ qᵢ^cᵢ) for positive
+// rational qᵢ and integer cᵢ, collapsing to 0 when the product is 1.
+// log(2)+log(3)−log(6) → 0, log(2)+log(3) → log(6), log(4)−2·log(2) → 0. Only
+// numeric (positive rational) arguments are combined — symbolic log(x)+log(y)
+// needs assumptions and is left alone (matching SymPy's simplify).
+[[nodiscard]] Expr log_sum_node(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    // Decompose a term into (c, q) with the term equal to c·log(q): c a nonzero
+    // integer, q a positive rational. Returns false otherwise.
+    auto as_int_log = [](const Expr& term, long& c, mpq_class& q) -> bool {
+        Expr logf = term;
+        Expr coeff = S::One();
+        if (term->type_id() == TypeId::Mul) {
+            Expr lg;
+            std::vector<Expr> others;
+            for (const auto& f : term->args()) {
+                if (f->type_id() == TypeId::Function
+                    && static_cast<const Function&>(*f).function_id()
+                           == FunctionId::Log
+                    && f->args().size() == 1) {
+                    if (lg) return false;  // two logs in one term
+                    lg = f;
+                } else {
+                    others.push_back(f);
+                }
+            }
+            if (!lg) return false;
+            logf = lg;
+            coeff = others.empty() ? Expr{S::One()} : mul(std::move(others));
+        }
+        if (coeff->type_id() != TypeId::Integer) return false;
+        const auto& cz = static_cast<const Integer&>(*coeff);
+        if (!cz.fits_long()) return false;
+        c = cz.to_long();
+        // Only combine genuinely small numeric logs. Large coefficients arise
+        // from the limit engine's numeric sampling (e.g. −10¹²·log(1000001/
+        // 1000000)); raising the base to such a power would explode and crash
+        // GMP. A cap of 64 covers every meaningful symbolic combination.
+        if (c == 0 || c > 64 || c < -64) return false;
+        if (logf->type_id() != TypeId::Function) return false;
+        const auto& fn = static_cast<const Function&>(*logf);
+        if (fn.function_id() != FunctionId::Log || fn.args().size() != 1) {
+            return false;
+        }
+        const Expr& a = fn.args()[0];
+        if (a->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*a).value();
+            if (sgn(z) <= 0) return false;
+            q = mpq_class(z);
+        } else if (a->type_id() == TypeId::Rational) {
+            q = static_cast<const Rational&>(*a).value();
+            if (sgn(q) <= 0) return false;
+        } else {
+            return false;
+        }
+        // Keep the base small too, so base^|c| (|c| ≤ 64) stays bounded.
+        if (mpz_sizeinbase(q.get_num().get_mpz_t(), 2) > 128
+            || mpz_sizeinbase(q.get_den().get_mpz_t(), 2) > 128) {
+            return false;
+        }
+        return true;
+    };
+    mpq_class prod(1);
+    int log_count = 0;
+    std::vector<Expr> rest;
+    for (const auto& term : e->args()) {
+        long c = 0;
+        mpq_class q;
+        if (as_int_log(term, c, q)) {
+            const mpz_class n = q.get_num();
+            const mpz_class d = q.get_den();
+            const auto ac = static_cast<unsigned long>(c < 0 ? -c : c);
+            mpz_class np, dp;
+            mpz_pow_ui(np.get_mpz_t(), n.get_mpz_t(), ac);
+            mpz_pow_ui(dp.get_mpz_t(), d.get_mpz_t(), ac);
+            mpq_class factor = (c > 0) ? mpq_class(np, dp) : mpq_class(dp, np);
+            factor.canonicalize();
+            prod *= factor;
+            ++log_count;
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (log_count < 2) return e;  // nothing to combine
+    prod.canonicalize();
+    Expr combined;
+    if (prod == 1) {
+        combined = S::Zero();
+    } else {
+        // rational(num, den) yields an Integer when den == 1.
+        combined = log(rational(prod.get_num(), prod.get_den()));
+    }
+    rest.push_back(std::move(combined));
+    return rest.size() == 1 ? rest[0] : add(std::move(rest));
+}
+
 // exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
 // log of a positive base, optionally scaled by a constant, is pulled out as a
 // power). Mirrors SymPy's expand/simplify of exp over a log-bearing sum.
@@ -712,6 +810,7 @@ Expr radical_coeff(const Expr& e) {
 }
 
 Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
+Expr log_sum(const Expr& e) { return apply_recursive(e, log_sum_node); }
 
 // sign(u)·|u| = u (the polar decomposition: sign(u) = u/|u| for u ≠ 0, and both
 // sides vanish at u = 0). Cancels a matching Sign/Abs factor pair in a Mul,

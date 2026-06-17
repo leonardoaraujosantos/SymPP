@@ -1508,3 +1508,35 @@ TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
         simplify(pow(integer(2), mul(log(x), log(integer(2)))))->str(),
         "2**(log(2)*log(x))"));
 }
+
+// SIMP-LOGSUM-1: a sum of numeric logarithms combines into a single
+// log(product), collapsing to 0 when the product is 1: log(2)+log(3)−log(6) = 0,
+// log(2)+log(3) = log(6), log(4)−2·log(2) = 0. Symbolic logs (log(x)+log(y)) and
+// a lone log term are left alone. Matches SymPy's simplify.
+TEST_CASE("simplify: sum of numeric logarithms (SIMP-LOGSUM-1)",
+          "[10][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto L = [](long n) { return log(integer(n)); };
+
+    // Cancelling sums collapse to 0.
+    REQUIRE(simplify(L(2) + L(3) - L(6)) == S::Zero());
+    REQUIRE(simplify(L(4) - integer(2) * L(2)) == S::Zero());
+    REQUIRE(simplify(integer(3) * L(2) - L(8)) == S::Zero());
+    REQUIRE(simplify(log(rational(1, 2)) + L(2)) == S::Zero());
+
+    // Non-cancelling sums fold into a single log(product / quotient).
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3))->str(), "log(6)"));
+    REQUIRE(oracle.equivalent(simplify(L(6) - L(2))->str(), "log(3)"));
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3) + L(5))->str(), "log(30)"));
+    REQUIRE(oracle.equivalent(simplify(integer(2) * L(3) + L(2))->str(),
+                              "log(18)"));
+    // A non-log addend is preserved.
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3) + x)->str(), "x + log(6)"));
+
+    // Symbolic logs and a lone numeric log are left unchanged.
+    REQUIRE(oracle.equivalent(simplify(log(x) + log(y))->str(),
+                              "log(x) + log(y)"));
+    REQUIRE(oracle.equivalent(simplify(L(2) + x)->str(), "x + log(2)"));
+}
