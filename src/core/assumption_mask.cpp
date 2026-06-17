@@ -18,6 +18,7 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd: return odd;
         case AssumptionKey::Prime: return prime;
         case AssumptionKey::Composite: return composite;
+        case AssumptionKey::Irrational: return irrational;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -68,6 +69,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Odd: odd = value; break;
         case AssumptionKey::Prime: prime = value; break;
         case AssumptionKey::Composite: composite = value; break;
+        case AssumptionKey::Irrational: irrational = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -88,7 +90,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
-           && !complex_ && !imaginary && !prime && !composite;
+           && !complex_ && !imaginary && !prime && !composite && !irrational;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -115,6 +117,7 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(imaginary));
     mix(encode(prime));
     mix(encode(composite));
+    mix(encode(irrational));
     return h;
 }
 
@@ -243,6 +246,20 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         if (m.rational == false) {
             if (!m.integer) m.integer = false;
             if (!m.zero) m.zero = false;
+        }
+        // irrational ⟺ real ∧ ¬rational. Forward: irrational => real, ¬rational,
+        // finite (the ¬rational rule above then gives ¬integer/¬zero, hence
+        // nonzero; real gives complex/¬imaginary). Reverse / exclusions: a known
+        // real non-rational is irrational; a rational or non-real value is not.
+        if (m.irrational == true) {
+            if (!m.real) m.real = true;
+            if (!m.rational) m.rational = false;
+            if (!m.finite) m.finite = true;
+        }
+        if (m.rational == true && !m.irrational) m.irrational = false;
+        if (m.real == false && !m.irrational) m.irrational = false;
+        if (m.real == true && m.rational == false && !m.irrational) {
+            m.irrational = true;
         }
         // imaginary (a nonzero real multiple of i) => complex, ¬real, finite,
         // nonzero, and (since ¬real) ¬rational/¬integer/¬sign/¬parity.

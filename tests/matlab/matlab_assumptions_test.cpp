@@ -129,3 +129,18 @@ TEST_CASE("matlab::assume supports the composite property",
     REQUIRE(is_prime(x) == false);
     matlab::clearAssumptions(x);
 }
+
+TEST_CASE("matlab::assume supports the irrational property",
+          "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xirr");
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "irrational");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "irrational"));
+    REQUIRE(is_irrational(x) == true);
+    REQUIRE(is_real(x) == true);       // irrational ⇒ real ∧ ¬rational
+    REQUIRE(is_rational(x) == false);
+    REQUIRE(is_integer(x) == false);
+    matlab::clearAssumptions(x);
+}

@@ -13,17 +13,21 @@ bool NumberSymbol::equals(const Basic& other) const noexcept {
 }
 
 std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
-    // Pi, E, EulerGamma, Catalan, GoldenRatio — all positive real irrational
-    // finite. (Imaginary unit and complex constants will need their own
-    // overrides when added.)
+    // Pi, E, EulerGamma, Catalan — all positive, real, finite, nonzero. Pi and
+    // E are proven irrational (hence ¬rational/¬integer/¬parity/¬prime), so the
+    // generic layer derives Irrational=true for them. The rationality of
+    // EulerGamma and Catalan is an open problem, so every rationality-dependent
+    // predicate is Unknown for those two — matching SymPy (γ.is_rational is None).
+    const bool proven_irrational = kind() == NumberSymbolKind::Pi
+                                   || kind() == NumberSymbolKind::E;
+    const auto rationality = proven_irrational ? std::optional<bool>{false}
+                                               : std::nullopt;
     switch (k) {
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return std::nullopt;  // derived by the generic ask() layer
 
         case AssumptionKey::Real: return true;
-        case AssumptionKey::Rational: return false;
-        case AssumptionKey::Integer: return false;
         case AssumptionKey::Finite: return true;
         case AssumptionKey::Positive: return true;
         case AssumptionKey::Negative: return false;
@@ -31,10 +35,18 @@ std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonzero: return true;
         case AssumptionKey::Nonnegative: return true;
         case AssumptionKey::Nonpositive: return false;
-        case AssumptionKey::Even: return false;   // irrational ⇒ not an integer
-        case AssumptionKey::Odd: return false;
-        case AssumptionKey::Prime: return false;
-        case AssumptionKey::Composite: return false;
+
+        // Rationality-dependent — known only for the proven-irrational constants.
+        case AssumptionKey::Rational: return rationality;
+        case AssumptionKey::Integer: return rationality;
+        case AssumptionKey::Even: return rationality;
+        case AssumptionKey::Odd: return rationality;
+        case AssumptionKey::Prime: return rationality;
+        case AssumptionKey::Composite: return rationality;
+        // Irrational follows from real ∧ ¬rational in the generic layer; leaving
+        // it Unknown here lets that derivation answer (true for Pi/E, Unknown
+        // for EulerGamma/Catalan).
+        case AssumptionKey::Irrational: return std::nullopt;
     }
     return std::nullopt;
 }

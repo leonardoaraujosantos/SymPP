@@ -714,3 +714,61 @@ TEST_CASE("AssumptionMask: composite predicate (COMPOSITE-1)", "[2a][assumptions
     REQUIRE(is_composite(i) == U);  // a generic positive integer is unknown
     REQUIRE(is_composite(S::I()) == F);
 }
+
+// IRRATIONAL-1: the `irrational` predicate, defined as real ∧ ¬rational. The
+// proven-irrational constants π and e answer True; integers/rationals answer
+// False; I and the infinities are not real so answer False. EulerGamma and
+// Catalan have unknown rationality (open problems) so every rationality-
+// dependent predicate is Unknown for them — this also corrected their previous
+// (wrong) rational=False answer. A declared-irrational symbol closes to real ∧
+// finite ∧ nonzero ∧ ¬rational ∧ ¬integer ∧ ¬parity ∧ complex ∧ ¬imaginary.
+// Matches SymPy's Q.irrational / Symbol(..., irrational=True).
+TEST_CASE("AssumptionMask: irrational predicate (IRRATIONAL-1)", "[2a][assumptions]") {
+    using sympp::is_irrational;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    // Concrete rationals are not irrational; π and e are.
+    REQUIRE(is_irrational(integer(3)) == F);
+    REQUIRE(is_irrational(integer(0)) == F);
+    REQUIRE(is_irrational(rational(3, 2)) == F);
+    REQUIRE(is_irrational(S::Pi()) == T);
+    REQUIRE(is_irrational(S::E()) == T);
+    REQUIRE(is_irrational(S::I()) == F);          // not real
+    REQUIRE(is_irrational(S::Infinity()) == F);   // not a real number
+
+    // EulerGamma / Catalan: rationality is an open problem ⇒ Unknown (and the
+    // dependent predicates are Unknown too, not False).
+    REQUIRE(is_irrational(S::EulerGamma()) == U);
+    REQUIRE(is_rational(S::EulerGamma()) == U);
+    REQUIRE(is_integer(S::EulerGamma()) == U);
+    REQUIRE(is_irrational(S::Catalan()) == U);
+    REQUIRE(is_real(S::EulerGamma()) == T);       // still a positive real
+    REQUIRE(is_positive(S::EulerGamma()) == T);
+
+    // Declared-irrational symbol: irrational ⇒ real ∧ ¬rational ∧ finite ∧
+    // nonzero ∧ ¬integer ∧ ¬parity ∧ complex ∧ ¬imaginary.
+    auto q = symbol("q", AssumptionMask{}.set_irrational(true));
+    REQUIRE(is_irrational(q) == T);
+    REQUIRE(is_real(q) == T);
+    REQUIRE(is_rational(q) == F);
+    REQUIRE(is_integer(q) == F);
+    REQUIRE(is_even(q) == F);
+    REQUIRE(is_odd(q) == F);
+    REQUIRE(is_nonzero(q) == T);
+    REQUIRE(is_finite(q) == T);
+    REQUIRE(is_complex(q) == T);
+    REQUIRE(is_imaginary(q) == F);
+
+    // Biconditional: real ∧ ¬rational ⇒ irrational; a plain real symbol is
+    // Unknown; rational / integer symbols are not irrational.
+    auto x = symbol("x", AssumptionMask{}.set_real(true).set_rational(false));
+    REQUIRE(is_irrational(x) == T);
+    auto r = symbol("r", AssumptionMask{}.set_real(true));
+    REQUIRE(is_irrational(r) == U);
+    auto ra = symbol("ra", AssumptionMask{}.set_rational(true));
+    REQUIRE(is_irrational(ra) == F);
+    auto in = symbol("in", AssumptionMask{}.set_integer(true));
+    REQUIRE(is_irrational(in) == F);
+}

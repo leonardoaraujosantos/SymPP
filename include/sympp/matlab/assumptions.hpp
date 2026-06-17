@@ -74,6 +74,7 @@ assumption_registry() {
     if (prop == "odd")         return AssumptionKey::Odd;
     if (prop == "prime")       return AssumptionKey::Prime;
     if (prop == "composite")   return AssumptionKey::Composite;
+    if (prop == "irrational")  return AssumptionKey::Irrational;
     throw std::runtime_error(
         std::string("assumption '") + std::string(prop)
         + "' not yet supported in SymPP");
@@ -97,6 +98,7 @@ assumption_registry() {
         case AssumptionKey::Imaginary:   return "imaginary";
         case AssumptionKey::Prime:       return "prime";
         case AssumptionKey::Composite:   return "composite";
+        case AssumptionKey::Irrational:  return "irrational";
     }
     return "unknown";
 }
@@ -135,7 +137,8 @@ inline void assumeAlso(const Expr& sym_expr, std::string_view property) {
                     AssumptionKey::Negative, AssumptionKey::Zero,
                     AssumptionKey::Nonzero, AssumptionKey::Nonnegative,
                     AssumptionKey::Nonpositive, AssumptionKey::Finite,
-                    AssumptionKey::Prime, AssumptionKey::Composite}) {
+                    AssumptionKey::Prime, AssumptionKey::Composite,
+                    AssumptionKey::Irrational}) {
         auto v = m.get(k);
         if (v == std::optional<bool>{true}) {
             out.emplace_back(detail::key_name(k));

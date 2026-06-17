@@ -229,6 +229,9 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             // Primality / compositeness of a symbolic product isn't decided
             // structurally.
             return std::nullopt;
+        case AssumptionKey::Irrational:
+            // Left to the generic real ∧ ¬rational derivation.
+            return std::nullopt;
     }
     return std::nullopt;
 }

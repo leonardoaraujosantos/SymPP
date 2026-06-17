@@ -30,6 +30,7 @@ std::optional<bool> ImaginaryUnit::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd:
         case AssumptionKey::Prime:
         case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // I is not real, so not irrational
             return false;
     }
     return std::nullopt;

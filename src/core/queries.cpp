@@ -40,12 +40,14 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Odd) == true) return true;
             if (direct(e, AssumptionKey::Prime) == true) return true;
             if (direct(e, AssumptionKey::Composite) == true) return true;
+            if (direct(e, AssumptionKey::Irrational) == true) return true;
             // A (nonzero) imaginary value is not real.
             if (direct(e, AssumptionKey::Imaginary) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Rational: {
             if (direct(e, AssumptionKey::Integer) == true) return true;
+            if (direct(e, AssumptionKey::Irrational) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Integer: {
@@ -76,6 +78,17 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             // A non-integer is never composite; a prime is not composite.
             if (direct(e, AssumptionKey::Integer) == false) return false;
             if (direct(e, AssumptionKey::Prime) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Irrational: {
+            // irrational ⟺ real ∧ ¬rational. A rational or non-real value is not
+            // irrational; a known real non-rational is irrational.
+            if (direct(e, AssumptionKey::Rational) == true) return false;
+            if (direct(e, AssumptionKey::Real) == false) return false;
+            if (direct(e, AssumptionKey::Real) == true
+                && direct(e, AssumptionKey::Rational) == false) {
+                return true;
+            }
             return std::nullopt;
         }
         case AssumptionKey::Nonnegative: {

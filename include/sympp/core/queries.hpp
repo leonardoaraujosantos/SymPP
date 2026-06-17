@@ -72,6 +72,9 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_composite(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Composite);
 }
+[[nodiscard]] inline std::optional<bool> is_irrational(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Irrational);
+}
 [[nodiscard]] inline std::optional<bool> is_imaginary(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Imaginary);
 }

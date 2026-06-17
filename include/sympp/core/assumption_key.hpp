@@ -47,6 +47,9 @@ enum class AssumptionKey : std::uint8_t {
     Composite,     // a composite ≥ 4: integer > 1 that is not prime (implies
                    // integer, positive, ¬prime; NOT a parity). ¬integer ⇒
                    // ¬composite. Mutually exclusive with Prime; 1 is neither.
+    Irrational,    // a real number that is not rational (implies real, finite,
+                   // nonzero, ¬integer). irrational ⟺ real ∧ ¬rational; a
+                   // rational or non-real value is not irrational.
 };
 
 }  // namespace sympp

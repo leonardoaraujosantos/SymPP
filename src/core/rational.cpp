@@ -96,6 +96,7 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
             if (!is_int || value_ < 4) return false;
             return mpz_probab_prime_p(value_.get_num_mpz_t(), 25) == 0;
         }
+        case AssumptionKey::Irrational: return false;  // a Rational is rational
     }
     return std::nullopt;
 }

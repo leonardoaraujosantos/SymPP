@@ -187,6 +187,9 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             // Primality / compositeness of a symbolic sum isn't decided
             // structurally.
             return std::nullopt;
+        case AssumptionKey::Irrational:
+            // Left to the generic real ∧ ¬rational derivation.
+            return std::nullopt;
     }
     return std::nullopt;
 }

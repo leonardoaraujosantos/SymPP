@@ -240,6 +240,8 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd: return std::nullopt;
         case AssumptionKey::Prime: return std::nullopt;
         case AssumptionKey::Composite: return std::nullopt;
+        // A Float carries no rational/irrational status (mpmath/SymPy parity).
+        case AssumptionKey::Irrational: return std::nullopt;
     }
     return std::nullopt;
 }

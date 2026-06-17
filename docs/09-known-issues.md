@@ -16,6 +16,30 @@ truth and links the issue number.
 
 ## Fixed
 
+### IRRATIONAL-1 — no `irrational` predicate; EulerGamma/Catalan wrongly rational=False
+- **Problem:** the assumption vocabulary had no `irrational` predicate, so `is_irrational(pi)`
+  was unanswerable and a symbol could not be declared irrational (SymPy: `Symbol('q',
+  irrational=True)`, `Q.irrational`, `pi.is_irrational is True`). Separately, every
+  `NumberSymbol` answered `rational=False`/`integer=False`, but the rationality of `EulerGamma`
+  (γ) and `Catalan` is an open problem — SymPy reports `None` for those, so SymPP was claiming
+  more than is known.
+- **Fix:** added `AssumptionKey::Irrational`, defined as the biconditional `irrational ⟺ real
+  ∧ ¬rational`. Wired through the stack like the other predicates: an
+  `AssumptionMask::irrational` field with a `set_irrational` builder; closure rules `irrational
+  ⇒ real ∧ ¬rational ∧ finite` (cascading to ¬integer/¬zero/nonzero/¬parity/complex/¬imaginary)
+  plus the reverse `real ∧ ¬rational ⇒ irrational` and exclusions (`rational ∨ ¬real ⇒
+  ¬irrational`); a generic-layer derive case implementing the same biconditional; forward
+  derivations (`irrational ⇒ real`, `irrational ⇒ ¬rational`); an `is_irrational(e)` helper; and
+  the MATLAB surface. `NumberSymbol::ask` now answers the rationality-dependent predicates
+  per kind: `false` only for the proven-irrational constants π and e (so the layer derives
+  `irrational=True`), `None` for `EulerGamma`/`Catalan` (so `is_rational`/`is_integer`/
+  `is_prime`/`is_irrational` are all Unknown for them, matching SymPy) — while real/positive/
+  finite/nonzero stay True. `is_irrational(pi/e)=True`, `is_irrational(3/Rational(3,2))=False`,
+  `is_irrational(I/oo)=False`, `is_irrational(EulerGamma)=None`; a declared-irrational symbol is
+  real/finite/nonzero/¬rational/¬integer/¬parity/complex/¬imaginary. Matches SymPy. (Radical
+  irrationality such as `sqrt(2).is_irrational` remains a separate structural fact, still
+  Unknown — out of scope here.)
+
 ### COMPOSITE-1 — no `composite` assumption predicate
 - **Problem:** the assumption vocabulary had no `composite` predicate (the natural pair to
   `prime`). `is_composite(4)` was unanswerable, and a symbol could not be declared composite

@@ -45,6 +45,7 @@ std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd:
         case AssumptionKey::Prime:
         case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // infinities are not real numbers
             return false;
     }
     return std::nullopt;
@@ -71,6 +72,7 @@ std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd:
         case AssumptionKey::Prime:
         case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // infinities are not real numbers
             return false;
     }
     return std::nullopt;
@@ -98,6 +100,7 @@ std::optional<bool> ComplexInfinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd:
         case AssumptionKey::Prime:
         case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // infinities are not real numbers
             return false;
     }
     return std::nullopt;

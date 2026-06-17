@@ -127,6 +127,7 @@ std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
             // composite. Matches SymPy's is_composite.
             if (value_ < 4) return false;
             return mpz_probab_prime_p(value_.get_mpz_t(), 25) == 0;
+        case AssumptionKey::Irrational: return false;  // every integer is rational
     }
     return std::nullopt;
 }
