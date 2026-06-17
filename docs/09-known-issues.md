@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LOGGAMMA-VALUES-1 — `loggamma` of positive args and poles was left unevaluated
+- **Problem:** `loggamma` evaluated only `loggamma(1)=loggamma(2)=0`. Positive integers
+  (`loggamma(3)`, `loggamma(5)`), positive half-integers (`loggamma(½)`, `loggamma(3/2)`),
+  the nonpositive-integer poles (`loggamma(0)`, `loggamma(−1)`), and `loggamma(∞)` all stayed
+  symbolic where SymPy returns `log 2`, `log 24`, `log√π`, `log(√π/2)`, `∞`, `∞`.
+- **Fix:** rewrote the `loggamma()` builder (`src/functions/combinatorial.cpp`): a nonpositive
+  integer (and `+∞`) returns `+∞` (the Γ pole, `log|Γ|→∞`); and for `x > 0`, when `Γ(x)`
+  reduces to a closed form (`has_gamma` check), return `log(Γ(x))` — `log((n−1)!)` for a
+  positive integer, `log(√π·…)` for a positive half-integer. Gated on `is_positive(arg)`
+  because `loggamma ≠ log∘Γ` for `x < 0` (branch cuts), so negative and symbolic arguments
+  are left intact — matching SymPy exactly (it keeps `loggamma(−3/2)` even though `Γ(−3/2)>0`).
+  The `log√π = ½·log π` form falls out of the earlier EXPAND-LOG-FRACPOW-1 fix.
+
 ### POLYGAMMA-POLE-1 — `polygamma`/`digamma` at nonpositive integers were unevaluated
 - **Problem:** `ψ⁽ⁿ⁾(x)` has a pole at every nonpositive integer `x ∈ {0, −1, −2, …}`, but
   `polygamma(0,0)`, `polygamma(1,0)`, `polygamma(2,−3)`, and `digamma(0)`/`digamma(−k)` stayed

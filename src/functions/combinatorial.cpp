@@ -1,4 +1,5 @@
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/functions/exponential.hpp>  // log
 #include <sympp/functions/special.hpp>  // zeta
 
 #include <optional>
@@ -1121,10 +1122,23 @@ Expr LogGamma::diff_arg(std::size_t /*i*/) const {
 }
 
 Expr loggamma(const Expr& arg) {
-    if (arg == S::One()) return S::Zero();      // log(0!) = 0
-    if (arg == integer(2)) return S::Zero();    // log(1!) = 0
+    if (arg->type_id() == TypeId::Infinity) return S::Infinity();  // loggamma(oo)=oo
     if (arg->type_id() == TypeId::Float) {
         return float_unary_op(mpfr_lngamma, arg);
+    }
+    // Pole: loggamma at a nonpositive integer is +∞ (the Γ pole, log of |Γ|→∞).
+    if (arg->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*arg).is_positive()) {
+        return S::Infinity();
+    }
+    // loggamma(x) = log(Γ(x)) for x > 0, where Γ(x) is a positive closed form:
+    // log((n−1)!) for a positive integer (loggamma(3)=log 2), log(√π·…) for a
+    // positive half-integer (loggamma(½)=log√π). Restricted to positive x — for
+    // x < 0, loggamma ≠ log∘Γ (branch cuts), so it is left as loggamma(x), matching
+    // SymPy. A symbolic positive p keeps loggamma(p) (Γ(p) does not reduce).
+    if (is_positive(arg) == true) {
+        Expr g = gamma(arg);
+        if (!has_gamma(g)) return log(g);
     }
     return make<LogGamma>(arg);
 }

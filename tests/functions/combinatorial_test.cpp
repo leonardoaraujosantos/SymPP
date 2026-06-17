@@ -198,6 +198,30 @@ TEST_CASE("loggamma: classic values", "[3i][loggamma]") {
     REQUIRE(loggamma(integer(2)) == integer(0));   // log(1!) = 0
 }
 
+// LOGGAMMA-VALUES-1: loggamma(x) = log(Γ(x)) for x > 0 — log((n−1)!) at a positive
+// integer, log(√π·…) at a positive half-integer; +∞ at the nonpositive-integer
+// poles and at +∞. For x < 0 it stays loggamma(x) (branch cuts). Matches SymPy.
+TEST_CASE("loggamma: positive-argument and pole values (LOGGAMMA-VALUES-1)",
+          "[3i][loggamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    // Poles at the nonpositive integers and at +∞ → +∞.
+    REQUIRE(loggamma(integer(0)) == S::Infinity());
+    REQUIRE(loggamma(integer(-1)) == S::Infinity());
+    REQUIRE(loggamma(integer(-5)) == S::Infinity());
+    REQUIRE(loggamma(S::Infinity()) == S::Infinity());
+    // Positive integers → log((n−1)!).
+    REQUIRE(oracle.equivalent(loggamma(integer(3))->str(), "log(2)"));
+    REQUIRE(oracle.equivalent(loggamma(integer(5))->str(), "log(24)"));
+    // Positive half-integers → log(√π·…).
+    REQUIRE(oracle.equivalent(loggamma(rational(1, 2))->str(), "log(sqrt(pi))"));
+    REQUIRE(oracle.equivalent(loggamma(rational(3, 2))->str(),
+                              "log(sqrt(pi)/2)"));
+    // Negative (non-integer) and symbolic arguments stay symbolic.
+    REQUIRE(loggamma(rational(-1, 2))->type_id() == TypeId::Function);
+    REQUIRE(loggamma(rational(-3, 2))->type_id() == TypeId::Function);
+    REQUIRE(loggamma(symbol("x"))->type_id() == TypeId::Function);
+}
+
 TEST_CASE("loggamma: numeric Float matches mpfr_lngamma", "[3i][loggamma]") {
     auto e = loggamma(float_value(5.0));
     REQUIRE(e->type_id() == TypeId::Float);
