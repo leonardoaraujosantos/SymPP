@@ -375,6 +375,8 @@ Expr Ei::diff_arg(std::size_t /*i*/) const {
 Expr expint_ei(const Expr& arg) {
     if (arg == S::Zero()) return S::NegativeInfinity();   // Ei(0) = -oo
     if (arg->type_id() == TypeId::Infinity) return S::Infinity();
+    // Ei(x) → 0⁻ as x → −∞ (the exponential decay dominates the 1/x growth).
+    if (arg->type_id() == TypeId::NegativeInfinity) return S::Zero();
     return make<Ei>(arg);
 }
 

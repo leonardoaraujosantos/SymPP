@@ -16,6 +16,13 @@ truth and links the issue number.
 
 ## Fixed
 
+### EI-NEGINF-1 — `Ei(−∞)` was left unevaluated instead of `0`
+- **Problem:** the exponential integral `Ei(x) → 0` as `x → −∞` (the `eˣ` decay dominates
+  the `1/x` growth), but `Ei(−∞)` stayed symbolic where SymPy returns `0`. (`Ei(0)=−∞` and
+  `Ei(+∞)=∞` were already handled.)
+- **Fix:** added `arg == −∞ → 0` to the `expint_ei` builder in `src/functions/special.cpp`.
+  Matches SymPy.
+
 ### CI-POLE-1 — `Ci(0)` and `Chi(0)` were left unevaluated (log singularity)
 - **Problem:** the cosine-integral `Ci(x)` and hyperbolic cosine-integral `Chi(x)` have a
   logarithmic singularity at the origin, but `Ci(0)`, `Chi(0)` stayed symbolic where SymPy

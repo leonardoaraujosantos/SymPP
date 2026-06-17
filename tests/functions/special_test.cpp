@@ -243,6 +243,8 @@ TEST_CASE("Si/Ci/Ei: special values and derivatives", "[3h][expint][oracle]") {
     // CI-POLE-1: Ci(0) = zoo (the log singularity at the origin).
     REQUIRE(cosint(S::Zero()) == S::ComplexInfinity());      // Ci(0)=zoo
     REQUIRE(expint_ei(S::Infinity()) == S::Infinity());      // Ei(oo)=oo
+    // EI-NEGINF-1: Ei(x) → 0 as x → −∞ (exponential decay wins).
+    REQUIRE(expint_ei(S::NegativeInfinity()) == S::Zero());  // Ei(-oo)=0
     // Odd parity of Si.
     REQUIRE(sinint(mul(S::NegativeOne(), x)) == mul(S::NegativeOne(), sinint(x)));
     // Derivatives.
