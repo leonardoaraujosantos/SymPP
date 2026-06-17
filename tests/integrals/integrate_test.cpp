@@ -2536,6 +2536,42 @@ TEST_CASE("integrate: Dirichlet (1-cos x)/x² and clean markers (INT-DIRICHLET-1
         "pi/2"));
 }
 
+// INT-PARAMSIGN-1: parametric improper integrals ∫₀^∞ f(x; a) where the
+// boundary limit depends on the sign of a symbolic coefficient. With a declared
+// positive, exp(-a·x)→0 at +∞ and the closed forms resolve (1/a, 1/a², …). With
+// a *generic* a the boundary limit cannot decide the sign, so Newton-Leibniz
+// previously leaked garbage like (−exp(a·−oo)+1)/a — a raw ±oo buried inside
+// exp/Si. integrate() now detects an infinity stranded below the root and falls
+// back to a clean unevaluated Integral, matching SymPy (which returns a
+// Piecewise gated on sign(a); the unevaluated form is its "otherwise" branch).
+TEST_CASE("integrate: parametric improper integrals by parameter sign (INT-PARAMSIGN-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto ap = symbol("a", AssumptionMask{}.set_positive(true));
+    auto ag = symbol("a");  // sign unknown
+    auto oo = S::Infinity();
+    auto z = S::Zero();
+    auto negax = [&](const Expr& a) { return mul(mul(S::NegativeOne(), a), x); };
+
+    // Positive a: closed forms resolve and contain no stray infinity.
+    REQUIRE(simplify(integrate(exp(negax(ap)), x, z, oo))
+            == pow(ap, integer(-1)));
+    REQUIRE(simplify(integrate(x * exp(negax(ap)), x, z, oo))
+            == pow(ap, integer(-2)));
+    REQUIRE(simplify(integrate(pow(x, integer(2)) * exp(negax(ap)), x, z, oo))
+            == integer(2) * pow(ap, integer(-3)));
+
+    // Generic a: clean unevaluated marker, never garbage with an embedded oo.
+    for (const Expr& f : {exp(negax(ag)), x * exp(negax(ag)),
+                          sin(mul(ag, x)) * pow(x, integer(-1))}) {
+        auto r = integrate(f, x, z, oo);
+        REQUIRE(r->str().rfind("Integral(", 0) == 0);
+        // The only infinity is the bound "oo"; no stray "-oo" leaked from a
+        // boundary substitution like exp(a·-oo).
+        REQUIRE(r->str().find("-oo") == std::string::npos);
+    }
+}
+
 // INT-GAUSSFOURIER-1: the Fourier integral of a real Gaussian. The integrand
 // exp(-a x²)·cos(b x) has no elementary antiderivative, so Newton-Leibniz
 // garbled it; the closed form is ∫_{-∞}^{∞} = √(π/a)·exp(-b²/(4a)), half that

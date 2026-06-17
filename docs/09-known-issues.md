@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-PARAMSIGN-1 — parametric improper integrals leaked ±∞ for a generic coefficient
+- **Problem:** `∫₀^∞ exp(-a·x) dx` with a **generic** `a` (sign unknown) returned garbage like
+  `(-exp(a·-oo) + 1)/a`. The whole family of parametric exponential integrals was affected —
+  `∫₀^∞ x·exp(-a·x)`, `∫₀^∞ exp(-a·x)·cos(x)`, `∫₀^∞ sin(a·x)/x`, `∫₀^∞ 1/cosh(a·x)` — each leaving
+  a raw `±oo` stranded inside `exp` / `Si` / `atan(sinh(…))`. The boundary limit cannot decide the
+  sign of `a`, so Newton–Leibniz substituted the bound and produced an expression no rule could fold.
+  (With `a` declared **positive** the limits resolve and the closed forms are correct — `1/a`, `1/a²`,
+  `√π/(4a^{3/2})`, … — so only the indeterminate-sign case was broken.)
+- **Fix:** added a `has_buried_infinity` check to the definite-integration tail. A legitimate result
+  is either finite (no infinity anywhere) or exactly `±oo`/`zoo` at the root; any infinity strictly
+  below the top level marks the evaluation as garbage. When detected (and not recoverable by the
+  expand-retry), `integrate` returns a clean unevaluated `Integral(f, x, 0, oo)` instead. This matches
+  SymPy, which returns a `Piecewise` gated on `sign(a)` — the unevaluated form is its "otherwise"
+  branch. Positive-parameter closed forms and previously-working improper integrals are unaffected.
+
 ### COSINE-GAUSS-1 — cosine/sine transforms fell back to nothing for the Gaussian
 - **Problem:** `cosine_transform(exp(-a·t²))` returned the unevaluated `CosineTransform(…)` marker.
   The pattern rules covered `exp(-a·t)` but not the Gaussian, and the transforms did not fall back

@@ -692,6 +692,21 @@ namespace {
     return false;
 }
 
+// True if `e` contains an infinity node buried below the top level — e.g.
+// exp(a·-oo), Si(a·oo), atan(sinh(a·oo)). Newton–Leibniz produces such noise
+// when a boundary limit cannot resolve a symbolic parameter's sign: the
+// substitution leaks a raw ±oo that no rule folds away. A legitimate result is
+// either finite (no infinity anywhere) or exactly ±oo/zoo at the top, so any
+// infinity strictly below the root marks the evaluation as garbage.
+[[nodiscard]] bool has_buried_infinity(const Expr& e, bool at_top) {
+    if (!e) return false;
+    if (!at_top && is_infinity(e)) return true;
+    for (const auto& a : e->args()) {
+        if (has_buried_infinity(a, false)) return true;
+    }
+    return false;
+}
+
 // Try to interpret expr as c * g'(x) * f(g(x)) for some non-trivial
 // inner expression g(x) and outer pattern f ∈ {sin, cos, exp, log,
 // reciprocal}. Strategy:
@@ -3925,12 +3940,14 @@ Expr integrate(const Expr& expr, const Expr& var,
     // 1/(2x) lets the per-term limit rules resolve each piece. Closes ∫₀^∞
     // sin²x/x² = π/2.
     if (result->type_id() == TypeId::NaN || is_infinity(result)
-        || contains_integral_marker(result)) {
+        || contains_integral_marker(result)
+        || has_buried_infinity(result, true)) {
         Expr flat = expand(antider);
         if (!(flat == antider)) {
             Expr retried = simplify(eval_at(flat, upper) - eval_at(flat, lower));
             if (retried->type_id() != TypeId::NaN && !is_infinity(retried)
-                && !contains_integral_marker(retried)) {
+                && !contains_integral_marker(retried)
+                && !has_buried_infinity(retried, true)) {
                 return retried;
             }
         }
@@ -3939,7 +3956,8 @@ Expr integrate(const Expr& expr, const Expr& var,
     // antiderivative was unevaluated and Newton–Leibniz produced noise like
     // −Integral(nan, a) + Integral(…, b) — fall back to a clean unevaluated
     // definite integral rather than emitting that garbage.
-    if (contains_integral_marker(result)) {
+    if (contains_integral_marker(result)
+        || (!is_infinity(result) && has_buried_infinity(result, true))) {
         return function_symbol("Integral")(
             std::vector<Expr>{expr, var, lower, upper});
     }
