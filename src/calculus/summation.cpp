@@ -506,6 +506,44 @@ namespace {
     return simplify(mul(mul(coeff, prefactor), power));
 }
 
+// Σ_{k=0}^n C(n,k)² = C(2n, n), the central-binomial / Vandermonde identity,
+// where n is exactly the binomial's first argument. A constant prefactor is
+// carried through. Returns const·C(2n, n).
+[[nodiscard]] std::optional<Expr> sum_binomial_square(const Expr& expr,
+                                                      const Expr& var,
+                                                      const Expr& lo,
+                                                      const Expr& hi) {
+    if (!(lo == S::Zero())) return std::nullopt;
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr coeff = S::One();
+    bool have_square = false;
+    for (const auto& f : factors) {
+        if (!have_square && f->type_id() == TypeId::Pow
+            && f->args()[1] == integer(2)
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Binomial
+                && fn.args().size() == 2 && fn.args()[1] == var
+                && fn.args()[0] == hi) {
+                have_square = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+            continue;
+        }
+        return std::nullopt;  // a var factor that isn't the squared binomial
+    }
+    if (!have_square) return std::nullopt;
+    return simplify(mul(coeff, binomial(mul(integer(2), hi), hi)));
+}
+
 // Σ_{k=lo}^{hi} c·P(k)/(k+m)! for a polynomial P of degree ≥ 1 and integer m ≥ 0 —
 // Gosper's algorithm specialized to a factorial denominator. The antidifference, if
 // it exists, is g(k) = Q(k)/(k+m−1)! with P(k)/(k+m)! = g(k) − g(k+1); multiplying
@@ -890,6 +928,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ.
     if (auto bt = sum_binomial_theorem(expr, var, lo, hi)) return *bt;
+
+    // Central-binomial identity Σ_{k=0}^n C(n,k)² = C(2n, n).
+    if (auto bs = sum_binomial_square(expr, var, lo, hi)) return *bs;
 
     // Even/odd-index exponential series Σ z^(2k+b)/(2k+b)! → cosh/sinh/cos/sin.
     if (auto r = sum_cosh_sinh_series(expr, var, lo, hi)) return *r;

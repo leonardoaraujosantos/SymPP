@@ -822,6 +822,34 @@ TEST_CASE("summation: Σ k·C(n,k)·rᵏ binomial identity (SUM-BINOM-K-1)",
         summation(binomial(n, k), k, integer(0), n)->str(), "2**n"));
 }
 
+// SUM-BINOM-SQ-1: the central-binomial identity Σ_{k=0}^n C(n,k)² = C(2n,n).
+// Previously returned unevaluated. Matches SymPy.
+TEST_CASE("summation: Σ C(n,k)² = C(2n,n) (SUM-BINOM-SQ-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    REQUIRE(oracle.equivalent(
+        summation(pow(binomial(n, k), integer(2)), k, integer(0), n)->str(),
+        "binomial(2*n, n)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * pow(binomial(n, k), integer(2)), k, integer(0),
+                  n)
+            ->str(),
+        "3*binomial(2*n, n)"));
+    // Concrete upper bound folds to an integer: Σ_{k=0}^5 C(5,k)² = 252.
+    REQUIRE(summation(pow(binomial(integer(5), k), integer(2)), k, integer(0),
+                      integer(5))
+            == integer(252));
+    // A mismatched upper bound (≠ the binomial's n) is left unevaluated.
+    REQUIRE(summation(pow(binomial(n, k), integer(2)), k, integer(0),
+                      integer(4))
+                ->str()
+            != "binomial(2*n, n)");
+}
+
 // SUM-HARMONIC-1: Σ 1/kᵖ over a finite/symbolic range is a generalized harmonic
 // number H_hi^(p) − H_(lo−1)^(p) (the 1-argument harmonic(n) for p = 1). These
 // were previously returned unevaluated. Matches SymPy's Sum(1/k**p).doit().

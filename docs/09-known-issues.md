@@ -16,6 +16,14 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-BINOM-SQ-1 — Σ C(n,k)² = C(2n,n) was unevaluated
+- **Problem:** the central-binomial identity `Σ_{k=0}^n C(n,k)² = C(2n,n)` returned unevaluated.
+- **Fix:** added a `sum_binomial_square` detector: a summand `C·binomial(n,k)²` over `k = 0…n`
+  (where `n` is exactly the binomial's first argument) returns `C·binomial(2n, n)`, carrying a
+  constant prefactor through. `Σ C(n,k)² = C(2n,n)`, `Σ 3·C(n,k)² = 3·C(2n,n)`, and the concrete
+  `Σ_{k=0}^5 C(5,k)² = 252`. A mismatched upper bound (≠ the binomial's `n`) is left unevaluated.
+  Matches SymPy.
+
 ### SUM-BINOM-K-1 — Σ k·C(n,k)·rᵏ binomial identity was unevaluated
 - **Problem:** `Σ_{k=0}^n k·C(n,k)` returned unevaluated where the closed form is `n·2^(n−1)`.
   The summation engine handled the plain binomial theorem `Σ C(n,k)·rᵏ = (1+r)ⁿ` but not a
