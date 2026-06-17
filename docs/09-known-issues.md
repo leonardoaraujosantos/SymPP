@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAUSSFOURIER-1 — Gaussian Fourier integral garbled
+- **Problem:** `∫_{-∞}^{∞} exp(-x²)·cos(x) dx` should be `√π·exp(-1/4)` (the Fourier transform of
+  a Gaussian), but the integrand has no elementary antiderivative, so the Newton–Leibniz path
+  evaluated the unevaluated `Integral(...)` marker at ±∞ and produced garbage
+  (`-Integral(0, -oo) + Integral(0, oo)`).
+- **Fix:** added a definite-integral detector `try_gaussian_fourier`, run before the
+  antiderivative path. For a real even Gaussian times a linear-argument cosine/sine it returns
+  the closed form: `∫_{-∞}^{∞} exp(-a x²)·cos(b x) dx = √(π/a)·exp(-b²/(4a))` (a > 0, b real),
+  half that over `[0,∞)`, and `0` for the odd `sin` integrand over the symmetric line. It
+  recognizes a pure even Gaussian `exp(c·x²)` with a provably-negative leading coefficient and
+  a `cos`/`sin(b·x)` factor with a real coefficient, carrying a constant prefactor through.
+  `∫_{-∞}^{∞} exp(-x²)cos(x) = √π·exp(-1/4)`, `∫_{-∞}^{∞} exp(-2x²)cos(3x) = √(π/2)·exp(-9/8)`,
+  `∫_{-∞}^{∞} exp(-x²)sin(x) = 0`; pure Gaussians and other integrands are untouched. Matches
+  SymPy — and is more robust on the sine case, where SymPy's meijer-G path raises. (The
+  half-line sine, a Dawson/erfi value, is left to the general machinery.)
+
 ### SUM-HARMONIC-1 — Σ 1/kᵖ over a finite range was left unevaluated
 - **Problem:** `summation` closed integer power sums (Faulhaber) and the convergent p-series at
   ∞ (→ ζ), but a reciprocal power over a finite or symbolic range — `Σ_{k=1}^{n} 1/k` or

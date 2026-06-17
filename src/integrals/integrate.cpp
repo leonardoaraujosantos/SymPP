@@ -3532,6 +3532,84 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+// Fourier integral of a real Gaussian over the full or half line:
+//   ∫_{−∞}^{∞} exp(−a·x²)·cos(b·x) dx = √(π/a)·exp(−b²/(4a))   (a > 0, b real)
+//   ∫_{−∞}^{∞} exp(−a·x²)·sin(b·x) dx = 0                       (odd integrand)
+//   ∫_{0}^{∞}  exp(−a·x²)·cos(b·x) dx = ½·√(π/a)·exp(−b²/(4a))
+// The integrand has no elementary antiderivative, so the Newton–Leibniz path
+// produces garbage; detect the closed form directly. Requires a pure even
+// Gaussian exp(c·x²) with c a provably-negative leading coefficient and a trig
+// factor cos/sin(b·x) linear in x with a real coefficient. A constant prefactor
+// is carried through. The half-line sine (a Dawson/erfi value) is left to the
+// general machinery.
+[[nodiscard]] std::optional<Expr> try_gaussian_fourier(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& lower,
+                                                       const Expr& upper) {
+    if (upper->type_id() != TypeId::Infinity) return std::nullopt;
+    bool full;
+    if (lower->type_id() == TypeId::NegativeInfinity) {
+        full = true;
+    } else if (lower == S::Zero()) {
+        full = false;
+    } else {
+        return std::nullopt;
+    }
+
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr coeff = S::One();
+    Expr gauss_a;  // a = −c₂ > 0
+    Expr trig_b;   // b in cos/sin(b·x)
+    bool have_gauss = false, have_trig = false, is_sin = false;
+    for (const auto& f : factors) {
+        if (!has(f, var)) { coeff = mul(coeff, f); continue; }
+        if (f->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*f);
+        const FunctionId id = fn.function_id();
+        if (id == FunctionId::Exp && fn.args().size() == 1 && !have_gauss) {
+            Poly p(expand(fn.args()[0]), var);
+            if (p.degree() == 2 && p.coeffs()[0] == S::Zero()
+                && p.coeffs()[1] == S::Zero()
+                && is_negative(p.coeffs()[2]) == std::optional<bool>{true}) {
+                gauss_a = simplify(mul(S::NegativeOne(), p.coeffs()[2]));
+                have_gauss = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        if ((id == FunctionId::Cos || id == FunctionId::Sin)
+            && fn.args().size() == 1 && !have_trig) {
+            Poly p(expand(fn.args()[0]), var);
+            if (p.degree() == 1 && p.coeffs()[0] == S::Zero()
+                && is_real(p.coeffs()[1]) == std::optional<bool>{true}) {
+                trig_b = p.coeffs()[1];
+                is_sin = (id == FunctionId::Sin);
+                have_trig = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        return std::nullopt;  // an unexpected var-dependent factor
+    }
+    if (!have_gauss || !have_trig) return std::nullopt;
+
+    // Odd integrand over the symmetric line integrates to 0; the half-line sine
+    // is not elementary here.
+    if (is_sin) return full ? std::optional<Expr>{S::Zero()} : std::nullopt;
+
+    Expr value = mul(sqrt(S::Pi() / gauss_a),
+                     exp(mul(S::NegativeOne(),
+                             pow(trig_b, integer(2)) / (integer(4) * gauss_a))));
+    Expr result = mul(coeff, value);
+    if (!full) result = result / integer(2);
+    return simplify(result);
+}
+
 std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr func;                    // the sin/cos/exp factor
@@ -3786,6 +3864,9 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
+    // Fourier integral of a real Gaussian (no elementary antiderivative — the
+    // Newton–Leibniz path below would otherwise garble it).
+    if (auto r = try_gaussian_fourier(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

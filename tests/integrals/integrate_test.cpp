@@ -2464,6 +2464,46 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
             == rational(1, 3));
 }
 
+// INT-GAUSSFOURIER-1: the Fourier integral of a real Gaussian. The integrand
+// exp(-a x²)·cos(b x) has no elementary antiderivative, so Newton-Leibniz
+// garbled it; the closed form is ∫_{-∞}^{∞} = √(π/a)·exp(-b²/(4a)), half that
+// over [0,∞), and the sine version is 0 over the symmetric line. Matches SymPy
+// (which actually crashes on the sine case — SymPP returns the correct 0).
+TEST_CASE("integrate: Gaussian Fourier integrals (INT-GAUSSFOURIER-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    auto gauss = [&](const Expr& a) { return exp(mul(a, pow(x, integer(2)))); };
+
+    // ∫_{-∞}^{∞} exp(-x²)·cos(x) = √π·exp(-1/4).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(x), x, noo, oo)->str(),
+        "sqrt(pi)*exp(-1/4)"));
+    // Half line: ½·√π·exp(-1/4).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(x), x, S::Zero(), oo)->str(),
+        "sqrt(pi)*exp(-1/4)/2"));
+    // Scaled: ∫_{-∞}^{∞} exp(-2x²)·cos(3x) = √(π/2)·exp(-9/8).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-2)) * cos(integer(3) * x), x, noo, oo)->str(),
+        "sqrt(2)*sqrt(pi)*exp(-Rational(9,8))/2"));
+    // ∫_{-∞}^{∞} exp(-x²)·cos(2x) = √π·exp(-1).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(integer(2) * x), x, noo, oo)->str(),
+        "sqrt(pi)*exp(-1)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(5) * gauss(integer(-1)) * cos(x), x, noo, oo)->str(),
+        "5*sqrt(pi)*exp(-1/4)"));
+    // Odd integrand over the symmetric line integrates to 0.
+    REQUIRE(integrate(gauss(integer(-1)) * sin(x), x, noo, oo) == S::Zero());
+    // The pure Gaussian (no trig factor) is unaffected.
+    REQUIRE(oracle.equivalent(integrate(gauss(integer(-1)), x, noo, oo)->str(),
+                              "sqrt(pi)"));
+}
+
 // INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
 // that individually diverge at ∞ but combine to a finite limit. The upper-bound
 // evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the
