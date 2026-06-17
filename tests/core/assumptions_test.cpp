@@ -772,3 +772,64 @@ TEST_CASE("AssumptionMask: irrational predicate (IRRATIONAL-1)", "[2a][assumptio
     auto in = symbol("in", AssumptionMask{}.set_integer(true));
     REQUIRE(is_irrational(in) == F);
 }
+
+// ALGTRANS-1: the `algebraic` / `transcendental` pair. algebraic = root of a
+// rational polynomial (implies complex, finite; rational ⇒ algebraic; i is
+// algebraic but not real); transcendental ⟺ complex ∧ ¬algebraic (implies
+// complex, finite, ¬algebraic, ¬rational; a real transcendental is irrational).
+// π and e are transcendental; EulerGamma/Catalan are unknown. Matches SymPy.
+TEST_CASE("AssumptionMask: algebraic / transcendental (ALGTRANS-1)", "[2a][assumptions]") {
+    using sympp::is_algebraic;
+    using sympp::is_transcendental;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+
+    // Concrete numbers.
+    REQUIRE(is_algebraic(integer(3)) == T);
+    REQUIRE(is_transcendental(integer(3)) == F);
+    REQUIRE(is_algebraic(rational(3, 2)) == T);
+    REQUIRE(is_algebraic(S::Pi()) == F);
+    REQUIRE(is_transcendental(S::Pi()) == T);
+    REQUIRE(is_transcendental(S::E()) == T);
+    REQUIRE(is_algebraic(S::I()) == T);            // i is a root of x² + 1
+    REQUIRE(is_transcendental(S::I()) == F);
+    REQUIRE(is_algebraic(S::Infinity()) == F);     // not a finite complex number
+    REQUIRE(is_transcendental(S::Infinity()) == F);
+
+    // EulerGamma / Catalan: neither status is known.
+    REQUIRE(is_algebraic(S::EulerGamma()) == U);
+    REQUIRE(is_transcendental(S::EulerGamma()) == U);
+    REQUIRE(is_algebraic(S::Catalan()) == U);
+
+    // Declared-algebraic symbol: complex ∧ finite ∧ ¬transcendental, but real /
+    // rational / integer / imaginary all stay Unknown (i is algebraic).
+    auto a = symbol("a", AssumptionMask{}.set_algebraic(true));
+    REQUIRE(is_algebraic(a) == T);
+    REQUIRE(is_transcendental(a) == F);
+    REQUIRE(is_complex(a) == T);
+    REQUIRE(is_finite(a) == T);
+    REQUIRE(is_real(a) == U);
+    REQUIRE(is_rational(a) == U);
+    REQUIRE(is_imaginary(a) == U);
+
+    // Declared-transcendental symbol: complex ∧ finite ∧ ¬algebraic ∧ ¬rational
+    // ∧ ¬integer; real stays Unknown, so irrational is Unknown.
+    auto tr = symbol("tr", AssumptionMask{}.set_transcendental(true));
+    REQUIRE(is_transcendental(tr) == T);
+    REQUIRE(is_algebraic(tr) == F);
+    REQUIRE(is_complex(tr) == T);
+    REQUIRE(is_finite(tr) == T);
+    REQUIRE(is_rational(tr) == F);
+    REQUIRE(is_integer(tr) == F);
+    REQUIRE(is_real(tr) == U);
+    REQUIRE(is_irrational(tr) == U);
+
+    // A real transcendental is irrational; rational/integer ⇒ algebraic; an
+    // imaginary symbol's algebraicity is unknown.
+    auto rt = symbol("rt", AssumptionMask{}.set_transcendental(true).set_real(true));
+    REQUIRE(is_irrational(rt) == T);
+    REQUIRE(is_algebraic(symbol("r", AssumptionMask{}.set_rational(true))) == T);
+    REQUIRE(is_algebraic(symbol("i", AssumptionMask{}.set_integer(true))) == T);
+    REQUIRE(is_algebraic(symbol("im", AssumptionMask{}.set_imaginary(true))) == U);
+}

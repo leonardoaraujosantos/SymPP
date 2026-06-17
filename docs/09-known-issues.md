@@ -16,6 +16,29 @@ truth and links the issue number.
 
 ## Fixed
 
+### ALGTRANS-1 — no `algebraic` / `transcendental` predicates
+- **Problem:** the assumption vocabulary had no `algebraic` or `transcendental` predicate, so
+  `is_algebraic(I)`, `is_transcendental(pi)` and declared-algebraic/transcendental symbols were
+  unsupported (SymPy: `Q.algebraic`/`Q.transcendental`, `pi.is_transcendental is True`,
+  `I.is_algebraic is True`).
+- **Fix:** added `AssumptionKey::Algebraic` and `AssumptionKey::Transcendental` as the
+  complex-domain pair, with `transcendental ⟺ complex ∧ ¬algebraic`. Wired through the stack:
+  `AssumptionMask` gains `algebraic`/`transcendental` fields and `set_algebraic`/
+  `set_transcendental` builders; closure rules `rational ⇒ algebraic`, `algebraic ⇒ complex ∧
+  finite ∧ ¬transcendental`, `transcendental ⇒ complex ∧ finite ∧ ¬algebraic ∧ ¬rational` (so
+  ¬integer/¬zero, and irrational once real is known), plus the in-ℂ partition (`complex ∧
+  ¬algebraic ⇒ transcendental`, `complex ∧ ¬transcendental ⇒ algebraic`) — neither implies
+  real, matching `I.is_algebraic = True` with `I.is_real = False`. `Integer`/`Rational` answer
+  `algebraic=true`/`transcendental=false`; `I` answers `algebraic=true`/`transcendental=false`;
+  the infinities answer both `false`; `NumberSymbol` answers per kind (π/e →
+  `algebraic=false`/`transcendental=true`, EulerGamma/Catalan → both Unknown); `Float`/`Mul`/
+  `Add`/`Pow` stay Unknown. Added generic derive cases, an `algebraic ∨ transcendental ⇒
+  complex` forward derivation, `is_algebraic(e)`/`is_transcendental(e)` helpers, and the MATLAB
+  surface. `is_algebraic(3/Rational(3,2)/I)=True`, `is_transcendental(pi/e)=True`,
+  `is_algebraic(EulerGamma)=None`, `is_algebraic(oo)=False`; a declared-transcendental real
+  symbol is irrational. Matches SymPy. (Structural algebraicity such as `sqrt(2).is_algebraic`
+  remains out of scope — still Unknown.)
+
 ### IRRATIONAL-1 — no `irrational` predicate; EulerGamma/Catalan wrongly rational=False
 - **Problem:** the assumption vocabulary had no `irrational` predicate, so `is_irrational(pi)`
   was unanswerable and a symbol could not be declared irrational (SymPy: `Symbol('q',

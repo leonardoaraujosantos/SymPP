@@ -91,6 +91,28 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             }
             return std::nullopt;
         }
+        case AssumptionKey::Algebraic: {
+            // rational ⇒ algebraic; transcendental ⇒ ¬algebraic; within ℂ a
+            // non-transcendental value is algebraic.
+            if (direct(e, AssumptionKey::Rational) == true) return true;
+            if (direct(e, AssumptionKey::Transcendental) == true) return false;
+            if (direct(e, AssumptionKey::Complex) == true
+                && direct(e, AssumptionKey::Transcendental) == false) {
+                return true;
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Transcendental: {
+            // transcendental ⟺ complex ∧ ¬algebraic. A rational / algebraic value
+            // is not transcendental.
+            if (direct(e, AssumptionKey::Algebraic) == true) return false;
+            if (direct(e, AssumptionKey::Rational) == true) return false;
+            if (direct(e, AssumptionKey::Complex) == true
+                && direct(e, AssumptionKey::Algebraic) == false) {
+                return true;
+            }
+            return std::nullopt;
+        }
         case AssumptionKey::Nonnegative: {
             if (direct(e, AssumptionKey::Positive) == true) return true;
             if (direct(e, AssumptionKey::Zero) == true) return true;
@@ -115,6 +137,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Imaginary) == true) return true;
             if (direct(e, AssumptionKey::Integer) == true) return true;
             if (direct(e, AssumptionKey::Rational) == true) return true;
+            if (direct(e, AssumptionKey::Algebraic) == true) return true;
+            if (direct(e, AssumptionKey::Transcendental) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Imaginary: {

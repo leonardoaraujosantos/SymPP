@@ -50,6 +50,13 @@ enum class AssumptionKey : std::uint8_t {
     Irrational,    // a real number that is not rational (implies real, finite,
                    // nonzero, ¬integer). irrational ⟺ real ∧ ¬rational; a
                    // rational or non-real value is not irrational.
+    Algebraic,     // a root of a nonzero polynomial with rational coefficients
+                   // (implies complex, finite). rational ⇒ algebraic. Does NOT
+                   // imply real (i is algebraic). Mutually exclusive with
+                   // Transcendental.
+    Transcendental,// a complex number that is not algebraic (implies complex,
+                   // finite, ¬algebraic, ¬rational). transcendental ⟺ complex ∧
+                   // ¬algebraic; a real transcendental is irrational.
 };
 
 }  // namespace sympp

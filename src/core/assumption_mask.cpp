@@ -19,6 +19,8 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Prime: return prime;
         case AssumptionKey::Composite: return composite;
         case AssumptionKey::Irrational: return irrational;
+        case AssumptionKey::Algebraic: return algebraic;
+        case AssumptionKey::Transcendental: return transcendental;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -70,6 +72,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Prime: prime = value; break;
         case AssumptionKey::Composite: composite = value; break;
         case AssumptionKey::Irrational: irrational = value; break;
+        case AssumptionKey::Algebraic: algebraic = value; break;
+        case AssumptionKey::Transcendental: transcendental = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -90,7 +94,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
-           && !complex_ && !imaginary && !prime && !composite && !irrational;
+           && !complex_ && !imaginary && !prime && !composite && !irrational
+           && !algebraic && !transcendental;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -118,6 +123,8 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(prime));
     mix(encode(composite));
     mix(encode(irrational));
+    mix(encode(algebraic));
+    mix(encode(transcendental));
     return h;
 }
 
@@ -260,6 +267,30 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         if (m.real == false && !m.irrational) m.irrational = false;
         if (m.real == true && m.rational == false && !m.irrational) {
             m.irrational = true;
+        }
+        // algebraic / transcendental — complex-domain predicates. rational ⇒
+        // algebraic; algebraic ⇒ complex, finite, ¬transcendental; transcendental
+        // ⇒ complex, finite, ¬algebraic, ¬rational (so ¬integer/¬zero via the
+        // rational rule, and irrational once real is known). Within ℂ the two
+        // partition: complex ∧ ¬algebraic ⇒ transcendental, and complex ∧
+        // ¬transcendental ⇒ algebraic. Neither implies real (i is algebraic).
+        if (m.rational == true && !m.algebraic) m.algebraic = true;
+        if (m.algebraic == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.finite) m.finite = true;
+            if (!m.transcendental) m.transcendental = false;
+        }
+        if (m.transcendental == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.finite) m.finite = true;
+            if (!m.algebraic) m.algebraic = false;
+            if (!m.rational) m.rational = false;
+        }
+        if (m.complex_ == true && m.algebraic == false && !m.transcendental) {
+            m.transcendental = true;
+        }
+        if (m.complex_ == true && m.transcendental == false && !m.algebraic) {
+            m.algebraic = true;
         }
         // imaginary (a nonzero real multiple of i) => complex, ¬real, finite,
         // nonzero, and (since ¬real) ¬rational/¬integer/¬sign/¬parity.

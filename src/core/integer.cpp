@@ -128,6 +128,8 @@ std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
             if (value_ < 4) return false;
             return mpz_probab_prime_p(value_.get_mpz_t(), 25) == 0;
         case AssumptionKey::Irrational: return false;  // every integer is rational
+        case AssumptionKey::Algebraic: return true;     // ℤ ⊂ algebraic numbers
+        case AssumptionKey::Transcendental: return false;
     }
     return std::nullopt;
 }

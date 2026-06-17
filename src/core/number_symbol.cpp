@@ -47,6 +47,12 @@ std::optional<bool> NumberSymbol::ask(AssumptionKey k) const noexcept {
         // it Unknown here lets that derivation answer (true for Pi/E, Unknown
         // for EulerGamma/Catalan).
         case AssumptionKey::Irrational: return std::nullopt;
+        // Pi and e are proven transcendental (hence not algebraic). EulerGamma
+        // and Catalan are not known to be either — Unknown.
+        case AssumptionKey::Algebraic:
+            return proven_irrational ? std::optional<bool>{false} : std::nullopt;
+        case AssumptionKey::Transcendental:
+            return proven_irrational ? std::optional<bool>{true} : std::nullopt;
     }
     return std::nullopt;
 }

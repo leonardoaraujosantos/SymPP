@@ -97,8 +97,8 @@ TEST_CASE("matlab::refresh on unregistered symbol returns input unchanged",
 
 TEST_CASE("matlab::assume rejects unsupported property",
           "[15m][matlab][assumptions]") {
-    auto x = matlab::sym("xalg");
-    REQUIRE_THROWS_AS(matlab::assume(x, "algebraic"), std::runtime_error);
+    auto x = matlab::sym("xherm");
+    REQUIRE_THROWS_AS(matlab::assume(x, "hermitian"), std::runtime_error);
 }
 
 TEST_CASE("matlab::assume supports the prime property",
@@ -143,4 +143,27 @@ TEST_CASE("matlab::assume supports the irrational property",
     REQUIRE(is_rational(x) == false);
     REQUIRE(is_integer(x) == false);
     matlab::clearAssumptions(x);
+}
+
+TEST_CASE("matlab::assume supports algebraic / transcendental",
+          "[15m][matlab][assumptions]") {
+    auto a = matlab::sym("xalg");
+    matlab::clearAssumptions(a);
+    matlab::assume(a, "algebraic");
+    a = matlab::refresh(a);
+    REQUIRE(contains(matlab::assumptions(a), "algebraic"));
+    REQUIRE(is_algebraic(a) == true);
+    REQUIRE(is_complex(a) == true);    // algebraic ⇒ complex, finite
+    REQUIRE(is_transcendental(a) == false);
+    matlab::clearAssumptions(a);
+
+    auto t = matlab::sym("xtrans");
+    matlab::clearAssumptions(t);
+    matlab::assume(t, "transcendental");
+    t = matlab::refresh(t);
+    REQUIRE(contains(matlab::assumptions(t), "transcendental"));
+    REQUIRE(is_transcendental(t) == true);
+    REQUIRE(is_algebraic(t) == false);  // transcendental ⇒ ¬algebraic, ¬rational
+    REQUIRE(is_rational(t) == false);
+    matlab::clearAssumptions(t);
 }

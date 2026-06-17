@@ -97,6 +97,8 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
             return mpz_probab_prime_p(value_.get_num_mpz_t(), 25) == 0;
         }
         case AssumptionKey::Irrational: return false;  // a Rational is rational
+        case AssumptionKey::Algebraic: return true;     // ℚ ⊂ algebraic numbers
+        case AssumptionKey::Transcendental: return false;
     }
     return std::nullopt;
 }

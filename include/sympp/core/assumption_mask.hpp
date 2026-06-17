@@ -37,6 +37,8 @@ struct SYMPP_EXPORT AssumptionMask {
     std::optional<bool> prime;
     std::optional<bool> composite;
     std::optional<bool> irrational;
+    std::optional<bool> algebraic;
+    std::optional<bool> transcendental;
 
     [[nodiscard]] std::optional<bool> get(AssumptionKey k) const noexcept;
     void set(AssumptionKey k, bool value) noexcept;
@@ -59,6 +61,10 @@ struct SYMPP_EXPORT AssumptionMask {
     AssumptionMask& set_prime(bool v) noexcept { prime = v; return *this; }
     AssumptionMask& set_composite(bool v) noexcept { composite = v; return *this; }
     AssumptionMask& set_irrational(bool v) noexcept { irrational = v; return *this; }
+    AssumptionMask& set_algebraic(bool v) noexcept { algebraic = v; return *this; }
+    AssumptionMask& set_transcendental(bool v) noexcept {
+        transcendental = v; return *this;
+    }
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t hash() const noexcept;

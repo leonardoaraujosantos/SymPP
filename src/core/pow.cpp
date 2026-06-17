@@ -214,7 +214,9 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             // structurally.
             return std::nullopt;
         case AssumptionKey::Irrational:
-            // Left to the generic real ∧ ¬rational derivation.
+        case AssumptionKey::Algebraic:
+        case AssumptionKey::Transcendental:
+            // Left to the generic derivation layer.
             return std::nullopt;
     }
     return std::nullopt;
