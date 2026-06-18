@@ -3924,15 +3924,27 @@ Expr integrate(const Expr& expr, const Expr& var,
     // (or when direct substitution lands on the unevaluated nan / an infinity —
     // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative
     // rather than substituting the bound literally.
-    auto eval_at = [&var](const Expr& F, const Expr& bound) -> Expr {
+    // `side` is the approach direction from inside the integration interval:
+    // +1 at the lower bound (x → a⁺), −1 at the upper bound (x → b⁻). The
+    // integrand is defined on the open interval, so a boundary value that direct
+    // substitution leaves indeterminate is the *one-sided* limit from within —
+    // e.g. ∫₀¹ (log x)² where x·(log x)² → 0 only as x → 0⁺ (the left side is
+    // complex, so a two-sided limit is nan). Falls back to the two-sided limit.
+    auto eval_at = [&var](const Expr& F, const Expr& bound, int side) -> Expr {
         if (is_infinity(bound)) return limit(F, var, bound);
         Expr v = subs(F, var, bound);
         if (v->type_id() == TypeId::NaN || is_infinity(v)) {
+            Expr one = limit(F, var, bound, side);
+            if (one->type_id() != TypeId::NaN
+                && one->type_id() != TypeId::ComplexInfinity) {
+                return one;
+            }
             return limit(F, var, bound);
         }
         return v;
     };
-    Expr result = simplify(eval_at(antider, upper) - eval_at(antider, lower));
+    Expr result =
+        simplify(eval_at(antider, upper, -1) - eval_at(antider, lower, +1));
     // Retry on an expanded antiderivative when the boundary evaluation fails to
     // resolve. A factored form like −½·(−2·Si(2x) − cos(2x)/x) − 1/(2x) hides a
     // bounded special function inside a product, where the limit machinery folds
@@ -3944,7 +3956,8 @@ Expr integrate(const Expr& expr, const Expr& var,
         || has_buried_infinity(result, true)) {
         Expr flat = expand(antider);
         if (!(flat == antider)) {
-            Expr retried = simplify(eval_at(flat, upper) - eval_at(flat, lower));
+            Expr retried =
+                simplify(eval_at(flat, upper, -1) - eval_at(flat, lower, +1));
             if (retried->type_id() != TypeId::NaN && !is_infinity(retried)
                 && !contains_integral_marker(retried)
                 && !has_buried_infinity(retried, true)) {

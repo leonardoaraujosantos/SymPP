@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-LOGPOW-BOUNDARY-1 — ∫₀¹ (log x)ⁿ gave nan at the lower boundary
+- **Problem:** `∫₀¹ (log x)² dx` returned `nan` (correct value **2**); likewise `(log x)³ → −6`,
+  `(log x)⁴ → 24`, `x·(log x)² → 1/4`, `√x·log x → −4/9`. The antiderivative is found correctly
+  (`x·(log x)² − 2x·log x + 2x`), but its value at the lower bound needs `lim_{x→0} x·(log x)ⁿ = 0` —
+  a `0·∞` form that is finite only from the **right**: for `x < 0`, `log x` is complex, so the
+  *two-sided* limit the boundary evaluation used is nan.
+- **Fix:** Newton–Leibniz boundary evaluation now approaches each bound from inside the integration
+  interval — the lower bound from the right (`x → a⁺`), the upper bound from the left (`x → b⁻`) —
+  using the one-sided `limit` overload, falling back to the two-sided limit only if that is nan. This
+  is the correct convention: the integrand is defined on the open interval, so the boundary value is
+  the one-sided limit from within. Non-singular boundaries (direct substitution finite) and the `n = 1`
+  case are unaffected. Matches SymPy (and returns a clean `−4/9` for `√x·log x`, where SymPy leaves an
+  unevaluated meijerg).
+
 ### LIMIT-EXP-COMBINE-1 — products of exponentials with differing monomials gave nan
 - **Problem:** `lim_{x→∞} exp(x²)/exp(x)²` returned `nan` (correct value **∞**), as did `exp(x²)·exp(−2x)`,
   `exp(x²)/exp(x²−x)`, `x²·exp(x)/exp(x²) → 0`, `x¹⁰·exp(x)·exp(−x²) → 0`. Evaluated factor by factor

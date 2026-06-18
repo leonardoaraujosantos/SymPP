@@ -3130,3 +3130,30 @@ TEST_CASE("integrate: trig products with mixed arguments (INT-TRIGPROD-1)",
         }
     }
 }
+
+// INT-LOGPOW-BOUNDARY-1: ∫₀¹ (log x)ⁿ — the antiderivative x·(log x)ⁿ − … is
+// known, but the lower boundary value needs lim_{x→0} x·(log x)ⁿ = 0, a 0·∞ form
+// that is finite only from the RIGHT (the left side is complex). The boundary
+// evaluation used a two-sided limit and got nan; it now approaches each bound
+// from inside the interval (lower from the right, upper from the left). Matches
+// SymPy: ∫₀¹ (log x)² = 2, (log x)³ = −6, (log x)⁴ = 24.
+TEST_CASE("integrate: log-power definite integrals via one-sided boundaries (INT-LOGPOW-BOUNDARY-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto one = S::One();
+    auto L = [&](const Expr& e) { return log(e); };
+
+    REQUIRE(integrate(pow(L(x), integer(2)), x, zero, one) == integer(2));
+    REQUIRE(integrate(pow(L(x), integer(3)), x, zero, one) == integer(-6));
+    REQUIRE(integrate(pow(L(x), integer(4)), x, zero, one) == integer(24));
+    // With a polynomial weight: ∫₀¹ x·(log x)² = 1/4, ∫₀¹ √x·log x = −4/9.
+    REQUIRE(integrate(x * pow(L(x), integer(2)), x, zero, one)
+            == rational(1, 4));
+    REQUIRE(integrate(pow(x, rational(1, 2)) * L(x), x, zero, one)
+            == rational(-4, 9));
+    // ∫₀¹ log x = −1 (the n = 1 case kept working) is unchanged.
+    REQUIRE(integrate(L(x), x, zero, one) == S::NegativeOne());
+    // A non-singular boundary is unaffected: ∫₀¹ x² = 1/3.
+    REQUIRE(integrate(pow(x, integer(2)), x, zero, one) == rational(1, 3));
+}
