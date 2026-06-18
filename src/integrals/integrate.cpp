@@ -4134,6 +4134,75 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// ∫₀^∞ x^p / sinh(c·x) dx = 2·Γ(p+1)·(1 − 2^{−(p+1)})·ζ(p+1) / c^{p+1} for p > 0,
+// c > 0. From 1/sinh(cx) = 2·Σ_{k≥0} e^{−(2k+1)cx} and term-wise Γ-integration, the
+// odd-denominator zeta Σ 1/(2k+1)^s = (1 − 2^{−s})ζ(s). Gives ∫₀^∞ x/sinh x = π²/4,
+// ∫₀^∞ x³/sinh x = π⁴/8, ∫₀^∞ x²/sinh x = 7ζ(3)/2. Non-elementary antiderivative,
+// so Newton–Leibniz leaves an unevaluated marker. (SymPy leaves these unevaluated;
+// the closed form is verified numerically.)
+[[nodiscard]] std::optional<Expr> try_sinh_integral(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& lower,
+                                                    const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr c;
+    bool found = false;
+    Expr coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        // Kernel factor: sinh(c·var)^{-1}.
+        if (!found && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f->args()[0]).function_id()
+                   == FunctionId::Sinh
+            && f->args()[0]->args().size() == 1) {
+            Expr g = f->args()[0]->args()[0];
+            Expr cc = simplify(mul(g, pow(var, S::NegativeOne())));
+            if (!has(cc, var)
+                && is_positive(cc) == std::optional<bool>{true}) {
+                c = cc;
+                found = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!found) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps) || is_positive(ps) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > 0 for convergence at 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, integer(2), gamma(s),
+                      add(S::One(), mul(S::NegativeOne(),
+                                        pow(integer(2),
+                                            mul(S::NegativeOne(), s)))),
+                      zeta(s), pow(c, mul(S::NegativeOne(), s))});
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -4148,6 +4217,8 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_gamma_log_integral(expr, var, lower, upper)) return *r;
     // ∫₀^∞ log(x)/(x²+A) = π·log(A)/(4√A) for A > 0. Non-elementary.
     if (auto r = try_log_over_quadratic(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^p/sinh(cx) = 2Γ(p+1)(1−2^{−(p+1)})ζ(p+1)/c^{p+1}. Non-elementary.
+    if (auto r = try_sinh_integral(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

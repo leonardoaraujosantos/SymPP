@@ -3309,3 +3309,43 @@ TEST_CASE("integrate: call-budget backstop on branching non-elementary integrand
     REQUIRE(integrate(pow(x, integer(2)) * atan(x), x)->str().find("Integral")
             == std::string::npos);
 }
+
+// INT-CSCH-1: ∫₀^∞ x^p/sinh(cx) = 2·Γ(p+1)·(1−2^{−(p+1)})·ζ(p+1)/c^{p+1} for
+// p>0, c>0 (from 1/sinh = 2Σe^{−(2k+1)cx} and the odd-denominator zeta). Gives
+// ∫₀^∞ x/sinh x = π²/4, x³/sinh x = π⁴/8, x²/sinh x = 7ζ(3)/2. Non-elementary
+// antiderivative; verified numerically against SymPy quadrature.
+TEST_CASE("integrate: ∫x^p/sinh(cx) over [0,oo) (INT-CSCH-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto csch = [&](const Expr& c) {
+        return pow(sinh(c * x), integer(-1));
+    };
+
+    REQUIRE(oracle.equivalent(integrate(x * csch(S::One()), x, zero, oo)->str(),
+                              "pi**2/4"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * csch(S::One()), x, zero, oo)->str(),
+        "pi**4/8"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * csch(S::One()), x, zero, oo)->str(),
+        "7*zeta(3)/2"));
+    // Scaled rate c = 2: π²/16.
+    REQUIRE(oracle.equivalent(integrate(x * csch(integer(2)), x, zero, oo)->str(),
+                              "pi**2/16"));
+    // Constant multiplier carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(2) * x * csch(S::One()), x, zero, oo)->str(),
+        "pi**2/2"));
+
+    // Guards: cosh kernel (a different closed form) and the e^x−1 Bose kernel are
+    // left to their own rules; the latter still evaluates.
+    REQUIRE(integrate(x * pow(cosh(x), integer(-1)), x, zero, oo)
+                ->str()
+                .rfind("Integral(", 0) == 0);
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(exp(x) - integer(1), integer(-1)), x, zero, oo)->str(),
+        "pi**2/6"));
+}

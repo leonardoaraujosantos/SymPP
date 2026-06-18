@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-CSCH-1 — ∫₀^∞ x^p/sinh(cx) was left unevaluated
+- **Problem:** `∫₀^∞ x/sinh(x) dx = π²/4` and the family `∫₀^∞ x^p/sinh(cx) dx` were returned as
+  unevaluated `Integral` markers (non-elementary antiderivative; SymPy also leaves them unevaluated).
+- **Fix:** added `try_sinh_integral`, a closed-form rule on `[0, ∞)`. From `1/sinh(cx) =
+  2·Σ_{k≥0} e^{−(2k+1)cx}` and term-wise Γ-integration, with the odd-denominator zeta
+  `Σ 1/(2k+1)^s = (1 − 2^{−s})ζ(s)`, `∫₀^∞ x^p/sinh(cx) dx = 2·Γ(p+1)·(1 − 2^{−(p+1)})·ζ(p+1)/c^{p+1}`
+  for `p > 0`, `c > 0`. It matches a `sinh(c·x)^{-1}` kernel times a monomial `coeff·x^p`. Gives
+  `x/sinh x → π²/4`, `x³/sinh x → π⁴/8`, `x²/sinh x → 7ζ(3)/2`, `x/sinh(2x) → π²/16`. The `cosh` kernel
+  (a different closed form) and the `e^{x}−1` Bose kernel are left to their own rules. Verified
+  numerically against SymPy quadrature; this exceeds SymPy, which returns these unevaluated.
+
 ### INVHYP-COMPOSE-1 — asinh(sinh x)/acosh(cosh x)/atanh(tanh x) were not folded
 - **Problem:** `asinh(sinh(2))`, `atanh(tanh(3))`, `acosh(cosh(2))` were left unevaluated. SymPy folds
   an inverse-of-direct hyperbolic composition with a concrete real argument: `asinh(sinh a) = a`,
