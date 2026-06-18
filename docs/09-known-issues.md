@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### BINOM-GEN-1 — generalized binomial C(n,k) for non-integer/negative n left unevaluated
+- **Problem:** `binomial(1/2, 3)`, `binomial(-1, 2)`, `binomial(7/2, 2)` stayed unevaluated. The factory only
+  evaluated a non-negative-integer pair (via `mpz_bin_uiui`); SymPy evaluates the generalized binomial for any
+  numeric upper index (`binomial(1/2,3)=1/16`, `binomial(-1,2)=1`, `binomial(7/2,2)=35/8`).
+- **Fix:** added the generalized branch `C(n,k) = ∏_{i=0}^{k-1}(n−i)/k!` for a **numeric** upper index `n`
+  (negative integer or rational) and a non-negative integer `k` (bounded `k ≤ 10000`). The numeric product
+  folds to a single rational through the `Mul` factory. The exact non-negative-integer path is unchanged, and
+  a symbolic upper index stays symbolic (`binomial(n,2)`), matching SymPy. Gives `C(1/2,3)=1/16`,
+  `C(7/2,2)=35/8`, `C(-1/2,4)=35/128`, `C(-3,3)=−10`. Regression: `BINOM-GEN-1`. Matches SymPy.
+
 ### SUM-GEOM-INF-1 — infinite geometric series: nan for negative ratio, x^∞ garbage for symbolic
 - **Problem:** the plain infinite geometric series substituted `hi = ∞` into the finite closed form
   `A·(r^lo − r^(hi+1))/(1−r)`, leaving `r^∞`. For a **negative** convergent ratio this collapsed to `nan`

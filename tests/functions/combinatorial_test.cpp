@@ -100,6 +100,26 @@ TEST_CASE("binomial(n, 1) = n", "[3i][binomial][regression]") {
     REQUIRE(binomial(n, integer(2))->type_id() == TypeId::Function);
 }
 
+// BINOM-GEN-1: the generalized binomial C(n,k) = ∏_{i=0}^{k-1}(n−i)/k! for a
+// numeric upper index n (negative integer or rational) and a non-negative
+// integer k. The non-negative-integer case is exact (mpz), a symbolic upper
+// index stays symbolic. Matches SymPy.
+TEST_CASE("binomial: generalized for rational/negative upper index (BINOM-GEN-1)",
+          "[3i][binomial][regression]") {
+    auto n = symbol("n");
+    REQUIRE(binomial(rational(1, 2), integer(3)) == rational(1, 16));
+    REQUIRE(binomial(rational(7, 2), integer(2)) == rational(35, 8));
+    REQUIRE(binomial(rational(-1, 2), integer(4)) == rational(35, 128));
+    REQUIRE(binomial(integer(-1), integer(2)) == integer(1));
+    REQUIRE(binomial(integer(-3), integer(3)) == integer(-10));
+    // k = 0 / k = 1 degenerate correctly for a numeric upper index.
+    REQUIRE(binomial(rational(1, 2), integer(0)) == S::One());
+    REQUIRE(binomial(rational(1, 2), integer(1)) == rational(1, 2));
+    // Non-negative integer pairs stay exact; a symbolic upper index stays symbolic.
+    REQUIRE(binomial(integer(6), integer(2)) == integer(15));
+    REQUIRE(binomial(n, integer(2))->type_id() == TypeId::Function);
+}
+
 // ----- gamma -----------------------------------------------------------------
 
 TEST_CASE("gamma: positive integer reduces to factorial", "[3i][gamma]") {

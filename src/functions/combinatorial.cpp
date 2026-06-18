@@ -1068,6 +1068,25 @@ Expr binomial(const Expr& n, const Expr& k) {
             return make<Integer>(std::move(r));
         }
     }
+    // Generalized binomial for a numeric upper index n (negative integer or
+    // rational) and a non-negative integer k: C(n,k) = ∏_{i=0}^{k-1}(n−i) / k!.
+    // Gives C(−1,2)=1, C(7/2,2)=35/8, C(1/2,3)=1/16, matching SymPy. (The
+    // non-negative-integer/integer case is handled exactly above; a symbolic
+    // upper index stays symbolic, as SymPy does for C(n,2).)
+    if (is_number(n) && k->type_id() == TypeId::Integer) {
+        const auto& zk = static_cast<const Integer&>(*k);
+        if (!zk.is_negative() && zk.fits_long() && zk.to_long() <= 10'000) {
+            const long kv = zk.to_long();
+            Expr num = S::One();
+            for (long i = 0; i < kv; ++i) {
+                num = mul(num, add(n, integer(-i)));
+            }
+            mpz_class kfac;
+            mpz_fac_ui(kfac.get_mpz_t(), static_cast<unsigned long>(kv));
+            // The Mul factory folds the numeric product into a single rational.
+            return mul(num, pow(make<Integer>(std::move(kfac)), integer(-1)));
+        }
+    }
     // binomial(n, 0) = 1
     if (k == S::Zero()) return S::One();
     // binomial(n, 1) = n  (valid for any n)
