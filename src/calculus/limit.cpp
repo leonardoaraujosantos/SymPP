@@ -989,6 +989,107 @@ struct Growth {
     return std::nullopt;
 }
 
+// A ratio of sums mixing polynomial and bounded-oscillating terms at ±∞ —
+// (x + sin x)/(x + cos x) → 1. Direct substitution leaks sin(∞)/cos(∞) garbage,
+// and L'Hôpital oscillates (the derivative of the bounded part has no limit).
+// Splitting numerator and denominator into a polynomial skeleton plus a bounded
+// O(1) remainder, the bounded remainder is negligible whenever the polynomial
+// skeleton → ±∞, so the limit is the rational ratio of those skeletons. Fires
+// only when an oscillating sin/cos of the variable is actually present.
+[[nodiscard]] std::optional<Expr> try_oscillating_rational(const Expr& expr,
+                                                           const Expr& var,
+                                                           const Expr& target,
+                                                           int depth) {
+    if (!is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    auto is_bounded_fn = [&](const Expr& f) {
+        if (f->type_id() != TypeId::Function) return false;
+        const auto id = static_cast<const Function&>(*f).function_id();
+        return (id == FunctionId::Sin || id == FunctionId::Cos)
+               && f->args().size() == 1
+               && is_real(f->args()[0]) != std::optional<bool>{false};
+    };
+    // A term that stays bounded as var → ∞: every var-dependent factor is a
+    // bounded sin/cos, with at least one such factor.
+    auto is_bounded_term = [&](const Expr& t) {
+        std::vector<Expr> fs;
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) fs.push_back(f);
+        } else {
+            fs.push_back(t);
+        }
+        bool any = false;
+        for (const auto& f : fs) {
+            if (!has(f, var)) continue;
+            if (is_bounded_fn(f)) { any = true; continue; }
+            return false;  // a growing var-dependent factor (e.g. x·sin x)
+        }
+        return any;
+    };
+    // Polynomial part of a sum, dropping bounded terms; nullopt if a term is
+    // neither a clean polynomial in var nor bounded.
+    auto poly_part = [&](const Expr& e) -> std::optional<Expr> {
+        std::vector<Expr> terms;
+        if (e->type_id() == TypeId::Add) {
+            for (const auto& t : e->args()) terms.push_back(t);
+        } else {
+            terms.push_back(e);
+        }
+        std::vector<Expr> poly;
+        for (const auto& t : terms) {
+            bool is_poly = false;
+            try {
+                Poly probe(t, var);
+                is_poly = true;
+                for (const auto& cc : probe.coeffs()) {
+                    if (has(cc, var)) { is_poly = false; break; }
+                }
+            } catch (const std::exception&) {
+                is_poly = false;
+            }
+            if (is_poly) {
+                poly.push_back(t);
+            } else if (!is_bounded_term(t)) {
+                return std::nullopt;
+            }
+        }
+        return poly.empty() ? Expr{S::Zero()} : add(std::move(poly));
+    };
+    // Split expr into numerator / denominator (negative integer powers → denom).
+    Expr num = S::One(), den = S::One();
+    for (const auto& f : expr->args()) {
+        if (f->type_id() == TypeId::Pow
+            && f->args()[1]->type_id() == TypeId::Integer
+            && static_cast<const Integer&>(*f->args()[1]).is_negative()
+            && static_cast<const Integer&>(*f->args()[1]).fits_long()) {
+            den = mul(den, pow(f->args()[0],
+                               integer(-static_cast<const Integer&>(*f->args()[1])
+                                            .to_long())));
+        } else {
+            num = mul(num, f);
+        }
+    }
+    // Only engage when a genuine oscillation of the variable is present.
+    bool has_osc = false;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (has_osc) return;
+        if (is_bounded_fn(e) && has(e, var)) { has_osc = true; return; }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (!has_osc) return std::nullopt;
+
+    auto np = poly_part(num);
+    auto dp = poly_part(den);
+    if (!np || !dp) return std::nullopt;
+    Expr lnp = limit_impl(*np, var, target, depth + 1);
+    Expr ldp = limit_impl(*dp, var, target, depth + 1);
+    if (!is_infinity(lnp) || !is_infinity(ldp)) return std::nullopt;
+    return limit_impl(mul(*np, pow(*dp, S::NegativeOne())), var, target,
+                      depth + 1);
+}
+
 // A super-power var^(c·var) (c a nonzero rational) dominates the factorial/gamma
 // class: n^n ≫ n!. When the expression is exactly such a super-power times a
 // single factorial(var) / gamma(var+1) raised to ±1 (plus constants), the
@@ -1580,6 +1681,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         if (auto r = rational_limit_at_infinity(expr, var, target)) return *r;
         if (depth < 12) {
             if (auto r = bounded_times_vanishing(expr, var, target, depth)) {
+                return *r;
+            }
+            if (auto r = try_oscillating_rational(expr, var, target, depth)) {
                 return *r;
             }
         }

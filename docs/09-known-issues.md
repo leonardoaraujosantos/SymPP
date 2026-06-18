@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-OSC-RATIO-1 — ratio of polynomials with bounded oscillation gave garbage
+- **Problem:** `lim_{x→∞} (x + sin x)/(x + cos x)` returned the garbage `(oo + sin(oo))/(oo + cos(oo))`
+  instead of **1**. Direct substitution leaks `sin(∞)`/`cos(∞)`, and L'Hôpital oscillates — the
+  derivative `(1 + cos x)/(1 − sin x)` of the bounded part has no limit. The whole family
+  `(P(x) + bounded)/(Q(x) + bounded)` was affected.
+- **Fix:** added `try_oscillating_rational`. It splits numerator and denominator into a polynomial
+  skeleton plus a bounded O(1) remainder (sin/cos of the variable, value in [−1,1]); whenever both
+  skeletons → ±∞ the bounded remainders are negligible, so the limit is the rational ratio of the
+  skeletons. Gives `(x+sin x)/(x+cos x) → 1`, `(x²+sin x)/(x+cos x) → ∞`, `(2x+sin x)/(3x+cos x) → 2/3`.
+  Fires only when a genuine sin/cos of the variable is present, so pure rational ratios and
+  bounded×vanishing products are untouched; a growing-amplitude term (`x·sin x`, neither polynomial
+  nor bounded) makes the rule abstain. Matches SymPy.
+
 ### INT-CALLBUDGET-1 — integrating a transcendental over a reducible quadratic hung
 - **Problem:** `integrate(log(x)/(x²−1), x)` (and `log(x)/(x²−4)`, `atan(x)/(x²−1)`, …) **hung** —
   any transcendental (log/atan) over a *factorable* quadratic. The integrand is non-elementary, but

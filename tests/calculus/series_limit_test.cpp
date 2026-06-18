@@ -2442,3 +2442,39 @@ TEST_CASE("limit: merge exponentials with differing monomials (LIMIT-EXP-COMBINE
                   x, oo)
             == S::Zero());  // 2^x/3^x
 }
+
+// LIMIT-OSC-RATIO-1: a ratio of sums mixing polynomial and bounded-oscillating
+// terms at ∞ — (x + sin x)/(x + cos x) → 1. Direct substitution leaked
+// sin(∞)/cos(∞) garbage and L'Hôpital oscillates. The bounded terms are negligible
+// against the diverging polynomial skeleton, so the limit is the rational ratio of
+// the skeletons. Matches SymPy.
+TEST_CASE("limit: ratio of polynomials perturbed by bounded oscillation (LIMIT-OSC-RATIO-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto rat = [&](const Expr& n, const Expr& d) {
+        return n * pow(d, S::NegativeOne());
+    };
+    auto x2 = pow(x, integer(2));
+
+    REQUIRE(simplify(limit(rat(x + sin(x), x + cos(x)), x, oo)) == S::One());
+    REQUIRE(simplify(limit(rat(x + sin(x), x - cos(x)), x, oo)) == S::One());
+    REQUIRE(limit(rat(x2 + sin(x), x + cos(x)), x, oo) == oo);
+    REQUIRE(limit(rat(x + cos(x), x2 + sin(x)), x, oo) == S::Zero());
+    REQUIRE(simplify(limit(rat(integer(2) * x + sin(x), integer(3) * x + cos(x)),
+                           x, oo))
+            == rational(2, 3));
+    REQUIRE(simplify(
+                limit(rat(x2 + integer(3) * sin(x), integer(2) * x2 - cos(x)),
+                      x, oo))
+            == rational(1, 2));
+
+    // Unaffected: a pure rational ratio and a bounded×vanishing product. A
+    // growing-amplitude oscillation (x·sin x) is not a clean polynomial+bounded
+    // split, so the rule abstains — the value depends on other machinery and is
+    // not asserted here.
+    REQUIRE(simplify(limit(rat(x + integer(1), x + integer(2)), x, oo))
+            == S::One());
+    REQUIRE(limit(x * cos(x) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+}
