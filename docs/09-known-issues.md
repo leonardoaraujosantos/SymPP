@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-POW-CONTINUITY-1 — √(non-rational vanishing base) returned nan
+- **Problem:** `limit(sqrt(log(log x)/log x), x, ∞)` returned `nan` even though the base `log(log x)/log x → 0`.
+  The limit engine applies continuity for `log`, `exp`, and `atan`, but not for a power with a constant
+  exponent: direct substitution evaluates the base pointwise, and a non-rational base lands on an
+  indeterminate `∞/∞ → nan`, so `√(…)` of it surfaced as `nan`. (A rational base like `(x+1)/(2x+3)` already
+  worked via the rational-limit path.) SymPy gives `0`.
+- **Fix:** added `try_power_continuity`, a nan-branch fallback for `base^r` with a **constant** exponent `r`:
+  take the base's limit first and return `(lim base)^r`. Resolves `√(log log x/log x) → 0`,
+  `(log log x/log x)^(1/3) → 0`. Guards skip a pole (`0^negative`) and a complex root of a negative base, so
+  no real-limit query is turned into a spurious complex value. A leading-term/continuity piece of the Gruntz
+  machinery; the nan-branch gating makes it strictly additive. Regression: `LIMIT-POW-CONTINUITY-1`. Matches
+  SymPy.
+- **Note:** the fully nested `log(x)/exp(√(log x·log log x)) → 0` is still `nan` — it needs the Gruntz mrv
+  rewrite of the whole quotient, a deeper stage.
+
 ### INT-GAMMA-1 — the Gamma-function integral ∫₀^∞ xˢ⁻¹e⁻ᶜˣ left unevaluated
 - **Problem:** `∫₀^∞ x^(s-1)·e^(-c·x) dx = Γ(s)/cˢ` returned an unevaluated marker. The incomplete-gamma
   antiderivative `γ(s,x)` (from `INT-INCGAMMA-1`) cannot recover it via Newton–Leibniz: SymPy deliberately

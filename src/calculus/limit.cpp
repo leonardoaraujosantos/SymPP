@@ -1720,6 +1720,35 @@ struct Growth {
     return r;
 }
 
+// Continuity of a power with a constant exponent: lim base^r = (lim base)^r when
+// the inner limit is determinate. Direct substitution computes the base
+// pointwise and a non-rational base (e.g. log(log x)/log x) substitutes to an
+// indeterminate ∞/∞ → nan, so √(…) of it surfaces as nan even though the base
+// has a clean limit. Taking the base's limit first resolves it: √(log log x/log x)
+// → √0 = 0. Guards skip a pole (0^negative) and a complex root of a negative base.
+[[nodiscard]] std::optional<Expr> try_power_continuity(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& target,
+                                                       int depth) {
+    if (depth >= 12 || expr->type_id() != TypeId::Pow) return std::nullopt;
+    const Expr& base = expr->args()[0];
+    const Expr& ex = expr->args()[1];
+    if (has(ex, var)) return std::nullopt;  // var exponent → not this rule
+    Expr Lb = limit_impl(base, var, target, depth + 1);
+    if (is_nan(Lb)) return std::nullopt;
+    // A negative base with a non-integer exponent is complex near the limit; do
+    // not fabricate a complex value for a real-limit query.
+    if (ex->type_id() != TypeId::Integer
+        && is_negative(Lb) == std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr r = simplify(pow(Lb, ex));
+    if (is_nan(r) || r->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    return r;
+}
+
 // Gruntz dominant-term rule for an indeterminate ∞−∞ sum at ±∞: if one term
 // strictly outgrows every other (each other term divided by it tends to 0), the
 // sum is asymptotic to that term, so the limit equals the dominant term's limit.
@@ -1997,6 +2026,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // re-take, so the exp/gamma growth machinery can resolve forms the
             // bare-power paths leave as nan — e.g. Γ(2n)/n^n → ∞.
             if (auto v = try_power_as_exp(expr, var, target, depth)) return *v;
+            // Power with a constant exponent: lim base^r = (lim base)^r — resolves
+            // √(non-rational base) whose pointwise substitution is nan.
+            if (auto v = try_power_continuity(expr, var, target, depth)) {
+                return *v;
+            }
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
         // substitution collapses to 0 or nan). A nan result is not an answer —

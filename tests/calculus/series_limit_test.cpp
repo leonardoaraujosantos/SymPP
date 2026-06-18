@@ -2611,3 +2611,26 @@ TEST_CASE("limit: dominant-term resolution of an unequal-order ∞−∞ sum (LI
     REQUIRE(limit(add(pow(x, integer(2)), mul(S::NegativeOne(), x)), x, oo)
             == oo);
 }
+
+// LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —
+// lim base^r = (lim base)^r. A non-rational base substitutes pointwise to an
+// indeterminate ∞/∞ → nan, so a radical of it surfaced as nan even though the
+// base has a clean limit; taking the base limit first resolves it.
+TEST_CASE("limit: constant-exponent power continuity (LIMIT-POW-CONTINUITY-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto ratio = mul(log(log(x)), pow(log(x), integer(-1)));  // → 0
+
+    // √ and cube-root of a vanishing non-rational base → 0.
+    REQUIRE(limit(sqrt(ratio), x, oo) == S::Zero());
+    REQUIRE(limit(pow(ratio, rational(1, 3)), x, oo) == S::Zero());
+    // Finite non-zero base: √((x+1)/(2x+3)) → √(1/2).
+    REQUIRE(simplify(limit(sqrt(mul(add(x, integer(1)),
+                                    pow(add(mul(integer(2), x), integer(3)),
+                                        integer(-1)))),
+                           x, oo))
+            == simplify(pow(rational(1, 2), rational(1, 2))));
+    // Already-working cases stay correct (rational base, vanishing base).
+    REQUIRE(limit(pow(pow(x, integer(-1)), rational(1, 3)), x, oo) == S::Zero());
+}
