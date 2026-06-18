@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### GAMMA-REFL-2 — simplify reverted the gamma reflection at rational arguments
+- **Problem:** `simplify(gamma(1/3)·gamma(2/3))` returned the gamma product unchanged instead of
+  **2√3·π/3**, even though `gammasimp` produced the correct elementary form via the Euler reflection
+  `Γ(z)Γ(1−z) = π/sin(πz)`. The elementary form `2√3·π/3` has a slightly higher node count than
+  `gamma(1/3)·gamma(2/3)`, so simplify's global anti-bloat guard discarded it. `gamma(1/4)·gamma(3/4)
+  = √2·π` survived only because its elementary form happens to be small.
+- **Fix:** added a "removed gamma" exception to the anti-bloat guard (step 6), alongside the existing
+  removed-surd / removed-complex-denominator exceptions: replacing a `Γ` with an elementary form is a
+  genuine simplification even when marginally larger. Now `gamma(1/3)·gamma(2/3) → 2√3·π/3`,
+  `gamma(1/6)·gamma(5/6) → 2π`, etc. Single gammas, non-reflection products (`Γ(1/3)²`) and evaluated
+  values (`Γ(5)=24`) are untouched. Matches SymPy.
+
 ### SIMP-EULER-1 — complex exponentials did not cancel against their trig expansion
 - **Problem:** `simplify(exp(i·x) − cos x − i·sin x)` returned the expression unchanged instead of
   **0**; likewise `cos x + i·sin x − exp(i·x)`, `exp(i·x) + exp(−i·x) − 2 cos x`, and the

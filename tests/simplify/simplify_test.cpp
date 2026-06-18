@@ -1319,6 +1319,34 @@ TEST_CASE("gammasimp: gamma(x)*gamma(1-x) → pi/sin(pi*x)",
     REQUIRE(oracle.equivalent(gammasimp(e4)->str(), "n"));
 }
 
+// GAMMA-REFL-2 — simplify() (not just gammasimp) keeps the reflection result for
+// numeric rational arguments. gamma(1/3)*gamma(2/3) → 2√3·π/3 is elementary but
+// has a slightly higher node count, so simplify's anti-bloat guard used to revert
+// it to the gamma product. Replacing a gamma with an elementary form is now an
+// allowed exception to the guard. Matches SymPy.
+TEST_CASE("simplify: gamma reflection at rational arguments (GAMMA-REFL-2)",
+          "[8][simplify][gammasimp][reflection][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto g = [](const Expr& a) { return gamma(a); };
+
+    auto r13 = simplify(g(rational(1, 3)) * g(rational(2, 3)));
+    REQUIRE(oracle.equivalent(r13->str(), "2*sqrt(3)*pi/3"));
+    REQUIRE(r13->str().find("gamma") == std::string::npos);  // not reverted
+
+    REQUIRE(oracle.equivalent(
+        simplify(g(rational(1, 4)) * g(rational(3, 4)))->str(), "sqrt(2)*pi"));
+    REQUIRE(oracle.equivalent(
+        simplify(g(rational(1, 6)) * g(rational(5, 6)))->str(), "2*pi"));
+
+    // Non-reflection gamma forms are untouched: a single gamma and a product
+    // whose arguments do not sum to 1.
+    REQUIRE(simplify(g(rational(1, 3))) == g(rational(1, 3)));
+    REQUIRE(simplify(g(rational(1, 3)) * g(rational(1, 3)))
+            == pow(g(rational(1, 3)), integer(2)));
+    // Evaluated gamma values are unaffected.
+    REQUIRE(simplify(g(integer(5))) == integer(24));
+}
+
 #include <sympp/core/float.hpp>
 
 // ----- cse -------------------------------------------------------------------

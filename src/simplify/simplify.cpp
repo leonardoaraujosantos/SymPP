@@ -49,6 +49,8 @@ namespace {
     return n;
 }
 
+[[nodiscard]] bool contains_function_id(const Expr& e, FunctionId id);
+
 // Does `e` contain a complex exponential exp(g) with the imaginary unit in g?
 // The signature of an Euler-form expression (exp(i·θ) alongside trig) that may
 // cancel once rewritten onto a common exponential basis.
@@ -301,7 +303,13 @@ Expr simplify(const Expr& e) {
             has_surd_denominator(canon) && !has_surd_denominator(current);
         const bool removed_cx =
             has_complex_denominator(canon) && !has_complex_denominator(current);
-        if (!removed_surd && !removed_cx) {
+        // Replacing a special function with an elementary form (e.g. the gamma
+        // reflection Γ(z)Γ(1−z) → π/sin(πz), giving Γ(1/3)Γ(2/3) → 2√3·π/3) is a
+        // genuine simplification even when its node count is slightly higher.
+        const bool removed_gamma =
+            contains_function_id(canon, FunctionId::Gamma)
+            && !contains_function_id(current, FunctionId::Gamma);
+        if (!removed_surd && !removed_cx && !removed_gamma) {
             // Pulling a perfect-power factor out of a radical (√(4a²) → 2√(a²)) is a
             // simplification even when it raises the node count, so apply it after
             // the anti-bloat guard rather than inside the pipeline (where the guard
