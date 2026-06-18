@@ -716,11 +716,10 @@ TEST_CASE("limit: super-power vs factorial (LIMIT-SUPERPOW-1)",
             == S::Zero());
     REQUIRE(limit(nton(integer(2) * n) * pow(factorial(n), integer(-1)), n, oo)
             == oo);
-    // Safety: gamma(2n) outgrows n^n, so the handler must not claim 0 — it
-    // leaves the limit unevaluated (nan) rather than giving a wrong answer.
+    // gamma(2n) outgrows n^n, so the ratio diverges to ∞. The Gruntz power-as-exp
+    // rewrite (n^n → exp(n·log n)) lets the gamma-growth machinery resolve it.
     REQUIRE(limit(gamma(integer(2) * n) * nton(mul(S::NegativeOne(), n)), n, oo)
-                ->type_id()
-            == TypeId::NaN);
+            == oo);
 }
 
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental
@@ -2561,4 +2560,26 @@ TEST_CASE("limit: oscillation at infinity reports nan, not f(oo) (LIMIT-OSC-NAN-
     REQUIRE(limit(cos(x), x, S::Zero()) == S::One());
     REQUIRE(simplify(limit(sin(x) * pow(x, integer(-1)), x, S::Zero()))
             == S::One());
+}
+
+// LIMIT-POW-AS-EXP-1: Gruntz preprocessing — a general power f(x)^g(x) (var in
+// both base and exponent) is rewritten as exp(g·log f) so the exp/gamma growth
+// machinery can compare it. Γ(2n)/n^n diverges (gamma outgrows the super-power);
+// the bare-power paths previously left these as nan.
+TEST_CASE("limit: general power rewritten as exp resolves growth (LIMIT-POW-AS-EXP-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // Γ(2n)/n^n → ∞ (gamma ≫ super-power), via n^n → exp(n·log n).
+    REQUIRE(limit(gamma(integer(2) * n) * pow(n, mul(S::NegativeOne(), n)), n, oo)
+            == oo);
+    // x^x → ∞ stays correct after the rewrite is available.
+    REQUIRE(limit(pow(x, x), x, oo) == oo);
+    // Determinate/indeterminate powers resolved by the dedicated paths are
+    // untouched: the rewrite is a nan-branch fallback only.
+    REQUIRE(limit(pow(x, pow(x, integer(-1))), x, oo) == S::One());  // x^(1/x) → 1
+    REQUIRE(limit(pow(integer(1) + pow(x, integer(-1)), x), x, oo)
+            == S::E());  // (1+1/x)^x → e
 }

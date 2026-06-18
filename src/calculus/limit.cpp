@@ -1690,6 +1690,36 @@ struct Growth {
     return val;
 }
 
+// Gruntz preprocessing: rewrite every general power f(x)^g(x) — where both the
+// base and the exponent depend on var — as exp(g·log f). This is the canonical
+// first step of the most-rapidly-varying algorithm: with all such powers on a
+// common exp footing, the exp/gamma growth machinery can compare and resolve
+// shapes the bare-power paths abandon, e.g. n^n against Γ(2n). Constant-base
+// exponentials (2^x, exp(x)) are left untouched — they have dedicated handlers
+// and a var-free base is not a "general" power.
+[[nodiscard]] std::optional<Expr> try_power_as_exp(const Expr& expr,
+                                                   const Expr& var,
+                                                   const Expr& target,
+                                                   int depth) {
+    if (depth >= 10) return std::nullopt;
+    ExprMap<Expr> m;
+    auto collect = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow) {
+            const Expr& base = e->args()[0];
+            const Expr& ex = e->args()[1];
+            if (has(base, var) && has(ex, var) && !m.count(e)) {
+                m.emplace(e, exp(mul(ex, log(base))));
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    collect(collect, expr);
+    if (m.empty()) return std::nullopt;
+    Expr r = limit_impl(xreplace(expr, m), var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -1921,6 +1951,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *v;
             }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
+            // Gruntz: rewrite general powers f(x)^g(x) as exp(g·log f) and
+            // re-take, so the exp/gamma growth machinery can resolve forms the
+            // bare-power paths leave as nan — e.g. Γ(2n)/n^n → ∞.
+            if (auto v = try_power_as_exp(expr, var, target, depth)) return *v;
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
         // substitution collapses to 0 or nan). A nan result is not an answer —

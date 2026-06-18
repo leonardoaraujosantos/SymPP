@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-POW-AS-EXP-1 — Γ(2n)/nⁿ and general powers f(x)^g(x) left unevaluated
+- **Problem:** `limit(gamma(2n)/n**n, n, oo)` returned `nan`. The heuristic limit engine resolved bare
+  super-powers (`n!/nⁿ`, `nⁿ/n!`) and balanced gamma ratios, but a gamma against a variable-exponent
+  power `nⁿ` fell through every path: the gamma-growth handler does not understand a raw `Pow` denominator,
+  and the bare-power paths abstain. SymPy gives `oo` (Γ grows faster than the super-power).
+- **Fix:** added the canonical Gruntz preprocessing step `try_power_as_exp`. As a nan-branch fallback it
+  rewrites every *general* power `f(x)^g(x)` — one with the variable in **both** base and exponent — as
+  `exp(g·log f)`, then re-takes the limit. With `nⁿ → exp(n·log n)` the gamma-growth machinery sees
+  `Γ(2n)·exp(−n·log n)` and resolves it to `oo`. Constant-base exponentials (`2ˣ`, `exp x`) keep their
+  dedicated handlers — a var-free base is not a general power, so they are untouched — and the determinate
+  /indeterminate power paths (`x^(1/x) → 1`, `(1+1/x)ˣ → e`) run earlier and never reach the fallback, so
+  they are unaffected. First stage of converting the heuristic limit engine toward the real Gruntz
+  most-rapidly-varying algorithm. Matches SymPy. Regression: `LIMIT-POW-AS-EXP-1`.
+- **Follow-up:** `exp(x)/xˣ → 0` still returns `nan` — after the rewrite it is `exp(x)·exp(−x·log x)`, which
+  needs a general exp-product combiner (merging non-monomial exponents) plus a dominant-term sum rule. Next
+  Gruntz increment.
+
 ### INT-LOG1PX2-1 — ∫₀^∞ log(1+cx²)/x² was left unevaluated
 - **Problem:** `∫₀^∞ log(1+x²)/x² dx = π` and the family `∫₀^∞ log(1+c·x²)/x² dx` were returned as
   unevaluated `Integral` markers (non-elementary antiderivative). SymPy evaluates these.
