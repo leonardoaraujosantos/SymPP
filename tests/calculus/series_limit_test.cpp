@@ -2288,3 +2288,53 @@ TEST_CASE("limit: 0·∞ product of x and a log difference (LIMIT-LOGDIFF-1)",
         REQUIRE(r->type_id() != TypeId::Rational);
     }
 }
+
+// LIMIT-GAMMARATIO-1: balanced gamma ratios at +∞ via the Stirling asymptotic
+// Γ(x+a)/Γ(x) ~ x^a. For C·∏ Γ(x+aᵢ)^{pᵢ}·x^q with Σpᵢ = 0 the limit is
+// C·x^{q+Σpᵢaᵢ}. Half-integer shifts previously gave a WRONG 0 (the growth-rank
+// test abstains — same rank, opposite direction — and a later path collapsed to
+// 0); some shapes (Γ(x+3/2)/Γ(x)/x^(3/2)) even hung the Stirling-root numeric
+// guard. The asymptotic rule, tried first, returns the exact value and matches
+// SymPy. Γ(2x)/Γ(x) (argument not a pure shift) is left to other methods.
+TEST_CASE("limit: balanced gamma-ratio asymptotics (LIMIT-GAMMARATIO-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto half = rational(1, 2);
+    auto G = [&](const Expr& shift) { return gamma(x + shift); };
+
+    // Γ(x+1/2)/Γ(x)/√x → 1 (exponent 1/2 − 1/2 = 0).
+    REQUIRE(simplify(limit(G(half) * pow(gamma(x), integer(-1))
+                               * pow(x, mul(S::NegativeOne(), half)),
+                           x, oo))
+            == S::One());
+    // Γ(x+3/2)/Γ(x)/x^(3/2) → 1 — this shape used to hang the numeric guard.
+    REQUIRE(simplify(limit(G(rational(3, 2)) * pow(gamma(x), integer(-1))
+                               * pow(x, rational(-3, 2)),
+                           x, oo))
+            == S::One());
+    // Constant carries through: 2·Γ(x+1/2)/Γ(x)/√x → 2.
+    REQUIRE(simplify(limit(integer(2) * G(half) * pow(gamma(x), integer(-1))
+                               * pow(x, mul(S::NegativeOne(), half)),
+                           x, oo))
+            == integer(2));
+    // Positive net exponent diverges, negative vanishes.
+    REQUIRE(limit(G(half) * pow(gamma(x), integer(-1)), x, oo) == oo);  // x^{1/2}
+    REQUIRE(limit(gamma(x) * pow(G(half), integer(-1)), x, oo)
+            == S::Zero());  // x^{-1/2}
+    // Two shifted gammas: Γ(x+1/4)/Γ(x+3/4)·√x → 1 (−1/2 + 1/2 = 0).
+    REQUIRE(simplify(limit(G(rational(1, 4)) * pow(G(rational(3, 4)), integer(-1))
+                               * pow(x, half),
+                           x, oo))
+            == S::One());
+    // Not a pure shift — left untouched (Γ(2x)/Γ(x) is not C·x^k).
+    {
+        Expr r = limit(gamma(integer(2) * x) * pow(gamma(x), integer(-1)), x, oo);
+        REQUIRE(r->type_id() != TypeId::Integer);  // not coerced to a finite int
+    }
+    // Integer-shift ratios still resolve (regression guard).
+    REQUIRE(simplify(limit(gamma(x + integer(1)) * pow(gamma(x), integer(-1))
+                               * pow(x, integer(-1)),
+                           x, oo))
+            == S::One());
+}

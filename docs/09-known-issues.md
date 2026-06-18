@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMARATIO-1 — half-integer gamma ratios gave a wrong 0 (or hung)
+- **Problem:** `lim_{x→∞} Γ(x+½)/(Γ(x)·√x)` returned **0** (correct value **1**). Integer shifts
+  worked (`Γ(x+1)/Γ(x)/x → 1`, via the `Γ(x+1) = x·Γ(x)` recurrence collapse), but a half-integer
+  shift does not reduce to an elementary multiple, so the growth-rank test abstains (numerator and
+  denominator share the top gamma rank with opposite directions) and a later path collapsed to 0.
+  Worse, some shapes — e.g. `Γ(x+3/2)/Γ(x)/x^(3/2)` — drove the Stirling-root numeric guard into a
+  non-terminating loop.
+- **Fix:** added `gamma_ratio_asymptotic`, tried first in the gamma/factorial block. By Stirling,
+  `log Γ(x+a) = (x+a−½)·log x − x + ½·log 2π + o(1)`, so for a product `C·∏ᵢ Γ(x+aᵢ)^{pᵢ}·x^q` with
+  **Σpᵢ = 0** (a balanced ratio) the `x·log x` and `x` terms cancel and `∏ᵢ Γ(x+aᵢ)^{pᵢ} ~ x^{Σ pᵢ aᵢ}`,
+  hence the whole expression `~ C·x^{q+Σ pᵢ aᵢ}`. The limit is `C` (net exponent 0), `sign(C)·∞`
+  (positive), or 0 (negative). Each gamma argument must be a pure shift `x + aᵢ` with `pᵢ, aᵢ, q`
+  numeric, so `Γ(2x)/Γ(x)` (argument not a shift) is left to other methods. Being exact and cheap, it
+  also pre-empts the non-terminating numeric guard for half-integer shifts. Matches SymPy.
+
 ### LIMIT-LOGDIFF-1 — 0·∞ product of x and a log difference gave nan
 - **Problem:** `lim_{x→∞} x·(log(x+1) − log(x))` returned `nan` (correct value **1**). The vanishing
   factor `log(x+1) − log(x)` equals `log((x+1)/x)` with argument → 1, but its naive endpoint

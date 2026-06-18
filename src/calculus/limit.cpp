@@ -836,6 +836,68 @@ struct Growth {
     return top_dir_sum > 0 ? S::Infinity() : S::Zero();
 }
 
+// Balanced gamma-ratio asymptotic at +∞. By Stirling, log Γ(x+a) =
+// (x+a−½)·log x − x + ½·log 2π + o(1), so for a product C · ∏ᵢ Γ(x+aᵢ)^{pᵢ} · x^q
+// with Σ pᵢ = 0 (a ratio of gammas) the x·log x and x terms cancel and
+//   ∏ᵢ Γ(x+aᵢ)^{pᵢ} ~ x^{Σ pᵢ aᵢ},
+// hence the whole expression ~ C · x^{q + Σ pᵢ aᵢ}. The limit is C (exponent 0),
+// sign(C)·∞ (positive), or 0 (negative). This resolves Γ(x+½)/Γ(x)/√x → 1, on
+// which the growth-rank test must abstain (same rank, opposite direction) and a
+// later path returns a wrong 0. Each gamma argument must be a pure shift x + aᵢ
+// (so Γ(2x)/Γ(x), where the argument is not a shift, is left to other methods)
+// and every pᵢ, aᵢ, q numeric; otherwise nullopt.
+[[nodiscard]] std::optional<Expr> gamma_ratio_asymptotic(const Expr& expr,
+                                                         const Expr& var) {
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr C = S::One(), q_total = S::Zero();
+    Expr sum_p = S::Zero(), sum_pa = S::Zero();
+    int gamma_count = 0;
+    for (const auto& f : factors) {
+        if (!has(f, var)) {  // a var-free constant factor
+            C = mul(C, f);
+            continue;
+        }
+        Expr base = f, ex = S::One();
+        if (f->type_id() == TypeId::Pow) {
+            base = f->args()[0];
+            ex = f->args()[1];
+        }
+        if (base == var && is_number(ex)) {  // x^q
+            q_total = add(q_total, ex);
+            continue;
+        }
+        if (base->type_id() == TypeId::Function && is_number(ex)) {
+            const auto& fn = static_cast<const Function&>(*base);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1) {
+                Expr a = simplify(add(fn.args()[0], mul(S::NegativeOne(), var)));
+                if (!has(a, var) && is_number(a)) {  // Γ(x + a)^p, a numeric
+                    sum_p = add(sum_p, ex);
+                    sum_pa = add(sum_pa, mul(ex, a));
+                    ++gamma_count;
+                    continue;
+                }
+            }
+        }
+        return std::nullopt;  // unrecognized var-dependent factor
+    }
+    if (gamma_count == 0 || !(simplify(sum_p) == S::Zero())) return std::nullopt;
+    Expr E = simplify(add(q_total, sum_pa));
+    Expr Cs = simplify(C);
+    if (E == S::Zero()) return Cs;  // limit is the leading constant
+    if (is_negative(E) == std::optional<bool>{true}) return S::Zero();
+    if (is_positive(E) == std::optional<bool>{true}) {
+        if (is_positive(Cs) == std::optional<bool>{true}) return S::Infinity();
+        if (is_negative(Cs) == std::optional<bool>{true})
+            return S::NegativeInfinity();
+    }
+    return std::nullopt;
+}
+
 // Bounded × vanishing at ±∞: a product carrying a bounded oscillating factor
 // (sin/cos of a real argument, value in [−1, 1]) times a remaining product that
 // → 0 has limit 0 by the squeeze theorem (|sin(g)·rest| ≤ |rest| → 0). Resolves
@@ -1456,6 +1518,17 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *r;
             }
         }
+    }
+
+    // A balanced gamma ratio (Σ exponents = 0) resolves by the Stirling
+    // asymptotic Γ(x+a)/Γ(x) ~ x^a. Tried first: it is exact and cheap, and for
+    // half-integer shifts it also pre-empts the Stirling-root numeric guard
+    // below, which does not terminate on some such shapes (e.g.
+    // Γ(x+3/2)/Γ(x)/x^(3/2)). The growth-rank test must abstain here (same rank,
+    // opposite direction), and a later path returns a wrong 0.
+    if (target == S::Infinity() && count_gamma_factorial(expr) > 0) {
+        if (auto r = gamma_ratio_asymptotic(normalize_factorial(expr), var))
+            return *r;
     }
 
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
