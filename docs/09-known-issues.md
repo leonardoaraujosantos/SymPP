@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMA-GAUSS-1 — slope-k gamma ratios Γ(kx)/… (k ≥ 3) timed out / nan
+- **Problem:** `Γ(3x)/Γ(x)³ → ∞`, `Γ(4x)/Γ(x)⁴ → ∞` ran into the slow gamma-growth fallback (30 s+) and
+  returned `nan`. The duplication rule only handled a *doubled* rate `Γ(2x+b)`.
+- **Fix:** generalized `try_gamma_duplication` to `try_gamma_multiplication` using the Gauss multiplication
+  formula `Γ(kz) = (2π)^((1−k)/2)·k^(kz−1/2)·∏_{j=0}^{k−1} Γ(z + j/k)` (`z = x + b/k`) for any integer rate
+  `k ∈ [2, 6]`. It rewrites a slope-k gamma into k slope-1 gammas plus a constant-base exponential
+  `k^(kx+…)`, which the exponential-rate branch of `gamma_ratio_asymptotic` (from `LIMIT-GAMMA-EXPRATE-1`)
+  absorbs — cancelling an explicit `kᵏ^(−x)` through the log-rate sum rather than base-matching. Resolved
+  through that asymptotic directly (never a recursive limit), so it stays sound and bounded. Now
+  `Γ(3x)/Γ(x)³ → ∞`, `Γ(4x)/Γ(x)⁴ → ∞` resolve in ~0 s, and the whole slope-2 family (central binomial → 0,
+  Γ(2x)/Γ(x)² → ∞, …) is unchanged. Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+
 ### LIMIT-GAMMA-UNBALANCED-1 — Γ(2x)/Γ(x) took ~80 s and returned nan
 - **Problem:** `limit(Γ(2x)/Γ(x), x, ∞) = ∞` ran for ~80 s and returned `nan`. Duplication turns it into
   `4ˣ·½·π^(−½)·Γ(x+½)` — a **single, unbalanced** gamma (`Σpᵢ = 1`), which `gamma_ratio_asymptotic` required

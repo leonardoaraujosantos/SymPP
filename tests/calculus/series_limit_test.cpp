@@ -2671,6 +2671,13 @@ TEST_CASE("limit: gamma duplication and exponential-rate asymptotics (LIMIT-GAMM
     REQUIRE(limit(mul(pow(integer(4), x), pow(gamma(x), integer(-1))), x, oo)
             == S::Zero());  // 4ˣ/Γ(x) → 0 (gamma decay beats the exponential)
     REQUIRE(limit(mul(gamma(x), pow(x, integer(-5))), x, oo) == oo);  // Γ(x)/x⁵ → ∞
+
+    // Gauss multiplication generalizes duplication to any integer rate k:
+    // Γ(3x)/Γ(x)³ → ∞, Γ(4x)/Γ(x)⁴ → ∞ (previously timed out in the slow fallback).
+    REQUIRE(limit(mul(gamma(mul(integer(3), x)), pow(gamma(x), integer(-3))), x, oo)
+            == oo);
+    REQUIRE(limit(mul(gamma(mul(integer(4), x)), pow(gamma(x), integer(-4))), x, oo)
+            == oo);
 }
 
 // LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —

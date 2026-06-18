@@ -1064,19 +1064,20 @@ struct Growth {
     return std::nullopt;
 }
 
-// Legendre duplication for a Γ whose argument grows at twice the rate, Γ(2x+b),
-// which gamma_ratio_asymptotic (slope-1 only) cannot rank — e.g. the central
-// binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0, and Γ(2x)/Γ(x)² → ∞. The identity
-//   Γ(2z) = 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2),   z = x + b/2
-// rewrites the slope-2 gamma into two slope-1 gammas plus 4ˣ·2^(b−1). The 4ˣ is
-// written in base 4 so an explicit 4^(−x) in the original cancels via Mul
-// canonicalization; any 4ˣ that survives is absorbed by the exponential-rate
-// branch of gamma_ratio_asymptotic on the re-take. A nan re-take means that path
-// could not finish, so we abstain rather than return noise.
-[[nodiscard]] std::optional<Expr> try_gamma_duplication(const Expr& expr,
-                                                        const Expr& var,
-                                                        const Expr& target,
-                                                        int depth) {
+// Gauss multiplication for a Γ whose argument grows at an integer multiple of the
+// rate, Γ(kx+b) with k ≥ 2, which gamma_ratio_asymptotic (slope-1 only) cannot
+// rank — e.g. the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0, Γ(2x)/Γ(x)² → ∞,
+// Γ(3x)/Γ(x)³ → ∞. The identity (Legendre duplication generalized)
+//   Γ(kz) = (2π)^((1−k)/2)·k^(kz−1/2)·∏_{j=0}^{k−1} Γ(z + j/k),   z = x + b/k
+// rewrites the slope-k gamma into k slope-1 gammas plus a constant-base
+// exponential k^(kx+…), whose rate the exponential-rate branch of
+// gamma_ratio_asymptotic absorbs (cancelling an explicit kᵏ^(−x) via log sums).
+// Resolved through that asymptotic directly — never a recursive limit — so it
+// succeeds exactly when the rewrite is gamma-ratio-shaped and abstains otherwise.
+[[nodiscard]] std::optional<Expr> try_gamma_multiplication(const Expr& expr,
+                                                           const Expr& var,
+                                                           const Expr& target,
+                                                           int depth) {
     if (depth >= 10 || target->type_id() != TypeId::Infinity) {
         return std::nullopt;
     }
@@ -1091,18 +1092,30 @@ struct Growth {
                 const Expr& g = fn.args()[0];
                 if (has(g, var)) {
                     Expr slope = simplify(diff(g, var));
-                    Expr b = simplify(
-                        add(g, mul(S::NegativeOne(), mul(integer(2), var))));
-                    if (slope == integer(2) && !has(b, var)) {
-                        Expr z = add(var, mul(b, rational(1, 2)));  // x + b/2
-                        // 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2), with 2^(2x) ≡ 4ˣ so an
-                        // explicit 4^(−x) cancels.
-                        Expr term = mul(
-                            {pow(integer(4), var),
-                             pow(integer(2), add(b, S::NegativeOne())),
-                             pow(S::Pi(), rational(-1, 2)), gamma(z),
-                             gamma(add(z, rational(1, 2)))});
-                        m.emplace(e, std::move(term));
+                    // Integer rate k in [2, 6] (the product has k gammas).
+                    if (slope->type_id() == TypeId::Integer
+                        && static_cast<const Integer&>(*slope).fits_long()) {
+                        const long k = static_cast<const Integer&>(*slope).to_long();
+                        Expr b = simplify(add(
+                            g, mul(integer(-k), var)));  // intercept g − k·x
+                        if (k >= 2 && k <= 6 && !has(b, var)) {
+                            // ∏_{j=0}^{k−1} Γ(x + (b+j)/k)
+                            std::vector<Expr> factors;
+                            factors.reserve(static_cast<std::size_t>(k) + 2);
+                            factors.push_back(
+                                pow(mul(integer(2), S::Pi()),
+                                    rational(1 - k, 2)));  // (2π)^((1−k)/2)
+                            factors.push_back(
+                                pow(integer(k),
+                                    add(mul(integer(k), var),
+                                        add(b, rational(-1, 2)))));  // k^(kx+b−½)
+                            for (long j = 0; j < k; ++j) {
+                                factors.push_back(gamma(add(
+                                    var, mul(add(b, integer(j)),
+                                             pow(integer(k), S::NegativeOne())))));
+                            }
+                            m.emplace(e, mul(std::move(factors)));
+                        }
                     }
                 }
             }
@@ -1113,7 +1126,7 @@ struct Growth {
     if (m.empty()) return std::nullopt;
     // Resolve the rewritten form *only* through the gamma-ratio asymptotic, not a
     // full recursive limit. That keeps the rule sound and bounded: it succeeds
-    // exactly when duplication produced a gamma-ratio-shaped form (gammas, x^q,
+    // exactly when the rewrite produced a gamma-ratio-shaped form (gammas, x^q,
     // and constant-base exponentials whose rates it now absorbs) and abstains
     // otherwise — e.g. Γ(2n)·n^(−n), whose surviving n^(−n) is not gamma-ratio
     // shaped, is left to the super-power / power-as-exp paths rather than looping.
@@ -2053,10 +2066,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     if (target == S::Infinity() && count_gamma_factorial(expr) > 0) {
         if (auto r = gamma_ratio_asymptotic(normalize_factorial(expr), var))
             return *r;
-        // A doubled-rate Γ(2x+b) is opaque to the slope-1 asymptotic above;
-        // Legendre duplication splits it into slope-1 gammas when the 4ˣ it
-        // introduces cancels (e.g. the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0).
-        if (auto r = try_gamma_duplication(expr, var, target, depth)) return *r;
+        // A multiple-rate Γ(kx+b) is opaque to the slope-1 asymptotic above;
+        // Gauss multiplication splits it into k slope-1 gammas plus a
+        // constant-base exponential (e.g. Γ(2x+1)/Γ(x+1)²/4ˣ → 0, Γ(3x)/Γ(x)³ → ∞).
+        if (auto r = try_gamma_multiplication(expr, var, target, depth)) return *r;
     }
 
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
