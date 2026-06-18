@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-LOG-QUADRATIC-1 — ∫₀^∞ log(x)/(x²+A) was left unevaluated
+- **Problem:** `∫₀^∞ log(x)/(x²+1) dx` (= **0**) and the family `∫₀^∞ log(x)/(x²+A) dx` were returned
+  as unevaluated `Integral` markers. The antiderivative is non-elementary (dilogarithms), so
+  Newton–Leibniz cannot reach the value. SymPy evaluates these for a concrete `A`.
+- **Fix:** added `try_log_over_quadratic`, a closed-form rule on `[0, ∞)`:
+  `∫₀^∞ log(x)/(x²+A) dx = π·log(A)/(4·√A)` for a positive constant `A` (equivalently `π·log(a)/(2a)`
+  with `A = a²`). It matches a `log(x)` factor times `(x²+A)^{-1}` with `A` a positive constant free of
+  `x`, optionally scaled by a constant. Gives `log(x)/(x²+1) → 0`, `log(x)/(x²+4) → π·log4/8`,
+  `log(x)/(x²+9) → π·log9/12`. Plain arctangent integrals (no log factor), non-positive `A`, and finite
+  bounds are unaffected. Matches SymPy.
+
 ### INT-GAMMA-LOG-1 — ∫₀^∞ x^p e^{−cx} log x gave nan
 - **Problem:** `∫₀^∞ e^{−x} log x dx` returned `nan` (correct value **−γ**), as did the weighted/scaled
   variants `x·e^{−x} log x → 1 − γ`, `x³·e^{−x} log x → 11 − 6γ`, `e^{−2x} log x → −γ/2 − log2/2`. The

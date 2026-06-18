@@ -3246,3 +3246,39 @@ TEST_CASE("integrate: gamma-log integrals ∫x^p e^{-cx} log x (INT-GAMMA-LOG-1)
             == integer(6));
     REQUIRE(integrate(x * E(S::NegativeOne()), x, zero, oo) == integer(1));
 }
+
+// INT-LOG-QUADRATIC-1: ∫₀^∞ log(x)/(x²+A) dx = π·log(A)/(4√A) for a positive
+// constant A (equivalently π·log(a)/(2a) with A = a²). Non-elementary
+// antiderivative, so SymPP returned an unevaluated marker. Gives the classic
+// ∫₀^∞ log(x)/(x²+1) = 0 and ∫₀^∞ log(x)/(x²+4) = π·log(4)/8. Matches SymPy.
+TEST_CASE("integrate: ∫log(x)/(x²+A) over [0,∞) (INT-LOG-QUADRATIC-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto denom = [&](const Expr& A) {
+        return pow(pow(x, integer(2)) + A, integer(-1));
+    };
+
+    REQUIRE(integrate(log(x) * denom(S::One()), x, zero, oo) == S::Zero());
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(4)), x, zero, oo)->str(),
+        "pi*log(4)/8"));
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(9)), x, zero, oo)->str(),
+        "pi*log(9)/12"));
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(2)), x, zero, oo)->str(),
+        "pi*log(2)/(4*sqrt(2))"));
+    // A constant multiplier carries through; log(1)·anything is still 0.
+    REQUIRE(integrate(integer(3) * log(x) * denom(S::One()), x, zero, oo)
+            == S::Zero());
+
+    // Guards: no log factor (plain arctangent integral) and a finite bound.
+    REQUIRE(oracle.equivalent(integrate(denom(S::One()), x, zero, oo)->str(),
+                              "pi/2"));
+    REQUIRE(integrate(log(x) * denom(S::One()), x, zero, S::One())
+                ->str()
+                .rfind("Integral(", 0) == 0);
+}

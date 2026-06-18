@@ -4053,6 +4053,72 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// ∫₀^∞ log(x)/(x² + A) dx = π·log(A)/(4·√A) for a positive constant A (a known
+// result, equivalently π·log(a)/(2a) with A = a²). Gives ∫₀^∞ log(x)/(x²+1) = 0,
+// ∫₀^∞ log(x)/(x²+4) = π·log(4)/8. The antiderivative is non-elementary, so
+// Newton–Leibniz leaves an unevaluated marker. Matches SymPy (for a concrete A).
+[[nodiscard]] std::optional<Expr> try_log_over_quadratic(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& lower,
+                                                         const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr logx = log(var);
+    const Expr xsq = pow(var, integer(2));
+    bool has_log = false, has_denom = false;
+    Expr A, coeff = S::One();
+    for (const auto& f : factors) {
+        if (!has_log && f == logx) {
+            has_log = true;
+            continue;
+        }
+        // Denominator (x² + A)^(-1) with A a constant free of var.
+        if (!has_denom && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = f->args()[0];
+            bool found_xsq = false;
+            std::vector<Expr> consts;
+            bool ok = true;
+            for (const auto& t : base->args()) {
+                if (!found_xsq && t == xsq) {
+                    found_xsq = true;
+                } else if (!has(t, var)) {
+                    consts.push_back(t);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok && found_xsq && !consts.empty()) {
+                A = add(std::move(consts));
+                has_denom = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_denom
+        || is_positive(A) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr sqrtA = pow(A, rational(1, 2));
+    Expr value = mul({coeff, S::Pi(), log(A),
+                      pow(mul(integer(4), sqrtA), S::NegativeOne())});
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -4065,6 +4131,8 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_bose_einstein(expr, var, lower, upper)) return *r;
     // ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}. Non-elementary.
     if (auto r = try_gamma_log_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ log(x)/(x²+A) = π·log(A)/(4√A) for A > 0. Non-elementary.
+    if (auto r = try_log_over_quadratic(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is
