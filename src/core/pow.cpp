@@ -90,6 +90,18 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         && static_cast<const Integer&>(*exp).is_positive()
         && static_cast<const Integer&>(*exp).fits_long()
         && (static_cast<const Integer&>(*exp).to_long() % 2 == 0);
+    // A Pow that survives construction with a positive rational base ≠ 1 and a
+    // non-integer rational exponent is a real algebraic irrational: the factory
+    // has already reduced every perfect rational root (√4 → 2, √(9/4) → 3/2) and
+    // rationalized rational bases, so what remains (√2, 2^(1/3), 6^(1/2)) is not
+    // rational. (A Rational-typed exponent is necessarily non-integer — an
+    // integer-valued ratio normalizes to the Integer type.)
+    const bool surviving_algebraic_root =
+        (base->type_id() == TypeId::Integer
+         || base->type_id() == TypeId::Rational)
+        && !(base == S::One())
+        && base->ask(AssumptionKey::Positive) == true
+        && exp->type_id() == TypeId::Rational;
     switch (k) {
         case AssumptionKey::Complex:
             if (base->ask(AssumptionKey::Complex) == true
@@ -167,6 +179,12 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             // rational base + integer exp → rational
             if (base->ask(AssumptionKey::Rational) == true
                 && exp->ask(AssumptionKey::Integer) == true) return true;
+            // A surviving root: the factory already reduces every perfect rational
+            // root (√4 → 2, √(9/4) → 3/2) and rationalizes rational bases, so a Pow
+            // that persists with a positive rational base ≠ 1 and a non-integer
+            // rational exponent (√2, 2^(1/3), 6^(1/2)) is a genuine algebraic
+            // irrational — hence not rational.
+            if (surviving_algebraic_root) return false;
             return std::nullopt;
         case AssumptionKey::Finite:
             // finite base + finite nonneg exp → finite (skip 0^neg edge case
@@ -247,6 +265,10 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Irrational:
+            // A surviving root of a positive rational base (√2, 2^(1/3)) is a real
+            // algebraic irrational; see the Rational case above.
+            if (surviving_algebraic_root) return true;
+            return std::nullopt;
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.

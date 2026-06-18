@@ -773,6 +773,42 @@ TEST_CASE("AssumptionMask: irrational predicate (IRRATIONAL-1)", "[2a][assumptio
     REQUIRE(is_irrational(in) == F);
 }
 
+// IRRATIONAL-ROOT-1: a surviving radical of a positive rational base — √2,
+// 2^(1/3), 6^(1/2) — is a real algebraic irrational. The Pow factory reduces
+// every perfect rational root (√4 → 2, √(9/4) → 3/2), so any Pow that persists
+// with a positive rational base ≠ 1 and a non-integer rational exponent is not
+// rational. Previously these answered Unknown for irrational / rational.
+// Matches SymPy (sqrt(2).is_irrational == True).
+TEST_CASE("AssumptionMask: irrational algebraic roots (IRRATIONAL-ROOT-1)",
+          "[2a][assumptions]") {
+    using sympp::is_algebraic;
+    using sympp::is_irrational;
+    using sympp::is_rational;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+
+    auto root = [](long b, long p, long q) {
+        return pow(integer(b), rational(p, q));
+    };
+    // √2, 2^(1/3), 6^(1/2): irrational, not rational, algebraic, real. (A
+    // reciprocal/scaled root like 1/√2 = √2/2 is a Mul and needs Mul-level
+    // irrationality propagation, which is left for a follow-up.)
+    for (const Expr& e : {root(2, 1, 2), root(3, 1, 3), root(6, 1, 2)}) {
+        REQUIRE(is_irrational(e) == T);
+        REQUIRE(is_rational(e) == F);
+        REQUIRE(is_integer(e) != T);  // not provably an integer
+        REQUIRE(is_algebraic(e) == T);
+        REQUIRE(is_real(e) == T);
+    }
+    // A perfect root reduces to an integer/rational and stays rational.
+    REQUIRE(is_rational(root(4, 1, 2)) == T);   // √4 → 2
+    REQUIRE(is_irrational(root(4, 1, 2)) == F);
+    REQUIRE(is_rational(pow(rational(9, 4), rational(1, 2))) == T);  // → 3/2
+    // A negative base gives an imaginary value, not an irrational real.
+    REQUIRE(is_irrational(root(-2, 1, 2)) != T);
+    REQUIRE(is_real(root(-2, 1, 2)) == F);
+}
+
 // ALGTRANS-1: the `algebraic` / `transcendental` pair. algebraic = root of a
 // rational polynomial (implies complex, finite; rational ⇒ algebraic; i is
 // algebraic but not real); transcendental ⟺ complex ∧ ¬algebraic (implies

@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### IRRATIONAL-ROOT-1 — radicals like √2 were not recognized as irrational
+- **Problem:** `is_irrational(sqrt(2))` returned Unknown (and `is_rational(sqrt(2))` Unknown too)
+  instead of True/False, even though `sqrt(2)` was already known to be algebraic. The irrational
+  derivation (`real ∧ ¬rational`) could not fire because nothing established that `√2` is not rational.
+  SymPy gives `sqrt(2).is_irrational = True`.
+- **Fix:** added a Pow `ask` rule keyed on the factory's guarantee that every perfect rational root is
+  reduced at construction (`√4 → 2`, `√(9/4) → 3/2`) and rational bases are rationalized. So a `Pow`
+  that **survives** with a positive rational base ≠ 1 and a non-integer rational exponent — `√2`,
+  `2^(1/3)`, `6^(1/2)` — is a genuine real algebraic irrational: `Rational` answers False and
+  `Irrational` answers True. A negative base (imaginary value) and reduced perfect roots are excluded.
+  A reciprocal/scaled root such as `1/√2 = √2/2` is a `Mul`; Mul/Add-level irrationality propagation
+  (covering `2π`, `π/2`, `√2 + 1`) is left for a follow-up. Matches SymPy.
+
 ### SPECVAL-2 — digamma/polygamma at integers and half-integers were unevaluated
 - **Problem:** `digamma(1/2)`, `digamma(n)` for `n ≥ 2`, `digamma(n+1/2)`, and `polygamma(m, ·)` at
   integer/half-integer arguments were returned as the unevaluated `polygamma(m, x)` (only `x = 1` was
