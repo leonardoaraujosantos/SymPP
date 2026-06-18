@@ -2634,3 +2634,31 @@ TEST_CASE("limit: constant-exponent power continuity (LIMIT-POW-CONTINUITY-1)",
     // Already-working cases stay correct (rational base, vanishing base).
     REQUIRE(limit(pow(pow(x, integer(-1)), rational(1, 3)), x, oo) == S::Zero());
 }
+
+// LIMIT-LOG-EXP-REDUCTION-1: Gruntz log-exp reduction — for a positive
+// product/power at +∞ whose growth ranking is opaque, lim e = exp(lim log e),
+// with log e expanded into a sum of logs (each factor certified positive at large
+// x). Closes nested-transcendental ratios the heuristic growth ranking misses.
+TEST_CASE("limit: log-exp reduction of nested transcendentals (LIMIT-LOG-EXP-REDUCTION-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto sqln = sqrt(mul(log(x), log(log(x))));  // √(log x · log log x)
+
+    // The canonical nested ratio: log x / exp(√(log x·log log x)) → 0.
+    REQUIRE(limit(mul(log(x), pow(exp(sqln), integer(-1))), x, oo) == S::Zero());
+    // Its comparability core (= the inner log-ratio) → 0.
+    REQUIRE(limit(mul(log(log(x)), pow(sqln, integer(-1))), x, oo) == S::Zero());
+    // x^log x / exp(log²x) = exp(log²x)/exp(log²x) → 1.
+    REQUIRE(limit(mul(pow(x, log(x)),
+                      pow(exp(pow(log(x), integer(2))), integer(-1))),
+                  x, oo)
+            == S::One());
+    // exp(√(log x)) outgrows log x → ∞.
+    REQUIRE(limit(mul(exp(sqrt(log(x))), pow(log(x), integer(-1))), x, oo) == oo);
+
+    // No regression on ordinary growth comparisons.
+    REQUIRE(limit(mul(pow(x, integer(2)), pow(exp(x), integer(-1))), x, oo)
+            == S::Zero());
+    REQUIRE(limit(mul(exp(x), pow(pow(x, integer(3)), integer(-1))), x, oo) == oo);
+}

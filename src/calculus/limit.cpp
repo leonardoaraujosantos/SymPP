@@ -1749,6 +1749,95 @@ struct Growth {
     return r;
 }
 
+// True when f evaluates to a positive real at a large sample point — used to
+// certify that a log-factor split log(∏fᵢ)=Σlog(fᵢ) is valid (every factor
+// positive) for the asymptotic x→+∞ regime.
+[[nodiscard]] bool sample_positive_inf(const Expr& f, const Expr& var) {
+    Expr at = evalf(simplify(subs(f, var, integer(1000000))), 30);
+    return at->type_id() == TypeId::Float
+           && is_positive(at) == std::optional<bool>{true};
+}
+
+[[nodiscard]] std::optional<Expr> expand_log_positive(const Expr& arg,
+                                                      const Expr& var,
+                                                      int depth);
+
+// Value of log(f) with f a single factor: log(exp g)=g, log(bᵉ)=e·log(b)
+// (b expanded recursively), else log(f) when f is verified positive.
+[[nodiscard]] std::optional<Expr> log_factor_positive(const Expr& f,
+                                                      const Expr& var,
+                                                      int depth) {
+    if (depth > 6) return std::nullopt;
+    if (f->type_id() == TypeId::Function
+        && static_cast<const Function&>(*f).function_id() == FunctionId::Exp
+        && f->args().size() == 1) {
+        return f->args()[0];
+    }
+    if (f->type_id() == TypeId::Pow) {
+        const Expr& base = f->args()[0];
+        const Expr& e = f->args()[1];
+        std::optional<Expr> lb = expand_log_positive(base, var, depth + 1);
+        if (!lb) {
+            if (!sample_positive_inf(base, var)) return std::nullopt;
+            lb = log(base);
+        }
+        return mul(e, *lb);
+    }
+    if (!sample_positive_inf(f, var)) return std::nullopt;
+    return log(f);
+}
+
+// Expand log(arg) into a sum of logs, splitting only factors verified positive at
+// +∞ (so the identity log(∏)=Σlog holds). Returns nullopt for an atomic arg with
+// no expansion leverage.
+[[nodiscard]] std::optional<Expr> expand_log_positive(const Expr& arg,
+                                                      const Expr& var,
+                                                      int depth) {
+    if (depth > 6) return std::nullopt;
+    if (arg->type_id() == TypeId::Function
+        && static_cast<const Function&>(*arg).function_id() == FunctionId::Exp
+        && arg->args().size() == 1) {
+        return arg->args()[0];
+    }
+    if (arg->type_id() == TypeId::Mul) {
+        std::vector<Expr> terms;
+        terms.reserve(arg->args().size());
+        for (const auto& f : arg->args()) {
+            auto t = log_factor_positive(f, var, depth + 1);
+            if (!t) return std::nullopt;
+            terms.push_back(std::move(*t));
+        }
+        return add(std::move(terms));
+    }
+    if (arg->type_id() == TypeId::Pow) {
+        return log_factor_positive(arg, var, depth);
+    }
+    return std::nullopt;
+}
+
+// Gruntz log-exp reduction: for a positive product/power/quotient at +∞ whose
+// pointwise value is indeterminate, lim e = exp(lim log e). log e is expanded into
+// a sum of logs (each split factor certified positive at large x, so the identity
+// is exact in the asymptotic regime), whose limit the dominant-term / continuity
+// machinery resolves; exp of that is the answer. Closes nested-transcendental
+// ratios such as log x / exp(√(log x·log log x)) → 0 that the growth ranking
+// misses. The positivity certificate keeps it sound, so it is strictly additive.
+[[nodiscard]] std::optional<Expr> try_log_exp_reduction(const Expr& expr,
+                                                        const Expr& var,
+                                                        const Expr& target,
+                                                        int depth) {
+    if (depth >= 8 || target->type_id() != TypeId::Infinity) return std::nullopt;
+    if (expr->type_id() != TypeId::Mul && expr->type_id() != TypeId::Pow) {
+        return std::nullopt;
+    }
+    if (!has(expr, var) || !sample_positive_inf(expr, var)) return std::nullopt;
+    auto le = expand_log_positive(expr, var, 0);
+    if (!le) return std::nullopt;
+    Expr m = limit_impl(*le, var, target, depth + 1);
+    if (is_nan(m)) return std::nullopt;
+    return exp_of_limit(m);
+}
+
 // Gruntz dominant-term rule for an indeterminate ∞−∞ sum at ±∞: if one term
 // strictly outgrows every other (each other term divided by it tends to 0), the
 // sum is asymptotic to that term, so the limit equals the dominant term's limit.
@@ -2029,6 +2118,12 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // Power with a constant exponent: lim base^r = (lim base)^r — resolves
             // √(non-rational base) whose pointwise substitution is nan.
             if (auto v = try_power_continuity(expr, var, target, depth)) {
+                return *v;
+            }
+            // Gruntz log-exp reduction: lim e = exp(lim log e) for a positive
+            // product/power at +∞ — closes nested-transcendental ratios like
+            // log x / exp(√(log x·log log x)) → 0.
+            if (auto v = try_log_exp_reduction(expr, var, target, depth)) {
                 return *v;
             }
         }

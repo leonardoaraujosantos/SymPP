@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOG-EXP-REDUCTION-1 — nested-transcendental ratios returned nan
+- **Problem:** `limit(log(x)/exp(√(log x·log log x)), x, ∞)` returned `nan` (SymPy gives `0`). The heuristic
+  growth ranking compares a fixed hierarchy (gamma ≫ exp ≫ poly ≫ log) but cannot rank a nested form like
+  `exp(√(log x·log log x))` against `log x`, and the iterated logs defeat the pointwise-substitution paths.
+- **Fix:** added `try_log_exp_reduction`, the Gruntz log-exp reduction: for a positive product/power at `+∞`
+  whose pointwise value is indeterminate, `lim e = exp(lim log e)`. `log e` is expanded into a sum of logs
+  (`log(∏fᵢ)=Σlog fᵢ`, `log(bᵉ)=e·log b`, `log(eᵍ)=g`), splitting **only** factors certified positive at a
+  large sample point so the identity is exact in the asymptotic regime — keeping the rule sound and strictly
+  additive. The resulting sum is resolved by the dominant-term rule (`LIMIT-DOMINANT-SUM-1`) and power
+  continuity (`LIMIT-POW-CONTINUITY-1`), and `exp` of that limit is the answer. Closes
+  `log x/exp(√(log x·log log x)) → 0`, its inner comparability ratio `log log x/√(log x·log log x) → 0`,
+  `x^(log x)/exp(log²x) → 1`, `exp(√(log x))/log x → ∞`. Regression: `LIMIT-LOG-EXP-REDUCTION-1`. Matches
+  SymPy. This composes the earlier Gruntz pieces (power-as-exp, dominant-term sum, power continuity) into a
+  working asymptotic engine for the positive product/power class.
+
 ### FUNC-INCGAMMA-HALF-1 — incomplete gamma stayed symbolic at half-integer orders
 - **Problem:** `uppergamma(1/2, x)` / `lowergamma(1/2, x)` (and other half-integer orders) stayed as
   unevaluated function nodes. SymPy reduces them to error-function closed forms: `Γ(1/2,x)=√π·erfc(√x)`,
