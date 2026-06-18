@@ -100,13 +100,13 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         (base->type_id() == TypeId::Integer
          || base->type_id() == TypeId::Rational)
         && !(base == S::One())
-        && base->ask(AssumptionKey::Positive) == true
+        && direct_ask(base, AssumptionKey::Positive) == true
         && exp->type_id() == TypeId::Rational;
     switch (k) {
         case AssumptionKey::Complex:
-            if (base->ask(AssumptionKey::Complex) == true
-                && exp->ask(AssumptionKey::Integer) == true
-                && base->ask(AssumptionKey::Nonzero) == true) return true;
+            if (direct_ask(base, AssumptionKey::Complex) == true
+                && direct_ask(exp, AssumptionKey::Integer) == true
+                && direct_ask(base, AssumptionKey::Nonzero) == true) return true;
             return std::nullopt;
         case AssumptionKey::Imaginary: {
             // (imaginary)^n: odd positive integer n → imaginary (i³ = −i),
@@ -115,7 +115,7 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
                 exp->type_id() == TypeId::Integer
                 && static_cast<const Integer&>(*exp).is_positive()
                 && static_cast<const Integer&>(*exp).fits_long();
-            if (pos_int && base->ask(AssumptionKey::Imaginary) == true) {
+            if (pos_int && direct_ask(base, AssumptionKey::Imaginary) == true) {
                 long n = static_cast<const Integer&>(*exp).to_long();
                 return (n % 2 == 1);
             }
@@ -124,61 +124,61 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
 
         case AssumptionKey::Real: {
             // positive base + real exp → real
-            if (base->ask(AssumptionKey::Positive) == true
-                && exp->ask(AssumptionKey::Real) == true) return true;
+            if (direct_ask(base, AssumptionKey::Positive) == true
+                && direct_ask(exp, AssumptionKey::Real) == true) return true;
             // (imaginary)^(even positive integer) → real (i² = −1).
             if (exp->type_id() == TypeId::Integer
                 && static_cast<const Integer&>(*exp).is_positive()
                 && static_cast<const Integer&>(*exp).fits_long()
                 && (static_cast<const Integer&>(*exp).to_long() % 2 == 0)
-                && base->ask(AssumptionKey::Imaginary) == true) {
+                && direct_ask(base, AssumptionKey::Imaginary) == true) {
                 return true;
             }
             // real base + integer exp → real (when 0^neg can't occur)
-            if (base->ask(AssumptionKey::Real) == true
-                && exp->ask(AssumptionKey::Integer) == true
-                && (base->ask(AssumptionKey::Nonzero) == true
-                    || exp->ask(AssumptionKey::Nonnegative) == true)) {
+            if (direct_ask(base, AssumptionKey::Real) == true
+                && direct_ask(exp, AssumptionKey::Integer) == true
+                && (direct_ask(base, AssumptionKey::Nonzero) == true
+                    || direct_ask(exp, AssumptionKey::Nonnegative) == true)) {
                 return true;
             }
             return std::nullopt;
         }
         case AssumptionKey::Positive:
             // Any real-exp power of a positive is positive.
-            if (base->ask(AssumptionKey::Positive) == true) return true;
+            if (direct_ask(base, AssumptionKey::Positive) == true) return true;
             // Even power of a nonzero real base: x^(2m) > 0.
-            if (even_pos_int_exp && base->ask(AssumptionKey::Real) == true
-                && base->ask(AssumptionKey::Nonzero) == true) {
+            if (even_pos_int_exp && direct_ask(base, AssumptionKey::Real) == true
+                && direct_ask(base, AssumptionKey::Nonzero) == true) {
                 return true;
             }
             return std::nullopt;
         case AssumptionKey::Negative:
             // A negative real base raised to an odd integer power stays negative
             // (an even power turns positive — handled by the Positive case).
-            if (base->ask(AssumptionKey::Negative) == true
+            if (direct_ask(base, AssumptionKey::Negative) == true
                 && exp->type_id() == TypeId::Integer) {
                 const auto& z = static_cast<const Integer&>(*exp);
                 if (z.fits_long()) return z.to_long() % 2 != 0;
             }
             return std::nullopt;
         case AssumptionKey::Zero:
-            if (base->ask(AssumptionKey::Zero) == true
-                && exp->ask(AssumptionKey::Positive) == true) return true;
-            if (base->ask(AssumptionKey::Nonzero) == true) return false;
+            if (direct_ask(base, AssumptionKey::Zero) == true
+                && direct_ask(exp, AssumptionKey::Positive) == true) return true;
+            if (direct_ask(base, AssumptionKey::Nonzero) == true) return false;
             return std::nullopt;
         case AssumptionKey::Nonzero:
-            if (base->ask(AssumptionKey::Nonzero) == true) return true;
+            if (direct_ask(base, AssumptionKey::Nonzero) == true) return true;
             return std::nullopt;
         case AssumptionKey::Integer:
             // integer base + nonneg integer exp → integer
-            if (base->ask(AssumptionKey::Integer) == true
-                && exp->ask(AssumptionKey::Integer) == true
-                && exp->ask(AssumptionKey::Nonnegative) == true) return true;
+            if (direct_ask(base, AssumptionKey::Integer) == true
+                && direct_ask(exp, AssumptionKey::Integer) == true
+                && direct_ask(exp, AssumptionKey::Nonnegative) == true) return true;
             return std::nullopt;
         case AssumptionKey::Rational:
             // rational base + integer exp → rational
-            if (base->ask(AssumptionKey::Rational) == true
-                && exp->ask(AssumptionKey::Integer) == true) return true;
+            if (direct_ask(base, AssumptionKey::Rational) == true
+                && direct_ask(exp, AssumptionKey::Integer) == true) return true;
             // A surviving root: the factory already reduces every perfect rational
             // root (√4 → 2, √(9/4) → 3/2) and rationalizes rational bases, so a Pow
             // that persists with a positive rational base ≠ 1 and a non-integer
@@ -189,10 +189,10 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Finite:
             // finite base + finite nonneg exp → finite (skip 0^neg edge case
             // by requiring nonneg or nonzero base)
-            if (base->ask(AssumptionKey::Finite) == true
-                && exp->ask(AssumptionKey::Finite) == true
-                && (base->ask(AssumptionKey::Nonzero) == true
-                    || exp->ask(AssumptionKey::Nonnegative) == true)) {
+            if (direct_ask(base, AssumptionKey::Finite) == true
+                && direct_ask(exp, AssumptionKey::Finite) == true
+                && (direct_ask(base, AssumptionKey::Nonzero) == true
+                    || direct_ask(exp, AssumptionKey::Nonnegative) == true)) {
                 return true;
             }
             return std::nullopt;
@@ -200,15 +200,15 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Nonpositive:
             // Could derive in some special cases (e.g. positive base) but
             // those reduce to is_positive which is covered above.
-            if (base->ask(AssumptionKey::Positive) == true) {
+            if (direct_ask(base, AssumptionKey::Positive) == true) {
                 if (k == AssumptionKey::Nonnegative) return true;
                 if (k == AssumptionKey::Nonpositive) return false;
             }
             // Even power of a real base: x^(2m) ≥ 0 (nonpositive only if x = 0).
-            if (even_pos_int_exp && base->ask(AssumptionKey::Real) == true) {
+            if (even_pos_int_exp && direct_ask(base, AssumptionKey::Real) == true) {
                 if (k == AssumptionKey::Nonnegative) return true;
                 if (k == AssumptionKey::Nonpositive
-                    && base->ask(AssumptionKey::Nonzero) == true) {
+                    && direct_ask(base, AssumptionKey::Nonzero) == true) {
                     return false;
                 }
             }
@@ -224,11 +224,11 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             if (!pos_int_exp) return std::nullopt;
             if (base->ask(k) == true) return true;
             if (k == AssumptionKey::Even
-                && base->ask(AssumptionKey::Odd) == true) {
+                && direct_ask(base, AssumptionKey::Odd) == true) {
                 return false;
             }
             if (k == AssumptionKey::Odd
-                && base->ask(AssumptionKey::Even) == true) {
+                && direct_ask(base, AssumptionKey::Even) == true) {
                 return false;
             }
             return std::nullopt;
@@ -242,24 +242,24 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
             // algebraic base ^ rational exponent ⇒ algebraic (radicals, rational
             // powers). Guard 0^negative: require a nonnegative exponent or a
             // nonzero base.
-            if (base->ask(AssumptionKey::Algebraic) == true
-                && exp->ask(AssumptionKey::Rational) == true
-                && (exp->ask(AssumptionKey::Nonnegative) == true
-                    || base->ask(AssumptionKey::Nonzero) == true)) {
+            if (direct_ask(base, AssumptionKey::Algebraic) == true
+                && direct_ask(exp, AssumptionKey::Rational) == true
+                && (direct_ask(exp, AssumptionKey::Nonnegative) == true
+                    || direct_ask(base, AssumptionKey::Nonzero) == true)) {
                 return true;
             }
             // transcendental base ^ nonzero rational exponent ⇒ transcendental.
-            if (base->ask(AssumptionKey::Transcendental) == true
-                && exp->ask(AssumptionKey::Rational) == true
-                && exp->ask(AssumptionKey::Nonzero) == true) {
+            if (direct_ask(base, AssumptionKey::Transcendental) == true
+                && direct_ask(exp, AssumptionKey::Rational) == true
+                && direct_ask(exp, AssumptionKey::Nonzero) == true) {
                 return false;
             }
             return std::nullopt;
         }
         case AssumptionKey::Transcendental: {
-            if (base->ask(AssumptionKey::Transcendental) == true
-                && exp->ask(AssumptionKey::Rational) == true
-                && exp->ask(AssumptionKey::Nonzero) == true) {
+            if (direct_ask(base, AssumptionKey::Transcendental) == true
+                && direct_ask(exp, AssumptionKey::Rational) == true
+                && direct_ask(exp, AssumptionKey::Nonzero) == true) {
                 return true;
             }
             return std::nullopt;

@@ -648,9 +648,22 @@ TEST_CASE("assuming: facts propagate through products and sums (ASSUMING-PROPAGA
         REQUIRE(is_real(sum) == true);
     }
 
+    // Powers propagate too (Pow::ask routed through the context-aware path).
+    {
+        assuming rx(x, AssumptionMask{}.set_real(true));
+        REQUIRE(is_real(pow(x, integer(3))) == true);        // real^int is real
+        REQUIRE(is_nonnegative(pow(x, integer(2))) == true);  // real² ≥ 0
+    }
+    {
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        REQUIRE(is_positive(pow(x, integer(3))) == true);     // (+)^int > 0
+        REQUIRE(is_positive(sqrt(x)) == true);                // √(+) > 0
+    }
+
     // Retracted.
     REQUIRE(!is_positive(prod).has_value());
     REQUIRE(!is_real(sum).has_value());
+    REQUIRE(!is_positive(pow(x, integer(3))).has_value());
 }
 
 // ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.

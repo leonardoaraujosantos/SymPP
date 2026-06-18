@@ -27,8 +27,12 @@ truth and links the issue number.
   through it. Now scoped sign/reality facts propagate through products and sums:
   `(+)(+) > 0`, `(−)(+) < 0`, real·real and real+real are real, and `refine` of compound abs/√ forms picks
   the facts up at the top level. Crucially, when no scope is active `direct_ask(e,k) ≡ e->ask(k)`, so all
-  existing behavior is byte-for-byte unchanged (zero regressions by construction). `Pow::ask` (44 child
-  queries) is left for a follow-up. Regression: `ASSUMING-PROPAGATE-1`. Matches SymPy.
+  existing behavior is byte-for-byte unchanged (zero regressions by construction). Regression:
+  `ASSUMING-PROPAGATE-1`. Matches SymPy.
+- **Follow-up (done):** `ASSUMING-PROPAGATE-POW-1` extends the same routing to `Pow::ask`'s 44 child queries,
+  so `is_real(x³)`, `is_nonnegative(x²)`, `is_positive(x³)`, `is_positive(√x)` now resolve under the relevant
+  scopes. Same zero-regression-by-construction guarantee. The `assuming` context now reaches every compound
+  node (Mul, Add, Pow). Matches SymPy.
 
 ### REFINE-ABS-MUL-1 — refine(|x·y|) did not apply per-factor sign facts
 - **Problem:** `refine(|x·y|)` stayed `Abs(x·y)` even under `Q.positive(x)`/`Q.positive(y)`. The sign facts
