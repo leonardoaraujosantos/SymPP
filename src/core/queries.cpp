@@ -27,6 +27,10 @@ namespace {
 
 }  // namespace
 
+std::optional<bool> direct_ask(const Expr& e, AssumptionKey k) noexcept {
+    return direct(e, k);
+}
+
 std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
     if (!e) return std::nullopt;
 

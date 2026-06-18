@@ -30,6 +30,13 @@ namespace sympp {
 // trivial logical consequences.
 [[nodiscard]] SYMPP_EXPORT std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept;
 
+// Like ask() but WITHOUT implication-chasing: the node's own fact for `k`, with
+// any active `assuming` scope taking precedence. Compound nodes (Mul, Add, …)
+// query their children through this so scoped facts (e.g. x > 0) propagate
+// through products and sums. With no `assuming` scope active it is exactly
+// `e->ask(k)`, so existing behavior is unchanged.
+[[nodiscard]] SYMPP_EXPORT std::optional<bool> direct_ask(const Expr& e, AssumptionKey k) noexcept;
+
 [[nodiscard]] inline std::optional<bool> is_real(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Real);
 }

@@ -113,13 +113,13 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             bool any_imag = false;
             bool any_real_nonzero = false;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Zero) == true) continue;
-                if (a->ask(AssumptionKey::Imaginary) == true) {
+                if (direct_ask(a, AssumptionKey::Zero) == true) continue;
+                if (direct_ask(a, AssumptionKey::Imaginary) == true) {
                     any_imag = true;
                 } else {
                     all_imag = false;
-                    if (a->ask(AssumptionKey::Real) == true
-                        && a->ask(AssumptionKey::Nonzero) == true) {
+                    if (direct_ask(a, AssumptionKey::Real) == true
+                        && direct_ask(a, AssumptionKey::Nonzero) == true) {
                         any_real_nonzero = true;
                     }
                 }
@@ -175,8 +175,8 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd: {
             int odd_terms = 0;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Even) == true) continue;
-                if (a->ask(AssumptionKey::Odd) == true) { ++odd_terms; continue; }
+                if (direct_ask(a, AssumptionKey::Even) == true) continue;
+                if (direct_ask(a, AssumptionKey::Odd) == true) { ++odd_terms; continue; }
                 return std::nullopt;  // a term of unknown parity
             }
             const bool sum_even = (odd_terms % 2) == 0;

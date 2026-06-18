@@ -144,11 +144,11 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             bool all_classified = true;
             bool all_nonzero = true;
             for (const auto& f : args_) {
-                if (f->ask(AssumptionKey::Zero) == true) return false;
-                if (f->ask(AssumptionKey::Nonzero) != true) all_nonzero = false;
-                if (f->ask(AssumptionKey::Imaginary) == true) {
+                if (direct_ask(f, AssumptionKey::Zero) == true) return false;
+                if (direct_ask(f, AssumptionKey::Nonzero) != true) all_nonzero = false;
+                if (direct_ask(f, AssumptionKey::Imaginary) == true) {
                     ++imag;
-                } else if (f->ask(AssumptionKey::Real) != true) {
+                } else if (direct_ask(f, AssumptionKey::Real) != true) {
                     all_classified = false;
                     break;
                 }
@@ -166,8 +166,8 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
                 std::size_t imag = 0;
                 bool ok = true;
                 for (const auto& f : args_) {
-                    if (f->ask(AssumptionKey::Imaginary) == true) ++imag;
-                    else if (f->ask(AssumptionKey::Real) != true) { ok = false; break; }
+                    if (direct_ask(f, AssumptionKey::Imaginary) == true) ++imag;
+                    else if (direct_ask(f, AssumptionKey::Real) != true) { ok = false; break; }
                 }
                 if (ok && imag % 2 == 0) return true;
             }
@@ -207,10 +207,10 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             // unknown) count as a known-positive factor.
             int neg = 0;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Positive) == std::optional<bool>{true}) {
+                if (direct_ask(a, AssumptionKey::Positive) == std::optional<bool>{true}) {
                     continue;
                 }
-                if (a->ask(AssumptionKey::Negative) == std::optional<bool>{true}) {
+                if (direct_ask(a, AssumptionKey::Negative) == std::optional<bool>{true}) {
                     ++neg;
                     continue;
                 }
@@ -235,9 +235,9 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             int neg_dir = 0;
             for (const auto& a : args_) {
                 const bool ge0 =
-                    a->ask(AssumptionKey::Nonnegative) == std::optional<bool>{true};
+                    direct_ask(a, AssumptionKey::Nonnegative) == std::optional<bool>{true};
                 const bool le0 =
-                    a->ask(AssumptionKey::Nonpositive) == std::optional<bool>{true};
+                    direct_ask(a, AssumptionKey::Nonpositive) == std::optional<bool>{true};
                 if (ge0 && le0) return true;  // factor is 0 → product is 0
                 if (ge0) continue;
                 if (le0) { ++neg_dir; continue; }

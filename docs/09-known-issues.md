@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUMING-PROPAGATE-1 — assuming context did not reach compound expressions
+- **Problem:** a scoped fact (`assuming(x, positive)`) was visible on the bare symbol but not on expressions
+  built from it: `is_positive(x·y)`, `is_negative(x·y)`, `is_real(x+y)` all stayed unknown under
+  `Q.positive(x)∧Q.positive(y)` even though SymPy answers `True`. `Mul::ask`/`Add::ask` and their helpers
+  query children through the context-blind `a->ask(k)`, which cannot see the scoped facts.
+- **Fix:** added an exported `direct_ask(e, k)` — the node's own fact with any active `assuming` scope taking
+  precedence, *without* implication-chasing — and routed the child queries in `Mul::ask`, `Add::ask`, and the
+  shared `assumption_helpers.hpp` (`all_args_have`, `any_arg_has`, the transcendental/irrational forcers)
+  through it. Now scoped sign/reality facts propagate through products and sums:
+  `(+)(+) > 0`, `(−)(+) < 0`, real·real and real+real are real, and `refine` of compound abs/√ forms picks
+  the facts up at the top level. Crucially, when no scope is active `direct_ask(e,k) ≡ e->ask(k)`, so all
+  existing behavior is byte-for-byte unchanged (zero regressions by construction). `Pow::ask` (44 child
+  queries) is left for a follow-up. Regression: `ASSUMING-PROPAGATE-1`. Matches SymPy.
+
 ### REFINE-ABS-MUL-1 — refine(|x·y|) did not apply per-factor sign facts
 - **Problem:** `refine(|x·y|)` stayed `Abs(x·y)` even under `Q.positive(x)`/`Q.positive(y)`. The sign facts
   reach a bare symbol via the `assuming` context but not a product: `Mul::ask` queries its factors through the

@@ -614,6 +614,45 @@ TEST_CASE("refine: abs distributes over a product (REFINE-ABS-MUL-1)",
     }
 }
 
+// ASSUMING-PROPAGATE-1: a scoped fact reaches compound expressions — Mul and Add
+// ask() query their children through the context-aware path, so x>0 ∧ y>0 makes
+// x·y and x+y positive, etc. With no scope active behavior is unchanged.
+TEST_CASE("assuming: facts propagate through products and sums (ASSUMING-PROPAGATE-1)",
+          "[2c][assuming]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto prod = mul(x, y);
+    auto sum = add(x, y);
+
+    // Unconstrained outside any scope.
+    REQUIRE(!is_positive(prod).has_value());
+    REQUIRE(!is_real(sum).has_value());
+
+    {
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        assuming py(y, AssumptionMask{}.set_positive(true));
+        REQUIRE(is_positive(prod) == true);    // (+)(+) > 0
+        REQUIRE(is_real(prod) == true);        // positive ⇒ real
+        REQUIRE(is_nonnegative(prod) == true);
+        REQUIRE(is_positive(sum) == true);     // (+)+(+) > 0
+    }
+    {
+        assuming nx(x, AssumptionMask{}.set_negative(true));
+        assuming py(y, AssumptionMask{}.set_positive(true));
+        REQUIRE(is_negative(prod) == true);    // (−)(+) < 0
+    }
+    {
+        assuming rx(x, AssumptionMask{}.set_real(true));
+        assuming ry(y, AssumptionMask{}.set_real(true));
+        REQUIRE(is_real(prod) == true);
+        REQUIRE(is_real(sum) == true);
+    }
+
+    // Retracted.
+    REQUIRE(!is_positive(prod).has_value());
+    REQUIRE(!is_real(sum).has_value());
+}
+
 // ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.
 // imaginary ⇒ complex ∧ ¬real ∧ finite; I·(real≠0) is imaginary; I·I and
 // imaginary² are real; sums of imaginaries are imaginary. Matches SymPy.

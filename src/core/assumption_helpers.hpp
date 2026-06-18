@@ -7,6 +7,7 @@
 
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/basic.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/fwd.hpp>
 
 namespace sympp::detail {
@@ -16,7 +17,7 @@ template <typename Range>
                                         AssumptionKey k,
                                         bool target) noexcept {
     for (const auto& a : args) {
-        auto v = a->ask(k);
+        auto v = direct_ask(a, k);
         if (!v.has_value() || *v != target) return false;
     }
     return true;
@@ -27,7 +28,7 @@ template <typename Range>
                                       AssumptionKey k,
                                       bool target) noexcept {
     for (const auto& a : args) {
-        auto v = a->ask(k);
+        auto v = direct_ask(a, k);
         if (v.has_value() && *v == target) return true;
     }
     return false;
@@ -41,8 +42,8 @@ template <typename Range>
 [[nodiscard]] inline bool sum_forces_transcendental(const Range& args) noexcept {
     int transcendental = 0;
     for (const auto& a : args) {
-        if (a->ask(AssumptionKey::Transcendental) == true) { ++transcendental; continue; }
-        if (a->ask(AssumptionKey::Algebraic) != true) return false;
+        if (direct_ask(a, AssumptionKey::Transcendental) == true) { ++transcendental; continue; }
+        if (direct_ask(a, AssumptionKey::Algebraic) != true) return false;
     }
     return transcendental == 1;
 }
@@ -54,9 +55,9 @@ template <typename Range>
 [[nodiscard]] inline bool product_forces_transcendental(const Range& args) noexcept {
     int transcendental = 0;
     for (const auto& a : args) {
-        if (a->ask(AssumptionKey::Transcendental) == true) { ++transcendental; continue; }
-        if (a->ask(AssumptionKey::Algebraic) != true) return false;
-        if (a->ask(AssumptionKey::Nonzero) != true) return false;
+        if (direct_ask(a, AssumptionKey::Transcendental) == true) { ++transcendental; continue; }
+        if (direct_ask(a, AssumptionKey::Algebraic) != true) return false;
+        if (direct_ask(a, AssumptionKey::Nonzero) != true) return false;
     }
     return transcendental == 1;
 }
@@ -66,9 +67,9 @@ template <typename Range>
 // are algebraic). The node-level `ask(Irrational)` is not itself derived from
 // transcendental ∧ real, so spell that path out here.
 [[nodiscard]] inline bool node_is_irrational(const Expr& a) noexcept {
-    if (a->ask(AssumptionKey::Irrational) == true) return true;
-    return a->ask(AssumptionKey::Transcendental) == true
-           && a->ask(AssumptionKey::Real) == true;
+    if (direct_ask(a, AssumptionKey::Irrational) == true) return true;
+    return direct_ask(a, AssumptionKey::Transcendental) == true
+           && direct_ask(a, AssumptionKey::Real) == true;
 }
 
 // For a SUM: true iff exactly one term is irrational and every other term is
@@ -81,7 +82,7 @@ template <typename Range>
     int irrational = 0;
     for (const auto& a : args) {
         if (node_is_irrational(a)) { ++irrational; continue; }
-        if (a->ask(AssumptionKey::Rational) != true) return false;
+        if (direct_ask(a, AssumptionKey::Rational) != true) return false;
     }
     return irrational == 1;
 }
@@ -95,8 +96,8 @@ template <typename Range>
     int irrational = 0;
     for (const auto& a : args) {
         if (node_is_irrational(a)) { ++irrational; continue; }
-        if (a->ask(AssumptionKey::Rational) != true) return false;
-        if (a->ask(AssumptionKey::Nonzero) != true) return false;
+        if (direct_ask(a, AssumptionKey::Rational) != true) return false;
+        if (direct_ask(a, AssumptionKey::Nonzero) != true) return false;
     }
     return irrational == 1;
 }
