@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXP-CONTINUITY-1 — exp of an indeterminate exponent gave nan
+- **Problem:** `lim_{x→∞} exp(x²−2x)` returned `nan` (correct value **∞**). The exponent `x²−2x`
+  substitutes to the indeterminate `∞−∞`, so `exp(nan) = nan`, even though the exponent's limit is a
+  definite `+∞`. The family `exp(2x−x²) → 0`, `exp(x−√x) → ∞`, `exp(√x−x) → 0`, `exp(−x+log x) → 0`
+  was all affected. Bare `exp(x)`, `exp(±x²)` worked only because their exponents substitute cleanly.
+- **Fix:** added an `exp` branch to the continuity rule alongside `log` and `atan`:
+  `limit(exp(g)) = exp(limit g)`, taking the inner limit of the exponent first, with `exp(+∞) = ∞`,
+  `exp(−∞) = 0`, and `exp(c)` for a finite `c`. A genuinely indeterminate exponent (no limit) still
+  returns nullopt. Matches SymPy. (A product of exponentials written as a ratio, e.g.
+  `exp(x²)/exp(x)²`, is a `Mul` and still relies on `simplify` combining it first — a separate, less
+  common shape left for a future increment.)
+
 ### SERIES-LAURENT-FIRST-1 — series of a removable transcendental ratio hung
 - **Problem:** `series(x/(exp(x)−1))` (the Bernoulli generating function) **hung**, as did
   `x/sin(x)` and `x²/(1−cos x)`. These are removable singularities: numerator and denominator both

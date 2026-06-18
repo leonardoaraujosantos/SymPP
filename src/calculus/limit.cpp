@@ -1450,6 +1450,19 @@ struct Growth {
         if (!is_nan(gl)) return simplify(atan(gl));
         return std::nullopt;
     }
+    // exp is continuous with exp(+∞) = ∞, exp(−∞) = 0, so limit(exp(g)) =
+    // exp(limit g) whenever the inner limit is determinate. Resolves cases where
+    // the exponent only substitutes to an indeterminate ∞ − ∞ but has a definite
+    // limit — e.g. exp(x²−2x) → ∞, exp(2x−x²) → 0, exp(x−√x) → ∞.
+    if (expr->type_id() == TypeId::Function
+        && static_cast<const Function&>(*expr).function_id() == FunctionId::Exp
+        && expr->args().size() == 1) {
+        Expr gl = limit_impl(expr->args()[0], var, target, depth + 1);
+        if (gl == S::Infinity()) return S::Infinity();
+        if (gl == S::NegativeInfinity()) return S::Zero();
+        if (!is_nan(gl) && !is_infinity(gl)) return simplify(exp(gl));
+        return std::nullopt;
+    }
     if (expr->type_id() != TypeId::Add) return std::nullopt;
     auto as_clog =
         [&](const Expr& t) -> std::optional<std::pair<Expr, Expr>> {  // (g, c)

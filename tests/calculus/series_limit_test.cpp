@@ -2378,3 +2378,29 @@ TEST_CASE("limit: balanced gamma-ratio asymptotics (LIMIT-GAMMARATIO-1)",
                            x, oo))
             == S::One());
 }
+
+// LIMIT-EXP-CONTINUITY-1: limit(exp(g)) = exp(limit g) with exp(+∞)=∞,
+// exp(−∞)=0. exp(x²−2x) → ∞ previously gave nan: the exponent substitutes to
+// the indeterminate ∞−∞ even though its limit is +∞. The continuity rule takes
+// the inner limit of the exponent first. Matches SymPy.
+TEST_CASE("limit: exp continuity over an indeterminate exponent (LIMIT-EXP-CONTINUITY-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // exponent x²−2x → +∞, so exp → ∞ (was nan under naive ∞−∞ substitution).
+    REQUIRE(limit(exp(pow(x, integer(2)) - integer(2) * x), x, oo) == oo);
+    // exponent 2x−x² → −∞, so exp → 0.
+    REQUIRE(limit(exp(integer(2) * x - pow(x, integer(2))), x, oo) == S::Zero());
+    // exponent x−√x → +∞ (sub-leading radical).
+    REQUIRE(limit(exp(x - pow(x, rational(1, 2))), x, oo) == oo);
+    // exponent √x−x → −∞.
+    REQUIRE(limit(exp(pow(x, rational(1, 2)) - x), x, oo) == S::Zero());
+    // exponent −x+log(x) → −∞ (exp dominates log).
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x) + log(x)), x, oo) == S::Zero());
+    // A finite exponent passes through: exp(1/x) → exp(0) = 1.
+    REQUIRE(simplify(limit(exp(pow(x, integer(-1))), x, oo)) == S::One());
+    // Bare growing/decaying exponentials are unchanged.
+    REQUIRE(limit(exp(x), x, oo) == oo);
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+}
