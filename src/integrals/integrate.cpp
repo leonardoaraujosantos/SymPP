@@ -29,6 +29,7 @@
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/simplify/simplify.hpp>
+#include <sympp/functions/combinatorial.hpp>  // gamma
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/hyperbolic.hpp>
@@ -3891,6 +3892,97 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(add(std::move(pieces)));
 }
 
+// ∫₀^∞ x^p / (e^{c·x} ∓ 1) dx in closed form. For the Bose–Einstein kernel
+// (denominator e^{cx} − 1) the value is Γ(p+1)·ζ(p+1)/c^{p+1} (the Debye /
+// Stefan–Boltzmann integral); for the Fermi–Dirac kernel (e^{cx} + 1) it is
+// Γ(p+1)·(1 − 2^{−p})·ζ(p+1)/c^{p+1}, using the Dirichlet eta η(s) =
+// (1 − 2^{1−s})·ζ(s). Requires a monomial x^p with p > 0 (so the integral
+// converges at 0 and ζ(p+1) sits below its pole), an exponent c·x with c a
+// positive constant, and bounds [0, ∞). The antiderivative is non-elementary,
+// so Newton–Leibniz would otherwise return an unevaluated marker. (SymPy leaves
+// these unevaluated; the closed form is a standard result, verified numerically.)
+[[nodiscard]] std::optional<Expr> try_bose_einstein(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& lower,
+                                                    const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr c;                  // exponent rate
+    int sign = 0;            // −1 Bose (e^{cx}−1), +1 Fermi (e^{cx}+1)
+    bool found = false;
+    Expr coeff = S::One();   // constant multiplier
+    Expr p = S::Zero();      // total power of var in the monomial
+    for (const auto& f : factors) {
+        // Kernel factor: Pow(Add(exp(c·var), ±1), −1).
+        if (!found && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Add
+            && f->args()[0]->args().size() == 2) {
+            const Expr& base = f->args()[0];
+            Expr expterm, constterm;
+            for (const auto& t : base->args()) {
+                if (t->type_id() == TypeId::Function
+                    && static_cast<const Function&>(*t).function_id()
+                           == FunctionId::Exp) {
+                    expterm = t;
+                } else {
+                    constterm = t;
+                }
+            }
+            if (expterm
+                && (constterm == S::One() || constterm == S::NegativeOne())) {
+                Expr g = static_cast<const Function&>(*expterm).args()[0];
+                Expr cc = simplify(mul(g, pow(var, S::NegativeOne())));
+                if (!has(cc, var)
+                    && is_positive(cc) == std::optional<bool>{true}) {
+                    c = cc;
+                    sign = (constterm == S::NegativeOne()) ? -1 : 1;
+                    found = true;
+                    continue;
+                }
+            }
+        }
+        // Otherwise this factor belongs to the coeff·x^p monomial.
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;  // monomial part is not coeff·x^p
+        }
+    }
+    if (!found) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps) || is_positive(ps) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, gamma(s), zeta(s),
+                      pow(c, mul(S::NegativeOne(), s))});
+    if (sign > 0) {  // Fermi: × (1 − 2^{−p})
+        value = mul(value,
+                    add(S::One(),
+                        mul(S::NegativeOne(),
+                            pow(integer(2), mul(S::NegativeOne(), ps)))));
+    }
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -3898,6 +3990,9 @@ Expr integrate(const Expr& expr, const Expr& var,
     // Fourier integral of a real Gaussian (no elementary antiderivative — the
     // Newton–Leibniz path below would otherwise garble it).
     if (auto r = try_gaussian_fourier(expr, var, lower, upper)) return *r;
+    // Bose–Einstein / Fermi–Dirac ∫₀^∞ x^p/(e^{cx}∓1) = Γ(p+1)ζ(p+1)/c^{p+1}
+    // (× (1−2^{−p}) for the +1 kernel). Non-elementary antiderivative.
+    if (auto r = try_bose_einstein(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

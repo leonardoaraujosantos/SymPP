@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-BOSE-EINSTEIN-1 — ∫₀^∞ x^p/(e^{cx}∓1) was left unevaluated
+- **Problem:** the Bose–Einstein / Fermi–Dirac (Debye) integrals `∫₀^∞ x^p/(e^{cx}−1) dx` and
+  `∫₀^∞ x^p/(e^{cx}+1) dx` — e.g. `x/(e^x−1) → π²/6`, `x³/(e^x−1) → π⁴/15`, `x/(e^x+1) → π²/12` — were
+  returned as unevaluated `Integral` markers. Their antiderivative is non-elementary, so the
+  Newton–Leibniz path cannot reach them. (SymPy also leaves these unevaluated.)
+- **Fix:** added `try_bose_einstein`, a closed-form rule on `[0, ∞)`. By the standard series identity,
+  `∫₀^∞ x^p/(e^{cx}−1) dx = Γ(p+1)·ζ(p+1)/c^{p+1}` and `∫₀^∞ x^p/(e^{cx}+1) dx =
+  Γ(p+1)·(1−2^{−p})·ζ(p+1)/c^{p+1}` (the second using the Dirichlet eta `η(s) = (1−2^{1−s})ζ(s)`). It
+  matches a kernel `(e^{cx}∓1)^{-1}` times a monomial `coeff·x^p` with `p > 0` (convergent, ζ below its
+  pole) and `c > 0`. SymPP's `Γ`/`ζ` deliver the closed forms (`ζ(2)=π²/6`, `ζ(4)=π⁴/90`, odd `ζ` left
+  symbolic). The seven closed forms were verified numerically against SymPy quadrature to 1e-9 — this
+  exceeds SymPy, which returns these unevaluated. Non-`[0,∞)` bounds, non-monomial numerators and the
+  plain `∫₀^∞ x²e^{−x}=2` Γ-integral are unaffected.
+
 ### INT-LOGPOW-BOUNDARY-1 — ∫₀¹ (log x)ⁿ gave nan at the lower boundary
 - **Problem:** `∫₀¹ (log x)² dx` returned `nan` (correct value **2**); likewise `(log x)³ → −6`,
   `(log x)⁴ → 24`, `x·(log x)² → 1/4`, `√x·log x → −4/9`. The antiderivative is found correctly

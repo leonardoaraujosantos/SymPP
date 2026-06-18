@@ -2522,9 +2522,11 @@ TEST_CASE("integrate: Dirichlet (1-cos x)/x² and clean markers (INT-DIRICHLET-1
         "pi/2"));
 
     // A definite integral with no closed form returns a clean unevaluated
-    // Integral marker — not garbage with embedded nan.
+    // Integral marker — not garbage with embedded nan. (x/(e^x+1) was the old
+    // example here, but it is now evaluated in closed form by the Bose–Einstein /
+    // Fermi–Dirac rule, see INT-BOSE-EINSTEIN-1; x/(x+e^x) stays non-elementary.)
     auto uneval =
-        integrate(x * pow(exp(x) + integer(1), integer(-1)), x, S::Zero(), oo);
+        integrate(x * pow(x + exp(x), integer(-1)), x, S::Zero(), oo);
     REQUIRE(uneval->str().find("nan") == std::string::npos);
     REQUIRE(uneval->str().rfind("Integral(", 0) == 0);
 
@@ -3156,4 +3158,55 @@ TEST_CASE("integrate: log-power definite integrals via one-sided boundaries (INT
     REQUIRE(integrate(L(x), x, zero, one) == S::NegativeOne());
     // A non-singular boundary is unaffected: ∫₀¹ x² = 1/3.
     REQUIRE(integrate(pow(x, integer(2)), x, zero, one) == rational(1, 3));
+}
+
+// INT-BOSE-EINSTEIN-1: ∫₀^∞ x^p/(e^{cx}∓1) dx in closed form. Bose–Einstein
+// (e^{cx}−1): Γ(p+1)·ζ(p+1)/c^{p+1} (Debye / Stefan–Boltzmann). Fermi–Dirac
+// (e^{cx}+1): × (1−2^{−p}) (Dirichlet eta). The antiderivative is non-elementary,
+// so SymPP previously returned an unevaluated marker (as SymPy still does). The
+// closed forms were verified numerically against SymPy quadrature to 1e-9; the
+// symbolic equalities below (π²/6, π⁴/15, …) are confirmed via the oracle.
+TEST_CASE("integrate: Bose-Einstein / Fermi-Dirac integrals (INT-BOSE-EINSTEIN-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto kernel = [&](const Expr& c, int s) {
+        return pow(exp(c * x) + integer(s), integer(-1));
+    };
+
+    // Bose–Einstein, c = 1: Γ(p+1)ζ(p+1).
+    REQUIRE(oracle.equivalent(
+        integrate(x * kernel(S::One(), -1), x, zero, oo)->str(), "pi**2/6"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "pi**4/15"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "2*zeta(3)"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(5)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "8*pi**6/63"));
+    // Scaled rate c = 2: Γ(3)ζ(3)/2³ = ζ(3)/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * kernel(integer(2), -1), x, zero, oo)
+            ->str(),
+        "zeta(3)/4"));
+
+    // Fermi–Dirac (e^{x}+1): × (1 − 2^{−p}).
+    REQUIRE(oracle.equivalent(
+        integrate(x * kernel(S::One(), 1), x, zero, oo)->str(), "pi**2/12"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * kernel(S::One(), 1), x, zero, oo)->str(),
+        "7*pi**4/120"));
+
+    // Guards: a finite upper bound or a non-monomial numerator must NOT fire.
+    REQUIRE(integrate(x * kernel(S::One(), -1), x, zero, S::One())
+                ->str()
+                .rfind("Integral(", 0) == 0);
+    // Plain Γ integral (no kernel) is unaffected: ∫₀^∞ x²e^{−x} = 2.
+    REQUIRE(integrate(pow(x, integer(2)) * exp(mul(S::NegativeOne(), x)), x,
+                      zero, oo)
+            == integer(2));
 }
