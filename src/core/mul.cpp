@@ -239,6 +239,10 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             if (detail::product_forces_transcendental(args_)) return true;
             return std::nullopt;
         case AssumptionKey::Irrational:
+            // A nonzero rational product times exactly one irrational factor is
+            // irrational (2·π, √2/2, 3·√2).
+            if (detail::product_forces_irrational(args_)) return true;
+            return std::nullopt;
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.

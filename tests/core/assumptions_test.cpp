@@ -809,6 +809,44 @@ TEST_CASE("AssumptionMask: irrational algebraic roots (IRRATIONAL-ROOT-1)",
     REQUIRE(is_real(root(-2, 1, 2)) == F);
 }
 
+// IRRATIONAL-PROP-1: irrationality propagates through a Mul/Add against rational
+// terms — a nonzero rational times exactly one irrational factor is irrational
+// (2π, √2/2, 3√2), and a rational sum plus exactly one irrational term is
+// irrational (π + 1, √2 − 3). A real transcendental (π, e) counts as the
+// irrational factor. Two irrational operands leave it Unknown (√2 + √3, since the
+// sum could in principle be rational). Matches SymPy.
+TEST_CASE("AssumptionMask: Mul/Add irrationality propagation (IRRATIONAL-PROP-1)",
+          "[2a][assumptions]") {
+    using sympp::is_irrational;
+    using sympp::is_rational;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+    auto s2 = pow(integer(2), rational(1, 2));
+    auto s3 = pow(integer(3), rational(1, 2));
+
+    // nonzero rational × one irrational → irrational.
+    for (const Expr& e : {mul(integer(2), S::Pi()),
+                          mul(rational(1, 2), S::Pi()),
+                          mul(rational(2, 3), S::Pi()), mul(integer(3), s2),
+                          pow(integer(2), rational(-1, 2))}) {  // 1/√2 = √2/2
+        REQUIRE(is_irrational(e) == T);
+        REQUIRE(is_rational(e) == F);
+    }
+    // rational + one irrational → irrational.
+    for (const Expr& e : {add(S::Pi(), integer(1)), add(S::Pi(), integer(-3)),
+                          add(s2, integer(1)), add(mul(integer(2), S::E()),
+                                                   integer(5))}) {
+        REQUIRE(is_irrational(e) == T);
+        REQUIRE(is_rational(e) == F);
+    }
+    // Two irrational operands: Unknown (the combination may be rational).
+    REQUIRE(is_irrational(add(s2, s3)) == U);
+    REQUIRE(is_irrational(mul(S::Pi(), S::E())) == U);
+    // EulerGamma's rationality is open, so a sum/product with it stays Unknown.
+    REQUIRE(is_irrational(add(S::EulerGamma(), integer(1))) == U);
+}
+
 // ALGTRANS-1: the `algebraic` / `transcendental` pair. algebraic = root of a
 // rational polynomial (implies complex, finite; rational ⇒ algebraic; i is
 // algebraic but not real); transcendental ⟺ complex ∧ ¬algebraic (implies

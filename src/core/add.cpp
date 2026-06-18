@@ -197,6 +197,10 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             if (detail::sum_forces_transcendental(args_)) return true;
             return std::nullopt;
         case AssumptionKey::Irrational:
+            // A rational sum plus exactly one irrational term is irrational
+            // (π + 1, √2 − 3).
+            if (detail::sum_forces_irrational(args_)) return true;
+            return std::nullopt;
         case AssumptionKey::ExtendedReal:
         case AssumptionKey::Infinite:
             // Left to the generic derivation layer.

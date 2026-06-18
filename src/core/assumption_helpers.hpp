@@ -61,4 +61,44 @@ template <typename Range>
     return transcendental == 1;
 }
 
+// Provably irrational at the node level: a directly-irrational value, or a real
+// transcendental (every real transcendental is irrational, since the rationals
+// are algebraic). The node-level `ask(Irrational)` is not itself derived from
+// transcendental ∧ real, so spell that path out here.
+[[nodiscard]] inline bool node_is_irrational(const Expr& a) noexcept {
+    if (a->ask(AssumptionKey::Irrational) == true) return true;
+    return a->ask(AssumptionKey::Transcendental) == true
+           && a->ask(AssumptionKey::Real) == true;
+}
+
+// For a SUM: true iff exactly one term is irrational and every other term is
+// rational. The rationals are closed under subtraction, so subtracting the
+// rational terms would make the irrational one rational — a contradiction.
+// (rational + irrational = irrational; a sum of two irrationals may be rational,
+// e.g. √2 + (−√2) = 0, so more than one irrational term leaves it Unknown.)
+template <typename Range>
+[[nodiscard]] inline bool sum_forces_irrational(const Range& args) noexcept {
+    int irrational = 0;
+    for (const auto& a : args) {
+        if (node_is_irrational(a)) { ++irrational; continue; }
+        if (a->ask(AssumptionKey::Rational) != true) return false;
+    }
+    return irrational == 1;
+}
+
+// For a PRODUCT: true iff exactly one factor is irrational and every other factor
+// is a nonzero rational. A nonzero rational times an irrational is irrational; a
+// zero factor would collapse the product to 0 (rational), and two irrational
+// factors may multiply to a rational (√2·√2 = 2), so both are excluded.
+template <typename Range>
+[[nodiscard]] inline bool product_forces_irrational(const Range& args) noexcept {
+    int irrational = 0;
+    for (const auto& a : args) {
+        if (node_is_irrational(a)) { ++irrational; continue; }
+        if (a->ask(AssumptionKey::Rational) != true) return false;
+        if (a->ask(AssumptionKey::Nonzero) != true) return false;
+    }
+    return irrational == 1;
+}
+
 }  // namespace sympp::detail

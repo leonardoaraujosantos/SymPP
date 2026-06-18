@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### IRRATIONAL-PROP-1 — irrationality did not propagate through Mul/Add
+- **Problem:** `is_irrational(2·π)`, `is_irrational(π + 1)`, `is_irrational(3·√2)`, `is_irrational(√2/2)`
+  all returned Unknown instead of True (the follow-up flagged in [[IRRATIONAL-ROOT-1]]). A nonzero
+  rational times an irrational, and a rational plus an irrational, are irrational; SymPy reports these.
+- **Fix:** added `sum_forces_irrational` / `product_forces_irrational` (mirroring the existing
+  transcendental helpers) and wired them into the `Add` / `Mul` `Irrational` cases. A sum is irrational
+  when exactly one term is irrational and the rest are rational (rationals are closed under
+  subtraction); a product is irrational when exactly one factor is irrational and the rest are nonzero
+  rationals. A real transcendental (π, e) counts as the irrational operand — `node_is_irrational`
+  spells out the `transcendental ∧ real ⇒ irrational` path that the node-level `ask` does not derive on
+  its own. Two irrational operands stay Unknown (`√2 + √3`, `π·e`, since the result may be rational),
+  and an open-rationality constant (`EulerGamma`) keeps the whole expression Unknown. Matches SymPy.
+
 ### IRRATIONAL-ROOT-1 — radicals like √2 were not recognized as irrational
 - **Problem:** `is_irrational(sqrt(2))` returned Unknown (and `is_rational(sqrt(2))` Unknown too)
   instead of True/False, even though `sqrt(2)` was already known to be algebraic. The irrational
