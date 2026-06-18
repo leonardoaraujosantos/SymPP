@@ -313,12 +313,41 @@ namespace {
     return q_terms.empty() ? Expr{S::Zero()} : add(std::move(q_terms));
 }
 
+// Rewrite Γ(var + c) → factorial(var + c − 1) for an integer offset c, so the
+// gamma spelling of the exponential series (Σ xᵏ/Γ(k+1)) is recognized exactly
+// like its factorial form (Σ xᵏ/k!). Other gammas (half-integer shifts, a
+// doubled rate Γ(2k)) are left untouched.
+[[nodiscard]] Expr gamma_to_factorial(const Expr& e, const Expr& var) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1
+                && !m.count(x)) {
+                Expr c = simplify(add(fn.args()[0], mul(S::NegativeOne(), var)));
+                if (!has(c, var) && c->type_id() == TypeId::Integer) {
+                    m.emplace(x,
+                              factorial(add(var, add(c, S::NegativeOne()))));
+                }
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    return m.empty() ? e : xreplace(e, m);
+}
+
 [[nodiscard]] std::optional<Expr> sum_exponential_series(
     const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (hi->type_id() != TypeId::Infinity) return std::nullopt;
     if (lo->type_id() != TypeId::Integer) return std::nullopt;
     const auto& loz = static_cast<const Integer&>(*lo);
     if (loz.is_negative() || !loz.fits_long()) return std::nullopt;
+
+    // Normalize a Γ(k+1) denominator to k! so both spellings take one code path.
+    if (Expr ng = gamma_to_factorial(expr, var); !(ng == expr)) {
+        return sum_exponential_series(ng, var, lo, hi);
+    }
 
     std::vector<Expr> factors;
     if (expr->type_id() == TypeId::Mul) {

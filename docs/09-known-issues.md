@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-EXP-GAMMA-1 — Σ xᵏ/Γ(k+1) (the gamma spelling of the exp series) left unevaluated
+- **Problem:** `Σ_{k≥0} xᵏ/k! = eˣ` was recognized, but the mathematically identical `Σ_{k≥0} xᵏ/Γ(k+1)`
+  stayed an unevaluated `Sum(...)`. The exponential-series recognizer matched `factorial(k)` but not
+  `Γ(k+1)`, even though `Γ(k+1) = k!`.
+- **Fix:** added `gamma_to_factorial`, run at the recognizer entry: it rewrites every `Γ(var + c)` with an
+  integer offset `c` to `factorial(var + c − 1)`, then re-enters the one factorial code path. Half-integer
+  shifts and doubled rates (`Γ(2k)`) are left untouched. Now `Σ xᵏ/Γ(k+1) = eˣ`, `Σ k·xᵏ/Γ(k+1) = x·eˣ`,
+  `Σ xᵏ/Γ(k+2) = (eˣ−1)/x`, `Σ 1/Γ(k+1) = e`, all matching the factorial spelling and SymPy. Regression:
+  `SUM-EXP-1` (extended). Matches SymPy.
+
 ### LIMIT-GAMMA-GAUSS-1 — slope-k gamma ratios Γ(kx)/… (k ≥ 3) timed out / nan
 - **Problem:** `Γ(3x)/Γ(x)³ → ∞`, `Γ(4x)/Γ(x)⁴ → ∞` ran into the slow gamma-growth fallback (30 s+) and
   returned `nan`. The duplication rule only handled a *doubled* rate `Γ(2x+b)`.

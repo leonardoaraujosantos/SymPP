@@ -1870,6 +1870,21 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     REQUIRE(oracle.equivalent(
         summation(mul({k, pow(x, k), inv_fact}), k, integer(0), oo)->str(),
         "x*exp(x)"));
+    // The Γ(k+1) spelling of the factorial is recognized identically: Σ x^k/Γ(k+1)
+    // = e^x, Σ k·x^k/Γ(k+1) = x·e^x, Σ x^k/Γ(k+2) = (e^x − 1)/x, Σ 1/Γ(k+1) = e.
+    auto inv_g1 = pow(gamma(add(k, integer(1))), integer(-1));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, k), inv_g1), k, integer(0), oo)->str(), "exp(x)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul({k, pow(x, k), inv_g1}), k, integer(0), oo)->str(),
+        "x*exp(x)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, k), pow(gamma(add(k, integer(2))), integer(-1))), k,
+                  integer(0), oo)
+            ->str(),
+        "(exp(x) - 1)/x"));
+    REQUIRE(oracle.equivalent(
+        summation(inv_g1, k, integer(0), oo)->str(), "E"));
     // SUM-EXP-NOLEAK: a non-polynomial numerator factor (cos(k·x), cos(k)) is NOT a
     // degree-0 Poly coefficient — it must not be pulled out, which previously leaked
     // the bound variable as a bogus closed form (Σ cos(k·x)/k! → e·cos(k·x)). The
