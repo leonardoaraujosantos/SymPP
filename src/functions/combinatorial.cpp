@@ -1262,9 +1262,9 @@ Expr LowerGamma::diff_arg(std::size_t i) const {
 }
 
 Expr lowergamma(const Expr& s, const Expr& x) {
-    // γ(s, 0) = 0 for a positive-integer order (and Re(s) > 0 generally).
+    // γ(s, 0) = 0 for any order (SymPy folds this unconditionally).
+    if (x == S::Zero()) return S::Zero();
     if (auto n = small_positive_int(s)) {
-        if (x == S::Zero()) return S::Zero();
         // γ(s, x) = Γ(s) − Γ(s, x). Built directly (not via the uppergamma
         // factory) so the x = +∞ form folds to nan like SymPy, rather than Γ(s).
         return add(gamma(s), mul(S::NegativeOne(), upper_gamma_closed(*n, x)));

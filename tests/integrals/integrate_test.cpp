@@ -16,6 +16,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
@@ -3385,4 +3386,37 @@ TEST_CASE("integrate: ∫log(1+cx²)/x² over [0,oo) (INT-LOG1PX2-1)",
     REQUIRE(integrate(log(integer(2) + pow(x, integer(2))) * invx2, x, zero, oo)
                 ->str()
                 .rfind("Integral(", 0) == 0);
+}
+
+// INT-INCGAMMA-1: ∫ xᵖ·e⁻ˣ dx = γ(p+1, x) for a symbolic exponent (the lower
+// incomplete gamma is the antiderivative). Integer powers keep the elementary
+// by-parts result; the definite [0,a] form folds to γ(s, a).
+TEST_CASE("integrate: ∫x^(s-1)·e^{-x} = lowergamma(s, x) (INT-INCGAMMA-1)",
+          "[7][integrate][incompletegamma][oracle][regression]") {
+    auto x = symbol("x");
+    auto s = symbol("s");
+    auto a = symbol("a");
+    auto emx = exp(mul(S::NegativeOne(), x));
+
+    // Indefinite: symbolic exponent → lower incomplete gamma.
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * emx, x)
+            == lowergamma(s, x));
+    REQUIRE(integrate(pow(x, s) * emx, x) == lowergamma(add(s, integer(1)), x));
+    // Constant coefficient factors through.
+    REQUIRE(integrate(integer(3) * pow(x, a) * emx, x)
+            == mul(integer(3), lowergamma(add(a, integer(1)), x)));
+
+    // The antiderivative differentiates back to the integrand.
+    Expr F = integrate(pow(x, add(s, integer(-1))) * emx, x);
+    REQUIRE(simplify(diff(F, x))
+            == simplify(pow(x, add(s, integer(-1))) * emx));
+
+    // Definite [0, a] folds to γ(s, a) (γ(s, 0) = 0).
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * emx, x, S::Zero(), a)
+            == lowergamma(s, a));
+
+    // No regression: a non-negative integer power stays elementary (no gamma).
+    Expr elem = integrate(pow(x, integer(2)) * emx, x);
+    REQUIRE(elem->str().find("lowergamma") == std::string::npos);
+    REQUIRE(simplify(diff(elem, x)) == simplify(pow(x, integer(2)) * emx));
 }

@@ -540,6 +540,50 @@ struct IntegrateDepthGuard {
     ~IntegrateDepthGuard() { --g_integrate_depth; }
 };
 
+// ∫ x^p·e^{-x} dx = γ(p+1, x) (lower incomplete gamma), for a *symbolic*
+// exponent p. The non-elementary antiderivative of x^p·e^{-x} is exactly the
+// lower incomplete gamma; SymPy returns the same. Restricted to a non-numeric p
+// so a non-negative integer power keeps the elementary by-parts result (no
+// regression) and the singular orders (p a non-positive integer → γ(0,·)) are
+// avoided. A constant intercept b in the exponent (e^{-x+b}) and any var-free
+// coefficient factor out.
+[[nodiscard]] std::optional<Expr> try_powexp_lowergamma(const Expr& expr,
+                                                        const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::optional<Expr> p_exp;      // p in x^p
+    std::optional<Expr> intercept;  // b in exp(-x + b)
+    std::vector<Expr> coeff;
+    for (const auto& f : expr->args()) {
+        if (!p_exp && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && !depends_on(f->args()[1], var) && !is_num(f->args()[1])) {
+            p_exp = f->args()[1];
+            continue;
+        }
+        if (!intercept && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                if (auto aff = as_affine(fn.args()[0], var);
+                    aff && aff->first == S::NegativeOne()) {
+                    intercept = aff->second;  // b
+                    continue;
+                }
+            }
+        }
+        if (depends_on(f, var)) return std::nullopt;  // foreign var factor
+        coeff.push_back(f);
+    }
+    if (!p_exp || !intercept) return std::nullopt;
+    Expr result = lowergamma(add(*p_exp, S::One()), var);
+    if (!(*intercept == S::Zero())) result = mul(exp(*intercept), result);
+    if (!coeff.empty()) result = mul(mul(std::move(coeff)), result);
+    return result;
+}
+
 Expr integrate(const Expr& expr, const Expr& var) {
     if (!expr || !var) return S::Zero();
 
@@ -657,6 +701,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_gaussian(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_powexp_lowergamma(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {

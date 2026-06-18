@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-INCGAMMA-1 — ∫xˢ⁻¹e⁻ˣ with a symbolic exponent left unevaluated
+- **Problem:** `∫ x^(s-1)·e^(-x) dx` (symbolic exponent) returned an unevaluated `Integral` marker —
+  integration by parts only terminates for a non-negative integer power. SymPy returns the lower incomplete
+  gamma `γ(s, x)` (printed as `s·Γ(s)·γ(s,x)/Γ(s+1)`, which equals `γ(s,x)`).
+- **Fix:** added `try_powexp_lowergamma`, a recognizer for `c·x^p·e^(-x+b)` with a **non-numeric** exponent
+  `p`. It returns `c·e^b·γ(p+1, x)`, the exact non-elementary antiderivative (it differentiates back to the
+  integrand). Restricted to a symbolic `p` so a non-negative integer power keeps its elementary by-parts
+  result (no regression) and the singular orders (`p` a non-positive integer → `γ(0,·)`) are avoided. Builds
+  on `FUNC-INCGAMMA-1`. Now `∫x^(s-1)e^(-x) = γ(s,x)`, `∫x^s e^(-x) = γ(s+1,x)`, and the definite
+  `∫₀^a x^(s-1)e^(-x) = γ(s,a)` (using the generalized fold `γ(s,0)=0`). Regression: `INT-INCGAMMA-1`.
+  Matches SymPy.
+- **Follow-up:** the Gamma integral `∫₀^∞ x^(s-1)e^(-x) = Γ(s)` is still a marker — SymPy reaches it via a
+  Meijer-G definite path (it deliberately keeps `γ(s,∞)` symbolic), so it needs a dedicated definite rule.
+
 ### FUNC-INCGAMMA-1 — no lowergamma/uppergamma function classes
 - **Problem:** SymPP had no incomplete gamma functions. `lowergamma(s,x)` and `uppergamma(s,x)` could not be
   built, parsed, evaluated, or differentiated — they are the natural closed form of `∫xⁿe⁻ˣ` definite
