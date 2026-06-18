@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-SIGN-1 — exp-nonzero and sinh/tanh sign propagation were Unknown
+- **Problem:** `is_zero(exp(x))` returned Unknown (exp is never zero), and the odd, strictly-increasing
+  hyperbolics did not propagate the argument's sign: `is_positive(sinh(p))` for `p > 0` was Unknown, as
+  were `sinh(negative) < 0`, `tanh(positive) > 0`, etc. SymPy answers these (`exp(x).is_zero = False`,
+  `sinh(p).is_positive = True`).
+- **Fix:** added `case Zero → false` to `Exp::ask` (a surviving Exp node has a finite argument; `exp(−∞)`
+  folds to 0 in the factory). Added `ask_odd_real_sign`, wired into `Sinh::ask` and `Tanh::ask`: since
+  both are odd and strictly increasing on ℝ they preserve the sign — `f(x) > 0 ⇔ x > 0`, `f(x) = 0 ⇔
+  x = 0` — so Positive/Negative/Zero/Nonzero delegate to the argument, while Real/Finite carry over as
+  before. Imaginary or unknown-sign real arguments stay Unknown (`sinh(iy)` can be 0), and `cosh` is
+  unchanged. Matches SymPy.
+
 ### SIGN-IDEMPOTENT-1 — sign(sign(x)) did not collapse
 - **Problem:** `sign(sign(x))` was left unevaluated. SymPy folds it to `sign(x)` — `sign` is
   idempotent, since `sign(z)` already lies in `{−1, 0, 1}` (real `z`) or on the unit circle (complex

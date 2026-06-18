@@ -26,6 +26,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -1052,4 +1053,49 @@ TEST_CASE("Pow: algebraic of rational power (ALGCLOSURE-POW-1)",
 
     // Composition: (1 + sqrt(2))^3 is algebraic via Add-closure then Pow.
     REQUIRE(is_algebraic(pow(integer(1) + sqrt(integer(2)), integer(3))) == T);
+}
+
+// FUNC-SIGN-1: exp is never zero, and the odd strictly-increasing hyperbolics
+// sinh/tanh preserve the argument's sign. Previously these were Unknown. Matches
+// SymPy (exp(x).is_zero == False, sinh(p>0).is_positive == True, …).
+TEST_CASE("AssumptionMask: exp-nonzero and hyperbolic sign propagation (FUNC-SIGN-1)",
+          "[2a][assumptions]") {
+    using sympp::is_negative;
+    using sympp::is_nonzero;
+    using sympp::is_positive;
+    using sympp::is_real;
+    using sympp::is_zero;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto n = symbol("n", AssumptionMask{}.set_negative(true));
+    auto nz = symbol("nz", AssumptionMask{}.set_real(true).set_nonzero(true));
+    auto im = symbol("im", AssumptionMask{}.set_imaginary(true));
+    auto x = symbol("x");
+
+    // exp is never zero, for any argument.
+    REQUIRE(is_zero(exp(x)) == F);
+    REQUIRE(is_zero(exp(im)) == F);
+    REQUIRE(is_nonzero(exp(p)) == T);  // finite real ⇒ nonzero
+
+    // sinh / tanh preserve sign.
+    REQUIRE(is_positive(sinh(p)) == T);
+    REQUIRE(is_negative(sinh(n)) == T);
+    REQUIRE(is_positive(tanh(p)) == T);
+    REQUIRE(is_negative(tanh(n)) == T);
+    REQUIRE(is_nonzero(sinh(nz)) == T);
+    REQUIRE(is_nonzero(tanh(nz)) == T);
+    // Derived nonnegative/nonpositive follow.
+    REQUIRE(is_nonnegative(tanh(p)) == T);
+    REQUIRE(is_nonpositive(sinh(n)) == T);
+
+    // No over-reach: a real argument of unknown sign, or an imaginary argument,
+    // leaves the sign / zero Unknown; reality of the result still holds for real.
+    REQUIRE(is_positive(sinh(symbol("r", AssumptionMask{}.set_real(true)))) == U);
+    REQUIRE(is_zero(sinh(symbol("r2", AssumptionMask{}.set_real(true)))) == U);
+    REQUIRE(is_positive(sinh(im)) == U);
+    REQUIRE(is_real(sinh(p)) == T);
+    REQUIRE(is_positive(cosh(symbol("rc", AssumptionMask{}.set_real(true))))
+            == T);  // cosh unchanged
 }

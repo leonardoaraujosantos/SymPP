@@ -122,6 +122,40 @@ namespace {
     }
 }
 
+// sinh and tanh are odd and strictly increasing on ℝ, so they preserve the
+// argument's sign: f(x) > 0 ⇔ x > 0, f(x) = 0 ⇔ x = 0. Real/Finite carry over as
+// before; the sign queries delegate to the argument (a positive argument is
+// already real, so no extra reality check is needed there).
+[[nodiscard]] std::optional<bool> ask_odd_real_sign(const Expr& arg,
+                                                    AssumptionKey k) noexcept {
+    switch (k) {
+        case AssumptionKey::Positive:
+            if (is_positive(arg) == true) return true;
+            if (is_real(arg) == true
+                && (is_negative(arg) == true || is_zero(arg) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            if (is_negative(arg) == true) return true;
+            if (is_real(arg) == true
+                && (is_positive(arg) == true || is_zero(arg) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Zero:
+            if (is_zero(arg) == true) return true;
+            if (is_real(arg) == true && is_nonzero(arg) == true) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (is_real(arg) == true && is_nonzero(arg) == true) return true;
+            if (is_zero(arg) == true) return false;
+            return std::nullopt;
+        default:
+            return ask_real_finite_for_real_arg(arg, k);
+    }
+}
+
 // True if `e` still contains a bare application of inverse function `id` (the
 // underlying factory left it unevaluated, possibly under a leading −1). Drives
 // the acoth/asech/acsch factories — fold to the computed value when the inner
@@ -149,7 +183,7 @@ Sinh::Sinh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 }
 Expr Sinh::rebuild(std::vector<Expr> new_args) const { return sinh(new_args[0]); }
 std::optional<bool> Sinh::ask(AssumptionKey k) const noexcept {
-    return ask_real_finite_for_real_arg(args_[0], k);
+    return ask_odd_real_sign(args_[0], k);
 }
 
 // ----- Cosh ------------------------------------------------------------------
@@ -188,7 +222,7 @@ Tanh::Tanh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 }
 Expr Tanh::rebuild(std::vector<Expr> new_args) const { return tanh(new_args[0]); }
 std::optional<bool> Tanh::ask(AssumptionKey k) const noexcept {
-    return ask_real_finite_for_real_arg(args_[0], k);
+    return ask_odd_real_sign(args_[0], k);
 }
 
 // ----- Coth / Sech / Csch ----------------------------------------------------
