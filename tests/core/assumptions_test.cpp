@@ -14,6 +14,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/assumption_context.hpp>
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
@@ -502,6 +503,51 @@ TEST_CASE("refine: matches SymPy on assumption-gated rewrite",
     auto b = symbol("b");
     auto r = refine(pow(pow(x, a), b));
     REQUIRE(oracle.equivalent(r->str(), "x**(a*b)"));
+}
+
+// ASSUMING-CONTEXT-1: a scoped `assuming(...)` context augments ask() globally —
+// the fact derives related predicates, propagates through queries, unlocks
+// refine, and retracts at scope exit. Mirrors SymPy's `assuming(Q...(x))`.
+TEST_CASE("assuming: scoped relational facts drive ask and refine (ASSUMING-CONTEXT-1)",
+          "[2c][refine][assuming][oracle]") {
+    auto x = symbol("x");  // no built-in assumptions
+
+    // Outside any scope the symbol is unconstrained.
+    REQUIRE(!is_positive(x).has_value());
+    REQUIRE(refine(abs(x)) == abs(x));
+    REQUIRE(refine(sqrt(pow(x, integer(2)))) == sqrt(pow(x, integer(2))));
+
+    {
+        assuming pos(x, AssumptionMask{}.set_positive(true));
+        // The fact and its consequences are visible.
+        REQUIRE(is_positive(x) == true);
+        REQUIRE(is_real(x) == true);      // positive ⇒ real
+        REQUIRE(is_nonzero(x) == true);   // positive ⇒ nonzero
+        // refine is unlocked: |x| → x, √(x²) → x.
+        REQUIRE(refine(abs(x)) == x);
+        REQUIRE(refine(sqrt(pow(x, integer(2)))) == x);
+    }
+
+    // Retracted at scope exit.
+    REQUIRE(!is_positive(x).has_value());
+    REQUIRE(refine(abs(x)) == abs(x));
+
+    // A negative scope flips the abs sign (matches SymPy refine(Abs(x),Q.negative)).
+    {
+        assuming neg(x, AssumptionMask{}.set_negative(true));
+        REQUIRE(refine(abs(x)) == mul(S::NegativeOne(), x));
+        REQUIRE(is_real(x) == true);
+    }
+
+    // Scopes nest and apply to independent symbols.
+    auto y = symbol("y");
+    {
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        assuming ny(y, AssumptionMask{}.set_negative(true));
+        REQUIRE(refine(abs(x)) == x);
+        REQUIRE(refine(abs(y)) == mul(S::NegativeOne(), y));
+    }
+    REQUIRE(!is_positive(x).has_value());
 }
 
 // ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.

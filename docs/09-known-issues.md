@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### ASSUMING-CONTEXT-1 — no scoped (`assuming`) assumption context
+- **Problem:** assumptions could only be attached to a symbol at construction; there was no way to assert a
+  fact about an existing symbol for a region of code, as SymPy's `with assuming(Q.positive(x)): …` does. So
+  `refine` could never use a relational fact supplied at the call site (`refine(Abs(x), Q.positive(x))`).
+- **Fix:** added a thread-local `assuming` RAII context (`assumption_context.{hpp,cpp}`). Constructing
+  `assuming(x, AssumptionMask{}.set_positive(true))` pushes a closed fact frame for `x`; the central query
+  `ask(e, k)` consults the active scopes (innermost first) inside `direct()`, so a scoped fact overrides the
+  symbol's own mask **and feeds the full implication chain** — `x>0` then answers `real`, `nonzero`,
+  `nonnegative`, etc., and propagates through `Add`/`Mul`. Because every engine (refine, limits, integration)
+  routes through `ask`, they all respect the scope; it retracts at scope exit, and the lookup is skipped
+  entirely when no scope is active (near-zero overhead). Also added `refine_abs`: `|g| → g` when `g ≥ 0`,
+  `−g` when `g ≤ 0`. Together this unlocks `refine(√(x²)) → x`, `refine(|x|) → x` (and `→ −x` under a negative
+  scope), matching SymPy. Scopes nest and apply to independent symbols. Regression: `ASSUMING-CONTEXT-1`.
+  Priority-3 increment (relational assumptions + a minimal `assuming` context).
+
 ### LIMIT-LOG-EXP-REDUCTION-1 — nested-transcendental ratios returned nan
 - **Problem:** `limit(log(x)/exp(√(log x·log log x)), x, ∞)` returned `nan` (SymPy gives `0`). The heuristic
   growth ranking compares a fixed hierarchy (gamma ≫ exp ≫ poly ≫ log) but cannot rank a nested form like

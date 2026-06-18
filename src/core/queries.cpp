@@ -4,6 +4,7 @@
 
 #include <gmpxx.h>
 
+#include <sympp/core/assumption_context.hpp>
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/integer.hpp>
@@ -14,8 +15,13 @@ namespace sympp {
 namespace {
 
 // Convenience: ask the underlying node directly (no implication-chasing) so
-// we don't loop through this very function while computing derivations.
+// we don't loop through this very function while computing derivations. An
+// active `assuming` scope takes precedence, so a scoped fact (e.g. x > 0)
+// overrides the symbol's own mask and feeds the implication chain below.
 [[nodiscard]] inline std::optional<bool> direct(const Expr& e, AssumptionKey k) noexcept {
+    if (assumption_context_active()) {
+        if (auto v = assumption_context_get(e, k); v.has_value()) return v;
+    }
     return e ? e->ask(k) : std::nullopt;
 }
 

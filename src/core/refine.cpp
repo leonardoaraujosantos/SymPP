@@ -7,9 +7,11 @@
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/function.hpp>
+#include <sympp/core/function_id.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 
 namespace sympp {
@@ -41,6 +43,15 @@ namespace {
     return pow(inner_base, mul(inner_exp, exp));
 }
 
+// |g| → g when g is known nonnegative, −g when g is known nonpositive. The sign
+// facts usually come from an active `assuming` scope (refine(Abs(x)) is x under
+// Q.positive(x), −x under Q.negative(x)). Mirrors SymPy's refine_abs.
+[[nodiscard]] Expr refine_abs(const Expr& original, const Expr& arg) {
+    if (is_nonnegative(arg) == true) return arg;
+    if (is_nonpositive(arg) == true) return mul(S::NegativeOne(), arg);
+    return original;
+}
+
 [[nodiscard]] Expr rebuild_with_args(const Expr& original, std::vector<Expr> new_args) {
     switch (original->type_id()) {
         case TypeId::Add:
@@ -51,6 +62,10 @@ namespace {
             return refine_pow(new_args[0], new_args[1]);
         case TypeId::Function: {
             const auto& f = static_cast<const Function&>(*original);
+            if (f.function_id() == FunctionId::Abs && new_args.size() == 1) {
+                return refine_abs(f.rebuild(std::vector<Expr>{new_args[0]}),
+                                  new_args[0]);
+            }
             return f.rebuild(std::move(new_args));
         }
         default:
@@ -75,9 +90,16 @@ Expr refine(const Expr& e) {
     }
 
     // Even if the children didn't change, this node might still simplify
-    // (e.g. a Pow whose inner base just *is* positive at the leaf level).
+    // (e.g. a Pow whose inner base just *is* positive at the leaf level, or an
+    // Abs whose argument has a known sign from an `assuming` scope).
     if (e->type_id() == TypeId::Pow) {
         return refine_pow(new_args[0], new_args[1]);
+    }
+    if (e->type_id() == TypeId::Function) {
+        const auto& f = static_cast<const Function&>(*e);
+        if (f.function_id() == FunctionId::Abs && new_args.size() == 1) {
+            return refine_abs(e, new_args[0]);
+        }
     }
     if (!any_changed) return e;
     return rebuild_with_args(e, std::move(new_args));
