@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-HARMONIC-1 — harmonic-number limits returned nan or a wrong 0
+- **Problem:** `H(n)` (the harmonic number) was opaque to the limit engine — `H(∞)` did not fold, so
+  `limit(H(n), n, ∞)` returned `nan` and, worse, `H(n)/log n` returned `0` instead of `1` (the engine treated
+  `H(∞)` as bounded over a diverging `log n`). SymPy gives `∞`, `1`, `γ`, `1/2` for the standard cases.
+- **Fix:** added `rewrite_harmonic_asymptotic`, a limit preprocessing step at `+∞`: every `H(g)` whose
+  argument `g` **provably diverges** is replaced by its asymptotic expansion
+  `H(g) ~ log g + γ + 1/(2g) − 1/(12g²)`. Four terms cover the usual limits — `H(n) → ∞`, `H(n)/log n → 1`,
+  `H(n) − log n → γ`, `n·(H(n) − log n − γ) → 1/2` — and the divergence gate leaves a finite-argument
+  harmonic (`H(5) = 137/60`) untouched. Regression: `LIMIT-HARMONIC-1`. Matches SymPy.
+- **Note:** `H(2n) − H(n) → log 2` still returns `nan` — the `log(2n) − log(n)` difference is not combined
+  when buried in a sum with vanishing `1/n` terms; a separate log-difference-in-sums limitation.
+
 ### BINOM-GEN-1 — generalized binomial C(n,k) for non-integer/negative n left unevaluated
 - **Problem:** `binomial(1/2, 3)`, `binomial(-1, 2)`, `binomial(7/2, 2)` stayed unevaluated. The factory only
   evaluated a non-negative-integer pair (via `mpz_bin_uiui`); SymPy evaluates the generalized binomial for any

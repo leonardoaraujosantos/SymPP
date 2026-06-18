@@ -2679,6 +2679,30 @@ TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
     REQUIRE(limit(gamma(x), x, oo) == oo);
 }
 
+// LIMIT-HARMONIC-1: a harmonic number H(n) with a diverging argument expands to
+// its asymptotic log n + γ + 1/(2n) − 1/(12n²). H(n) was opaque to the limit
+// machinery — H(n)/log n returned a wrong 0 and H(n) returned nan.
+TEST_CASE("limit: harmonic number asymptotics (LIMIT-HARMONIC-1)",
+          "[6][limit][infinity][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+
+    REQUIRE(limit(harmonic(n), n, oo) == oo);                         // H(n) → ∞
+    REQUIRE(simplify(limit(harmonic(n) * pow(log(n), integer(-1)), n, oo))
+            == S::One());                                            // H(n)/log n → 1
+    REQUIRE(simplify(limit(add(harmonic(n), mul(S::NegativeOne(), log(n))), n, oo))
+            == S::EulerGamma());                                     // H(n) − log n → γ
+    // n·(H(n) − log n − γ) → 1/2 (needs the 1/(2n) correction term).
+    REQUIRE(simplify(limit(
+                mul(n, add(harmonic(n),
+                           add(mul(S::NegativeOne(), log(n)),
+                               mul(S::NegativeOne(), S::EulerGamma())))),
+                n, oo))
+            == S::Half());
+    // A finite-argument harmonic is untouched (no spurious asymptotic).
+    REQUIRE(harmonic(integer(5)) == rational(137, 60));
+}
+
 // LIMIT-GAMMA-DUP-1: Legendre duplication splits a doubled-rate Γ(2x+b) into
 // slope-1 gammas plus a 4ˣ, which the gamma-ratio asymptotic's exponential-rate
 // branch then resolves: the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0,

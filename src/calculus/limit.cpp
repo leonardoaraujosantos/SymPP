@@ -2028,6 +2028,43 @@ struct Growth {
     return std::nullopt;
 }
 
+// Replace every harmonic number H(g) whose argument g → +∞ by its asymptotic
+// expansion H(g) ~ log g + γ + 1/(2g) − 1/(12g²). The harmonic number is opaque
+// to the limit machinery (H(∞) does not fold), which left H(n)/log n → 0 (wrong)
+// and H(n) → nan. Four terms suffice for the usual limits — H(n) → ∞,
+// H(n)/log n → 1, H(n) − log n → γ, n·(H(n) − log n − γ) → 1/2 — and the
+// substitution is gated on g provably diverging, so a finite-argument harmonic is
+// untouched.
+[[nodiscard]] std::optional<Expr> rewrite_harmonic_asymptotic(const Expr& expr,
+                                                              const Expr& var,
+                                                              const Expr& target,
+                                                              int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.function_id() == FunctionId::Harmonic && fn.args().size() == 1
+                && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(
+                        e, add({log(g), S::EulerGamma(),
+                                mul(rational(1, 2), pow(g, integer(-1))),
+                                mul(rational(-1, 12), pow(g, integer(-2)))}));
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    return limit_impl(xreplace(expr, m), var, target, depth + 1);
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -2036,6 +2073,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     if (depth < 12) {
         Expr rw = rewrite_reciprocal_trig(expr);
         if (!(rw == expr)) return limit_impl(rw, var, target, depth + 1);
+    }
+    // Harmonic numbers H(g), g → +∞, expand to log g + γ + 1/(2g) − …; opaque
+    // otherwise (H(n)/log n → 0 wrong, H(n) → nan).
+    if (auto v = rewrite_harmonic_asymptotic(expr, var, target, depth)) {
+        return *v;
     }
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve
     // it from the one-sided signs rather than the point value sign(0)=0.
