@@ -17,6 +17,8 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <cmath>
+
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/simplify/simplify.hpp>
 #include <sympp/parsing/parser.hpp>
@@ -727,4 +729,40 @@ TEST_CASE("incomplete gamma: closed forms, derivatives, round-trip (FUNC-INCGAMM
     auto xr = symbol("xr", AssumptionMask{}.set_real(true));
     REQUIRE(is_real(uppergamma(sr, xr)) == true);
     REQUIRE(is_real(lowergamma(sr, xr)) == true);
+}
+
+// FUNC-INCGAMMA-HALF-1: half-integer orders reduce to erf/erfc closed forms via
+// the recurrence V(s+1) = s·V(s) ± x^s·e^{-x}, up and down from the base
+// Γ(1/2,x)=√π·erfc(√x), γ(1/2,x)=√π·erf(√x). Matches SymPy.
+TEST_CASE("incomplete gamma: half-integer erf/erfc forms (FUNC-INCGAMMA-HALF-1)",
+          "[3i][incompletegamma][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+
+    // Base order 1/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(1, 2), x)->str(),
+                              "sqrt(pi)*erfc(sqrt(x))"));
+    REQUIRE(oracle.equivalent(lowergamma(rational(1, 2), x)->str(),
+                              "sqrt(pi)*erf(sqrt(x))"));
+    // Climb: 3/2 and 5/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(3, 2), x)->str(),
+                              "sqrt(pi)*erfc(sqrt(x))/2 + sqrt(x)*exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(rational(3, 2), x)->str(),
+                              "sqrt(pi)*erf(sqrt(x))/2 - sqrt(x)*exp(-x)"));
+    REQUIRE(oracle.equivalent(
+        uppergamma(rational(5, 2), x)->str(),
+        "3*sqrt(pi)*erfc(sqrt(x))/4 + x**(3/2)*exp(-x) + 3*sqrt(x)*exp(-x)/2"));
+    // Descend: −1/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(-1, 2), x)->str(),
+                              "-2*sqrt(pi)*erfc(sqrt(x)) + 2*exp(-x)/sqrt(x)"));
+
+    // γ + Γ = Γ(s); Γ(3/2) = √π/2. (SymPy's simplify won't fold erf+erfc=1, so
+    // verify the identity numerically at a sample point instead.)
+    Expr sum = add(uppergamma(rational(3, 2), x), lowergamma(rational(3, 2), x));
+    Expr diff = subs(sum, x, integer(2)) - gamma(rational(3, 2));
+    REQUIRE(std::fabs(std::stod(evalf(diff, 30)->str())) < 1e-15);
+
+    // Γ(1/2, 0) = Γ(1/2) = √π.
+    REQUIRE(oracle.equivalent(uppergamma(rational(1, 2), integer(0))->str(),
+                              "sqrt(pi)"));
 }

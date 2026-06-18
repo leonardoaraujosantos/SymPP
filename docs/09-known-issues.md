@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-INCGAMMA-HALF-1 — incomplete gamma stayed symbolic at half-integer orders
+- **Problem:** `uppergamma(1/2, x)` / `lowergamma(1/2, x)` (and other half-integer orders) stayed as
+  unevaluated function nodes. SymPy reduces them to error-function closed forms: `Γ(1/2,x)=√π·erfc(√x)`,
+  `γ(1/2,x)=√π·erf(√x)`, with higher/lower orders following from the recurrence.
+- **Fix:** added `half_integer_incgamma`, wired into both factories. From the base values
+  `Γ(1/2,x)=√π·erfc(√x)` and `γ(1/2,x)=√π·erf(√x)` it walks the recurrence `V(s+1)=s·V(s) ± x^s·e^{-x}`
+  (`+` for the upper `Γ`, `−` for the lower `γ`) up or down to any half-integer order, with a bounded step
+  count. Gives `Γ(3/2,x)=√π·erfc(√x)/2 + √x·e^{-x}`, `Γ(5/2,x)=3√π·erfc(√x)/4 + x^(3/2)e^{-x} + 3√x·e^{-x}/2`,
+  `Γ(−1/2,x)=−2√π·erfc(√x) + 2e^{-x}/√x`, and the matching `γ` forms — each verified equal to SymPy.
+  Builds on `FUNC-INCGAMMA-1`. Regression: `FUNC-INCGAMMA-HALF-1`. Matches SymPy.
+
 ### LIMIT-POW-CONTINUITY-1 — √(non-rational vanishing base) returned nan
 - **Problem:** `limit(sqrt(log(log x)/log x), x, ∞)` returned `nan` even though the base `log(log x)/log x → 0`.
   The limit engine applies continuity for `log`, `exp`, and `atan`, but not for a power with a constant

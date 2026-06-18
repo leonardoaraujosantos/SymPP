@@ -1234,6 +1234,42 @@ namespace {
     if (n > 1000) return std::nullopt;
     return n;
 }
+
+// Closed form of the incomplete gamma at a half-integer order s = (2k+1)/2,
+// expressed through erf/erfc. From the base values
+//   Γ(1/2, x) = √π·erfc(√x),   γ(1/2, x) = √π·erf(√x)
+// the recurrence V(s+1) = s·V(s) ± x^s·e^{-x} (+ for the upper Γ, − for the lower
+// γ) walks to any half-integer order, up or down. Returns nullopt for a
+// non-half-integer order or one too far from 1/2 (bounded so the expression stays
+// finite). Mirrors SymPy's erf-based half-integer forms.
+[[nodiscard]] std::optional<Expr> half_integer_incgamma(const Expr& s,
+                                                        const Expr& x,
+                                                        bool upper) {
+    if (s->type_id() != TypeId::Rational) return std::nullopt;
+    const auto& q = static_cast<const Rational&>(*s);
+    if (q.denominator() != 2) return std::nullopt;
+    const mpz_class& num = q.numerator();  // odd
+    if (num < -201 || num > 201) return std::nullopt;
+    const mpz_class kz = (num - 1) / 2;  // s = (2k+1)/2
+    const long k = kz.get_si();
+    const Expr sgn = upper ? S::One() : S::NegativeOne();
+    const Expr emx = exp(mul(S::NegativeOne(), x));
+    Expr V = mul(sqrt(S::Pi()), upper ? erfc(sqrt(x)) : erf(sqrt(x)));  // V(1/2)
+    mpq_class sc(1, 2);
+    for (long i = 0; i < k; ++i) {  // climb: V(sc+1) = sc·V(sc) + sgn·x^sc·e^{-x}
+        Expr scE = rational(sc.get_num(), sc.get_den());
+        V = add(mul(scE, V), mul(sgn, mul(pow(x, scE), emx)));
+        sc += 1;
+    }
+    for (long i = 0; i < -k; ++i) {  // descend: V(sc−1) = (V(sc) − sgn·x^{sc−1}·e^{-x})/(sc−1)
+        mpq_class sm1 = sc - 1;
+        Expr sm1E = rational(sm1.get_num(), sm1.get_den());
+        V = mul(add(V, mul(S::NegativeOne(), mul(sgn, mul(pow(x, sm1E), emx)))),
+                pow(sm1E, S::NegativeOne()));
+        sc = sm1;
+    }
+    return V;
+}
 }  // namespace
 
 LowerGamma::LowerGamma(Expr s, Expr x)
@@ -1269,6 +1305,7 @@ Expr lowergamma(const Expr& s, const Expr& x) {
         // factory) so the x = +∞ form folds to nan like SymPy, rather than Γ(s).
         return add(gamma(s), mul(S::NegativeOne(), upper_gamma_closed(*n, x)));
     }
+    if (auto h = half_integer_incgamma(s, x, /*upper=*/false)) return *h;
     return make<LowerGamma>(s, x);
 }
 
@@ -1304,6 +1341,7 @@ Expr uppergamma(const Expr& s, const Expr& x) {
         if (x == S::Zero()) return gamma(s);
         return upper_gamma_closed(*n, x);
     }
+    if (auto h = half_integer_incgamma(s, x, /*upper=*/true)) return *h;
     return make<UpperGamma>(s, x);
 }
 
