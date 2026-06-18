@@ -550,6 +550,41 @@ TEST_CASE("assuming: scoped relational facts drive ask and refine (ASSUMING-CONT
     REQUIRE(!is_positive(x).has_value());
 }
 
+// REFINE-SQRT-SQUARE-1: √(g²) → |g| for a real/imaginary base (the principal
+// root of a square is the absolute value, not g). A known sign then collapses it
+// to ±g. SymPy leaves it as √(g²) without a real assumption, and does not
+// generalize to other even roots like (x⁴)^(1/4).
+TEST_CASE("refine: sqrt(x^2) -> |x| gated on reality (REFINE-SQRT-SQUARE-1)",
+          "[2c][refine][assuming][oracle]") {
+    auto& oracle = sympp::testing::Oracle::instance();
+    auto x = symbol("x");
+    Expr sx2 = sqrt(pow(x, integer(2)));
+
+    // No reality fact → unchanged (matches SymPy).
+    REQUIRE(refine(sx2) == sx2);
+
+    {
+        assuming re(x, AssumptionMask{}.set_real(true));
+        REQUIRE(refine(sx2) == abs(x));  // → |x|
+        // The general even root is not rewritten (matches SymPy).
+        Expr q4 = pow(pow(x, integer(4)), rational(1, 4));
+        REQUIRE(refine(q4) == q4);
+    }
+    {
+        assuming neg(x, AssumptionMask{}.set_negative(true));
+        REQUIRE(refine(sx2) == mul(S::NegativeOne(), x));  // → -x
+    }
+    {
+        assuming pos(x, AssumptionMask{}.set_positive(true));
+        REQUIRE(refine(sx2) == x);  // → x
+    }
+    // Oracle cross-check of the real-assumption form.
+    {
+        assuming re(x, AssumptionMask{}.set_real(true));
+        REQUIRE(oracle.equivalent(refine(sx2)->str(), "Abs(x)"));
+    }
+}
+
 // ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.
 // imaginary ⇒ complex ∧ ¬real ∧ finite; I·(real≠0) is imaginary; I·I and
 // imaginary² are real; sums of imaginaries are imaginary. Matches SymPy.

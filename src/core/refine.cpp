@@ -11,12 +11,16 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/miscellaneous.hpp>
 
 namespace sympp {
 
 namespace {
+
+[[nodiscard]] Expr refine_abs(const Expr& original, const Expr& arg);
 
 // (x^a)^b → x^(a*b) when valid given current assumptions on x.
 [[nodiscard]] Expr refine_pow(const Expr& base, const Expr& exp) {
@@ -38,9 +42,17 @@ namespace {
     } else if (is_integer(inner_exp) == true && is_integer(exp) == true) {
         ok = true;
     }
-    if (!ok) return pow(base, exp);
+    if (ok) return pow(inner_base, mul(inner_exp, exp));
 
-    return pow(inner_base, mul(inner_exp, exp));
+    // √(g²) → |g| for a real (or imaginary) base whose sign is not yet known —
+    // the principal square root of a square is the absolute value, not g. A
+    // known sign then collapses |g| to ±g via refine_abs. Matches SymPy, which
+    // leaves it as √(g²) without a real assumption.
+    if (inner_exp == integer(2) && exp == rational(1, 2)
+        && (is_real(inner_base) == true || is_imaginary(inner_base) == true)) {
+        return refine_abs(abs(inner_base), inner_base);
+    }
+    return pow(base, exp);
 }
 
 // |g| → g when g is known nonnegative, −g when g is known nonpositive. The sign

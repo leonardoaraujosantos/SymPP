@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### REFINE-SQRT-SQUARE-1 — refine(√(x²)) did not reduce under sign/reality facts
+- **Problem:** `refine(√(x²))` was left unchanged even when `x` was known real or negative. SymPy reduces it
+  to `Abs(x)` under a real assumption and to `-x` under `Q.negative(x)` (and `x` under `Q.positive(x)`).
+- **Fix:** extended `refine_pow` with the principal-root identity `√(g²) = |g|` (the square root of a square is
+  the absolute value, not `g`), gated on `g` being real or imaginary so it stays `√(g²)` without a reality
+  fact — exactly as SymPy does. The resulting `|g|` is immediately collapsed by `refine_abs` (from
+  `ASSUMING-CONTEXT-1`): `→ x` for a positive base, `→ −x` for a negative one, `Abs(g)` when only reality is
+  known. Deliberately does **not** generalize to other even roots like `(x⁴)^(1/4)`, matching SymPy. Builds on
+  the `assuming` context. Regression: `REFINE-SQRT-SQUARE-1`. Matches SymPy.
+
 ### ASSUMING-CONTEXT-1 — no scoped (`assuming`) assumption context
 - **Problem:** assumptions could only be attached to a symbol at construction; there was no way to assert a
   fact about an existing symbol for a region of code, as SymPy's `with assuming(Q.positive(x)): …` does. So
