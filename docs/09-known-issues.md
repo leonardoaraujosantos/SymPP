@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-CALLBUDGET-1 — integrating a transcendental over a reducible quadratic hung
+- **Problem:** `integrate(log(x)/(x²−1), x)` (and `log(x)/(x²−4)`, `atan(x)/(x²−1)`, …) **hung** —
+  any transcendental (log/atan) over a *factorable* quadratic. The integrand is non-elementary, but
+  the partial-fraction split feeds `log(x)/(x±1)` pieces into integration-by-parts, which ping-pongs
+  between `log(x)/(x−a)` and `log(x−a)/x` forever. The existing depth guard (64) bounds *linear*
+  recursion (e.g. the cyclic `∫eˣ·sin x`) but not this *exponential* call-count blow-up, so the call
+  ran out of time rather than overflowing the stack. Irreducible quadratics (`x²+1`), linear denoms,
+  and `exp` numerators were unaffected.
+- **Fix:** added a per-top-level **call-count budget** (`kMaxIntegrateCalls`) on `integrate()`,
+  alongside the depth guard. It bounds the total number of `integrate()` invocations whatever the
+  branch shape; on exhaustion the call bails to a clean unevaluated `Integral` marker. The cap (1000)
+  is ~6× the high-water mark measured across the entire test suite (159), so no legitimately solvable
+  integral trips it — verified by instrumenting the full suite. Pathological integrands now terminate
+  with a marker in bounded time instead of hanging; ordinary closed-form integrals are unchanged.
+
 ### INT-LOG-QUADRATIC-1 — ∫₀^∞ log(x)/(x²+A) was left unevaluated
 - **Problem:** `∫₀^∞ log(x)/(x²+1) dx` (= **0**) and the family `∫₀^∞ log(x)/(x²+A) dx` were returned
   as unevaluated `Integral` markers. The antiderivative is non-elementary (dilogarithms), so

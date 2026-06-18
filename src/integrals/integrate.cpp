@@ -522,6 +522,19 @@ namespace {
 constexpr int kMaxIntegrateDepth = 64;
 thread_local int g_integrate_depth = 0;
 
+// Total-work budget per top-level integrate() call. The depth guard alone bounds
+// *linear* recursion (the cyclic ∫eˣ·sin x reappears at depth, not width), but
+// partial-fraction × by-parts branching is *exponential*: a non-elementary
+// integrand like log(x)/(x²−4) splits into pieces that each split again, and the
+// by-parts ping-pong between log(x)/(x−a) and log(x−a)/x never terminates, so the
+// cumulative call count explodes long before depth 64 — it hangs rather than
+// overflows. Capping the total number of integrate() invocations bounds the work
+// whatever the branch shape; on exhaustion we bail to the unevaluated marker. The
+// cap is ~6× the high-water mark observed across the whole test suite (159), so it
+// never trips a legitimately solvable integral.
+constexpr int kMaxIntegrateCalls = 1000;
+thread_local int g_integrate_calls = 0;
+
 struct IntegrateDepthGuard {
     IntegrateDepthGuard() { ++g_integrate_depth; }
     ~IntegrateDepthGuard() { --g_integrate_depth; }
@@ -530,7 +543,9 @@ struct IntegrateDepthGuard {
 Expr integrate(const Expr& expr, const Expr& var) {
     if (!expr || !var) return S::Zero();
 
-    if (g_integrate_depth >= kMaxIntegrateDepth) {
+    if (g_integrate_depth == 0) g_integrate_calls = 0;  // reset at the top level
+    if (g_integrate_depth >= kMaxIntegrateDepth
+        || ++g_integrate_calls > kMaxIntegrateCalls) {
         return function_symbol("Integral")(expr, var);
     }
     IntegrateDepthGuard depth_guard;

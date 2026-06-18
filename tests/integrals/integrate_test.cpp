@@ -3282,3 +3282,30 @@ TEST_CASE("integrate: ∫log(x)/(x²+A) over [0,∞) (INT-LOG-QUADRATIC-1)",
                 ->str()
                 .rfind("Integral(", 0) == 0);
 }
+
+// INT-CALLBUDGET-1: a non-elementary integrand whose partial-fraction × by-parts
+// expansion branches without terminating — log(x)/(x²−1) splits into log(x)/(x±1)
+// pieces that by-parts ping-pongs between log(x)/(x−a) and log(x−a)/x forever.
+// The depth guard bounds linear recursion but not this exponential blow-up, so
+// the call used to hang. A per-top-level call-count budget now bounds total work
+// and bails to a clean unevaluated marker. Legitimate integrals (well under the
+// budget) are unaffected — checked here alongside.
+TEST_CASE("integrate: call-budget backstop on branching non-elementary integrands (INT-CALLBUDGET-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+
+    // Used to hang; now returns a clean unevaluated Integral marker, terminating.
+    auto r = integrate(log(x) * pow(pow(x, integer(2)) - integer(1),
+                                    integer(-1)),
+                       x);
+    REQUIRE(r->str().rfind("Integral(", 0) == 0);
+
+    // The backstop must not affect ordinary closed-form integrals.
+    REQUIRE(integrate(pow(x, integer(3)) * exp(x), x)->str().find("Integral")
+            == std::string::npos);
+    REQUIRE(integrate(pow(pow(x, integer(4)) - integer(1), integer(-1)), x)
+                ->str()
+                .find("Integral") == std::string::npos);
+    REQUIRE(integrate(pow(x, integer(2)) * atan(x), x)->str().find("Integral")
+            == std::string::npos);
+}
