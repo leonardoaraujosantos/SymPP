@@ -80,6 +80,46 @@ TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
                               "1 + x + x**2/2 + x**3/6"));
 }
 
+// SERIES-LAURENT-FIRST-1: a ratio N(x)/D(x) whose transcendental denominator
+// vanishes at 0 while the numerator also vanishes (a removable singularity) —
+// x/(exp(x)−1) (Bernoulli generating function), x/sin(x), x²/(1−cos x). The
+// Taylor path is tried first and, finding a finite 0/0 limit at k=0, proceeds to
+// compute every coefficient as a hard derivative-limit; for messy exp/trig
+// denominators those limits exploded and the call HUNG. series() now routes a
+// ratio with a vanishing denominator through Laurent division first (numerator
+// and denominator are expanded separately, so no division-induced indeterminate
+// arises). A pole (denominator vanishes, numerator does not) yields the Laurent
+// series; an analytic ratio (denominator non-vanishing) still uses Taylor.
+// Verified against SymPy.
+TEST_CASE("series: vanishing-denominator ratios via Laurent first (SERIES-LAURENT-FIRST-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, integer(-1)); };
+
+    // x/(exp(x)−1) = Σ Bₙ xⁿ/n! — used to hang.
+    REQUIRE(oracle.equivalent(
+        series(x * inv(exp(x) - integer(1)), x, zero, 6)->str(),
+        "1 - x/2 + x**2/12 - x**4/720"));
+    // x/sin(x) — used to hang.
+    REQUIRE(oracle.equivalent(series(x * inv(sin(x)), x, zero, 6)->str(),
+                              "1 + x**2/6 + 7*x**4/360"));
+    // x²/(1−cos x) → 2 + x²/6 + x⁴/120 — used to hang.
+    REQUIRE(oracle.equivalent(
+        series(pow(x, integer(2)) * inv(integer(1) - cos(x)), x, zero, 6)->str(),
+        "2 + x**2/6 + x**4/120"));
+    // x/sinh(x) — hyperbolic analogue.
+    REQUIRE(oracle.equivalent(series(x * inv(sinh(x)), x, zero, 6)->str(),
+                              "1 - x**2/6 + 7*x**4/360"));
+    // A genuine pole still yields the Laurent series (numerator does not vanish).
+    REQUIRE(oracle.equivalent(series(inv(exp(x) - integer(1)), x, zero, 4)->str(),
+                              "1/x - 1/2 + x/12 - x**3/720"));
+    // An analytic ratio (denominator non-vanishing at 0) is unchanged.
+    REQUIRE(oracle.equivalent(series(inv(integer(1) + x), x, zero, 5)->str(),
+                              "1 - x + x**2 - x**3 + x**4"));
+}
+
 // SERIES-COMPOSE-1: a composite f(g(x)) whose inner g is finite-but-non-simple at
 // 0 (e.g. g = sin(x)/x with its 1/x factor). Differentiating f(g) directly leaves
 // each Taylor coefficient as a hard 0/0 limit that returns nan, so log(sin x / x)

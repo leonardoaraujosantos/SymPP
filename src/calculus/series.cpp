@@ -127,7 +127,8 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_laurent_series(const Expr& expr,
                                                      const Expr& var,
                                                      const Expr& x0,
-                                                     std::size_t n) {
+                                                     std::size_t n,
+                                                     bool only_if_pole = false) {
     if (!(x0 == S::Zero())) return std::nullopt;  // implemented at 0 only
     Expr e = rewrite_reciprocal_trig(expr);
 
@@ -175,6 +176,9 @@ namespace {
     const long vN = valuation(a);
     const long vD = valuation(b);
     if (vD < 0) return std::nullopt;            // denominator ≡ 0
+    // When asked only to pre-empt poles, defer an analytic ratio (denominator
+    // non-vanishing at 0) to the Taylor path, which keeps its existing form.
+    if (only_if_pole && vD == 0) return std::nullopt;
     if (vN < 0) return Expr{S::Zero()};         // numerator ≡ 0
     const long lead = vN - vD;                  // leading exponent of result
     const long L = static_cast<long>(n) - lead;  // terms for exponents lead..n−1
@@ -280,6 +284,14 @@ namespace {
 
 Expr series(const Expr& expr, const Expr& var, const Expr& x0, std::size_t n) {
     if (n == 0) return S::Zero();
+    // A ratio whose denominator vanishes at x0 (removable singularity or pole)
+    // is expanded by Laurent division first: the Taylor path would otherwise
+    // compute n derivative coefficients each via a hard 0/0 limit and can hang
+    // (e.g. x/(exp(x)−1), x/sin(x), x²/(1−cos x)). Laurent expands numerator and
+    // denominator separately, so no division-induced indeterminate ever arises.
+    if (auto l = try_laurent_series(expr, var, x0, n, /*only_if_pole=*/true)) {
+        return *l;
+    }
     // Analytic functions expand as an ordinary Taylor polynomial.
     if (auto t = taylor_series(expr, var, x0, n)) return *t;
     // A composite f(g) whose direct Taylor derivatives hit hard limits — e.g.

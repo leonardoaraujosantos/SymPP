@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### SERIES-LAURENT-FIRST-1 — series of a removable transcendental ratio hung
+- **Problem:** `series(x/(exp(x)−1))` (the Bernoulli generating function) **hung**, as did
+  `x/sin(x)` and `x²/(1−cos x)`. These are removable singularities: numerator and denominator both
+  vanish at 0 to the same order, so the ratio is analytic with a finite value. The Taylor path is
+  tried first; at `k = 0` it finds a finite 0/0 limit and proceeds to compute every coefficient as a
+  derivative-limit, but the high-order derivatives of an exp/trig ratio explode and each `limit`
+  call (L'Hôpital + simplify on a huge expression) effectively never returns. `1/(exp(x)−1)` worked
+  only because its genuine pole makes the Taylor path bail immediately to Laurent.
+- **Fix:** `series()` now routes a ratio whose denominator vanishes at 0 through the Laurent-division
+  path **first** (a new `only_if_pole` gate on `try_laurent_series`, which defers to Taylor only when
+  the denominator is non-vanishing). Laurent expands numerator and denominator as separate Taylor
+  polynomials and divides the coefficient sequences, so no division-induced 0/0 limit is ever formed.
+  Resolves `x/(exp(x)−1) = 1 − x/2 + x²/12 − x⁴/720`, `x/sin(x)`, `x²/(1−cos x)`, `x/sinh(x)`; poles
+  (`1/(exp(x)−1) → 1/x − ½ + …`) and analytic ratios are unchanged. Matches SymPy.
+
 ### LIMIT-GAMMARATIO-1 — half-integer gamma ratios gave a wrong 0 (or hung)
 - **Problem:** `lim_{x→∞} Γ(x+½)/(Γ(x)·√x)` returned **0** (correct value **1**). Integer shifts
   worked (`Γ(x+1)/Γ(x)/x → 1`, via the `Γ(x+1) = x·Γ(x)` recurrence collapse), but a half-integer
