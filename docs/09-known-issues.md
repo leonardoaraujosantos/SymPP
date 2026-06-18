@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMA-UNBALANCED-1 — Γ(2x)/Γ(x) took ~80 s and returned nan
+- **Problem:** `limit(Γ(2x)/Γ(x), x, ∞) = ∞` ran for ~80 s and returned `nan`. Duplication turns it into
+  `4ˣ·½·π^(−½)·Γ(x+½)` — a **single, unbalanced** gamma (`Σpᵢ = 1`), which `gamma_ratio_asymptotic` required
+  to be balanced (`Σpᵢ = 0`); it abstained, dropping the limit into the slow gamma-growth fallback. (This was
+  a pre-existing cost — the prior commit behaved identically.)
+- **Fix:** extended `gamma_ratio_asymptotic` to resolve the unbalanced case. With every gamma a same-rate
+  shift `Γ(x+aᵢ)`, a net exponent `Σpᵢ ≠ 0` makes the gamma part `~ (x^x)^{Σpᵢ}` by Stirling — it grows
+  (`Σpᵢ > 0`) or decays (`Σpᵢ < 0`) faster than any `c^{ρx}·x^E`, so `Σpᵢ < 0 → 0` and `Σpᵢ > 0 → sign(C)·∞`.
+  Reached only after every factor is recognized (gammas, `x^q`, constant-base exponentials), so a
+  super-exponential factor like `e^{x²}` — which my code does not classify — still abstains, never a wrong
+  answer. Now `Γ(2x)/Γ(x) → ∞` resolves in ~0 s (and the gamma growth/decay correctly beats an exponential:
+  `4ˣ/Γ(x) → 0`, `Γ(x)/x⁵ → ∞`, `Γ(x+1) → ∞`, `1/Γ(x) → 0`). The full test suite dropped from ~138 s to
+  ~56 s. Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+
 ### LIMIT-GAMMA-EXPRATE-1 — gamma ratios against a constant-base exponential left as nan
 - **Problem:** `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`, `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0` all
   returned `nan`. After Legendre duplication (`LIMIT-GAMMA-DUP-1`) the un-cancelled `4ˣ` left a constant-base
@@ -30,9 +44,8 @@ truth and links the issue number.
   is left to the super-power path rather than looping). Gives `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`,
   `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0`, while `C(2x,x)/4ˣ → 0` and `·√x → 1/√π` still hold.
   Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
-- **Note:** `Γ(2x)/Γ(x)` (and the slope-2/3 gamma ratios that do not reduce to a balanced form) remain
-  pathologically slow (~80 s) and return `nan` — a pre-existing cost (identical on the prior commit), left for
-  a future performance pass on the gamma-growth fallback.
+- **Note:** `Γ(2x)/Γ(x)` was left pathologically slow here; resolved by `LIMIT-GAMMA-UNBALANCED-1` above
+  (now ~0 s → ∞).
 
 ### LIMIT-GAMMA-DUP-1 — central binomial Γ(2x+1)/Γ(x+1)²/4ˣ left as nan
 - **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞) = 0` (Stirling: the central binomial ~ 4ˣ/√(πx)) was returned

@@ -2661,6 +2661,16 @@ TEST_CASE("limit: gamma duplication and exponential-rate asymptotics (LIMIT-GAMM
                       mul(gamma(add(x, integer(1))), pow(gamma(x), integer(-1)))),
                   x, oo)
             == S::Zero());  // 2⁻ˣ·x → 0
+
+    // Unbalanced gamma power dominates everything: Γ(2x)/Γ(x) → ∞ (duplication
+    // leaves a single Γ(x+½)·4ˣ), and the gamma growth/decay beats any c^x or x^k.
+    REQUIRE(limit(mul(gamma(mul(integer(2), x)), pow(gamma(x), integer(-1))), x, oo)
+            == oo);
+    REQUIRE(limit(gamma(add(x, integer(1))), x, oo) == oo);          // Γ(x+1) → ∞
+    REQUIRE(limit(pow(gamma(x), integer(-1)), x, oo) == S::Zero());  // 1/Γ(x) → 0
+    REQUIRE(limit(mul(pow(integer(4), x), pow(gamma(x), integer(-1))), x, oo)
+            == S::Zero());  // 4ˣ/Γ(x) → 0 (gamma decay beats the exponential)
+    REQUIRE(limit(mul(gamma(x), pow(x, integer(-5))), x, oo) == oo);  // Γ(x)/x⁵ → ∞
 }
 
 // LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —

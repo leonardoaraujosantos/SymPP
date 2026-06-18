@@ -1008,7 +1008,7 @@ struct Growth {
         }
         return std::nullopt;  // unrecognized var-dependent factor
     }
-    if (gamma_count == 0 || !(simplify(sum_p) == S::Zero())) return std::nullopt;
+    if (gamma_count == 0) return std::nullopt;
     Expr Cs = simplify(C);
     // Sign of a constant expression: assumption query first, then a numeric probe.
     auto sign_of = [](const Expr& e) -> int {
@@ -1025,6 +1025,22 @@ struct Growth {
         }
         return 0;
     };
+    // Unbalanced gamma power: with every gamma a same-rate shift Γ(x+aᵢ), a net
+    // exponent Σpᵢ ≠ 0 makes the gamma part ~ (x^x)^{Σpᵢ} by Stirling, which grows
+    // (Σpᵢ > 0) or decays (Σpᵢ < 0) faster than any c^{ρx}·x^E. So Σpᵢ < 0 → 0 and
+    // Σpᵢ > 0 → sign(C)·∞. Resolves Γ(2x)/Γ(x) → ∞ (which duplication turns into
+    // 4ˣ·½·π^(−½)·Γ(x+½)) and avoids the slow gamma-growth fallback.
+    Expr sp = simplify(sum_p);
+    if (!(sp == S::Zero())) {
+        const int sps = sign_of(sp);
+        if (sps < 0) return S::Zero();
+        if (sps > 0) {
+            const int cs = sign_of(Cs);
+            if (cs > 0) return S::Infinity();
+            if (cs < 0) return S::NegativeInfinity();
+        }
+        return std::nullopt;
+    }
     Expr rho = simplify(log_rate);
     if (!(rho == S::Zero())) {
         // e^{ρx}·x^E: the exponential dominates. ρ < 0 → 0; ρ > 0 → sign(C)·∞.
