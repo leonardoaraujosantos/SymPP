@@ -508,6 +508,58 @@ struct NumDen { Expr num; Expr den; };
     return std::nullopt;  // residual sign undecidable
 }
 
+// Merge every exponential factor of a product into a single exp:
+// rest · ∏ exp(gᵢ)^{kᵢ} = rest · exp(Σ kᵢ gᵢ). A product/ratio of exponentials
+// with *different* exponent monomials — exp(x²)·exp(−2x), exp(x²)/exp(x)²,
+// x²·exp(x)/exp(x²) — substitutes factor-by-factor to ∞·0 = nan and is not
+// handled by try_exponential_product, which only combines exponentials sharing
+// one monomial. Merging the exponents leaves a single exp(g) whose limit the
+// continuity rule (and the poly×exp machinery) resolves on the re-take. Requires
+// ≥2 exponential factors so the merge strictly reduces their count and the
+// recursion terminates. The identity exp(a)·exp(b) = exp(a+b) holds everywhere,
+// so this is valid at any target.
+[[nodiscard]] std::optional<Expr> try_exp_combine(const Expr& expr,
+                                                  const Expr& var,
+                                                  const Expr& target,
+                                                  int depth) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // (g, k) such that the factor equals exp(g)^k, else nullopt.
+    auto as_exp_pow =
+        [](const Expr& f) -> std::optional<std::pair<Expr, Expr>> {
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                return std::make_pair(fn.args()[0], Expr{S::One()});
+            }
+        }
+        if (f->type_id() == TypeId::Pow && is_number(f->args()[1])) {
+            const Expr& b = f->args()[0];
+            if (b->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*b);
+                if (fn.function_id() == FunctionId::Exp
+                    && fn.args().size() == 1) {
+                    return std::make_pair(fn.args()[0], f->args()[1]);
+                }
+            }
+        }
+        return std::nullopt;
+    };
+    Expr exponent = S::Zero();
+    std::vector<Expr> rest;
+    int exp_count = 0;
+    for (const auto& f : expr->args()) {
+        if (auto ge = as_exp_pow(f)) {
+            exponent = add(exponent, mul(ge->second, ge->first));
+            ++exp_count;
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (exp_count < 2) return std::nullopt;
+    rest.push_back(exp(exponent));
+    return limit_impl(mul(std::move(rest)), var, target, depth + 1);
+}
+
 // Sign of `expr` evaluated at `point`: +1 / −1, or 0 when indeterminate (a
 // non-real value, an unsigned/indeterminate infinity, or no definite sign).
 [[nodiscard]] int side_sign_at(const Expr& expr, const Expr& var,
@@ -1724,6 +1776,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 }
             }
             if (auto v = try_power_form(expr, var, target, depth)) return *v;
+            // Merge exponentials with *different* exponent monomials
+            // (exp(x²)·exp(−2x), exp(x²)/exp(x)²) into one exp(Σ) and re-take —
+            // try_exponential_product below only combines a shared monomial.
+            if (auto v = try_exp_combine(expr, var, target, depth)) return *v;
             // Merge a product of constant-base exponentials (2^x/3^x,
             // exp(x)/exp(2x)) into one exp(rate) before the generic product path,
             // which would otherwise see ∞·0 and stall in L'Hôpital → nan.

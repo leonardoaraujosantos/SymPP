@@ -2404,3 +2404,41 @@ TEST_CASE("limit: exp continuity over an indeterminate exponent (LIMIT-EXP-CONTI
     REQUIRE(limit(exp(x), x, oo) == oo);
     REQUIRE(limit(exp(mul(S::NegativeOne(), x)), x, oo) == S::Zero());
 }
+
+// LIMIT-EXP-COMBINE-1: a product/ratio of exponentials with *different* exponent
+// monomials — exp(x²)/exp(x)², exp(x²)·exp(−2x), x²·exp(x)/exp(x²) — substitutes
+// factor-by-factor to ∞·0 = nan. try_exponential_product only merges a shared
+// monomial; a new pre-step merges *all* exp factors into one exp(Σ kᵢgᵢ) and
+// re-takes the limit, which the exp-continuity rule then resolves. Matches SymPy.
+TEST_CASE("limit: merge exponentials with differing monomials (LIMIT-EXP-COMBINE-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto E = [&](const Expr& g) { return exp(g); };
+
+    // exp(x²)/exp(x)² = exp(x²−2x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2))) * pow(E(x), integer(-2)), x, oo) == oo);
+    // exp(x²)·exp(−2x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2))) * E(integer(-2) * x), x, oo) == oo);
+    // exp(x²)/exp(x²−x) = exp(x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2)))
+                      * pow(E(pow(x, integer(2)) - x), integer(-1)),
+                  x, oo)
+            == oo);
+    // x²·exp(x)/exp(x²) = x²·exp(x−x²) → 0 (exp decay beats the polynomial).
+    REQUIRE(limit(pow(x, integer(2)) * E(x) * pow(E(pow(x, integer(2))),
+                                                  integer(-1)),
+                  x, oo)
+            == S::Zero());
+    // x¹⁰·exp(x)·exp(−x²) → 0.
+    REQUIRE(limit(pow(x, integer(10)) * E(x) * E(mul(S::NegativeOne(),
+                                                     pow(x, integer(2)))),
+                  x, oo)
+            == S::Zero());
+    // Shared-monomial and constant-base products are unaffected.
+    REQUIRE(limit(E(x) * pow(E(integer(2) * x), integer(-1)), x, oo)
+            == S::Zero());  // exp(x)/exp(2x)
+    REQUIRE(limit(pow(integer(2), x) * pow(integer(3), mul(S::NegativeOne(), x)),
+                  x, oo)
+            == S::Zero());  // 2^x/3^x
+}

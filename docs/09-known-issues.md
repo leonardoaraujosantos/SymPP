@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXP-COMBINE-1 — products of exponentials with differing monomials gave nan
+- **Problem:** `lim_{x→∞} exp(x²)/exp(x)²` returned `nan` (correct value **∞**), as did `exp(x²)·exp(−2x)`,
+  `exp(x²)/exp(x²−x)`, `x²·exp(x)/exp(x²) → 0`, `x¹⁰·exp(x)·exp(−x²) → 0`. Evaluated factor by factor
+  these are `∞·0` indeterminates. The existing `try_exponential_product` only merges exponentials that
+  share a single exponent *monomial* (e.g. `exp(x)·exp(−2x)`, `2^x/3^x`); with mismatched monomials
+  (`x²` vs `x`) it abstains and the generic product path stalls in L'Hôpital → nan.
+- **Fix:** added `try_exp_combine`, a pre-step that merges *every* exponential factor of a product into
+  a single `exp(Σ kᵢ·gᵢ)` (handling `exp(g)` and `exp(g)^k` with numeric `k`) and re-takes the limit.
+  The identity `exp(a)·exp(b) = exp(a+b)` holds everywhere, so the merge is always valid; the resulting
+  single exponential is resolved by the exp-continuity rule ([[LIMIT-EXP-CONTINUITY-1]]) and the
+  polynomial×exponential machinery. Requires ≥2 exponential factors so the merge strictly reduces their
+  count and the recursion terminates. Constant-base (`2^x/3^x`) and shared-monomial products are
+  unaffected (handled, as before, by `try_exponential_product`). Matches SymPy.
+
 ### LIMIT-EXP-CONTINUITY-1 — exp of an indeterminate exponent gave nan
 - **Problem:** `lim_{x→∞} exp(x²−2x)` returned `nan` (correct value **∞**). The exponent `x²−2x`
   substitutes to the indeterminate `∞−∞`, so `exp(nan) = nan`, even though the exponent's limit is a
