@@ -163,6 +163,33 @@ TEST_CASE("series: composition of f(g(x)) with a removable inner (SERIES-COMPOSE
                               "-x**2/2 - x**4/12"));
 }
 
+// SERIES-TAYLOR-CAP-1: high orders of a removable composite — log(sin x/x),
+// log(tan x/x) at order 7–8 — used to time out (the 5th derivative of the
+// log-composite balloons and its limit took ~100 s, only to return nan). The
+// Taylor path now caps the derivative size on the limit branch and hands these
+// to the composition path, which resolves them directly. This test reaching its
+// assertions at all is the performance regression guard; the values match SymPy.
+TEST_CASE("series: high-order removable composites resolve quickly (SERIES-TAYLOR-CAP-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, S::NegativeOne()); };
+
+    // log(sin x/x) to order 8: −x²/6 − x⁴/180 − x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(sin(x) * inv(x)), x, zero, 8)->str(),
+        "-x**2/6 - x**4/180 - x**6/2835"));
+    // log(tan x/x) to order 7: x²/3 + 7x⁴/90 + 62x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(tan(x) * inv(x)), x, zero, 7)->str(),
+        "x**2/3 + 7*x**4/90 + 62*x**6/2835"));
+    // log(sinh x/x) to order 8: x²/6 − x⁴/180 + x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(sinh(x) * inv(x)), x, zero, 8)->str(),
+        "x**2/6 - x**4/180 + x**6/2835"));
+}
+
 // SERIES-LAURENT-1: functions with a pole at 0 (cot, csc, coth, csch, 1/sin,
 // csc², 1/(eˣ−1)) expand to a Laurent series. The engine rewrites reciprocal
 // trig/hyperbolic to sin/cos ratios and divides the numerator and denominator

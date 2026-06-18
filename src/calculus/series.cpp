@@ -47,6 +47,24 @@ namespace {
 // polynomial Σ f⁽ᵏ⁾(x0)/k!·(x−x0)ᵏ, or nullopt if a coefficient is non-finite
 // (a pole or an unresolved indeterminate), in which case the caller may try a
 // Laurent expansion instead.
+[[nodiscard]] int node_count(const Expr& e) noexcept {
+    int n = 0;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        ++n;
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
+
+// Above this derivative size, the removable-singularity limit is abandoned. The
+// high-order derivatives of a composite like log(sin x / x) balloon (the 5th has
+// ~350 nodes) and their limit can take ~100 s only to return nan; bailing here
+// hands the expression to the composition / Laurent paths, which resolve it
+// directly and quickly. Legitimate removable cases (sin x / x and friends) keep
+// small derivatives and stay well under the cap.
+constexpr int kTaylorLimitNodeCap = 128;
+
 [[nodiscard]] std::optional<Expr> taylor_series(const Expr& expr,
                                                 const Expr& var, const Expr& x0,
                                                 std::size_t n) {
@@ -58,7 +76,11 @@ namespace {
         Expr value_at_x0 = subs(current_deriv, var, x0);
         if (is_non_finite(value_at_x0)) {
             // A removable singularity (0/0 like sin(x)/x) has a finite limit;
-            // a genuine singularity (log, 1/x) does not.
+            // a genuine singularity (log, 1/x) does not. A ballooning composite
+            // derivative is handed off rather than timed out (see the cap).
+            if (node_count(current_deriv) > kTaylorLimitNodeCap) {
+                return std::nullopt;
+            }
             value_at_x0 = limit(current_deriv, var, x0);
             if (is_non_finite(value_at_x0)) return std::nullopt;
         }

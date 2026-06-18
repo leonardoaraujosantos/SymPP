@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### SERIES-TAYLOR-CAP-1 — series of log(sin x/x) / log(tan x/x) took ~100 s
+- **Problem:** `series(log(sin x/x), x, 0, 6)` ran for ~119 s (and `log(tan x/x)` for ~162 s), only to
+  return the correct result. `taylor_series` is tried before the composition path; for these removable
+  composites its k-th derivative balloons (the 5th derivative of `log(sin x/x)` has ~350 nodes), and the
+  removable-singularity `limit` of that derivative is catastrophically slow — taking ~100 s and then
+  returning nan, after which `taylor_series` bails to the (fast) composition path anyway. The whole
+  test suite was borderline-slow because of it.
+- **Fix:** added a node-count cap (`kTaylorLimitNodeCap = 128`) on the limit branch of `taylor_series`:
+  when a coefficient needs a limit but the current derivative exceeds the cap, bail immediately to
+  `nullopt` so the composition / Laurent paths — which resolve these directly — take over. Legitimate
+  removable cases keep small derivatives and stay under the cap, and bailing a moderately-large case to
+  composition is always correct (composition produces the same series). `log(sin x/x)` order 6 now takes
+  ~0.1 s (a 1000× speed-up), `log(tan x/x)` ~0.08 s; the full suite dropped to ~37 s. Results match SymPy
+  (verified to order 8).
+
 ### MUL-CONSEC-EVEN-1 — product of consecutive integers was not recognized as even
 - **Problem:** `is_even(n·(n−1))` was Unknown for an integer `n`, even though a product of consecutive
   integers is always even (one of any two consecutive integers is even). SymPy infers this for the
