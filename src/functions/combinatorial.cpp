@@ -1202,6 +1202,112 @@ Expr beta(const Expr& a, const Expr& b) {
 }
 
 // ============================================================================
+// Incomplete gamma: lowergamma(s, x), uppergamma(s, x)
+// ============================================================================
+
+namespace {
+// Closed form of the upper incomplete gamma for a positive integer first
+// argument n ≥ 1: Γ(n, x) = (n−1)!·e⁻ˣ·Σ_{k=0}^{n−1} xᵏ/k!. Used by both
+// factories; the caller guarantees n ≥ 1 and handles x = 0 separately (the
+// series term x⁰ would otherwise hit 0⁰ for a literal zero argument).
+[[nodiscard]] Expr upper_gamma_closed(long n, const Expr& x) {
+    std::vector<Expr> terms;
+    terms.reserve(static_cast<std::size_t>(n));
+    mpz_class kfac = 1;  // k!
+    for (long k = 0; k < n; ++k) {
+        if (k > 0) kfac *= k;
+        terms.push_back(mul(pow(x, integer(k)), rational(mpz_class(1), kfac)));
+    }
+    mpz_class nm1fac;
+    mpz_fac_ui(nm1fac.get_mpz_t(), static_cast<unsigned long>(n - 1));
+    Expr series = mul(exp(mul(S::NegativeOne(), x)), add(std::move(terms)));
+    return mul(make<Integer>(std::move(nm1fac)), std::move(series));
+}
+
+// True when s is a positive integer that fits a long and is small enough that
+// the (n−1)-term series stays cheap.
+[[nodiscard]] std::optional<long> small_positive_int(const Expr& s) {
+    if (s->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*s);
+    if (!z.is_positive() || !z.fits_long()) return std::nullopt;
+    long n = z.to_long();
+    if (n > 1000) return std::nullopt;
+    return n;
+}
+}  // namespace
+
+LowerGamma::LowerGamma(Expr s, Expr x)
+    : Function(std::vector<Expr>{std::move(s), std::move(x)}) {
+    compute_hash(FunctionId::LowerGamma);
+}
+Expr LowerGamma::rebuild(std::vector<Expr> new_args) const {
+    return lowergamma(new_args[0], new_args[1]);
+}
+std::optional<bool> LowerGamma::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true
+        && is_real(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+// ∂/∂x γ(s, x) = xˢ⁻¹·e⁻ˣ. The ∂/∂s direction is non-elementary (Meijer-G); as
+// with polygamma's order argument, return 0 so diff()'s chain rule (× s′ = 0 for
+// a constant s) leaves the usual case correct.
+Expr LowerGamma::diff_arg(std::size_t i) const {
+    if (i == 1) {
+        return mul(pow(args_[1], add(args_[0], S::NegativeOne())),
+                   exp(mul(S::NegativeOne(), args_[1])));
+    }
+    return S::Zero();
+}
+
+Expr lowergamma(const Expr& s, const Expr& x) {
+    // γ(s, 0) = 0 for a positive-integer order (and Re(s) > 0 generally).
+    if (auto n = small_positive_int(s)) {
+        if (x == S::Zero()) return S::Zero();
+        // γ(s, x) = Γ(s) − Γ(s, x). Built directly (not via the uppergamma
+        // factory) so the x = +∞ form folds to nan like SymPy, rather than Γ(s).
+        return add(gamma(s), mul(S::NegativeOne(), upper_gamma_closed(*n, x)));
+    }
+    return make<LowerGamma>(s, x);
+}
+
+UpperGamma::UpperGamma(Expr s, Expr x)
+    : Function(std::vector<Expr>{std::move(s), std::move(x)}) {
+    compute_hash(FunctionId::UpperGamma);
+}
+Expr UpperGamma::rebuild(std::vector<Expr> new_args) const {
+    return uppergamma(new_args[0], new_args[1]);
+}
+std::optional<bool> UpperGamma::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true
+        && is_real(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+// ∂/∂x Γ(s, x) = −xˢ⁻¹·e⁻ˣ; ∂/∂s is non-elementary → 0 (see LowerGamma).
+Expr UpperGamma::diff_arg(std::size_t i) const {
+    if (i == 1) {
+        return mul(S::NegativeOne(),
+                   mul(pow(args_[1], add(args_[0], S::NegativeOne())),
+                       exp(mul(S::NegativeOne(), args_[1]))));
+    }
+    return S::Zero();
+}
+
+Expr uppergamma(const Expr& s, const Expr& x) {
+    // Γ(s, +∞) = 0 (the tail integral vanishes).
+    if (x->type_id() == TypeId::Infinity) return S::Zero();
+    if (auto n = small_positive_int(s)) {
+        // Γ(s, 0) = Γ(s) = (n−1)!.
+        if (x == S::Zero()) return gamma(s);
+        return upper_gamma_closed(*n, x);
+    }
+    return make<UpperGamma>(s, x);
+}
+
+// ============================================================================
 // LogGamma
 // ============================================================================
 

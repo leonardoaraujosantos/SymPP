@@ -72,6 +72,38 @@ public:
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
 };
 
+// Incomplete gamma functions. lowergamma(s,x) = ∫₀ˣ tˢ⁻¹e⁻ᵗ dt, uppergamma(s,x)
+// = ∫ₓ^∞ tˢ⁻¹e⁻ᵗ dt; together they sum to Γ(s). For a positive-integer first
+// argument both reduce to a closed elementary form, as SymPy does; otherwise
+// they stay symbolic.
+class SYMPP_EXPORT LowerGamma final : public Function {
+public:
+    LowerGamma(Expr s, Expr x);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::LowerGamma;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "lowergamma";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT UpperGamma final : public Function {
+public:
+    UpperGamma(Expr s, Expr x);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::UpperGamma;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override {
+        return "uppergamma";
+    }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
 class SYMPP_EXPORT LogGamma final : public Function {
 public:
     explicit LogGamma(Expr arg);
@@ -368,5 +400,7 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr polygamma(const Expr& n, const Expr& x);
 [[nodiscard]] SYMPP_EXPORT Expr digamma(const Expr& x);
+[[nodiscard]] SYMPP_EXPORT Expr lowergamma(const Expr& s, const Expr& x);
+[[nodiscard]] SYMPP_EXPORT Expr uppergamma(const Expr& s, const Expr& x);
 
 }  // namespace sympp

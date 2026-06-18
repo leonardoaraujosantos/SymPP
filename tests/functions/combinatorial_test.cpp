@@ -18,6 +18,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/simplify/simplify.hpp>
 #include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
@@ -679,4 +680,51 @@ TEST_CASE("beta: symbolic args stay unevaluated", "[3i][beta][parser]") {
     REQUIRE(beta(a, b)->type_id() == TypeId::Function);
     REQUIRE(parsing::parse("beta(a, b)") == beta(a, b));
     REQUIRE(beta(a, b)->str() == "beta(a, b)");
+}
+
+// FUNC-INCGAMMA-1: lowergamma/uppergamma as real function classes — the
+// positive-integer first argument collapses to the closed elementary form, the
+// derivatives are exact, and symbolic orders stay unevaluated and round-trip.
+TEST_CASE("incomplete gamma: closed forms, derivatives, round-trip (FUNC-INCGAMMA-1)",
+          "[3i][incompletegamma][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto s = symbol("s");
+
+    // Closed forms for a positive-integer order (match SymPy).
+    REQUIRE(oracle.equivalent(uppergamma(integer(1), x)->str(), "exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(integer(1), x)->str(), "1 - exp(-x)"));
+    REQUIRE(oracle.equivalent(uppergamma(integer(2), x)->str(), "(x + 1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(integer(2), x)->str(),
+                              "1 - (x + 1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(uppergamma(integer(3), x)->str(),
+                              "2*(x**2/2 + x + 1)*exp(-x)"));
+
+    // γ(s,x) + Γ(s,x) = Γ(s); here Γ(3) = 2.
+    REQUIRE(simplify(add(uppergamma(integer(3), x), lowergamma(integer(3), x)))
+            == integer(2));
+
+    // Special points.
+    REQUIRE(uppergamma(integer(2), integer(0)) == integer(1));  // Γ(2,0)=Γ(2)
+    REQUIRE(lowergamma(integer(2), integer(0)) == S::Zero());   // γ(s,0)=0
+    REQUIRE(uppergamma(integer(3), S::Infinity()) == S::Zero());  // Γ(s,∞)=0
+
+    // Derivatives: d/dx γ(s,x)= xˢ⁻¹e⁻ˣ, d/dx Γ(s,x)= −xˢ⁻¹e⁻ˣ.
+    REQUIRE(oracle.equivalent(diff(lowergamma(s, x), x)->str(),
+                              "x**(s-1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(diff(uppergamma(s, x), x)->str(),
+                              "-x**(s-1)*exp(-x)"));
+
+    // Symbolic order stays unevaluated and round-trips through the parser.
+    REQUIRE(uppergamma(s, x)->type_id() == TypeId::Function);
+    REQUIRE(lowergamma(s, x)->type_id() == TypeId::Function);
+    REQUIRE(parsing::parse("uppergamma(s, x)") == uppergamma(s, x));
+    REQUIRE(parsing::parse("lowergamma(s, x)") == lowergamma(s, x));
+    REQUIRE(uppergamma(s, x)->str() == "uppergamma(s, x)");
+
+    // Real for real order and argument.
+    auto sr = symbol("sr", AssumptionMask{}.set_real(true));
+    auto xr = symbol("xr", AssumptionMask{}.set_real(true));
+    REQUIRE(is_real(uppergamma(sr, xr)) == true);
+    REQUIRE(is_real(lowergamma(sr, xr)) == true);
 }

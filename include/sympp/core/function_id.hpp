@@ -95,6 +95,8 @@ enum class FunctionId : std::uint16_t {
     DiGamma,
     PolyGamma,
     Beta,
+    LowerGamma,
+    UpperGamma,
     Erf,
     Erfc,
     Erfi,

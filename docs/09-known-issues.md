@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-INCGAMMA-1 — no lowergamma/uppergamma function classes
+- **Problem:** SymPP had no incomplete gamma functions. `lowergamma(s,x)` and `uppergamma(s,x)` could not be
+  built, parsed, evaluated, or differentiated — they are the natural closed form of `∫xⁿe⁻ˣ` definite
+  integrals, so their absence blocked those results. SymPy provides both as first-class functions.
+- **Fix:** added `LowerGamma`/`UpperGamma` as real two-argument function classes (FunctionId entries, classes
+  with `rebuild`/`ask`/`diff_arg`, factory builders, parser registration). For a **positive-integer** first
+  argument `n` both collapse to the closed elementary form `Γ(n,x) = (n−1)!·e⁻ˣ·Σ_{k<n} xᵏ/k!` and
+  `γ(n,x) = Γ(n) − Γ(n,x)`, matching SymPy (`Γ(2,x)=(x+1)e⁻ˣ`, `γ(2,x)=1−(x+1)e⁻ˣ`,
+  `Γ(3,x)=2(x²/2+x+1)e⁻ˣ`). Special points: `Γ(s,0)=Γ(s)`, `γ(s,0)=0`, `Γ(s,∞)=0`; `γ(n,∞)` folds to `nan`
+  like SymPy (it is built as `Γ(n) − Γ(n,x)` rather than through the ∞-simplified upper form). Derivatives are
+  exact: `∂ₓγ(s,x)=xˢ⁻¹e⁻ˣ`, `∂ₓΓ(s,x)=−xˢ⁻¹e⁻ˣ` (the non-elementary `∂ₛ` direction returns 0, as polygamma
+  does for its order). A symbolic order stays unevaluated and round-trips through the parser; both are `Real`
+  for real order and argument. Regression: `FUNC-INCGAMMA-1`. Matches SymPy.
+
 ### LIMIT-POW-AS-EXP-1 — Γ(2n)/nⁿ and general powers f(x)^g(x) left unevaluated
 - **Problem:** `limit(gamma(2n)/n**n, n, oo)` returned `nan`. The heuristic limit engine resolved bare
   super-powers (`n!/nⁿ`, `nⁿ/n!`) and balanced gamma ratios, but a gamma against a variable-exponent
