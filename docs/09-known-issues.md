@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGDIFF-1 — 0·∞ product of x and a log difference gave nan
+- **Problem:** `lim_{x→∞} x·(log(x+1) − log(x))` returned `nan` (correct value **1**). The vanishing
+  factor `log(x+1) − log(x)` equals `log((x+1)/x)` with argument → 1, but its naive endpoint
+  substitution is `log(∞/∞) = log(nan) = nan`, which fails L'Hôpital's 0/0 test in `lhopital_nd`
+  and propagates nan to the whole limit. `x·log(1+1/x)` (argument already written as `1 + small`)
+  worked; only the ratio / log-difference form broke.
+- **Fix:** in `try_product_form` (the 0·∞ handler), a vanishing `log(g)` factor — including a sum
+  `Σ cᵢ·log(gᵢ)` folded to `log(∏ gᵢ^cᵢ)` — whose argument `g → 1` is replaced by its leading
+  asymptotic `log(g) ~ (g − 1)` (reduced to lowest terms). `log(g)/(g−1) → 1` as `g → 1`, so the
+  product's limit is preserved while the nan-producing endpoint disappears. Mirrors the existing
+  `1^∞` power-form trick. Covers `x·(log(x+a) − log(x)) → a`, `x²·(log(x+1) − log(x)) → ∞`, and
+  inner-scaled forms; a non-vanishing log difference (`log 2x − log x = log 2`) is not a 0·∞ form
+  and is left untouched. Matches SymPy.
+
 ### INT-PARAMSIGN-1 — parametric improper integrals leaked ±∞ for a generic coefficient
 - **Problem:** `∫₀^∞ exp(-a·x) dx` with a **generic** `a` (sign unknown) returned garbage like
   `(-exp(a·-oo) + 1)/a`. The whole family of parametric exponential integrals was affected —

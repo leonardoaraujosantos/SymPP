@@ -2249,3 +2249,42 @@ TEST_CASE("limit: constant factor times a convergent sum (LIMIT-CONST-MUL-1)",
     REQUIRE(limit(integer(5) * pow(x, integer(-1)), x, oo) == S::Zero());
     REQUIRE(limit(integer(2) * x, x, oo) == oo);
 }
+
+// LIMIT-LOGDIFF-1: the 0·∞ product x·(log(x+1) − log(x)) → 1. The vanishing
+// factor is a difference of logs equal to log((x+1)/x) with argument → 1; its
+// naive endpoint subs is log(∞/∞) = nan, which derailed L'Hôpital and left the
+// whole limit nan. The product handler now folds Σcᵢ·log(gᵢ) → log(∏gᵢ^cᵢ) and
+// replaces it by the leading asymptotic (∏gᵢ^cᵢ − 1), preserving the limit.
+// Matches SymPy.
+TEST_CASE("limit: 0·∞ product of x and a log difference (LIMIT-LOGDIFF-1)",
+          "[6][limit][lhopital][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto logdiff = [&](const Expr& a, const Expr& b) {
+        return log(a) - log(b);
+    };
+
+    // x·(log(x+1) − log(x)) = x·log(1 + 1/x) → 1.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(1), x), x, oo))
+            == S::One());
+    // Scaled shift: x·(log(x+3) − log(x)) → 3.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(3), x), x, oo))
+            == integer(3));
+    // Two-sided shift: x·(log(x+1) − log(x−1)) → 2.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(1), x - integer(1)), x, oo))
+            == integer(2));
+    // Inner scale cancels: x·(log(2x+1) − log(2x)) → 1/2.
+    REQUIRE(simplify(
+                limit(x * logdiff(integer(2) * x + integer(1), integer(2) * x),
+                      x, oo))
+            == rational(1, 2));
+    // Faster prefactor still diverges: x²·(log(x+1) − log(x)) → ∞.
+    REQUIRE(limit(pow(x, integer(2)) * logdiff(x + integer(1), x), x, oo) == oo);
+    // A genuine non-vanishing log difference (log 2x − log x = log 2) is NOT a
+    // 0·∞ form; the softening must not fire and collapse it to a finite value.
+    {
+        Expr r = limit(x * logdiff(integer(2) * x, x), x, oo);
+        REQUIRE(r->type_id() != TypeId::Integer);
+        REQUIRE(r->type_id() != TypeId::Rational);
+    }
+}

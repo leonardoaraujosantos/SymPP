@@ -240,12 +240,63 @@ struct NumDen { Expr num; Expr den; };
                                                    const Expr& target,
                                                    int depth) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    // A vanishing factor log(g) with g → 1 is the 0-side of a 0·∞ product, but
+    // its naive endpoint subs gives nan when g is a ratio like (x+1)/x (∞/∞) —
+    // which derails L'Hôpital's 0/0 test. Replace it by its leading asymptotic
+    // log(g) ~ (g − 1): log(g)/(g − 1) → 1 as g → 1, so the product's limit is
+    // preserved. Mirrors the 1^∞ power-form trick (log(base) ~ base − 1).
+    // Combine a sum Σ cᵢ·log(gᵢ) into the single argument ∏ gᵢ^cᵢ (so that the
+    // whole sum equals log(∏ gᵢ^cᵢ)). Returns nullopt unless every term is a
+    // numeric-scaled log — simplify() does not fold a bare log difference.
+    auto combine_log_args = [](const Expr& sum) -> std::optional<Expr> {
+        std::vector<Expr> factors;
+        for (const auto& term : sum->args()) {
+            Expr coeff = S::One();
+            Expr core = term;
+            if (term->type_id() == TypeId::Mul) {
+                std::vector<Expr> rest;
+                for (const auto& g : term->args()) {
+                    if (is_number(g)) coeff = mul(coeff, g);
+                    else rest.push_back(g);
+                }
+                if (rest.size() != 1) return std::nullopt;
+                core = rest[0];
+            }
+            if (core->type_id() != TypeId::Function) return std::nullopt;
+            const auto& fn = static_cast<const Function&>(*core);
+            if (fn.function_id() != FunctionId::Log || fn.args().size() != 1)
+                return std::nullopt;
+            factors.push_back(pow(fn.args()[0], coeff));
+        }
+        if (factors.empty()) return std::nullopt;
+        return mul(std::move(factors));
+    };
+    // A vanishing log factor with argument g → 1, possibly written as a sum of
+    // logs (log(x+1) − log(x) = log((x+1)/x)). Replace it by log(g) ~ (g − 1):
+    // the leading asymptotic preserves the 0·∞ product's limit while avoiding
+    // the nan that g's ∞/∞ endpoint subs would feed L'Hôpital.
+    auto soften_log_to_one = [&](const Expr& f) -> Expr {
+        std::optional<Expr> arg;
+        if (f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Log && fn.args().size() == 1)
+                arg = fn.args()[0];
+        } else if (f->type_id() == TypeId::Add) {
+            arg = combine_log_args(f);
+        }
+        if (arg && limit_impl(*arg, var, target, depth + 1) == S::One()) {
+            // Reduce (g − 1) to lowest terms (e.g. (x+1)/x − 1 → 1/x) so its
+            // endpoint subs is clean rather than another ∞/∞ nan.
+            return simplify(add(*arg, S::NegativeOne()));
+        }
+        return f;
+    };
     std::vector<Expr> zero_f, inf_f, finite_f;
     for (const auto& f : expr->args()) {
         Expr lf = limit_impl(f, var, target, depth + 1);
         if (is_nan(lf)) return std::nullopt;
         if (is_infinity(lf)) inf_f.push_back(f);
-        else if (lf == S::Zero()) zero_f.push_back(f);
+        else if (lf == S::Zero()) zero_f.push_back(soften_log_to_one(f));
         else finite_f.push_back(f);
     }
     if (zero_f.empty() || inf_f.empty()) return std::nullopt;
