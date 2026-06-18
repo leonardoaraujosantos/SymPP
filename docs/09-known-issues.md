@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-BURIED-INF-1 — divergent gamma ratio leaked ∞-arithmetic garbage
+- **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞)` (the central binomial over 4ˣ, → 0 by Stirling) returned the
+  malformed expression `∞·(∞ + ∞·log 4)⁻¹` — L'Hôpital differentiated the loggamma factors into digamma and
+  substituted ∞, leaving an unresolved ∞/∞ that the engine accepted as the answer. Also `digamma(∞)` /
+  `polygamma(0, ∞)` did not evaluate.
+- **Fix:** two parts. (a) Added the `polygamma` values at +∞: `ψ(∞) = ∞` and `ψ⁽ⁿ⁾(∞) = 0` for `n ≥ 1`
+  (matching SymPy). (b) Added a `has_buried_infinity` guard: a genuine limit value is finite or a bare ±∞/zoo
+  singleton, never an ∞ nested inside a Mul/Add/Pow. The L'Hôpital acceptance test and a final catch-all at
+  the public `limit()` now reject such forms and return `nan` — honest "indeterminate" rather than noise.
+  Bare-∞ divergences (`x²/x`, `eˣ/x`, `Γ(x) → ∞`) are unaffected. The definite-integral path was updated to
+  emit a clean unevaluated `Integral` marker when a boundary limit comes back `nan` (e.g. parametric
+  `∫₀^∞ e^(−a·x)` with `a` of unknown sign), preserving `INT-PARAMSIGN-1`. Regressions: `LIMIT-BURIED-INF-1`,
+  `POLYGAMMA-INF-1`.
+- **Note:** the exact value `0` needs a Stirling asymptotic for gamma ratios with differing argument
+  coefficients (Γ(2x) vs Γ(x)) — a future Gruntz leading-term increment. `nan` is the correct honest result
+  until then.
+
 ### ASSUMING-PROPAGATE-1 — assuming context did not reach compound expressions
 - **Problem:** a scoped fact (`assuming(x, positive)`) was visible on the bare symbol but not on expressions
   built from it: `is_positive(x·y)`, `is_negative(x·y)`, `is_real(x+y)` all stayed unknown under

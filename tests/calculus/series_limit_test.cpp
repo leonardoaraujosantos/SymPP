@@ -2612,6 +2612,31 @@ TEST_CASE("limit: dominant-term resolution of an unequal-order ∞−∞ sum (LI
             == oo);
 }
 
+// LIMIT-BURIED-INF-1: a limit value with an ∞ buried inside arithmetic is an
+// unresolved indeterminate, not an answer. A divergent gamma ratio (the central
+// binomial Γ(2x+1)/Γ(x+1)²/4ˣ) drove L'Hôpital to leave ∞·(∞+∞·log4)⁻¹; the
+// engine must report nan rather than that noise. Genuine divergences (bare ±∞)
+// are unaffected.
+TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
+
+    // Central binomial / 4ˣ: previously leaked ∞·(∞+∞·log4)⁻¹; now a clean nan.
+    Expr cb = mul(mul(gamma(add(mul(integer(2), x), integer(1))),
+                      pow(gamma(add(x, integer(1))), integer(-2))),
+                  pow(integer(4), mul(integer(-1), x)));
+    Expr r = limit(cb, x, oo);
+    REQUIRE(is_nan(r));
+    REQUIRE(r->str().find("oo") == std::string::npos);  // no embedded infinity
+
+    // Bare-∞ divergences are still reported cleanly.
+    REQUIRE(limit(mul(pow(x, integer(2)), pow(x, integer(-1))), x, oo) == oo);
+    REQUIRE(limit(mul(exp(x), pow(x, integer(-1))), x, oo) == oo);
+    REQUIRE(limit(gamma(x), x, oo) == oo);
+}
+
 // LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —
 // lim base^r = (lim base)^r. A non-rational base substitutes pointwise to an
 // indeterminate ∞/∞ → nan, so a radical of it surfaced as nan even though the

@@ -4485,11 +4485,13 @@ Expr integrate(const Expr& expr, const Expr& var,
             }
         }
     }
-    // If the boundary evaluation still leaked an Integral marker — the
-    // antiderivative was unevaluated and Newton–Leibniz produced noise like
-    // −Integral(nan, a) + Integral(…, b) — fall back to a clean unevaluated
-    // definite integral rather than emitting that garbage.
-    if (contains_integral_marker(result)
+    // If the boundary evaluation still leaked an Integral marker, left a buried
+    // infinity, or came out as an indeterminate nan (e.g. a parametric integrand
+    // whose convergence depends on a sign — exp(−a·x) over [0,∞) with a of
+    // unknown sign), fall back to a clean unevaluated definite integral rather
+    // than emitting that noise. (A genuine divergence surfaces as a bare ±∞,
+    // handled by the is_infinity guard, and is returned as-is.)
+    if (contains_integral_marker(result) || result->type_id() == TypeId::NaN
         || (!is_infinity(result) && has_buried_infinity(result, true))) {
         return function_symbol("Integral")(
             std::vector<Expr>{expr, var, lower, upper});

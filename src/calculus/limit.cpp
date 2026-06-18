@@ -102,6 +102,32 @@ struct NumDen { Expr num; Expr den; };
     return false;
 }
 
+// An ∞ appearing as a *proper subexpression* of an arithmetic node — e.g. the
+// ∞·(∞+∞·log 4)⁻¹ that L'Hôpital leaves when it differentiates loggamma into
+// digamma on a divergent gamma ratio. A genuine limit value is finite, or a bare
+// ±∞ / zoo singleton; an ∞ buried inside a Mul/Add/Pow means the form is still
+// indeterminate (∞/∞, ∞−∞) and must not be returned as the answer.
+[[nodiscard]] bool has_buried_infinity(const Expr& e) {
+    if (!e) return false;
+    const auto t = e->type_id();
+    if (t == TypeId::Infinity || t == TypeId::NegativeInfinity
+        || t == TypeId::ComplexInfinity) {
+        return false;  // a bare infinity is a valid limit value
+    }
+    auto contains = [](auto&& self, const Expr& x) -> bool {
+        const auto xt = x->type_id();
+        if (xt == TypeId::Infinity || xt == TypeId::NegativeInfinity
+            || xt == TypeId::ComplexInfinity) {
+            return true;
+        }
+        for (const auto& a : x->args()) {
+            if (self(self, a)) return true;
+        }
+        return false;
+    };
+    return contains(contains, e);
+}
+
 // Recursively combine a rational expression into a single numerator/denominator,
 // descending into the bases of integer powers so nested reciprocals flatten —
 // (p/q)^(−k) = q^k/p^k. together() stops at a Pow base, so a compound fraction
@@ -2133,7 +2159,8 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // An oscillating f(∞) (lhopital's determinate-denominator branch divides
         // sin(x)/1 → sin(∞)) is likewise not an answer — let the end guard nan it.
         if (auto v = lhopital(expr, var, target);
-            v && !is_nan(*v) && !has_oscillating_infinity(*v)) {
+            v && !is_nan(*v) && !has_oscillating_infinity(*v)
+            && !has_buried_infinity(*v)) {
             return *v;
         }
 
@@ -2231,7 +2258,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
 }  // namespace
 
 Expr limit(const Expr& expr, const Expr& var, const Expr& target) {
-    return limit_impl(expr, var, target, 0);
+    Expr r = limit_impl(expr, var, target, 0);
+    // Final sanity: an ∞ buried inside arithmetic (e.g. ∞·(∞+∞·log 4)⁻¹ from a
+    // divergent gamma ratio) is an unresolved indeterminate, not an answer.
+    return has_buried_infinity(r) ? Expr{S::NaN()} : r;
 }
 
 Expr limit(const Expr& expr, const Expr& var, const Expr& target, int dir) {
@@ -2260,7 +2290,7 @@ Expr limit(const Expr& expr, const Expr& var, const Expr& target, int dir) {
         Expr two = limit_impl(expr, var, target, 0);
         if (!is_nan(two) && two->type_id() != TypeId::ComplexInfinity) return two;
     }
-    return r;
+    return has_buried_infinity(r) ? Expr{S::NaN()} : r;
 }
 
 }  // namespace sympp

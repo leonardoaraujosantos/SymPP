@@ -233,6 +233,16 @@ TEST_CASE("polygamma/digamma: pole at nonpositive integers (POLYGAMMA-POLE-1)",
     REQUIRE(polygamma(integer(0), symbol("x"))->type_id() == TypeId::Function);
 }
 
+// POLYGAMMA-INF-1: ψ(x) → +∞ but every higher ψ⁽ⁿ⁾(x) → 0 as x → +∞.
+TEST_CASE("polygamma/digamma: values at +infinity (POLYGAMMA-INF-1)",
+          "[3i][polygamma][digamma][regression]") {
+    REQUIRE(digamma(S::Infinity()) == S::Infinity());
+    REQUIRE(polygamma(integer(0), S::Infinity()) == S::Infinity());
+    REQUIRE(polygamma(integer(1), S::Infinity()) == S::Zero());
+    REQUIRE(polygamma(integer(2), S::Infinity()) == S::Zero());
+    REQUIRE(polygamma(integer(5), S::Infinity()) == S::Zero());
+}
+
 // ----- loggamma --------------------------------------------------------------
 
 TEST_CASE("loggamma: classic values", "[3i][loggamma]") {
