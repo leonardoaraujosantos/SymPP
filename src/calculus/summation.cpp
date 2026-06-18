@@ -1255,9 +1255,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Catalan's constant. Higher s have no elementary closed form (SymPy returns a
     // polylog), so only s ∈ {1, 2} are recognized. A (−1)^(a·k+b) factor with odd
     // a is (−1)^k up to the sign (−1)^b; a leading constant multiplies through.
-    if (lo == S::Zero() && hi->type_id() == TypeId::Infinity) {
+    if ((lo == S::Zero() || lo == S::One())
+        && hi->type_id() == TypeId::Infinity) {
         Expr sign_exp;
         long s = 0;
+        long base_d = 0;  // the constant in the affine base 2·var + base_d
         bool have_sign = false;
         bool have_base = false;
         Expr coeff = S::One();
@@ -1277,7 +1279,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             } else if (f->type_id() == TypeId::Pow
                        && f->args()[1]->type_id() == TypeId::Integer
                        && has(f->args()[0], var)) {
-                // base must be the odd-denominator affine 2·var + 1.
+                // base must be an odd-denominator affine 2·var ± 1 (the +1 form
+                // starts the run of denominators 1,3,5,… at var=0, the −1 form at
+                // var=1 — both the same Leibniz/β series after reindexing).
                 const auto& ze = static_cast<const Integer&>(*f->args()[1]);
                 if (have_base || !ze.fits_long() || ze.to_long() >= 0) {
                     ok = false;
@@ -1285,9 +1289,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 }
                 try {
                     Poly pb(expand(f->args()[0]), var);
-                    if (pb.degree() == 1 && pb.coeffs()[0] == S::One()
-                        && pb.coeffs()[1] == integer(2)) {
+                    if (pb.degree() == 1 && pb.coeffs()[1] == integer(2)
+                        && (pb.coeffs()[0] == S::One()
+                            || pb.coeffs()[0] == S::NegativeOne())) {
                         s = -ze.to_long();
+                        base_d = (pb.coeffs()[0] == S::One()) ? 1 : -1;
                         have_base = true;
                     } else {
                         ok = false;
@@ -1304,7 +1310,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 break;
             }
         }
-        if (ok && have_sign && have_base && (s == 1 || s == 2)) {
+        // The index origin must put the denominator run at 1,3,5,…: the +1 base
+        // sums from 0, the −1 base from 1.
+        const bool index_ok = (base_d == 1 && lo == S::Zero())
+                              || (base_d == -1 && lo == S::One());
+        if (ok && have_sign && have_base && index_ok && (s == 1 || s == 2)) {
             try {
                 Poly pe(expand(sign_exp), var);
                 if (pe.degree() == 1
@@ -1314,8 +1324,12 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                                        .to_long();
                     const long b = static_cast<const Integer&>(*pe.coeffs()[0])
                                        .to_long();
+                    // Reindexing the −1 base (var → var+1) shifts the sign
+                    // exponent's constant by a.
+                    const long b_eff = b + (base_d == -1 ? a : 0);
                     if (a % 2 != 0) {
-                        Expr sign_b = (b % 2 == 0) ? S::One() : S::NegativeOne();
+                        Expr sign_b =
+                            (b_eff % 2 == 0) ? S::One() : S::NegativeOne();
                         Expr val = (s == 1)
                                        ? Expr{S::Pi() / integer(4)}
                                        : S::Catalan();

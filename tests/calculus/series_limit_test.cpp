@@ -1761,6 +1761,33 @@ TEST_CASE("summation: Dirichlet beta β(1)=π/4, β(2)=Catalan (SUM-DIRICHLET-BE
                       S::Zero(), oo)
                 ->str()
                 .find("Sum(") != std::string::npos);
+
+    // SUM-DIRICHLET-BETA-2: the same series written with a (2k−1) denominator
+    // from k=1 — the classic Leibniz form Σ_{k≥1} (−1)^(k+1)/(2k−1) = π/4. It is
+    // the k → k+1 reindexing of the (2k+1)-from-0 form and is now recognized.
+    auto odd_m = integer(2) * k - integer(1);
+    auto altk1 = pow(integer(-1), k + integer(1));
+    REQUIRE(oracle.equivalent(
+        summation(altk1 * pow(odd_m, integer(-1)), k, S::One(), oo)->str(),
+        "pi/4"));
+    // Flipped sign: Σ_{k≥1} (−1)^k/(2k−1) = −π/4.
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(odd_m, integer(-1)), k, S::One(), oo)->str(),
+        "-pi/4"));
+    // β(2) form: Σ_{k≥1} (−1)^(k+1)/(2k−1)² = Catalan.
+    REQUIRE(oracle.equivalent(
+        summation(altk1 * pow(odd_m, integer(-2)), k, S::One(), oo)->str(),
+        "Catalan"));
+    // Leading constant carries through: Σ 2(−1)^(k+1)/(2k−1) = π/2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(2) * altk1 * pow(odd_m, integer(-1)), k, S::One(), oo)
+            ->str(),
+        "pi/2"));
+    // The (2k−1) base from k=0 (denominators −1,1,3,…) is NOT this series and
+    // must not fire.
+    REQUIRE(summation(altk1 * pow(odd_m, integer(-1)), k, S::Zero(), oo)
+                ->str()
+                .find("Sum(") != std::string::npos);
 }
 
 // SUM-EXP-1: the exponential series Σ_{k=0}^∞ r^k/k! = e^r (and its shifted /

@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-DIRICHLET-BETA-2 — the Leibniz form Σ(−1)^(k+1)/(2k−1) was unevaluated
+- **Problem:** `Σ_{k=1}^∞ (−1)^(k+1)/(2k−1) = π/4` (the classic Leibniz series) was left as an
+  unevaluated `Sum`, even though the identical series written as `Σ_{k=0}^∞ (−1)^k/(2k+1)` was already
+  recognized as Dirichlet β(1) = π/4. The reindexed form (denominator `2k−1` from `k=1` instead of
+  `2k+1` from `k=0`) was not matched.
+- **Fix:** generalized the Dirichlet beta recognizer to accept the `2·var − 1` base from `lo = 1` in
+  addition to `2·var + 1` from `lo = 0` — both start the denominator run `1, 3, 5, …`. The `k → k+1`
+  reindexing shifts the sign exponent's constant by `a`, applied via `b_eff`. Now `Σ(−1)^(k+1)/(2k−1) =
+  π/4`, `Σ(−1)^k/(2k−1) = −π/4`, `Σ(−1)^(k+1)/(2k−1)² = Catalan`, with leading constants carried
+  through. The `2k−1` base from `k=0` (denominators `−1, 1, 3, …`, a different series) correctly does
+  not fire. Matches SymPy.
+
 ### INT-CSCH-1 — ∫₀^∞ x^p/sinh(cx) was left unevaluated
 - **Problem:** `∫₀^∞ x/sinh(x) dx = π²/4` and the family `∫₀^∞ x^p/sinh(cx) dx` were returned as
   unevaluated `Integral` markers (non-elementary antiderivative; SymPy also leaves them unevaluated).
