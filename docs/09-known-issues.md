@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### SPECVAL-2 — digamma/polygamma at integers and half-integers were unevaluated
+- **Problem:** `digamma(1/2)`, `digamma(n)` for `n ≥ 2`, `digamma(n+1/2)`, and `polygamma(m, ·)` at
+  integer/half-integer arguments were returned as the unevaluated `polygamma(m, x)` (only `x = 1` was
+  evaluated). SymPy gives `digamma(1/2) = −2 log 2 − γ`, `digamma(2) = 1 − γ`, `polygamma(1,2) = π²/6 − 1`,
+  etc.
+- **Fix:** extended `polygamma(n, x)` to any positive integer or half-integer `x` (non-negative integer
+  order `n`). From the base values `ψ⁽⁰⁾(1) = −γ`, `ψ⁽⁰⁾(1/2) = −γ − 2 log 2`,
+  `ψ⁽ⁿ⁾(1) = (−1)^(n+1)·n!·ζ(n+1)`, `ψ⁽ⁿ⁾(1/2) = (−1)^(n+1)·n!·(2^(n+1)−1)·ζ(n+1)`, it walks up with the
+  recurrence `ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1)`. Gives `digamma(m) = −γ + H_{m−1}`,
+  `digamma(m+1/2) = −γ − 2 log 2 + 2·Σ 1/(2k−1)`, `polygamma(2,1/2) = −14 ζ(3)`, etc. Poles (nonpositive
+  integers → zoo) and generic/symbolic arguments are untouched. Integer and digamma cases match SymPy;
+  the half-integer order-≥1 cases (which SymPy itself leaves unevaluated) are verified numerically — so
+  SymPP exceeds SymPy there.
+
 ### GAMMA-REFL-2 — simplify reverted the gamma reflection at rational arguments
 - **Problem:** `simplify(gamma(1/3)·gamma(2/3))` returned the gamma product unchanged instead of
   **2√3·π/3**, even though `gammasimp` produced the correct elementary form via the Euler reflection

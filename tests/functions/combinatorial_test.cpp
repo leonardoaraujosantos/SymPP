@@ -174,6 +174,42 @@ TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
     REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
 }
 
+// SPECVAL-2: polygamma closed forms at any positive integer or half-integer
+// argument, via the recurrence ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1) from the
+// base values at 1 and 1/2. Previously only x = 1 was evaluated. Integer / digamma
+// cases are oracle-checked against SymPy; the half-integer order-≥1 cases (which
+// SymPy leaves unevaluated) are confirmed by the oracle's numeric .equals(0).
+TEST_CASE("polygamma/digamma: integer and half-integer values (SPECVAL-2)",
+          "[3i][polygamma][digamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto P = [](long n, const Expr& x) { return polygamma(integer(n), x); };
+    auto half = [](long num) { return rational(num, 2); };
+
+    // digamma (order 0) at integers: ψ(m) = −γ + H_{m−1}.
+    REQUIRE(oracle.equivalent(digamma(integer(2))->str(), "1 - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(3))->str(), "3/2 - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(7))->str(),
+                              "49/20 - EulerGamma"));
+    // digamma at half-integers: ψ(1/2) = −γ − 2 log 2, ψ(m+1/2) adds 2·Σ 1/(2k−1).
+    REQUIRE(oracle.equivalent(digamma(half(1))->str(),
+                              "-2*log(2) - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(half(3))->str(),
+                              "2 - 2*log(2) - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(half(5))->str(),
+                              "8/3 - 2*log(2) - EulerGamma"));
+    // Trigamma / higher order at integers.
+    REQUIRE(oracle.equivalent(P(1, integer(2))->str(), "pi**2/6 - 1"));
+    REQUIRE(oracle.equivalent(P(2, integer(2))->str(), "2 - 2*zeta(3)"));
+    // Half-integer, order ≥ 1 (SymPy leaves these unevaluated; values exact).
+    REQUIRE(oracle.equivalent(P(1, half(1))->str(), "pi**2/2"));
+    REQUIRE(oracle.equivalent(P(1, half(3))->str(), "pi**2/2 - 4"));
+    REQUIRE(oracle.equivalent(P(2, half(1))->str(), "-14*zeta(3)"));
+
+    // Generic and pole arguments are untouched.
+    REQUIRE(P(0, symbol("y"))->str() == "polygamma(0, y)");
+    REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
+}
+
 // POLYGAMMA-POLE-1: ψ⁽ⁿ⁾(x) = zoo at the nonpositive integers x ∈ {0, −1, −2, …}
 // for any non-negative integer order n (the Γ pole); digamma inherits it via
 // polygamma(0, ·). Matches SymPy.
@@ -185,9 +221,12 @@ TEST_CASE("polygamma/digamma: pole at nonpositive integers (POLYGAMMA-POLE-1)",
     REQUIRE(polygamma(integer(2), integer(-3)) == S::ComplexInfinity());
     REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
     REQUIRE(digamma(integer(-5)) == S::ComplexInfinity());
-    // No over-reach: positive integers, half-integers, and symbols stay symbolic.
-    REQUIRE(polygamma(integer(0), integer(2))->type_id() == TypeId::Function);
-    REQUIRE(polygamma(integer(0), rational(1, 2))->type_id() == TypeId::Function);
+    // No over-reach: the pole rule must not fire for positive arguments. Positive
+    // integers and half-integers now evaluate to finite closed forms (SPECVAL-2),
+    // not zoo; a symbol stays symbolic.
+    REQUIRE_FALSE(polygamma(integer(0), integer(2)) == S::ComplexInfinity());
+    REQUIRE_FALSE(polygamma(integer(0), rational(1, 2))
+                  == S::ComplexInfinity());
     REQUIRE(polygamma(integer(0), symbol("x"))->type_id() == TypeId::Function);
 }
 

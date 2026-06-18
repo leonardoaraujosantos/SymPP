@@ -1290,17 +1290,58 @@ Expr polygamma(const Expr& n, const Expr& x) {
         && !static_cast<const Integer&>(*n).is_negative()) {
         return S::ComplexInfinity();
     }
-    // Special values at x = 1 for a non-negative integer order:
-    //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
-    if (x == S::One() && n->type_id() == TypeId::Integer) {
-        const auto& z = static_cast<const Integer&>(*n);
-        if (n == S::Zero()) {
-            return mul(S::NegativeOne(), S::EulerGamma());
+    // Closed forms at a positive integer or positive half-integer argument, for a
+    // non-negative integer order n. Start from the base values at b ∈ {1, 1/2}
+    //   ψ⁽⁰⁾(1)   = −γ,                 ψ⁽ⁿ⁾(1)   = (−1)^(n+1)·n!·ζ(n+1),
+    //   ψ⁽⁰⁾(1/2) = −γ − 2·log 2,       ψ⁽ⁿ⁾(1/2) = (−1)^(n+1)·n!·(2^(n+1)−1)·ζ(n+1)
+    // and walk up with the recurrence ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1):
+    //   ψ⁽ⁿ⁾(b+j) = ψ⁽ⁿ⁾(b) + Σ_{i=0}^{j−1} (−1)ⁿ·n!/(b+i)^(n+1).
+    // So ψ(m) = −γ + H_{m−1}, ψ(m+1/2) = −γ − 2 log 2 + 2·Σ 1/(2k−1), etc.
+    if (n->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*n).is_negative()) {
+        // Resolve x to a base b and a non-negative integer step count j (x = b+j).
+        Expr base;
+        long j = -1;
+        if (x->type_id() == TypeId::Integer) {
+            const auto& xi = static_cast<const Integer&>(*x);
+            if (xi.is_positive() && xi.fits_long()) {
+                base = S::One();
+                j = xi.to_long() - 1;
+            }
+        } else if (x->type_id() == TypeId::Rational) {
+            const auto& xr = static_cast<const Rational&>(*x);
+            if (xr.denominator() == 2 && xr.numerator() > 0) {
+                base = rational(1, 2);
+                mpz_class jz = (xr.numerator() - 1) / 2;
+                j = jz.get_si();
+            }
         }
-        if (z.is_positive()) {
+        if (j >= 0) {
+            const bool half = !(base == S::One());
             Expr np1 = add(n, S::One());
-            // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
-            return mul(pow(S::NegativeOne(), np1), mul(factorial(n), zeta(np1)));
+            Expr base_val;
+            if (n == S::Zero()) {
+                base_val = half ? add(mul(S::NegativeOne(), S::EulerGamma()),
+                                      mul(integer(-2), log(integer(2))))
+                                : mul(S::NegativeOne(), S::EulerGamma());
+            } else {
+                // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
+                Expr v = mul(pow(S::NegativeOne(), np1),
+                             mul(factorial(n), zeta(np1)));
+                if (half) {
+                    v = mul(v, add(pow(integer(2), np1), S::NegativeOne()));
+                }
+                base_val = v;
+            }
+            std::vector<Expr> terms;
+            terms.push_back(base_val);
+            for (long i = 0; i < j; ++i) {
+                Expr y = add(base, integer(i));
+                terms.push_back(mul(pow(S::NegativeOne(), n),
+                                    mul(factorial(n),
+                                        pow(y, mul(S::NegativeOne(), np1)))));
+            }
+            return add(std::move(terms));
         }
     }
     return make<PolyGammaFn>(n, x);
