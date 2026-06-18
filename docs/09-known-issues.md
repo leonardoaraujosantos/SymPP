@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAMMA-1 — the Gamma-function integral ∫₀^∞ xˢ⁻¹e⁻ᶜˣ left unevaluated
+- **Problem:** `∫₀^∞ x^(s-1)·e^(-c·x) dx = Γ(s)/cˢ` returned an unevaluated marker. The incomplete-gamma
+  antiderivative `γ(s,x)` (from `INT-INCGAMMA-1`) cannot recover it via Newton–Leibniz: SymPy deliberately
+  keeps `γ(s,∞)` symbolic and reaches `Γ(s)` through a Meijer-G definite path instead.
+- **Fix:** added `try_gamma_integral`, a definite-integral rule for `coeff·x^p·e^(-c·x)` over `[0,∞)` with a
+  positive rate `c`, returning `coeff·Γ(p+1)/c^(p+1)`. Handles a **symbolic** exponent (the headline `Γ(s)`
+  case) as well as numeric ones; a numeric `p` must satisfy `p > −1` to converge at 0, so divergent integrands
+  abstain rather than fabricate a value. Gives `∫₀^∞ x^(s-1)e^(-x) = Γ(s)`, `∫₀^∞ x^(s-1)e^(-2x) = 2⁻ˢΓ(s)`,
+  `∫₀^∞ x³e^(-2x) = 3/8`. Regression: `INT-GAMMA-1`. Matches SymPy. Closes the `INT-INCGAMMA-1` follow-up.
+
 ### INT-INCGAMMA-1 — ∫xˢ⁻¹e⁻ˣ with a symbolic exponent left unevaluated
 - **Problem:** `∫ x^(s-1)·e^(-x) dx` (symbolic exponent) returned an unevaluated `Integral` marker —
   integration by parts only terminates for a non-negative integer power. SymPy returns the lower incomplete
@@ -27,8 +37,7 @@ truth and links the issue number.
   on `FUNC-INCGAMMA-1`. Now `∫x^(s-1)e^(-x) = γ(s,x)`, `∫x^s e^(-x) = γ(s+1,x)`, and the definite
   `∫₀^a x^(s-1)e^(-x) = γ(s,a)` (using the generalized fold `γ(s,0)=0`). Regression: `INT-INCGAMMA-1`.
   Matches SymPy.
-- **Follow-up:** the Gamma integral `∫₀^∞ x^(s-1)e^(-x) = Γ(s)` is still a marker — SymPy reaches it via a
-  Meijer-G definite path (it deliberately keeps `γ(s,∞)` symbolic), so it needs a dedicated definite rule.
+- **Follow-up:** resolved by `INT-GAMMA-1` above — `∫₀^∞ x^(s-1)e^(-x) = Γ(s)` now closes.
 
 ### FUNC-INCGAMMA-1 — no lowergamma/uppergamma function classes
 - **Problem:** SymPP had no incomplete gamma functions. `lowergamma(s,x)` and `uppergamma(s,x)` could not be

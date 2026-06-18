@@ -4115,6 +4115,68 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// The Gamma-function integral ∫₀^∞ x^(s−1)·e^(−c·x) dx = Γ(s)/c^s for c > 0 and
+// Re(s) > 0 (s = p+1). Unlike the indefinite x^p·e^(−x) → γ(p+1, x) rule, the
+// upper bound is +∞: SymPy reaches Γ(s) through a Meijer-G definite path and
+// deliberately keeps γ(s, ∞) symbolic, so Newton–Leibniz on the antiderivative
+// cannot recover it. Handles a symbolic exponent (the headline Γ(s) case) as
+// well as a numeric one; a numeric p must satisfy p > −1 for convergence at 0.
+[[nodiscard]] std::optional<Expr> try_gamma_integral(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& lower,
+                                                     const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    bool has_exp = false;
+    Expr c, coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        if (!has_exp && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Exp
+            && f->args().size() == 1) {
+            Expr g = static_cast<const Function&>(*f).args()[0];
+            Expr rate = simplify(mul(g, pow(var, S::NegativeOne())));  // = −c
+            if (!has(rate, var)
+                && is_negative(rate) == std::optional<bool>{true}) {
+                c = simplify(mul(S::NegativeOne(), rate));
+                has_exp = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && !has(f->args()[1], var)) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_exp) return std::nullopt;
+    Expr ps = simplify(p);
+    // A numeric power needs p > −1 to converge at 0; a symbolic order is taken on
+    // trust (matching SymPy's Γ(s) for a positive symbol).
+    if (is_num(ps)
+        && is_positive(add(ps, S::One())) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr s = add(ps, S::One());
+    return simplify(mul({coeff, gamma(s), pow(c, mul(S::NegativeOne(), s))}));
+}
+
 // ∫₀^∞ log(x)/(x² + A) dx = π·log(A)/(4·√A) for a positive constant A (a known
 // result, equivalently π·log(a)/(2a) with A = a²). Gives ∫₀^∞ log(x)/(x²+1) = 0,
 // ∫₀^∞ log(x)/(x²+4) = π·log(4)/8. The antiderivative is non-elementary, so
@@ -4347,6 +4409,9 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_bose_einstein(expr, var, lower, upper)) return *r;
     // ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}. Non-elementary.
     if (auto r = try_gamma_log_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^(s−1)·e^{−cx} = Γ(s)/c^s (the Gamma-function integral). SymPy keeps
+    // γ(s,∞) symbolic, so this dedicated rule is needed to recover Γ(s).
+    if (auto r = try_gamma_integral(expr, var, lower, upper)) return *r;
     // ∫₀^∞ log(x)/(x²+A) = π·log(A)/(4√A) for A > 0. Non-elementary.
     if (auto r = try_log_over_quadratic(expr, var, lower, upper)) return *r;
     // ∫₀^∞ x^p/sinh(cx) = 2Γ(p+1)(1−2^{−(p+1)})ζ(p+1)/c^{p+1}. Non-elementary.

@@ -3420,3 +3420,32 @@ TEST_CASE("integrate: ∫x^(s-1)·e^{-x} = lowergamma(s, x) (INT-INCGAMMA-1)",
     REQUIRE(elem->str().find("lowergamma") == std::string::npos);
     REQUIRE(simplify(diff(elem, x)) == simplify(pow(x, integer(2)) * emx));
 }
+
+// INT-GAMMA-1: the Gamma-function integral ∫₀^∞ x^(s-1)·e^(-c·x) = Γ(s)/c^s.
+// SymPy keeps γ(s,∞) symbolic, so this needs a dedicated definite rule rather
+// than Newton–Leibniz on the incomplete-gamma antiderivative.
+TEST_CASE("integrate: ∫₀^∞ x^(s-1)·e^{-cx} = Γ(s)/c^s (INT-GAMMA-1)",
+          "[7][integrate][definite][incompletegamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto s = symbol("s", AssumptionMask{}.set_positive(true));
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto ecx = [&](long c) { return exp(mul(integer(-c), x)); };
+
+    // Symbolic order → Γ(s); the Gamma integral proper.
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * ecx(1), x, zero, oo)
+            == gamma(s));
+    // General positive rate c: Γ(s)/c^s.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, add(s, integer(-1))) * ecx(2), x, zero, oo)->str(),
+        "2**(-s)*gamma(s)"));
+    // Leading constant factors through.
+    REQUIRE(integrate(integer(5) * pow(x, add(s, integer(-1))) * ecx(1), x, zero,
+                      oo)
+            == mul(integer(5), gamma(s)));
+    // Numeric powers: Γ(3)=2, Γ(4)/2^4 = 3/8.
+    REQUIRE(integrate(pow(x, integer(2)) * ecx(1), x, zero, oo) == integer(2));
+    REQUIRE(integrate(pow(x, integer(3)) * ecx(2), x, zero, oo)
+            == rational(3, 8));
+}
