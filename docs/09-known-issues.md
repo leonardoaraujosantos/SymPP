@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMA-DUP-1 — central binomial Γ(2x+1)/Γ(x+1)²/4ˣ left as nan
+- **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞) = 0` (Stirling: the central binomial ~ 4ˣ/√(πx)) was returned
+  as `nan`. `gamma_ratio_asymptotic` only ranks slope-1 gammas `Γ(x+a)`; a doubled-rate `Γ(2x+1)` is opaque
+  to it.
+- **Fix:** added `try_gamma_duplication`, the Legendre duplication formula
+  `Γ(2z) = 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2)` (`z = x + b/2`). It rewrites a slope-2 `Γ(2x+b)` into two slope-1
+  gammas plus `4ˣ·2^(b−1)`, written with the `4ˣ` in **base 4** so an explicit `4^(−x)` in the original
+  cancels via Mul canonicalization. It only proceeds when **no constant-base exponential survives** the
+  rewrite (checked by `has_const_base_exponential`); the leftover pure slope-1 gamma ratio is then resolved
+  soundly by the existing asymptotic. Gives `C(2x,x)/4ˣ → 0` and `C(2x,x)·√x/4ˣ → 1/√π`. A bare
+  `Γ(2x)/Γ(x)²` (whose `4ˣ` would not cancel, → ∞) keeps a residual exponential, so duplication abstains and
+  it stays a clean `nan` — no wrong answer, since combining a surviving `cˣ` with a gamma asymptotic needs
+  more machinery (a future increment). Regression: `LIMIT-GAMMA-DUP-1`. Matches SymPy.
+
 ### LIMIT-BURIED-INF-1 — divergent gamma ratio leaked ∞-arithmetic garbage
 - **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞)` (the central binomial over 4ˣ, → 0 by Stirling) returned the
   malformed expression `∞·(∞ + ∞·log 4)⁻¹` — L'Hôpital differentiated the loggamma factors into digamma and

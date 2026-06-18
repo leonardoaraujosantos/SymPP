@@ -2613,21 +2613,20 @@ TEST_CASE("limit: dominant-term resolution of an unequal-order ∞−∞ sum (LI
 }
 
 // LIMIT-BURIED-INF-1: a limit value with an ∞ buried inside arithmetic is an
-// unresolved indeterminate, not an answer. A divergent gamma ratio (the central
-// binomial Γ(2x+1)/Γ(x+1)²/4ˣ) drove L'Hôpital to leave ∞·(∞+∞·log4)⁻¹; the
-// engine must report nan rather than that noise. Genuine divergences (bare ±∞)
-// are unaffected.
+// unresolved indeterminate, not an answer. A doubled-rate gamma ratio that does
+// not reduce (Γ(2x)/Γ(x)²) drives L'Hôpital to leave ∞·(∞+…)⁻¹ noise; the engine
+// must report nan rather than that. Genuine divergences (bare ±∞) are unaffected.
 TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
           "[6][limit][infinity][regression]") {
     auto x = symbol("x");
     const Expr oo = S::Infinity();
     auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
 
-    // Central binomial / 4ˣ: previously leaked ∞·(∞+∞·log4)⁻¹; now a clean nan.
-    Expr cb = mul(mul(gamma(add(mul(integer(2), x), integer(1))),
-                      pow(gamma(add(x, integer(1))), integer(-2))),
-                  pow(integer(4), mul(integer(-1), x)));
-    Expr r = limit(cb, x, oo);
+    // Γ(2x)/Γ(x)²: the duplication abstains (a surviving 4ˣ → ∞), and the
+    // L'Hôpital noise is suppressed to a clean nan rather than ∞-arithmetic.
+    Expr r = limit(mul(gamma(mul(integer(2), x)),
+                       pow(gamma(x), integer(-2))),
+                   x, oo);
     REQUIRE(is_nan(r));
     REQUIRE(r->str().find("oo") == std::string::npos);  // no embedded infinity
 
@@ -2635,6 +2634,24 @@ TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
     REQUIRE(limit(mul(pow(x, integer(2)), pow(x, integer(-1))), x, oo) == oo);
     REQUIRE(limit(mul(exp(x), pow(x, integer(-1))), x, oo) == oo);
     REQUIRE(limit(gamma(x), x, oo) == oo);
+}
+
+// LIMIT-GAMMA-DUP-1: Legendre duplication resolves a doubled-rate gamma ratio
+// when the 4ˣ it introduces cancels — the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ
+// → 0, and Γ(2x+1)/Γ(x+1)²·√x/4ˣ → 1/√π (Stirling's central-binomial constant).
+TEST_CASE("limit: gamma duplication on the central binomial (LIMIT-GAMMA-DUP-1)",
+          "[6][limit][infinity][gamma][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    Expr cbinom = mul(gamma(add(mul(integer(2), x), integer(1))),
+                      pow(gamma(add(x, integer(1))), integer(-2)));
+    Expr inv4x = pow(integer(4), mul(integer(-1), x));
+
+    // C(2x,x)/4ˣ → 0.
+    REQUIRE(limit(mul(cbinom, inv4x), x, oo) == S::Zero());
+    // C(2x,x)·√x/4ˣ → 1/√π.
+    REQUIRE(simplify(limit(mul(mul(cbinom, inv4x), sqrt(x)), x, oo))
+            == simplify(pow(S::Pi(), rational(-1, 2))));
 }
 
 // LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —

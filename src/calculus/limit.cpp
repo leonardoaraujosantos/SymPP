@@ -1006,6 +1006,77 @@ struct Growth {
     return std::nullopt;
 }
 
+// A constant-base exponential c^(…·var), c a number ≠ 1 — the residual the
+// gamma-ratio asymptotic cannot absorb, so its presence means duplication has
+// not produced a form the slope-1 machinery can finish soundly.
+[[nodiscard]] bool has_const_base_exponential(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Pow && is_number(e->args()[0])
+        && !(e->args()[0] == S::One()) && has(e->args()[1], var)) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_const_base_exponential(a, var)) return true;
+    }
+    return false;
+}
+
+// Legendre duplication for a Γ whose argument grows at twice the rate, Γ(2x+b),
+// which gamma_ratio_asymptotic (slope-1 only) cannot rank — e.g. the central
+// binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0. The identity
+//   Γ(2z) = 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2),   z = x + b/2
+// rewrites the slope-2 gamma into two slope-1 gammas plus 4ˣ·2^(b−1). The 4ˣ is
+// written in base 4 so it cancels an explicit 4^(−x) in the original via Mul
+// canonicalization; only when *no* constant-base exponential survives (the
+// exponential fully cancelled) does the remaining pure gamma ratio resolve
+// soundly — otherwise we abstain rather than hand the slope-1 path a form it
+// would mis-rank (e.g. a bare Γ(2x+1)/Γ(x+1)², which keeps a 4ˣ and → ∞).
+[[nodiscard]] std::optional<Expr> try_gamma_duplication(const Expr& expr,
+                                                        const Expr& var,
+                                                        const Expr& target,
+                                                        int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    if (count_gamma_factorial(expr) == 0) return std::nullopt;
+    Expr work = normalize_factorial(expr);  // factorial → gamma
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1
+                && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)) {
+                    Expr slope = simplify(diff(g, var));
+                    Expr b = simplify(
+                        add(g, mul(S::NegativeOne(), mul(integer(2), var))));
+                    if (slope == integer(2) && !has(b, var)) {
+                        Expr z = add(var, mul(b, rational(1, 2)));  // x + b/2
+                        // 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2), with 2^(2x) ≡ 4ˣ so an
+                        // explicit 4^(−x) cancels.
+                        Expr term = mul(
+                            {pow(integer(4), var),
+                             pow(integer(2), add(b, S::NegativeOne())),
+                             pow(S::Pi(), rational(-1, 2)), gamma(z),
+                             gamma(add(z, rational(1, 2)))});
+                        m.emplace(e, std::move(term));
+                    }
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, work);
+    if (m.empty()) return std::nullopt;
+    Expr rw = xreplace(work, m);
+    // Only proceed when the exponential fully cancelled; a surviving c^x would be
+    // mis-ranked by the downstream gamma machinery.
+    if (has_const_base_exponential(rw, var)) return std::nullopt;
+    Expr r = limit_impl(rw, var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 // Bounded × vanishing at ±∞: a product carrying a bounded oscillating factor
 // (sin/cos of a real argument, value in [−1, 1]) times a remaining product that
 // → 0 has limit 0 by the squeeze theorem (|sin(g)·rest| ≤ |rest| → 0). Resolves
@@ -1939,6 +2010,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     if (target == S::Infinity() && count_gamma_factorial(expr) > 0) {
         if (auto r = gamma_ratio_asymptotic(normalize_factorial(expr), var))
             return *r;
+        // A doubled-rate Γ(2x+b) is opaque to the slope-1 asymptotic above;
+        // Legendre duplication splits it into slope-1 gammas when the 4ˣ it
+        // introduces cancels (e.g. the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0).
+        if (auto r = try_gamma_duplication(expr, var, target, depth)) return *r;
     }
 
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
