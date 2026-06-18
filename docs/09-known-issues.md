@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIGN-IDEMPOTENT-1 — sign(sign(x)) did not collapse
+- **Problem:** `sign(sign(x))` was left unevaluated. SymPy folds it to `sign(x)` — `sign` is
+  idempotent, since `sign(z)` already lies in `{−1, 0, 1}` (real `z`) or on the unit circle (complex
+  `z`), whose own sign is itself.
+- **Fix:** added the idempotency rule to the `sign` factory — when the argument is itself a `Sign`
+  node, return it unchanged. Now `sign(sign(x)) = sign(x)` (and nested `sign` fully collapses), while
+  the argument's own reductions still apply (`sign(sign(−3)) = −1`) and non-`sign` arguments
+  (`sign(|x|)`) are untouched. Matches SymPy. (SymPP already simplifies `sign(x)·|x| = x`, which SymPy
+  leaves unevaluated.)
+
 ### POLYLOG-NEGORDER-1 — Li₀ and Li₋₁ rational closed forms were unevaluated
 - **Problem:** `polylog(0, z)` and `polylog(−1, z)` were returned unevaluated, even though they have
   elementary rational closed forms `Li₀(z) = z/(1−z)` and `Li₋₁(z) = z/(1−z)²` that SymPy auto-evaluates.
