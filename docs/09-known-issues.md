@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### REFINE-ABS-MUL-1 — refine(|x·y|) did not apply per-factor sign facts
+- **Problem:** `refine(|x·y|)` stayed `Abs(x·y)` even under `Q.positive(x)`/`Q.positive(y)`. The sign facts
+  reach a bare symbol via the `assuming` context but not a product: `Mul::ask` queries its factors through the
+  context-blind `f->ask(k)`, so `is_nonnegative(x·y)` cannot see the scoped facts. SymPy distributes:
+  `x·Abs(y)` under `Q.positive(x)` alone, `x·y` under both, `−x·y` under `Q.positive(x)∧Q.negative(y)`.
+- **Fix:** extended `refine_abs` to distribute over a product — `|∏fᵢ| = ∏|fᵢ|` (valid for any complex
+  factors) — applying each factor's known sign independently (`f` if `f ≥ 0`, `−f` if `f ≤ 0`, else `|f|`).
+  The distributed product is returned only when at least one factor collapses, so `|x·y|` with no facts stays
+  `Abs(x·y)`, matching SymPy. The numeric-coefficient case (`|−2·x| = 2·|x|`) is already handled by the `abs`
+  factory. This sidesteps the context-blind `Mul::ask` at the refine layer rather than reworking the core ask
+  recursion. Regression: `REFINE-ABS-MUL-1`. Matches SymPy.
+
 ### REFINE-SQRT-SQUARE-1 — refine(√(x²)) did not reduce under sign/reality facts
 - **Problem:** `refine(√(x²))` was left unchanged even when `x` was known real or negative. SymPy reduces it
   to `Abs(x)` under a real assumption and to `-x` under `Q.negative(x)` (and `x` under `Q.positive(x)`).

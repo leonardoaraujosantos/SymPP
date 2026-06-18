@@ -585,6 +585,35 @@ TEST_CASE("refine: sqrt(x^2) -> |x| gated on reality (REFINE-SQRT-SQUARE-1)",
     }
 }
 
+// REFINE-ABS-MUL-1: |∏fᵢ| = ∏|fᵢ| — absolute value distributes over a product,
+// so each factor's known sign applies independently. The distributed form is
+// returned only when a factor actually collapses (|x·y| with no facts stays).
+TEST_CASE("refine: abs distributes over a product (REFINE-ABS-MUL-1)",
+          "[2c][refine][assuming][oracle]") {
+    auto& oracle = sympp::testing::Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    Expr axy = abs(mul(x, y));
+
+    // No sign facts → unchanged.
+    REQUIRE(refine(axy) == axy);
+
+    {  // Only x known positive → x·|y|.
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        REQUIRE(oracle.equivalent(refine(axy)->str(), "x*Abs(y)"));
+    }
+    {  // Both positive → x·y.
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        assuming py(y, AssumptionMask{}.set_positive(true));
+        REQUIRE(refine(axy) == mul(x, y));
+    }
+    {  // x>0, y<0 → -x·y.
+        assuming px(x, AssumptionMask{}.set_positive(true));
+        assuming ny(y, AssumptionMask{}.set_negative(true));
+        REQUIRE(refine(axy) == mul(S::NegativeOne(), mul(x, y)));
+    }
+}
+
 // ASSUME-IMAG-1: Imaginary / Complex predicates with arithmetic propagation.
 // imaginary ⇒ complex ∧ ¬real ∧ finite; I·(real≠0) is imaginary; I·I and
 // imaginary² are real; sums of imaginaries are imaginary. Matches SymPy.
