@@ -2583,3 +2583,31 @@ TEST_CASE("limit: general power rewritten as exp resolves growth (LIMIT-POW-AS-E
     REQUIRE(limit(pow(integer(1) + pow(x, integer(-1)), x), x, oo)
             == S::E());  // (1+1/x)^x → e
 }
+
+// LIMIT-DOMINANT-SUM-1: Gruntz dominant-term rule — an indeterminate ∞−∞ sum
+// whose terms differ in growth order collapses to its strictly dominant term.
+// x − x·log x → −∞ (the −x·log x term outgrows x); combined with the power-as-exp
+// rewrite this closes exp(x)/xˣ → 0 and xˣ/exp(x) → ∞. Cancelling/algebraic
+// differences keep their dedicated handlers and must be unaffected.
+TEST_CASE("limit: dominant-term resolution of an unequal-order ∞−∞ sum (LIMIT-DOMINANT-SUM-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // The −x·log x term dominates x, so the sum diverges to −∞.
+    REQUIRE(limit(x + mul(S::NegativeOne(), mul(x, log(x))), x, oo)
+            == S::NegativeInfinity());
+    // Full chain: exp(x)/xˣ → 0 and xˣ/exp(x) → ∞ (power-as-exp + exp-combine +
+    // dominant-term sum).
+    REQUIRE(limit(exp(x) * pow(pow(x, x), integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, x) * pow(exp(x), integer(-1)), x, oo) == oo);
+    // Genuinely cancelling / equal-order differences are left to the
+    // conjugate/polynomial machinery and stay correct.
+    REQUIRE(limit(add(x, mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+    REQUIRE(simplify(limit(add(sqrt(add(pow(x, integer(2)), x)),
+                               mul(S::NegativeOne(), x)),
+                           x, oo))
+            == S::Half());  // → 1/2
+    REQUIRE(limit(add(pow(x, integer(2)), mul(S::NegativeOne(), x)), x, oo)
+            == oo);
+}

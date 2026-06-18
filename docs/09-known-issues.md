@@ -29,9 +29,20 @@ truth and links the issue number.
   /indeterminate power paths (`x^(1/x) → 1`, `(1+1/x)ˣ → e`) run earlier and never reach the fallback, so
   they are unaffected. First stage of converting the heuristic limit engine toward the real Gruntz
   most-rapidly-varying algorithm. Matches SymPy. Regression: `LIMIT-POW-AS-EXP-1`.
-- **Follow-up:** `exp(x)/xˣ → 0` still returns `nan` — after the rewrite it is `exp(x)·exp(−x·log x)`, which
-  needs a general exp-product combiner (merging non-monomial exponents) plus a dominant-term sum rule. Next
-  Gruntz increment.
+- **Follow-up:** resolved by `LIMIT-DOMINANT-SUM-1` below — `exp(x)/xˣ → 0` now works.
+
+### LIMIT-DOMINANT-SUM-1 — exp(x)/xˣ and unequal-order ∞−∞ sums left unevaluated
+- **Problem:** `limit(exp(x)/x**x, x, oo)` returned `nan`. After the power-as-exp rewrite the expression is
+  `exp(x)·exp(−x·log x)`, which `try_exp_combine` correctly merges to `exp(x − x·log x)`; the exp-continuity
+  rule then needs `limit(x − x·log x)`. That sum is an indeterminate ∞−∞ that direct substitution and the
+  conjugate/polynomial machinery leave as `nan`, even though one term strictly dominates. SymPy gives `0`.
+- **Fix:** added `try_dominant_term_sum`, the Gruntz dominant-term rule. For an ∞−∞ sum at ±∞ it pairwise
+  compares term growth via `limit(tⱼ/tᵢ)`; if one term `tᵢ` strictly outgrows every other (all ratios → 0)
+  and itself diverges to a signed ∞, the sum is asymptotic to `tᵢ`, so the limit is `limit(tᵢ)`. Thus
+  `x − x·log x → −∞` (the `−x·log x` term dominates `x`), and the full chain gives `exp(x)/xˣ → 0`,
+  `xˣ/exp(x) → ∞`. It only fires for a **unique strict** dominator, so genuinely cancelling or equal-order
+  differences (`x − x → 0`, `√(x²+x) − x → 1/2`, `x² − x → ∞`) keep their dedicated handlers and are
+  unaffected. Second Gruntz increment. Matches SymPy. Regression: `LIMIT-DOMINANT-SUM-1`.
 
 ### INT-LOG1PX2-1 — ∫₀^∞ log(1+cx²)/x² was left unevaluated
 - **Problem:** `∫₀^∞ log(1+x²)/x² dx = π` and the family `∫₀^∞ log(1+c·x²)/x² dx` were returned as

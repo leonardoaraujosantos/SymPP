@@ -1720,6 +1720,43 @@ struct Growth {
     return r;
 }
 
+// Gruntz dominant-term rule for an indeterminate ∞−∞ sum at ±∞: if one term
+// strictly outgrows every other (each other term divided by it tends to 0), the
+// sum is asymptotic to that term, so the limit equals the dominant term's limit.
+// Resolves x − x·log x → −∞ (the −x·log x term dominates x), which closes the
+// exp(x)/x^x chain once the powers are on an exp footing. Only fires for a unique
+// strict dominator that itself diverges to a signed ∞, so genuinely cancelling
+// differences (x − x, √(x²+x) − x) are left to the conjugate/algebraic machinery.
+[[nodiscard]] std::optional<Expr> try_dominant_term_sum(const Expr& expr,
+                                                        const Expr& var,
+                                                        const Expr& target,
+                                                        int depth) {
+    if (depth >= 10) return std::nullopt;
+    if (expr->type_id() != TypeId::Add || !is_infinity(target)) {
+        return std::nullopt;
+    }
+    const auto& terms = expr->args();
+    if (terms.size() < 2 || terms.size() > 6) return std::nullopt;
+    for (std::size_t i = 0; i < terms.size(); ++i) {
+        if (!has(terms[i], var)) continue;
+        bool dominates = true;
+        for (std::size_t j = 0; j < terms.size() && dominates; ++j) {
+            if (j == i) continue;
+            Expr ratio = simplify(mul(terms[j], pow(terms[i], integer(-1))));
+            if (!(limit_impl(ratio, var, target, depth + 1) == S::Zero())) {
+                dominates = false;
+            }
+        }
+        if (!dominates) continue;
+        Expr cl = limit_impl(terms[i], var, target, depth + 1);
+        if (cl->type_id() == TypeId::Infinity
+            || cl->type_id() == TypeId::NegativeInfinity) {
+            return cl;
+        }
+    }
+    return std::nullopt;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -1911,6 +1948,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 // Algebraic ∞−∞ / 0·∞ via the leading asymptotic term — resolves the
                 // radical ratios the conjugate produces and L'Hôpital abandons.
                 if (auto v = try_algebraic_inf(expr, var, target)) {
+                    return *v;
+                }
+                // Gruntz dominant-term rule: a ∞−∞ sum with a unique strictly
+                // dominant divergent term (e.g. x − x·log x → −∞).
+                if (auto v = try_dominant_term_sum(expr, var, target, depth)) {
                     return *v;
                 }
             }
