@@ -3983,6 +3983,76 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// ∫₀^∞ x^p · e^{−c·x} · log(x) dx = Γ(p+1)·(ψ(p+1) − log c)/c^{p+1}, the
+// derivative of the Γ-integral ∫₀^∞ x^{s−1} e^{−cx} dx = Γ(s)/c^s with respect to
+// s. Requires a single log(x) factor, an exp(−c·x) with c a positive constant, a
+// monomial coeff·x^p with p > −1 (convergent at 0), and bounds [0, ∞). The
+// antiderivative is non-elementary, so Newton–Leibniz leaves nan. ψ = digamma
+// evaluates at integer / half-integer p (see SPECVAL-2), giving e.g.
+// ∫₀^∞ e^{−x} log x = −γ, ∫₀^∞ x³ e^{−x} log x = 11 − 6γ. Matches SymPy.
+[[nodiscard]] std::optional<Expr> try_gamma_log_integral(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& lower,
+                                                         const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr logx = log(var);
+    bool has_log = false, has_exp = false;
+    Expr c, coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        if (!has_log && f == logx) {
+            has_log = true;
+            continue;
+        }
+        if (!has_exp && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Exp
+            && f->args().size() == 1) {
+            Expr g = static_cast<const Function&>(*f).args()[0];
+            Expr rate = simplify(mul(g, pow(var, S::NegativeOne())));  // = −c
+            if (!has(rate, var)
+                && is_negative(rate) == std::optional<bool>{true}) {
+                c = simplify(mul(S::NegativeOne(), rate));
+                has_exp = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_exp) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps)
+        || is_positive(add(ps, S::One())) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > −1 for convergence at 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, gamma(s),
+                      add(polygamma(S::Zero(), s),
+                          mul(S::NegativeOne(), log(c))),
+                      pow(c, mul(S::NegativeOne(), s))});
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -3993,6 +4063,8 @@ Expr integrate(const Expr& expr, const Expr& var,
     // Bose–Einstein / Fermi–Dirac ∫₀^∞ x^p/(e^{cx}∓1) = Γ(p+1)ζ(p+1)/c^{p+1}
     // (× (1−2^{−p}) for the +1 kernel). Non-elementary antiderivative.
     if (auto r = try_bose_einstein(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}. Non-elementary.
+    if (auto r = try_gamma_log_integral(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

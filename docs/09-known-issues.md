@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-GAMMA-LOG-1 — ∫₀^∞ x^p e^{−cx} log x gave nan
+- **Problem:** `∫₀^∞ e^{−x} log x dx` returned `nan` (correct value **−γ**), as did the weighted/scaled
+  variants `x·e^{−x} log x → 1 − γ`, `x³·e^{−x} log x → 11 − 6γ`, `e^{−2x} log x → −γ/2 − log2/2`. The
+  antiderivative is non-elementary (incomplete-gamma / Ei), so Newton–Leibniz leaves nan. SymPy
+  evaluates all of these.
+- **Fix:** added `try_gamma_log_integral`, a closed-form rule on `[0, ∞)`. Differentiating the
+  Γ-integral `∫₀^∞ x^{s−1} e^{−cx} dx = Γ(s)/c^s` with respect to `s` gives
+  `∫₀^∞ x^p·e^{−cx}·log x dx = Γ(p+1)·(ψ(p+1) − log c)/c^{p+1}`. It matches a single `log(x)` factor, an
+  `exp(−c·x)` with `c` a positive constant, and a monomial `coeff·x^p` with `p > −1` (convergent at 0).
+  `ψ = digamma` evaluates at integer/half-integer `p` ([[SPECVAL-2]]), yielding the closed forms in
+  `EulerGamma`. Plain Γ-integrals (no log factor) and finite bounds are unaffected. Matches SymPy.
+
 ### IRRATIONAL-PROP-1 — irrationality did not propagate through Mul/Add
 - **Problem:** `is_irrational(2·π)`, `is_irrational(π + 1)`, `is_irrational(3·√2)`, `is_irrational(√2/2)`
   all returned Unknown instead of True (the follow-up flagged in [[IRRATIONAL-ROOT-1]]). A nonzero

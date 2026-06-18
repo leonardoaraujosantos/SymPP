@@ -3210,3 +3210,39 @@ TEST_CASE("integrate: Bose-Einstein / Fermi-Dirac integrals (INT-BOSE-EINSTEIN-1
                       zero, oo)
             == integer(2));
 }
+
+// INT-GAMMA-LOG-1: ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}, the
+// s-derivative of the Γ-integral. Non-elementary antiderivative, so SymPP
+// previously returned nan. ψ = digamma evaluates at integer p, giving closed
+// forms in EulerGamma. Matches SymPy: ∫₀^∞ e^{−x} log x = −γ, x³ variant = 11−6γ.
+TEST_CASE("integrate: gamma-log integrals ∫x^p e^{-cx} log x (INT-GAMMA-LOG-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto E = [&](const Expr& c) { return exp(mul(c, x)); };  // e^{c·x}
+
+    // ∫₀^∞ e^{−x} log x = −γ.
+    REQUIRE(oracle.equivalent(
+        integrate(E(S::NegativeOne()) * log(x), x, zero, oo)->str(),
+        "-EulerGamma"));
+    // ∫₀^∞ x·e^{−x} log x = 1 − γ.
+    REQUIRE(oracle.equivalent(
+        integrate(x * E(S::NegativeOne()) * log(x), x, zero, oo)->str(),
+        "1 - EulerGamma"));
+    // ∫₀^∞ x³·e^{−x} log x = 11 − 6γ.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * E(S::NegativeOne()) * log(x), x, zero, oo)
+            ->str(),
+        "11 - 6*EulerGamma"));
+    // Scaled rate c = 2: ∫₀^∞ e^{−2x} log x = −γ/2 − log(2)/2.
+    REQUIRE(oracle.equivalent(
+        integrate(E(integer(-2)) * log(x), x, zero, oo)->str(),
+        "-EulerGamma/2 - log(2)/2"));
+
+    // Guards: no log factor (plain Γ-integral) and a finite bound must NOT fire.
+    REQUIRE(integrate(pow(x, integer(3)) * E(S::NegativeOne()), x, zero, oo)
+            == integer(6));
+    REQUIRE(integrate(x * E(S::NegativeOne()), x, zero, oo) == integer(1));
+}
