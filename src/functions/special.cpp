@@ -499,6 +499,18 @@ Expr polylog(const Expr& s, const Expr& z) {
     if (s == integer(2) && z == S::NegativeOne()) {
         return mul(rational(-1, 12), pow(S::Pi(), integer(2)));
     }
+    // Non-positive integer order has a rational closed form. SymPy auto-evaluates
+    // only s = 0 and s = −1 (orders ≤ −2 need expand_func), so match that:
+    //   Li_0(z) = z/(1 − z),   Li_{−1}(z) = z/(1 − z)².
+    {
+        Expr one_minus_z = add(S::One(), mul(S::NegativeOne(), z));
+        if (s == S::Zero()) {
+            return mul(z, pow(one_minus_z, S::NegativeOne()));
+        }
+        if (s == S::NegativeOne()) {
+            return mul(z, pow(one_minus_z, integer(-2)));
+        }
+    }
     return make<Polylog>(s, z);
 }
 

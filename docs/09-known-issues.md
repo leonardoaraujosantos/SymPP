@@ -16,6 +16,14 @@ truth and links the issue number.
 
 ## Fixed
 
+### POLYLOG-NEGORDER-1 — Li₀ and Li₋₁ rational closed forms were unevaluated
+- **Problem:** `polylog(0, z)` and `polylog(−1, z)` were returned unevaluated, even though they have
+  elementary rational closed forms `Li₀(z) = z/(1−z)` and `Li₋₁(z) = z/(1−z)²` that SymPy auto-evaluates.
+- **Fix:** added these two orders to the `polylog` factory, after the existing `z = 0` (→ 0) and
+  `z = 1` (→ ζ(s)) special cases so they keep precedence (`Li₀(1) = ζ(0) = −1/2`, `Li₋₁(1) = ζ(−1) =
+  −1/12`). Now `polylog(0, 1/3) = 1/2`, `polylog(−1, 1/2) = 2`. Orders ≤ −2 stay unevaluated — matching
+  SymPy's default, which expands them only under `expand_func`. Matches SymPy.
+
 ### SUM-DIRICHLET-BETA-2 — the Leibniz form Σ(−1)^(k+1)/(2k−1) was unevaluated
 - **Problem:** `Σ_{k=1}^∞ (−1)^(k+1)/(2k−1) = π/4` (the classic Leibniz series) was left as an
   unevaluated `Sum`, even though the identical series written as `Σ_{k=0}^∞ (−1)^k/(2k+1)` was already
