@@ -1133,3 +1133,39 @@ TEST_CASE("AssumptionMask: atan sign propagation (FUNC-SIGN-2)",
     REQUIRE(is_positive(atan(im)) == U);
     REQUIRE(is_positive(atan(r)) == U);
 }
+
+// MUL-CONSEC-EVEN-1: a product of integers containing two consecutive factors —
+// n·(n−1), n·(n+1)·(n+2), 2n·(2n+1) — is even, since one of two consecutive
+// integers is even. Previously Unknown. Matches SymPy ((n*(n-1)).is_even == True),
+// which likewise infers this only for the factored product (the expanded n²−n
+// stays Unknown in both systems).
+TEST_CASE("AssumptionMask: product of consecutive integers is even (MUL-CONSEC-EVEN-1)",
+          "[2a][assumptions]") {
+    using sympp::is_even;
+    using sympp::is_odd;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+    auto n = symbol("n", AssumptionMask{}.set_integer(true));
+    auto m = symbol("m", AssumptionMask{}.set_integer(true));
+    auto m1 = [&](const Expr& a, long c) { return add(a, integer(c)); };
+
+    REQUIRE(is_even(mul(n, m1(n, -1))) == T);          // n·(n−1)
+    REQUIRE(is_even(mul(n, m1(n, 1))) == T);           // n·(n+1)
+    REQUIRE(is_odd(mul(n, m1(n, -1))) == F);
+    REQUIRE(is_even(mul(mul(n, m1(n, 1)), m1(n, 2))) == T);  // n(n+1)(n+2)
+    // Scaled non-constant part: 2n and 2n+1 are consecutive.
+    auto twon = mul(integer(2), n);
+    REQUIRE(is_even(mul(twon, m1(twon, 1))) == T);
+    // A spectator integer factor does not break the inference.
+    REQUIRE(is_even(mul(mul(n, m1(n, 1)), integer(7))) == T);
+
+    // Not consecutive (offset 2) or different non-constant parts ⇒ Unknown.
+    REQUIRE(is_even(mul(n, m1(n, -2))) == U);
+    REQUIRE(is_even(mul(n, m)) == U);
+    REQUIRE(is_even(mul(n, m1(m, 1))) == U);
+    // Pre-existing parity arithmetic is unaffected.
+    auto o = symbol("o", AssumptionMask{}.set_odd(true));
+    REQUIRE(is_odd(mul(o, o)) == T);
+    REQUIRE(is_even(mul(integer(2), n)) == T);
+}

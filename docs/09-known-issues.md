@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### MUL-CONSEC-EVEN-1 — product of consecutive integers was not recognized as even
+- **Problem:** `is_even(n·(n−1))` was Unknown for an integer `n`, even though a product of consecutive
+  integers is always even (one of any two consecutive integers is even). SymPy infers this for the
+  factored product (`(n*(n-1)).is_even = True`).
+- **Fix:** added `has_consecutive_int_factors` to `Mul::ask`. It decomposes each factor into
+  `(rest, offset)` (the non-constant part and its integer constant term) and reports two consecutive
+  factors when two share the same `rest` with offsets differing by ±1 — `n` & `n+1`, or `2n` & `2n+1`.
+  When the caller has already established every factor is an integer, such a pair forces the product
+  even (and not odd). Now `n·(n−1)`, `n·(n+1)·(n+2)`, `2n·(2n+1)` are even; non-consecutive offsets
+  (`n·(n−2)`) and distinct non-constant parts (`n·m`) stay Unknown, and the existing parity arithmetic
+  is unaffected. Matches SymPy — which, like SymPP, leaves the *expanded* `n²−n` Unknown.
+
 ### FUNC-SIGN-2 — atan did not propagate the argument's sign
 - **Problem:** `is_positive(atan(p))` for `p > 0` was Unknown (likewise `atan(negative) < 0`,
   `atan(positive) ≠ 0`). `atan` is odd and strictly increasing on ℝ — and always real and finite
