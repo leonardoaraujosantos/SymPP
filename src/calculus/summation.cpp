@@ -1388,8 +1388,34 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             if (!has(c, var)) {  // exponent is linear in var
                 Expr d = simplify(exponent - c * var);
                 if (!has(d, var)) {
-                    Expr ratio = pow(base, c);
+                    Expr ratio = simplify(pow(base, c));
                     Expr prefactor = pow(base, d);
+                    if (hi->type_id() == TypeId::Infinity) {
+                        // |ratio| < 1 (⇔ |ratio|−1 < 0): converges, ratio^(hi+1)→0,
+                        // so Σ_{k=lo}^∞ A·ratio^k = A·ratio^lo/(1−ratio). Holds for a
+                        // negative ratio too (e.g. Σ(−½)^k = 2/3), which the naive
+                        // ratio^∞ substitution turned into nan.
+                        const Expr mag = simplify(abs(ratio) + S::NegativeOne());
+                        if (is_negative(mag) == std::optional<bool>{true}) {
+                            return simplify(prefactor * pow(ratio, lo)
+                                            * pow(integer(1) - ratio, integer(-1)));
+                        }
+                        // |ratio| > 1: diverges. A positive ratio with positive
+                        // terms → +∞ (or −∞); an oscillating |ratio|≥1 (negative
+                        // ratio) or a symbolic ratio whose magnitude is unknown is
+                        // left as an unevaluated Sum rather than ratio^∞ noise.
+                        if (is_positive(mag) == std::optional<bool>{true}
+                            && is_positive(ratio) == std::optional<bool>{true}) {
+                            Expr pf = simplify(prefactor);
+                            if (is_positive(pf) == std::optional<bool>{true}) {
+                                return S::Infinity();
+                            }
+                            if (is_negative(pf) == std::optional<bool>{true}) {
+                                return S::NegativeInfinity();
+                            }
+                        }
+                        return sum_marker(expr, var, lo, hi);
+                    }
                     // A * (ratio^lo - ratio^(hi+1)) / (1 - ratio)
                     Expr num = pow(ratio, lo) - pow(ratio, hi + integer(1));
                     Expr den = integer(1) - ratio;

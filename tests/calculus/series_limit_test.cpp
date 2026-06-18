@@ -1440,6 +1440,36 @@ TEST_CASE("summation: infinite polynomial × geometric, |r| < 1 (SUM-POLYGEOM-IN
                 .find("Sum(") != std::string::npos);
 }
 
+// SUM-GEOM-INF-1: the plain infinite geometric series Σ_{k=lo}^∞ A·rᵏ. For a
+// convergent ratio (|r| < 1, either sign) it closes to A·r^lo/(1−r) — the naive
+// r^∞ substitution turned a negative ratio into nan and a symbolic ratio into an
+// r^∞ artifact. A positive divergent ratio gives ±∞; an oscillating divergent or
+// symbolic ratio is left as a clean unevaluated Sum.
+TEST_CASE("summation: infinite plain geometric series (SUM-GEOM-INF-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto S_ = [&](const Expr& e, const Expr& lo) { return summation(e, k, lo, oo); };
+
+    // Positive ratio.
+    REQUIRE(S_(pow(rational(1, 2), k), S::Zero()) == integer(2));
+    REQUIRE(oracle.equivalent(S_(pow(rational(1, 3), k), S::One())->str(), "1/2"));
+    REQUIRE(S_(mul(integer(3), pow(rational(2, 3), k)), S::Zero()) == integer(9));
+    // Negative ratio with |r| < 1 — previously nan.
+    REQUIRE(oracle.equivalent(S_(pow(rational(-1, 2), k), S::Zero())->str(), "2/3"));
+    REQUIRE(oracle.equivalent(S_(pow(rational(-1, 3), k), S::Zero())->str(), "3/4"));
+    // Positive divergent ratio → ∞.
+    REQUIRE(S_(pow(integer(2), k), S::Zero()) == oo);
+    // Oscillating divergent and symbolic ratios stay clean unevaluated Sums
+    // (no r^∞ artifact).
+    REQUIRE(S_(pow(integer(-2), k), S::Zero())->str().find("Sum(") == 0);
+    Expr sx = S_(pow(x, k), S::Zero());
+    REQUIRE(sx->str().find("Sum(") == 0);
+    REQUIRE(sx->str().find("**oo") == std::string::npos);  // no x**oo leak
+}
+
 // SUM-POLYGEOM-SYM-1: Σ_{k=1}^n P(k)·xᵏ for a SYMBOLIC ratio x — the generating-
 // function identity Σ k·xᵏ = x(1−(n+1)xⁿ+n·xⁿ⁺¹)/(x−1)². The poly·geometric closed
 // form was gated to a numeric base/ratio; it now applies symbolically for a finite

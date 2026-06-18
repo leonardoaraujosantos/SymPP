@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### SUM-GEOM-INF-1 — infinite geometric series: nan for negative ratio, x^∞ garbage for symbolic
+- **Problem:** the plain infinite geometric series substituted `hi = ∞` into the finite closed form
+  `A·(r^lo − r^(hi+1))/(1−r)`, leaving `r^∞`. For a **negative** convergent ratio this collapsed to `nan`
+  (`Σ(−½)ᵏ → nan` instead of `2/3`); for a **symbolic** ratio it leaked `(−x^∞ + 1)/(1−x)` noise; an
+  oscillating divergent ratio (`Σ(−2)ᵏ`) likewise leaked `(−2)^∞`.
+- **Fix:** added an explicit infinite-bound branch. The series converges iff `|r| < 1` (tested as
+  `|r| − 1 < 0`), and then `r^(hi+1) → 0` regardless of sign, so `Σ_{k=lo}^∞ A·rᵏ = A·r^lo/(1−r)`. A positive
+  divergent ratio (`|r| > 1`) gives `sign(A)·∞`; an oscillating divergent or symbolic-magnitude ratio is left
+  as a clean unevaluated `Sum` rather than an `r^∞` artifact. Now `Σ(−½)ᵏ = 2/3`, `Σ(−⅓)ᵏ = 3/4`,
+  `Σ3·(⅔)ᵏ = 9`, `Σ2ᵏ = ∞`, `Σxᵏ → Sum(xᵏ,…)`, `Σ(−2)ᵏ → Sum(…)`; positive-ratio and finite sums are
+  unchanged. Regression: `SUM-GEOM-INF-1`. Matches SymPy (which returns a `Piecewise`; SymPP gives the
+  principal closed form for a known-convergent ratio and a clean marker otherwise).
+
 ### SUM-EXP-GAMMA-1 — Σ xᵏ/Γ(k+1) (the gamma spelling of the exp series) left unevaluated
 - **Problem:** `Σ_{k≥0} xᵏ/k! = eˣ` was recognized, but the mathematically identical `Σ_{k≥0} xᵏ/Γ(k+1)`
   stayed an unevaluated `Sum(...)`. The exponential-series recognizer matched `factorial(k)` but not
