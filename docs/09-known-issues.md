@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-OSC-NAN-1 — oscillation at ∞ leaked sin(oo) instead of reporting no limit
+- **Problem:** `lim_{x→∞} sin(x)` returned the meaningless `sin(oo)`; `1 + sin(x) → sin(oo) + 1`,
+  `sin(x)²  → sin(oo)²`, `x·sin(x) → oo·sin(oo)`, `tan(x) → tan(oo)`, etc. L'Hôpital's
+  determinate-denominator branch divides `sin(x)/1` and, finding the result "not nan", returns
+  `sin(∞)` as if it were a value. SymPy returns an `AccumBounds` interval here.
+- **Fix:** an unresolved oscillation has no determinate limit, so the engine now reports **nan** — the
+  honest "the limit does not exist as a single value" (SymPP has no `AccumBounds` type). Added
+  `has_oscillating_infinity` (detects `sin`/`cos`/`tan` of a diverging argument) as a guard at the
+  end of `limit_impl` and on the L'Hôpital early-return. Convergent oscillations (`sin(x)/x → 0`,
+  `(x+sin x)/(x+cos x) → 1`, resolved by earlier rules) and finite-point limits (`sin(x)→0` at 0) are
+  unaffected. No result ever contains a buried `sin(∞)` again.
+
 ### LIMIT-OSC-RATIO-1 — ratio of polynomials with bounded oscillation gave garbage
 - **Problem:** `lim_{x→∞} (x + sin x)/(x + cos x)` returned the garbage `(oo + sin(oo))/(oo + cos(oo))`
   instead of **1**. Direct substitution leaks `sin(∞)`/`cos(∞)`, and L'Hôpital oscillates — the

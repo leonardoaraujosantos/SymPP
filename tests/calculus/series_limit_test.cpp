@@ -2478,3 +2478,33 @@ TEST_CASE("limit: ratio of polynomials perturbed by bounded oscillation (LIMIT-O
     REQUIRE(limit(x * cos(x) * exp(mul(S::NegativeOne(), x)), x, oo)
             == S::Zero());
 }
+
+// LIMIT-OSC-NAN-1: an unresolved oscillation at ∞ has no determinate limit, so
+// the engine reports nan instead of leaking the meaningless f(∞). lim sin(x)
+// used to return sin(oo) (and 1+sin(x) → sin(oo)+1, etc.) because L'Hôpital's
+// determinate-denominator branch divides sin(x)/1 → sin(∞). SymPy returns an
+// AccumBounds interval, which SymPP has no type for; nan is the honest "the limit
+// does not exist as a single value". Convergent oscillations are unaffected.
+TEST_CASE("limit: oscillation at infinity reports nan, not f(oo) (LIMIT-OSC-NAN-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
+
+    // No determinate limit → nan (and never a buried sin(oo)/cos(oo)/tan(oo)).
+    for (const Expr& e : {sin(x), cos(x), tan(x), integer(1) + sin(x),
+                          sin(x) + cos(x), pow(sin(x), integer(2)), x * sin(x),
+                          sin(integer(2) * x)}) {
+        auto r = limit(e, x, oo);
+        REQUIRE(is_nan(r));
+        REQUIRE(r->str().find("oo") == std::string::npos);
+    }
+
+    // Convergent / finite-point cases are unaffected.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit((x + sin(x)) * pow(x, integer(-1)), x, oo) == S::One());
+    REQUIRE(limit(sin(x), x, S::Zero()) == S::Zero());
+    REQUIRE(limit(cos(x), x, S::Zero()) == S::One());
+    REQUIRE(simplify(limit(sin(x) * pow(x, integer(-1)), x, S::Zero()))
+            == S::One());
+}

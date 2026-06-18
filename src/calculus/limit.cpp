@@ -72,6 +72,36 @@ struct NumDen { Expr num; Expr den; };
     return e->type_id() == TypeId::NaN;
 }
 
+// True if `e` contains sin/cos/tan of an argument that diverges to infinity —
+// the residue of substituting x = ∞ into an unresolved oscillation, e.g. sin(∞),
+// cos(∞) + 1, x·sin(∞). Such an expression has no determinate limit (it
+// oscillates over a bounded or unbounded range), so the engine reports nan
+// rather than leaking the meaningless f(∞). (Genuinely convergent cases —
+// sin(x)/x → 0, (x+sin x)/(x+cos x) → 1 — are resolved by earlier rules and
+// never reach this guard.)
+[[nodiscard]] bool has_oscillating_infinity(const Expr& e) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function) {
+        const auto id = static_cast<const Function&>(*e).function_id();
+        if ((id == FunctionId::Sin || id == FunctionId::Cos
+             || id == FunctionId::Tan)
+            && e->args().size() == 1) {
+            bool inf = false;
+            auto scan = [&](auto&& self, const Expr& x) -> void {
+                if (inf) return;
+                if (is_infinity(x)) { inf = true; return; }
+                for (const auto& a : x->args()) self(self, a);
+            };
+            scan(scan, e->args()[0]);
+            if (inf) return true;
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_oscillating_infinity(a)) return true;
+    }
+    return false;
+}
+
 // Recursively combine a rational expression into a single numerator/denominator,
 // descending into the bases of integer powers so nested reciprocals flatten —
 // (p/q)^(−k) = q^k/p^k. together() stops at a Pow base, so a compound fraction
@@ -1895,7 +1925,12 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
         // substitution collapses to 0 or nan). A nan result is not an answer —
         // fall through to the reciprocal substitution rather than returning it.
-        if (auto v = lhopital(expr, var, target); v && !is_nan(*v)) return *v;
+        // An oscillating f(∞) (lhopital's determinate-denominator branch divides
+        // sin(x)/1 → sin(∞)) is likewise not an answer — let the end guard nan it.
+        if (auto v = lhopital(expr, var, target);
+            v && !is_nan(*v) && !has_oscillating_infinity(*v)) {
+            return *v;
+        }
 
         // Reciprocal substitution for a limit at ±∞: x = ±1/t maps it to t → 0,
         // where the series / L'Hôpital machinery resolves the asymptotic-expansion
@@ -1980,6 +2015,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             if (!is_nan(lr) && !is_nan(ll) && lr == ll) return lr;
         }
     }
+    // An unresolved oscillation — direct substitution left sin/cos/tan of ∞
+    // (e.g. 1 + sin(∞)). The limit does not exist as a single value; report nan
+    // instead of the meaningless f(∞). Convergent oscillation cases are handled
+    // by earlier rules and never reach here.
+    if (has_oscillating_infinity(direct)) return S::NaN();
     return direct;
 }
 
