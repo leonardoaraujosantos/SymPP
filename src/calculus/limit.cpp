@@ -964,6 +964,7 @@ struct Growth {
     }
     Expr C = S::One(), q_total = S::Zero();
     Expr sum_p = S::Zero(), sum_pa = S::Zero();
+    Expr log_rate = S::Zero();  // ρ = Σ kᵢ·log cᵢ from constant-base c^(kᵢ·x)
     int gamma_count = 0;
     for (const auto& f : factors) {
         if (!has(f, var)) {  // a var-free constant factor
@@ -991,11 +992,52 @@ struct Growth {
                 }
             }
         }
+        // Constant-base exponential c^(k·x + d) with c > 0: contributes k·log c to
+        // the growth rate ρ, and the var-free part c^d folds into C. An exponential
+        // (ρ ≠ 0) dominates any power of x, so it decides the limit below.
+        if (is_number(base) && is_positive(base) == std::optional<bool>{true}) {
+            Expr k = simplify(diff(ex, var));
+            if (is_number(k)) {
+                Expr d = simplify(add(ex, mul(S::NegativeOne(), mul(k, var))));
+                if (!has(d, var)) {
+                    log_rate = add(log_rate, mul(k, log(base)));
+                    C = mul(C, pow(base, d));
+                    continue;
+                }
+            }
+        }
         return std::nullopt;  // unrecognized var-dependent factor
     }
     if (gamma_count == 0 || !(simplify(sum_p) == S::Zero())) return std::nullopt;
-    Expr E = simplify(add(q_total, sum_pa));
     Expr Cs = simplify(C);
+    // Sign of a constant expression: assumption query first, then a numeric probe.
+    auto sign_of = [](const Expr& e) -> int {
+        if (is_positive(e) == std::optional<bool>{true}) return 1;
+        if (is_negative(e) == std::optional<bool>{true}) return -1;
+        Expr fv = evalf(e, 30);
+        if (fv->type_id() == TypeId::Float) {
+            try {
+                const double d = std::stod(fv->str());
+                if (d > 1e-12) return 1;
+                if (d < -1e-12) return -1;
+            } catch (...) {
+            }
+        }
+        return 0;
+    };
+    Expr rho = simplify(log_rate);
+    if (!(rho == S::Zero())) {
+        // e^{ρx}·x^E: the exponential dominates. ρ < 0 → 0; ρ > 0 → sign(C)·∞.
+        const int rs = sign_of(rho);
+        if (rs < 0) return S::Zero();
+        if (rs > 0) {
+            const int cs = sign_of(Cs);
+            if (cs > 0) return S::Infinity();
+            if (cs < 0) return S::NegativeInfinity();
+        }
+        return std::nullopt;
+    }
+    Expr E = simplify(add(q_total, sum_pa));
     if (E == S::Zero()) return Cs;  // limit is the leading constant
     if (is_negative(E) == std::optional<bool>{true}) return S::Zero();
     if (is_positive(E) == std::optional<bool>{true}) {
@@ -1006,30 +1048,15 @@ struct Growth {
     return std::nullopt;
 }
 
-// A constant-base exponential c^(…·var), c a number ≠ 1 — the residual the
-// gamma-ratio asymptotic cannot absorb, so its presence means duplication has
-// not produced a form the slope-1 machinery can finish soundly.
-[[nodiscard]] bool has_const_base_exponential(const Expr& e, const Expr& var) {
-    if (e->type_id() == TypeId::Pow && is_number(e->args()[0])
-        && !(e->args()[0] == S::One()) && has(e->args()[1], var)) {
-        return true;
-    }
-    for (const auto& a : e->args()) {
-        if (has_const_base_exponential(a, var)) return true;
-    }
-    return false;
-}
-
 // Legendre duplication for a Γ whose argument grows at twice the rate, Γ(2x+b),
 // which gamma_ratio_asymptotic (slope-1 only) cannot rank — e.g. the central
-// binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0. The identity
+// binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0, and Γ(2x)/Γ(x)² → ∞. The identity
 //   Γ(2z) = 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2),   z = x + b/2
 // rewrites the slope-2 gamma into two slope-1 gammas plus 4ˣ·2^(b−1). The 4ˣ is
-// written in base 4 so it cancels an explicit 4^(−x) in the original via Mul
-// canonicalization; only when *no* constant-base exponential survives (the
-// exponential fully cancelled) does the remaining pure gamma ratio resolve
-// soundly — otherwise we abstain rather than hand the slope-1 path a form it
-// would mis-rank (e.g. a bare Γ(2x+1)/Γ(x+1)², which keeps a 4ˣ and → ∞).
+// written in base 4 so an explicit 4^(−x) in the original cancels via Mul
+// canonicalization; any 4ˣ that survives is absorbed by the exponential-rate
+// branch of gamma_ratio_asymptotic on the re-take. A nan re-take means that path
+// could not finish, so we abstain rather than return noise.
 [[nodiscard]] std::optional<Expr> try_gamma_duplication(const Expr& expr,
                                                         const Expr& var,
                                                         const Expr& target,
@@ -1068,13 +1095,13 @@ struct Growth {
     };
     scan(scan, work);
     if (m.empty()) return std::nullopt;
-    Expr rw = xreplace(work, m);
-    // Only proceed when the exponential fully cancelled; a surviving c^x would be
-    // mis-ranked by the downstream gamma machinery.
-    if (has_const_base_exponential(rw, var)) return std::nullopt;
-    Expr r = limit_impl(rw, var, target, depth + 1);
-    if (is_nan(r)) return std::nullopt;
-    return r;
+    // Resolve the rewritten form *only* through the gamma-ratio asymptotic, not a
+    // full recursive limit. That keeps the rule sound and bounded: it succeeds
+    // exactly when duplication produced a gamma-ratio-shaped form (gammas, x^q,
+    // and constant-base exponentials whose rates it now absorbs) and abstains
+    // otherwise — e.g. Γ(2n)·n^(−n), whose surviving n^(−n) is not gamma-ratio
+    // shaped, is left to the super-power / power-as-exp paths rather than looping.
+    return gamma_ratio_asymptotic(xreplace(work, m), var);
 }
 
 // Bounded × vanishing at ±∞: a product carrying a bounded oscillating factor

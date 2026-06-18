@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMA-EXPRATE-1 — gamma ratios against a constant-base exponential left as nan
+- **Problem:** `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`, `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0` all
+  returned `nan`. After Legendre duplication (`LIMIT-GAMMA-DUP-1`) the un-cancelled `4ˣ` left a constant-base
+  exponential that `gamma_ratio_asymptotic` could not absorb, so it abstained.
+- **Fix:** extended `gamma_ratio_asymptotic` to collect a constant-base exponential `c^(k·x+d)` (c > 0) into a
+  growth rate `ρ = Σ kᵢ·log cᵢ`, folding the var-free `c^d` into the leading constant. An exponential
+  (`ρ ≠ 0`) dominates any power of x, so `ρ < 0 → 0` and `ρ > 0 → sign(C)·∞`; `ρ = 0` falls back to the
+  existing `x^E` power law. The sign of `ρ` is read from the assumption layer, then a numeric probe. With
+  this, `try_gamma_duplication` no longer needs its no-residual-exponential gate — it resolves the rewritten
+  form **directly through `gamma_ratio_asymptotic`** (never a recursive `limit`), so it succeeds exactly when
+  the form is gamma-ratio-shaped and otherwise abstains cleanly (e.g. `Γ(2n)·n^(−n)`, whose surviving `n^(−n)`
+  is left to the super-power path rather than looping). Gives `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`,
+  `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0`, while `C(2x,x)/4ˣ → 0` and `·√x → 1/√π` still hold.
+  Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+- **Note:** `Γ(2x)/Γ(x)` (and the slope-2/3 gamma ratios that do not reduce to a balanced form) remain
+  pathologically slow (~80 s) and return `nan` — a pre-existing cost (identical on the prior commit), left for
+  a future performance pass on the gamma-growth fallback.
+
 ### LIMIT-GAMMA-DUP-1 — central binomial Γ(2x+1)/Γ(x+1)²/4ˣ left as nan
 - **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞) = 0` (Stirling: the central binomial ~ 4ˣ/√(πx)) was returned
   as `nan`. `gamma_ratio_asymptotic` only ranks slope-1 gammas `Γ(x+a)`; a doubled-rate `Γ(2x+1)` is opaque
