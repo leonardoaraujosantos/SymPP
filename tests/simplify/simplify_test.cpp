@@ -1603,3 +1603,32 @@ TEST_CASE("simplify: sum of numeric logarithms (SIMP-LOGSUM-1)",
                               "log(x) + log(y)"));
     REQUIRE(oracle.equivalent(simplify(L(2) + x)->str(), "x + log(2)"));
 }
+
+// SIMP-EULER-1: a complex exponential cancels against its trigonometric
+// expansion via Euler's formula e^{iθ} = cos θ + i·sin θ. simplify() now rewrites
+// trig onto the e^{iθ} basis and adopts the result only when it is strictly
+// smaller, collapsing exp(i·x) − cos x − i·sin x → 0. A lone exp(i·x) or a real
+// trig/exp expression (whose exponential form is larger) is untouched. Matches
+// SymPy.
+TEST_CASE("simplify: Euler-formula complex-exponential cancellation (SIMP-EULER-1)",
+          "[8][simplify][regression]") {
+    auto x = symbol("x");
+    auto I = S::I();
+
+    REQUIRE(simplify(exp(I * x) - cos(x) - I * sin(x)) == S::Zero());
+    REQUIRE(simplify(cos(x) + I * sin(x) - exp(I * x)) == S::Zero());
+    REQUIRE(simplify(exp(I * x) + exp(mul(S::NegativeOne(), I * x))
+                     - integer(2) * cos(x))
+            == S::Zero());
+    REQUIRE(simplify(exp(integer(2) * I * x) - cos(integer(2) * x)
+                     - I * sin(integer(2) * x))
+            == S::Zero());
+
+    // Non-cancelling forms are unchanged: a lone complex exponential, a real
+    // trig sum, and a real exponential sum.
+    REQUIRE(simplify(exp(I * x)) == exp(I * x));
+    REQUIRE(simplify(pow(cos(x), integer(2)) + pow(sin(x), integer(2)))
+            == S::One());
+    REQUIRE(simplify(exp(x) + exp(mul(S::NegativeOne(), x)))
+            == integer(2) * cosh(x));
+}

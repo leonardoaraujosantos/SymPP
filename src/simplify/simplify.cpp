@@ -49,6 +49,30 @@ namespace {
     return n;
 }
 
+// Does `e` contain a complex exponential exp(g) with the imaginary unit in g?
+// The signature of an Euler-form expression (exp(i·θ) alongside trig) that may
+// cancel once rewritten onto a common exponential basis.
+[[nodiscard]] bool has_imaginary_exp(const Expr& e) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*e);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            bool found = false;
+            auto scan = [&](auto&& self, const Expr& x) -> void {
+                if (found || !x) return;
+                if (x->type_id() == TypeId::ImaginaryUnit) { found = true; return; }
+                for (const auto& a : x->args()) self(self, a);
+            };
+            scan(scan, fn.args()[0]);
+            if (found) return true;
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_imaginary_exp(a)) return true;
+    }
+    return false;
+}
+
 // Does `e` contain a √ (a Pow with exponent 1/2) anywhere?
 [[nodiscard]] bool contains_sqrt(const Expr& e) {
     if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) return true;
@@ -243,6 +267,24 @@ Expr simplify(const Expr& e) {
         }
     } catch (const std::exception&) {
         // expand_trig / trigsimp rejected the form; keep the pipeline result.
+    }
+
+    // 5c. Complex-exponential (Euler) cancellation. Rewriting trig onto the
+    //     e^{iθ} basis lets a complex exponential cancel against its trig
+    //     expansion — exp(i·x) − cos x − i·sin x → 0, exp(i·x) + exp(−i·x) −
+    //     2 cos x → 0. Gated on a complex exponential being present (so ordinary
+    //     real expressions skip the work) and adopted only when strictly simpler,
+    //     so a lone exp(i·x) or sin x + cos x, whose exponential form is larger,
+    //     is left untouched.
+    if (has_imaginary_exp(current)) {
+        try {
+            Expr ex = re_canonicalize(expand(rewrite(current, "exp")));
+            if (node_count(ex) < node_count(current)) {
+                current = ex;
+            }
+        } catch (const std::exception&) {
+            // rewrite/expand rejected the form; keep the pipeline result.
+        }
     }
 
     // 6. Global anti-bloat guard. simplify() must never return something

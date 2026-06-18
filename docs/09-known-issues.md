@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### SIMP-EULER-1 — complex exponentials did not cancel against their trig expansion
+- **Problem:** `simplify(exp(i·x) − cos x − i·sin x)` returned the expression unchanged instead of
+  **0**; likewise `cos x + i·sin x − exp(i·x)`, `exp(i·x) + exp(−i·x) − 2 cos x`, and the
+  double-angle form. SymPy reduces all of these to 0 via Euler's formula `e^{iθ} = cos θ + i·sin θ`.
+- **Fix:** added an Euler-cancellation step to `simplify` (step 5c), mirroring the existing trig
+  multiple-angle step. When the expression contains a complex exponential `exp(g)` with the imaginary
+  unit in `g`, it rewrites trig onto the `e^{iθ}` basis (`rewrite(·, "exp")`), expands, and adopts the
+  result only when it has strictly fewer nodes. So Euler combinations collapse to 0/constants, while a
+  lone `exp(i·x)`, a real trig sum (`sin x + cos x`), `cos²+sin² = 1`, and `exp(x)+exp(−x) = 2 cosh x`
+  — whose exponential forms are not smaller — are untouched. The gate keeps the rewrite off ordinary
+  real expressions. Matches SymPy.
+
 ### INT-BOSE-EINSTEIN-1 — ∫₀^∞ x^p/(e^{cx}∓1) was left unevaluated
 - **Problem:** the Bose–Einstein / Fermi–Dirac (Debye) integrals `∫₀^∞ x^p/(e^{cx}−1) dx` and
   `∫₀^∞ x^p/(e^{cx}+1) dx` — e.g. `x/(e^x−1) → π²/6`, `x³/(e^x−1) → π⁴/15`, `x/(e^x+1) → π²/12` — were
