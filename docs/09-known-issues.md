@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-SIGN-2 — atan did not propagate the argument's sign
+- **Problem:** `is_positive(atan(p))` for `p > 0` was Unknown (likewise `atan(negative) < 0`,
+  `atan(positive) ≠ 0`). `atan` is odd and strictly increasing on ℝ — and always real and finite
+  (bounded in `(−π/2, π/2)`) — so it preserves the sign, which SymPy reports (`atan(p).is_positive =
+  True`).
+- **Fix:** added `ask_atan` and wired it into `Atan::ask` (the analogue of [[FUNC-SIGN-1]]'s
+  `ask_odd_real_sign`): Positive/Negative/Zero/Nonzero delegate to the argument's sign, while Real and
+  Finite hold for any real argument. Imaginary or unknown-sign-real arguments stay Unknown. Matches
+  SymPy. (SymPy is conservatively Unknown on `asinh`/`erf` sign — SymPP already answers those, so this
+  increment only adds the `atan` parity gap.)
+
 ### FUNC-SIGN-1 — exp-nonzero and sinh/tanh sign propagation were Unknown
 - **Problem:** `is_zero(exp(x))` returned Unknown (exp is never zero), and the odd, strictly-increasing
   hyperbolics did not propagate the argument's sign: `is_positive(sinh(p))` for `p > 0` was Unknown, as

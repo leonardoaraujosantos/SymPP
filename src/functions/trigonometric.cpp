@@ -836,20 +836,51 @@ Atan::Atan(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::Atan);
 }
 Expr Atan::rebuild(std::vector<Expr> new_args) const { return atan(new_args[0]); }
-std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
-    const auto& a = args_[0];
+
+namespace {
+// atan is odd and strictly increasing on ℝ, always real and finite (bounded in
+// (−π/2, π/2)), so it preserves the argument's sign: atan(x) > 0 ⇔ x > 0,
+// atan(x) = 0 ⇔ x = 0.
+[[nodiscard]] std::optional<bool> ask_atan(const Expr& a,
+                                           AssumptionKey k) noexcept {
     switch (k) {
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return std::nullopt;  // derived by the generic ask() layer
-
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
             return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_positive(a) == true) return true;
+            if (is_real(a) == true
+                && (is_negative(a) == true || is_zero(a) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            if (is_negative(a) == true) return true;
+            if (is_real(a) == true
+                && (is_positive(a) == true || is_zero(a) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Zero:
+            if (is_zero(a) == true) return true;
+            if (is_real(a) == true && is_nonzero(a) == true) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (is_real(a) == true && is_nonzero(a) == true) return true;
+            if (is_zero(a) == true) return false;
+            return std::nullopt;
         default:
             return std::nullopt;
     }
+}
+}  // namespace
+
+std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
+    return ask_atan(args_[0], k);
 }
 
 // ----- Inverse reciprocal trio: acot / asec / acsc ---------------------------

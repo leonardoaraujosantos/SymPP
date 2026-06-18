@@ -27,6 +27,7 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -1098,4 +1099,37 @@ TEST_CASE("AssumptionMask: exp-nonzero and hyperbolic sign propagation (FUNC-SIG
     REQUIRE(is_real(sinh(p)) == T);
     REQUIRE(is_positive(cosh(symbol("rc", AssumptionMask{}.set_real(true))))
             == T);  // cosh unchanged
+}
+
+// FUNC-SIGN-2: atan is odd, strictly increasing on ℝ, and always real and finite
+// (bounded in (−π/2, π/2)), so it preserves the argument's sign. Previously the
+// sign was Unknown. Matches SymPy (atan(p>0).is_positive == True).
+TEST_CASE("AssumptionMask: atan sign propagation (FUNC-SIGN-2)",
+          "[2a][assumptions]") {
+    using sympp::is_finite;
+    using sympp::is_negative;
+    using sympp::is_nonzero;
+    using sympp::is_positive;
+    using sympp::is_real;
+    using sympp::is_zero;
+    const auto T = std::optional<bool>{true};
+    const auto F = std::optional<bool>{false};
+    const auto U = std::optional<bool>{};
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto n = symbol("n", AssumptionMask{}.set_negative(true));
+    auto nz = symbol("nz", AssumptionMask{}.set_real(true).set_nonzero(true));
+    auto r = symbol("r", AssumptionMask{}.set_real(true));
+    auto im = symbol("im", AssumptionMask{}.set_imaginary(true));
+
+    REQUIRE(is_positive(atan(p)) == T);
+    REQUIRE(is_negative(atan(n)) == T);
+    REQUIRE(is_zero(atan(p)) == F);
+    REQUIRE(is_nonzero(atan(nz)) == T);
+    REQUIRE(is_nonnegative(atan(p)) == T);  // derived
+    // atan(real) is always real and finite (the function is bounded).
+    REQUIRE(is_real(atan(r)) == T);
+    REQUIRE(is_finite(atan(r)) == T);
+    // No over-reach: imaginary or unknown-sign-real arguments stay Unknown.
+    REQUIRE(is_positive(atan(im)) == U);
+    REQUIRE(is_positive(atan(r)) == U);
 }
