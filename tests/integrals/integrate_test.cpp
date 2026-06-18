@@ -3349,3 +3349,40 @@ TEST_CASE("integrate: ∫x^p/sinh(cx) over [0,oo) (INT-CSCH-1)",
         integrate(x * pow(exp(x) - integer(1), integer(-1)), x, zero, oo)->str(),
         "pi**2/6"));
 }
+
+// INT-LOG1PX2-1: ∫₀^∞ log(1+c·x²)/x² dx = π·√c for a positive constant c (by
+// differentiating under the integral). The constant inside the log must be 1 so
+// the integrand ~ c at 0 (convergent). Non-elementary antiderivative, so SymPP
+// returned a marker. Gives ∫₀^∞ log(1+x²)/x² = π, log(1+4x²)/x² = 2π. Matches SymPy.
+TEST_CASE("integrate: ∫log(1+cx²)/x² over [0,oo) (INT-LOG1PX2-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto logterm = [&](const Expr& c) {
+        return log(integer(1) + c * pow(x, integer(2)));
+    };
+    auto invx2 = pow(x, integer(-2));
+
+    REQUIRE(oracle.equivalent(integrate(logterm(S::One()) * invx2, x, zero, oo)
+                                  ->str(),
+                              "pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(4)) * invx2, x, zero, oo)->str(), "2*pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(9)) * invx2, x, zero, oo)->str(), "3*pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(2)) * invx2, x, zero, oo)->str(),
+        "sqrt(2)*pi"));
+    // Leading constant carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(3) * logterm(S::One()) * invx2, x, zero, oo)->str(),
+        "3*pi"));
+
+    // Guard: a non-unit constant inside the log diverges at 0, so the rule must
+    // not fire — left as an unevaluated marker.
+    REQUIRE(integrate(log(integer(2) + pow(x, integer(2))) * invx2, x, zero, oo)
+                ->str()
+                .rfind("Integral(", 0) == 0);
+}

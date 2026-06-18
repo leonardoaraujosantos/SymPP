@@ -4203,6 +4203,91 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// ∫₀^∞ log(1 + c·x²)/x² dx = π·√c for a positive constant c (by differentiating
+// under the integral in c). The constant term inside the log must be 1 so the
+// integrand ~ c at 0 (convergent); a non-unit constant would leave log(a)/x²,
+// divergent at 0. Gives ∫₀^∞ log(1+x²)/x² = π, ∫₀^∞ log(1+4x²)/x² = 2π. The
+// antiderivative is non-elementary, so Newton–Leibniz leaves a marker. Matches
+// SymPy.
+[[nodiscard]] std::optional<Expr> try_log1px2_integral(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& lower,
+                                                       const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr xsq = pow(var, integer(2));
+    bool has_log = false, has_denom = false;
+    Expr c, coeff = S::One();
+    for (const auto& f : factors) {
+        // log(1 + c·x²): an Add whose terms are the constant 1 and c·x².
+        if (!has_log && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Log
+            && f->args().size() == 1
+            && f->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = f->args()[0];
+            bool has_one = false, has_xsq = false;
+            Expr cc = S::One();
+            bool ok = true;
+            for (const auto& t : base->args()) {
+                if (!has_one && t == S::One()) {
+                    has_one = true;
+                } else if (t == xsq) {
+                    has_xsq = true;  // coefficient 1
+                } else if (t->type_id() == TypeId::Mul) {
+                    // const·x²: collect the constant factors, require one x².
+                    std::vector<Expr> consts;
+                    bool found_xsq = false;
+                    for (const auto& g : t->args()) {
+                        if (!found_xsq && g == xsq) {
+                            found_xsq = true;
+                        } else if (!has(g, var)) {
+                            consts.push_back(g);
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (!ok || !found_xsq) { ok = false; break; }
+                    has_xsq = true;
+                    cc = consts.empty() ? Expr{S::One()} : mul(std::move(consts));
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok && has_one && has_xsq) {
+                c = cc;
+                has_log = true;
+                continue;
+            }
+        }
+        // 1/x² denominator.
+        if (!has_denom && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && f->args()[1] == integer(-2)) {
+            has_denom = true;
+            continue;
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_denom
+        || is_positive(c) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr value = mul({coeff, S::Pi(), pow(c, rational(1, 2))});
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -4219,6 +4304,8 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_log_over_quadratic(expr, var, lower, upper)) return *r;
     // ∫₀^∞ x^p/sinh(cx) = 2Γ(p+1)(1−2^{−(p+1)})ζ(p+1)/c^{p+1}. Non-elementary.
     if (auto r = try_sinh_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ log(1+c·x²)/x² = π·√c for c > 0. Non-elementary antiderivative.
+    if (auto r = try_log1px2_integral(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

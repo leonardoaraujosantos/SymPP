@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### INT-LOG1PX2-1 — ∫₀^∞ log(1+cx²)/x² was left unevaluated
+- **Problem:** `∫₀^∞ log(1+x²)/x² dx = π` and the family `∫₀^∞ log(1+c·x²)/x² dx` were returned as
+  unevaluated `Integral` markers (non-elementary antiderivative). SymPy evaluates these.
+- **Fix:** added `try_log1px2_integral`, a closed-form rule on `[0, ∞)`. By differentiating under the
+  integral in `c`, `∫₀^∞ log(1+c·x²)/x² dx = π·√c` for a positive constant `c`. It matches a
+  `log(1 + c·x²)` factor times `x^{-2}`, optionally scaled. The constant inside the log must be 1 so the
+  integrand behaves like `c` at 0 (a non-unit constant leaves `log(a)/x²`, divergent there) — the rule
+  requires that and otherwise abstains. Gives `log(1+x²)/x² → π`, `log(1+4x²)/x² → 2π`,
+  `log(1+2x²)/x² → √2·π`. Matches SymPy.
+
 ### SERIES-TAYLOR-CAP-1 — series of log(sin x/x) / log(tan x/x) took ~100 s
 - **Problem:** `series(log(sin x/x), x, 0, 6)` ran for ~119 s (and `log(tan x/x)` for ~162 s), only to
   return the correct result. `taylor_series` is tried before the composition path; for these removable
