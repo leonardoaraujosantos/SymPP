@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### INVHYP-COMPOSE-1 — asinh(sinh x)/acosh(cosh x)/atanh(tanh x) were not folded
+- **Problem:** `asinh(sinh(2))`, `atanh(tanh(3))`, `acosh(cosh(2))` were left unevaluated. SymPy folds
+  an inverse-of-direct hyperbolic composition with a concrete real argument: `asinh(sinh a) = a`,
+  `atanh(tanh a) = a` (both injective on ℝ), `acosh(cosh a) = |a|` (cosh even).
+- **Fix:** added `inverse_of_direct_hyp` to the `asinh`/`acosh`/`atanh` factories — the hyperbolic
+  analogue of [[INVTRIG-COMPOSE-1]], simpler because there is no periodic folding. For `sinh(a)`/
+  `cosh(a)`/`tanh(a)` with `a` a concrete real number it returns `a` (or `|a|` for `acosh`). Also
+  fixed the odd-function branches of `asinh`/`atanh` to recurse through the factory rather than
+  `make<Asinh>`/`make<Atanh>` so the negative composition (`asinh(sinh(−3)) = −3`) folds too. Symbolic
+  arguments and the opposite-order composition (`sinh(asinh x) = x`) are unaffected. Matches SymPy.
+
 ### INVTRIG-COMPOSE-1 — asin(sin x)/acos(cos x)/atan(tan x) were not folded
 - **Problem:** `asin(sin(1))`, `acos(cos(2))`, `atan(tan(1))` were left unevaluated. SymPy folds an
   inverse-of-direct composition with a concrete real argument back into the inverse's principal range:

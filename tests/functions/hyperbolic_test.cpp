@@ -354,3 +354,28 @@ TEST_CASE("acoth/asech/acsch: parse round-trip", "[3f][reciprocal][parser]") {
     REQUIRE(asech(x)->str() == "asech(x)");
     REQUIRE(acsch(x)->str() == "acsch(x)");
 }
+
+// INVHYP-COMPOSE-1: inverse-of-direct hyperbolic composition with a concrete
+// real argument — asinh(sinh a) = a, atanh(tanh a) = a (injective on ℝ),
+// acosh(cosh a) = |a| (cosh even). Previously left unevaluated. Matches SymPy,
+// which folds only concrete reals (a symbolic argument stays put).
+TEST_CASE("hyperbolic: inverse-of-direct folding (INVHYP-COMPOSE-1)",
+          "[3c][hyperbolic][oracle][regression]") {
+    auto x = symbol("x");
+
+    REQUIRE(asinh(sinh(integer(2))) == integer(2));
+    REQUIRE(asinh(sinh(integer(-3))) == integer(-3));
+    REQUIRE(atanh(tanh(integer(3))) == integer(3));
+    REQUIRE(atanh(tanh(integer(-1))) == integer(-1));
+    // acosh(cosh a) = |a|.
+    REQUIRE(acosh(cosh(integer(2))) == integer(2));
+    REQUIRE(acosh(cosh(integer(-2))) == integer(2));
+    REQUIRE(acosh(cosh(S::Zero())) == S::Zero());
+
+    // Unaffected: a symbolic argument stays unevaluated, the opposite-order
+    // composition still cancels, and bare inverse values are unchanged.
+    REQUIRE(asinh(sinh(x))->str() == "asinh(sinh(x))");
+    REQUIRE(sinh(asinh(x)) == x);
+    REQUIRE(acosh(S::One()) == S::Zero());
+    REQUIRE(atanh(S::Zero()) == S::Zero());
+}
