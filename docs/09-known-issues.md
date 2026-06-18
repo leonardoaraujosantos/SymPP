@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### INVTRIG-COMPOSE-1 — asin(sin x)/acos(cos x)/atan(tan x) were not folded
+- **Problem:** `asin(sin(1))`, `acos(cos(2))`, `atan(tan(1))` were left unevaluated. SymPy folds an
+  inverse-of-direct composition with a concrete real argument back into the inverse's principal range:
+  `asin(sin 3) = π−3`, `acos(cos 4) = 2π−4`, `atan(tan 2) = 2−π`.
+- **Fix:** added `inverse_of_direct` to the `asin`/`acos`/`atan` factories. When the argument is
+  `sin(a)`/`cos(a)`/`tan(a)` with `a` a concrete real number, it applies the triangle-wave identities
+  (`k = round(a/π)`, `m = round(a/(2π))`): `atan(tan a) = a − kπ`, `asin(sin a) = (−1)^k·(a − kπ)`,
+  `acos(cos a) = |a − 2mπ|`, returning the exact symbolic value (the rounding is computed from a 40-digit
+  `evalf`, the result is built from the exact `a`). In-range arguments map to themselves
+  (`asin(sin 1) = 1`, `asin(sin(π/3)) = π/3`); a symbolic argument and the opposite-order composition
+  (`sin(asin x) = x`) are unaffected. Matches SymPy.
+
 ### LIMIT-OSC-NAN-1 — oscillation at ∞ leaked sin(oo) instead of reporting no limit
 - **Problem:** `lim_{x→∞} sin(x)` returned the meaningless `sin(oo)`; `1 + sin(x) → sin(oo) + 1`,
   `sin(x)²  → sin(oo)²`, `x·sin(x) → oo·sin(oo)`, `tan(x) → tan(oo)`, etc. L'Hôpital's
