@@ -1349,79 +1349,108 @@ struct Growth {
     pm.set_positive(true);
     Expr m = symbol("__stirling_m", pm);
     Expr em = subs(expr, var, m);  // recast over a positive variable
-    ExprMap<Expr> map;
-    bool any = false;
-    auto collect = [&](auto&& self, const Expr& e) -> void {
-        if (e->type_id() == TypeId::Function) {
-            const auto& fn = static_cast<const Function&>(*e);
-            const auto id = fn.function_id();
-            if ((id == FunctionId::Factorial || id == FunctionId::Gamma)
-                && fn.args().size() == 1 && has(fn.args()[0], m)
-                && map.find(e) == map.end()) {
-                const Expr& g = fn.args()[0];
-                if (limit_impl(g, m, S::Infinity(), depth + 1) == S::Infinity()) {
-                    // g! = Γ(g+1) ~ (g/e)^g (leading Stirling); the numeric guard
-                    // validates the dropped subleading factor.
-                    map.emplace(e, pow(mul(g, exp(S::NegativeOne())), g));
-                    any = true;
+    // Build the factorial/gamma → Stirling rewrite map. `full` selects the form:
+    //   leading  g! ~ (g/e)^g — its subleading prefactor cancels under an n-th root
+    //            (the canonical (n!)^(1/n)/n → 1/e case);
+    //   full     g! = Γ(g+1) ~ √(2π)·g^(g+1/2)·e⁻ᵍ, Γ(g) ~ √(2π)·g^(g−1/2)·e⁻ᵍ —
+    //            the prefactor is the *entire* limit once (g/e)^g cancels, e.g.
+    //            n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞.
+    auto build_map = [&](bool full) -> std::optional<ExprMap<Expr>> {
+        ExprMap<Expr> map;
+        bool any = false;
+        auto collect = [&](auto&& self, const Expr& e) -> void {
+            if (e->type_id() == TypeId::Function) {
+                const auto& fn = static_cast<const Function&>(*e);
+                const auto id = fn.function_id();
+                if ((id == FunctionId::Factorial || id == FunctionId::Gamma)
+                    && fn.args().size() == 1 && has(fn.args()[0], m)
+                    && map.find(e) == map.end()) {
+                    const Expr& g = fn.args()[0];
+                    if (limit_impl(g, m, S::Infinity(), depth + 1)
+                        == S::Infinity()) {
+                        Expr rep = pow(mul(g, exp(S::NegativeOne())), g);
+                        if (full) {
+                            const Expr half = id == FunctionId::Factorial
+                                                  ? Expr{rational(1, 2)}
+                                                  : Expr{rational(-1, 2)};
+                            rep = mul(mul(pow(mul(integer(2), S::Pi()),
+                                              rational(1, 2)),
+                                          pow(g, half)),
+                                      rep);
+                        }
+                        map.emplace(e, std::move(rep));
+                        any = true;
+                    }
                 }
             }
-        }
-        for (const auto& a : e->args()) self(self, a);
+            for (const auto& a : e->args()) self(self, a);
+        };
+        collect(collect, em);
+        if (!any) return std::nullopt;
+        return map;
     };
-    collect(collect, em);
-    if (!any) return std::nullopt;
-    Expr cand = limit_impl(simplify(xreplace(em, map)), m, S::Infinity(),
-                           depth + 1);
-    if (is_nan(cand) || has(cand, m)
-        || cand->type_id() == TypeId::ComplexInfinity) {
-        return std::nullopt;
-    }
-    // Numeric guard: sample the ORIGINAL expression at increasing n and require
-    // the values to track the candidate (converge to a finite value, or grow /
-    // decay consistently with ±∞). A wrong candidate keeps an O(1) offset.
-    const bool cand_pinf = cand->type_id() == TypeId::Infinity;
-    const bool cand_ninf = cand->type_id() == TypeId::NegativeInfinity;
-    double cv = 0.0;
-    if (!cand_pinf && !cand_ninf) {
-        Expr cvf = evalf(cand, 30);
-        if (cvf->type_id() != TypeId::Float) return std::nullopt;
-        try {
-            cv = std::stod(cvf->str());
-        } catch (...) {
+    // Evaluate a rewrite map to a candidate and validate it numerically: sample the
+    // ORIGINAL expression at increasing n and require the values to track the
+    // candidate (converge to a finite value, or grow/decay consistently with ±∞).
+    // A wrong candidate keeps an O(1) offset.
+    auto evaluate = [&](const ExprMap<Expr>& map) -> std::optional<Expr> {
+        Expr cand = limit_impl(simplify(xreplace(em, map)), m, S::Infinity(),
+                               depth + 1);
+        if (is_nan(cand) || has(cand, m)
+            || cand->type_id() == TypeId::ComplexInfinity) {
             return std::nullopt;
         }
-    }
-    double prev_diff = 1e300, prev_val = 0.0;
-    int checks = 0;
-    for (long nv : {300L, 1000L, 3000L}) {
-        Expr at = evalf(simplify(subs(expr, var, integer(nv))), 40);
-        if (at->type_id() != TypeId::Float) return std::nullopt;
-        double v = 0.0;
-        try {
-            v = std::stod(at->str());
-        } catch (...) {
-            return std::nullopt;
+        const bool cand_pinf = cand->type_id() == TypeId::Infinity;
+        const bool cand_ninf = cand->type_id() == TypeId::NegativeInfinity;
+        double cv = 0.0;
+        if (!cand_pinf && !cand_ninf) {
+            Expr cvf = evalf(cand, 30);
+            if (cvf->type_id() != TypeId::Float) return std::nullopt;
+            try {
+                cv = std::stod(cvf->str());
+            } catch (...) {
+                return std::nullopt;
+            }
         }
-        if (cand_pinf) {
-            // Within the n-th-root gate the Stirling rewrite is asymptotically
-            // exact, so a divergent candidate only needs the samples to climb
-            // (a slow sqrt(n)/e or log(n) limit never reaches a fixed threshold).
-            if (checks > 0 && !(v > prev_val)) return std::nullopt;
-            if (nv == 3000L && !(v > 1.0)) return std::nullopt;
-        } else if (cand_ninf) {
-            if (checks > 0 && !(v < prev_val)) return std::nullopt;
-            if (nv == 3000L && !(v < -1.0)) return std::nullopt;
-        } else {
-            const double d = std::fabs(v - cv);
-            if (!(d <= prev_diff + 1e-12)) return std::nullopt;  // must not diverge
-            prev_diff = d;
-            if (nv == 3000L && !(d < 1e-2)) return std::nullopt;  // slow ~log n/n
+        double prev_diff = 1e300, prev_val = 0.0;
+        int checks = 0;
+        for (long nv : {300L, 1000L, 3000L}) {
+            Expr at = evalf(simplify(subs(expr, var, integer(nv))), 40);
+            if (at->type_id() != TypeId::Float) return std::nullopt;
+            double v = 0.0;
+            try {
+                v = std::stod(at->str());
+            } catch (...) {
+                return std::nullopt;
+            }
+            if (cand_pinf) {
+                // The Stirling rewrite is asymptotically exact, so a divergent
+                // candidate only needs the samples to climb (a slow sqrt(n)/e or
+                // log(n) limit never reaches a fixed threshold).
+                if (checks > 0 && !(v > prev_val)) return std::nullopt;
+                if (nv == 3000L && !(v > 1.0)) return std::nullopt;
+            } else if (cand_ninf) {
+                if (checks > 0 && !(v < prev_val)) return std::nullopt;
+                if (nv == 3000L && !(v < -1.0)) return std::nullopt;
+            } else {
+                const double d = std::fabs(v - cv);
+                if (!(d <= prev_diff + 1e-12)) return std::nullopt;  // not diverge
+                prev_diff = d;
+                if (nv == 3000L && !(d < 1e-2)) return std::nullopt;  // slow ~log n/n
+            }
+            prev_val = v;
+            ++checks;
         }
-        prev_val = v;
-        ++checks;
+        return checks == 3 ? std::optional<Expr>{cand} : std::nullopt;
+    };
+    // Leading form first (keeps the n-th-root path exact); the full form rescues
+    // products where (g/e)^g cancels and the prefactor carries the limit.
+    for (bool full : {false, true}) {
+        auto map = build_map(full);
+        if (!map) return std::nullopt;  // no divergent factorial/gamma present
+        if (auto r = evaluate(*map)) return *r;
     }
-    return checks == 3 ? std::optional<Expr>{cand} : std::nullopt;
+    return std::nullopt;
 }
 
 // True if e contains a non-integer power of a var-dependent base (a radical such

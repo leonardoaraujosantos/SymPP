@@ -696,6 +696,35 @@ TEST_CASE("limit: n-th root of factorial via Stirling (LIMIT-STIRLING-1)",
     REQUIRE(limit(root(factorial(n)) * pow(n, rational(-1, 2)), n, oo) == oo);
 }
 
+// LIMIT-STIRLING-PRODUCT-1: a factorial/gamma multiplied by elementary factors that
+// cancel its leading (n/e)ⁿ growth, so the limit is carried by the √(2π)·n^(±1/2)
+// Stirling *prefactor* the bare (n/e)ⁿ form drops. n!/(nⁿ·e⁻ⁿ) = n!·n⁻ⁿ·eⁿ ~ √(2πn)
+// previously hung (the leading rewrite gave the false candidate 1, which the numeric
+// guard rejected, and the expression then spun in the power-as-exp/reciprocal paths).
+// try_stirling_limit now falls back to the full leading Stirling form
+// √(2π)·n^(n±1/2)·e⁻ⁿ when the bare form's candidate fails. Matches SymPy.
+TEST_CASE("limit: Stirling prefactor carries the limit (LIMIT-STIRLING-PRODUCT-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    auto npow = [&](const Expr& e) { return pow(n, e); };  // nᵉ
+
+    // n!/(nⁿ·e⁻ⁿ) = n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞ (previously hung).
+    REQUIRE(limit(factorial(n) * npow(mul(S::NegativeOne(), n)) * exp(n), n, oo)
+            == oo);
+    // n!·eⁿ·n^(−n−1/2) ~ √(2π) → √2·√π, a finite Stirling limit.
+    REQUIRE(limit(factorial(n) * exp(n) * npow(add(mul(S::NegativeOne(), n),
+                                                   rational(-1, 2))),
+                  n, oo)
+            == mul(pow(integer(2), rational(1, 2)),
+                   pow(S::Pi(), rational(1, 2))));
+    // (n!)²·n^(−2n)·e^(2n) ~ 2πn → ∞.
+    REQUIRE(limit(pow(factorial(n), integer(2))
+                      * npow(mul(integer(-2), n)) * exp(mul(integer(2), n)),
+                  n, oo)
+            == oo);
+}
+
 // LIMIT-NOHANG-1: a general power inside a difference, (x^(1/x) − 1)·x/log x, sent
 // the engine into a non-terminating path — the log-exp reduction took log of the
 // vanishing eᵍ−1 factor, and the reciprocal substitution x = 1/t produced an

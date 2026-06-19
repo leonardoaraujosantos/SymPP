@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-STIRLING-PRODUCT-1 — Stirling-prefactor limits like n!/(nⁿ·e⁻ⁿ) hung
+- **Problem:** `limit(n!/(nⁿ·e⁻ⁿ), n, ∞)` (= `n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞`) did not terminate. The Stirling
+  handler rewrote `n! ~ (n/e)ⁿ` using only the **leading** power form, which cancels exactly against the
+  `n⁻ⁿ·eⁿ` factor and leaves the false candidate `1`; the numeric guard correctly rejected it, but the
+  expression then spun in the power-as-exp / reciprocal-substitution fallbacks. The whole `√(2πn)`
+  asymptotic lives entirely in the subleading prefactor the bare `(n/e)ⁿ` form drops.
+- **Fix:** `try_stirling_limit` now tries the bare leading form first (keeping the n-th-root path
+  `(n!)^(1/n)/n → 1/e` exact, where the prefactor cancels under the root) and, when that candidate fails the
+  numeric guard, falls back to the **full** leading Stirling form — `n! = Γ(n+1) ~ √(2π)·n^(n+1/2)·e⁻ⁿ` and
+  `Γ(n) ~ √(2π)·n^(n−1/2)·e⁻ⁿ` — whose prefactor carries the limit once `(n/e)ⁿ` cancels. The two forms share
+  one numeric guard. Now `n!/(nⁿ·e⁻ⁿ) → ∞`, `n!·eⁿ·n^(−n−1/2) → √(2π)`, `(n!)²·n^(−2n)·e^(2n) → ∞`.
+  Regression: `LIMIT-STIRLING-PRODUCT-1`. Matches SymPy.
+- **Still open:** product shapes whose full-Stirling candidate is `0` with slow `n^(−1/2)` convergence (e.g.
+  `n!·eⁿ·n^(−n−1)`) still hang — the numeric guard's `< 1e-2` threshold rejects the slow tail, and the
+  fall-through reaches a separate pre-existing `limit_impl` hang on mixed-base super-powers
+  (`((n+1)/e)^(n+1)·n^(−n−1/2)`, base `n+1` vs `n` not combining). Tracked for a later increment.
+
 ### LIMIT-CONST-BASE-RATIO-1 — rational functions of constant-base exponentials cˣ failed or were wrong
 - **Problem:** ratios of constant-base exponentials at `+∞` mis-resolved while their `eˣ` analogues worked.
   `limit((2ˣ+1)/(2ˣ−1), x, ∞)` and `limit((3ˣ−2ˣ)/(3ˣ+2ˣ), x, ∞)` returned `nan` (SymPy: `1`), and
