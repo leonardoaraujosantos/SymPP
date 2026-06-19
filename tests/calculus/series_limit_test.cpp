@@ -3274,6 +3274,31 @@ TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOG
             == S::Zero());
 }
 
+// LIMIT-ZETA-1: the Riemann zeta function ζ(g) with a diverging argument tends to 1.
+// ζ(s) = Σ_{k≥1} k⁻ˢ has every term past k=1 vanishing as s → +∞, with leading
+// correction 2⁻ˢ, so ζ(g) is rewritten 1 + 2⁻ᵍ. Previously ζ(x) returned nan. Now
+// ζ(x) → 1, ζ(x) − 1 → 0, and 2ˣ·(ζ(x) − 1) → 1 (the geometric tail; SymPy leaves
+// this last form unevaluated, but 2ˣ(ζ(x)−1) = 1 + (2/3)ˣ + … → 1 is exact).
+TEST_CASE("limit: Riemann zeta tends to 1 at +∞ (LIMIT-ZETA-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // ζ(x) → 1 and ζ(x) − 1 → 0 (matches SymPy).
+    REQUIRE(limit(zeta(x), x, oo) == S::One());
+    REQUIRE(limit(add(zeta(x), S::NegativeOne()), x, oo) == S::Zero());
+    // A diverging non-trivial argument also resolves: ζ(2x) → 1.
+    REQUIRE(limit(zeta(mul(integer(2), x)), x, oo) == S::One());
+    // ζ(x)·x/(x+1) → 1 (the 1/x factor is harmless against ζ(x) → 1).
+    REQUIRE(limit(mul(zeta(x), mul(x, pow(add(x, S::One()), integer(-1)))), x, oo)
+            == S::One());
+    // Subleading rate 2⁻ˣ: 2ˣ·(ζ(x) − 1) → 1 (geometric tail; exact).
+    REQUIRE(limit(mul(pow(integer(2), x), add(zeta(x), S::NegativeOne())), x, oo)
+            == S::One());
+    // A constant argument is untouched (no spurious rewrite).
+    REQUIRE(limit(zeta(integer(3)), x, oo) == zeta(integer(3)));
+}
+
 // LIMIT-ERFC-1: the complementary error function erfc(g) with a diverging argument
 // expands by its Gaussian-tail asymptotic erfc(g) ~ e^{−g²}/(g√π)·(1 − 1/(2g²) +
 // 3/(4g⁴) − …) (DLMF 7.12.1), and erf(g) = 1 − erfc(g). Previously these returned

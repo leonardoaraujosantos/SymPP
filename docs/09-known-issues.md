@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ZETA-1 — Riemann zeta ζ(x) at +∞ returned nan
+- **Problem:** `limit(ζ(x), x, ∞)` returned `nan` instead of `1`; `ζ(x) − 1` and `2ˣ·(ζ(x) − 1)` likewise
+  did not resolve. The engine had no asymptotic for the zeta function.
+- **Fix:** extended the special-function asymptotic rewrite with the zeta tail. The Dirichlet series
+  `ζ(s) = Σ_{k≥1} k⁻ˢ` has every term past `k = 1` vanishing as `s → +∞`, with leading correction `2⁻ˢ`
+  (the `k = 2` term dominating the geometric tail), so `ζ(g)` with `g → +∞` is rewritten `1 + 2⁻ᵍ`. Now
+  `ζ(x) → 1`, `ζ(x) − 1 → 0`, `ζ(2x) → 1`, and `2ˣ·(ζ(x) − 1) → 1` (the last is exact —
+  `2ˣ(ζ(x)−1) = 1 + (2/3)ˣ + … → 1` — though SymPy leaves it unevaluated). A constant argument is left
+  untouched. Regression: `LIMIT-ZETA-1`. Matches SymPy on the cases SymPy resolves.
+
 ### LIMIT-ERFC-1 — complementary error function erfc(x) limits returned nan
 - **Problem:** `erfc`/`erf` of a diverging argument had no asymptotic expansion, so `x·erfc(x) → 0`,
   `e^{x²}·erfc(x) → 0`, `x·e^{x²}·erfc(x) → 1/√π`, `x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π)`, and

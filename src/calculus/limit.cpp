@@ -3141,6 +3141,20 @@ struct Growth {
                                                          erfc_asy)));
                 }
             }
+            // ζ(g), g → +∞: the Dirichlet series ζ(s) = Σ_{k≥1} k⁻ˢ has every
+            // term past the first vanishing, so ζ(g) → 1 with leading correction
+            // 2⁻ᵍ (the k=2 term dominates the geometric tail). Replacing ζ(g) by
+            // 1 + 2⁻ᵍ gives the rate the bare ζ(∞)=1 value lacks: ζ(x) − 1 → 0,
+            // 2ˣ·(ζ(x) − 1) → 1.
+            if (fn.function_id() == FunctionId::Zeta && fn.args().size() == 1
+                && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(e, add(S::One(),
+                                     pow(integer(2), mul(S::NegativeOne(), g))));
+                }
+            }
         }
         for (const auto& a : e->args()) self(self, a);
     };
