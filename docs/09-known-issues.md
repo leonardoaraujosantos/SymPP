@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-POLYGAMMA-LOGGAMMA-1 — higher polygamma ψ⁽ᵐ⁾(n) and loggamma(n) limits hung
+- **Problem:** the higher polygammas `ψ⁽ᵐ⁾(n) = polygamma(m, n)` for `m ≥ 1` and the `loggamma` function had
+  no asymptotic expansion, so `n·ψ'(n) → 1`, `n³·ψ''(n) → −∞`, `loggamma(n)/(n·log n) → 1`, and
+  `loggamma(n+1) − loggamma(n) → ∞` all hung.
+- **Fix:** extended the special-function asymptotic rewrite (digamma `LIMIT-DIGAMMA-1`) with:
+  (1) `ψ⁽ᵐ⁾(g)` for `m ≥ 1` via DLMF 5.15.8,
+  `(−1)^{m−1}[(m−1)!·g⁻ᵐ + m!/2·g^{−m−1} + (m+1)!/12·g^{−m−2} − (m+3)!/720·g^{−m−4} + …]`; and
+  (2) `loggamma(g)` via log-Stirling, `(g−½)·log g − g + ½·log 2π + 1/(12g)`, with a positive-integer shift
+  `Γ(var+k) = (var+k−1)!` recast onto a var-clean log (so `loggamma(n+1)` expands in `log n`, not `log(n+1)`,
+  and the difference does not spin). Now `n·ψ'(n) → 1`, `n²·ψ'(n) → ∞`, `n²·(ψ'(n) − 1/n) → 1/2`,
+  `n³·ψ''(n) → −∞`, `ψ''(n)·n² → −1`, `loggamma(n)/(n·log n) → 1`, `loggamma(n+1) − loggamma(n) → ∞`.
+  Regression: `LIMIT-POLYGAMMA-LOGGAMMA-1`. Matches SymPy.
+
 ### LIMIT-DIGAMMA-1 — digamma ψ(n)/log n and ψ(n) − log n hung
 - **Problem:** `limit(ψ(n)/log n, n, ∞) = 1` and `limit(ψ(n) − log n, n, ∞) = 0` did not terminate
   (`ψ = digamma = polygamma(0,·)`). The engine knew `ψ(n) → ∞` but had no asymptotic expansion, so the

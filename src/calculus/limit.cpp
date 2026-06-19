@@ -3042,6 +3042,65 @@ struct Growth {
                                 mul(rational(1, 120), pow(g, integer(-4)))}));
                 }
             }
+            // Higher polygamma ψ⁽ᵐ⁾(g), m ≥ 1, g → +∞ (DLMF 5.15.8):
+            //   ψ⁽ᵐ⁾(g) ~ (−1)^{m−1}[(m−1)!·g⁻ᵐ + m!/2·g^{−m−1}
+            //              + (m+1)!/12·g^{−m−2} − (m+3)!/720·g^{−m−4} + …].
+            if (fn.function_id() == FunctionId::PolyGamma
+                && fn.args().size() == 2
+                && fn.args()[0]->type_id() == TypeId::Integer && !m.count(e)) {
+                const auto& ord = static_cast<const Integer&>(*fn.args()[0]);
+                if (ord.fits_long() && ord.to_long() >= 1) {
+                    const long mo = ord.to_long();
+                    const Expr& g = fn.args()[1];
+                    if (has(g, var)
+                        && limit_impl(g, var, target, depth + 1)
+                               == S::Infinity()) {
+                        const Expr sign =
+                            (mo % 2 == 1) ? Expr{S::One()} : Expr{S::NegativeOne()};
+                        m.emplace(
+                            e,
+                            mul(sign,
+                                add({mul(factorial(integer(mo - 1)),
+                                         pow(g, integer(-mo))),
+                                     mul(mul(factorial(integer(mo)),
+                                             rational(1, 2)),
+                                         pow(g, integer(-mo - 1))),
+                                     mul(mul(factorial(integer(mo + 1)),
+                                             rational(1, 12)),
+                                         pow(g, integer(-mo - 2))),
+                                     mul(mul(factorial(integer(mo + 3)),
+                                             rational(-1, 720)),
+                                         pow(g, integer(-mo - 4)))})));
+                    }
+                }
+            }
+            // log Γ(g) = loggamma(g), g → +∞ (log-Stirling):
+            //   (g−½)·log g − g + ½·log 2π + 1/(12g) − ….
+            // A positive-integer shift Γ(var+k) = (var+k−1)! is recast onto z = g−1
+            // so its log argument stays var-clean (loggamma(n+1) ⇒ log n, not
+            // log(n+1)) — otherwise loggamma(n+1) − loggamma(n) spins on log(n+1).
+            if (fn.function_id() == FunctionId::LogGamma
+                && fn.args().size() == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    // Direct log Γ(z) form has the −½ coefficient on log z; the
+                    // factorial recast log((var+k−1)!) carries +½.
+                    Expr z = g, coeff = rational(-1, 2);
+                    const Expr s = simplify(add(g, mul(S::NegativeOne(), var)));
+                    if (s->type_id() == TypeId::Integer
+                        && is_positive(s) == std::optional<bool>{true}) {
+                        z = simplify(add(g, S::NegativeOne()));
+                        coeff = rational(1, 2);
+                    }
+                    m.emplace(
+                        e,
+                        add({mul(add(z, coeff), log(z)),
+                             mul(S::NegativeOne(), z),
+                             mul(rational(1, 2), log(mul(integer(2), S::Pi()))),
+                             mul(rational(1, 12), pow(z, integer(-1)))}));
+                }
+            }
         }
         for (const auto& a : e->args()) self(self, a);
     };

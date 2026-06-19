@@ -3232,6 +3232,48 @@ TEST_CASE("limit: digamma asymptotics (LIMIT-DIGAMMA-1)",
             == S::Zero());
 }
 
+// LIMIT-POLYGAMMA-LOGGAMMA-1: the higher polygamma ψ⁽ᵐ⁾(n) (m ≥ 1) and the loggamma
+// function expand to their asymptotics at +∞. ψ⁽ᵐ⁾(n) ~ (−1)^{m−1}[(m−1)!/nᵐ + …]
+// (DLMF 5.15.8); loggamma(n) ~ (n−½)·log n − n + ½·log 2π + 1/(12n) (log-Stirling,
+// with a positive-integer shift recast onto a var-clean log so loggamma(n+1) −
+// loggamma(n) → ∞). Previously these hung. Matches SymPy.
+TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOGGAMMA-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+
+    // Trigamma ψ'(n) ~ 1/n: n·ψ'(n) → 1, n²·ψ'(n) → ∞, n²·(ψ'(n) − 1/n) → 1/2.
+    REQUIRE(limit(mul(n, polygamma(integer(1), n)), n, oo) == S::One());
+    REQUIRE(limit(mul(pow(n, integer(2)), polygamma(integer(1), n)), n, oo) == oo);
+    REQUIRE(limit(mul(pow(n, integer(2)),
+                      add(polygamma(integer(1), n),
+                          mul(S::NegativeOne(), pow(n, integer(-1))))),
+                  n, oo)
+            == rational(1, 2));
+    // Tetragamma ψ''(n) ~ −1/n²: n³·ψ''(n) → −∞, ψ''(n)·n² → −1.
+    REQUIRE(limit(mul(pow(n, integer(3)), polygamma(integer(2), n)), n, oo)
+            == S::NegativeInfinity());
+    REQUIRE(limit(mul(polygamma(integer(2), n), pow(n, integer(2))), n, oo)
+            == S::NegativeOne());
+    // loggamma(n)/(n·log n) → 1, and loggamma(n+1) − loggamma(n) = log n → ∞.
+    REQUIRE(simplify(limit(mul(loggamma(n), pow(mul(n, log(n)), integer(-1))),
+                           n, oo))
+            == S::One());
+    REQUIRE(limit(add(loggamma(add(n, integer(1))),
+                      mul(S::NegativeOne(), loggamma(n))),
+                  n, oo)
+            == oo);
+    // The ½·log 2π constant: (loggamma(n) − (n−½)·log n + n)/log n → 0.
+    REQUIRE(simplify(limit(
+                mul(add({loggamma(n),
+                         mul(S::NegativeOne(),
+                             mul(add(n, rational(-1, 2)), log(n))),
+                         n}),
+                    pow(log(n), integer(-1))),
+                n, oo))
+            == S::Zero());
+}
+
 // LIMIT-LOGGAMMA-1: log of a diverging factorial/gamma expands by log-Stirling,
 // log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so log(n!) ~ (n+½)·log n − n + …
 // These were opaque: log(n!)/n returned a wrong 0, log(n!)/(n·log n) and
