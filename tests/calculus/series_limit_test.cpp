@@ -1006,6 +1006,21 @@ TEST_CASE("limit: super-power vs factorial (LIMIT-SUPERPOW-1)",
     // rewrite (n^n → exp(n·log n)) lets the gamma-growth machinery resolve it.
     REQUIRE(limit(gamma(integer(2) * n) * nton(mul(S::NegativeOne(), n)), n, oo)
             == oo);
+    // A *difference* of a factorial/gamma and a super-power resolves by the
+    // dominant term — n^n ≫ n! — rather than hanging (the Stirling-root stage,
+    // which a difference would send into a spinning ∞−∞, is skipped on a sum):
+    //   n! − n^n → −∞,  n^n − n! → +∞,  Γ(n+1) − n^n → −∞,  n! − e^n → +∞.
+    REQUIRE(limit(add(factorial(n), mul(S::NegativeOne(), nton(n))), n, oo)
+            == S::NegativeInfinity());
+    REQUIRE(limit(add(nton(n), mul(S::NegativeOne(), factorial(n))), n, oo) == oo);
+    REQUIRE(limit(add(gamma(n + integer(1)), mul(S::NegativeOne(), nton(n))), n, oo)
+            == S::NegativeInfinity());
+    REQUIRE(limit(add(factorial(n), mul(S::NegativeOne(), exp(n))), n, oo) == oo);
+    // The ratio form distributes cleanly: (n! − n^n)/n^n → n!/n^n − 1 → −1.
+    REQUIRE(limit(mul(add(factorial(n), mul(S::NegativeOne(), nton(n))),
+                      nton(mul(S::NegativeOne(), n))),
+                  n, oo)
+            == S::NegativeOne());
 }
 
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental

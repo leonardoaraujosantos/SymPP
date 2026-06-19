@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SUPERPOW-DIFF-1 — n! − nⁿ and similar factorial/super-power differences hung
+- **Problem:** a difference of a factorial/gamma and a super-power `n^(c·n)` did not terminate:
+  `limit(n! − nⁿ, n, ∞) = −∞`, `limit(Γ(n+1) − nⁿ, n, ∞) = −∞`, `limit(nⁿ − n!, n, ∞) = ∞`, `limit(n! − eⁿ, n, ∞) = ∞`
+  all hung. The Stirling n-th-root stage (gated on `has_var_radical`, which `nⁿ` satisfies) fired on the *sum*
+  and rewrote `n! → (n/e)ⁿ`, turning the difference into another `∞−∞` Stirling form the substitution then
+  spun on, recursing to the depth cap.
+- **Fix:** skip the Stirling-root stage on a top-level `Add` — a difference of comparable divergent terms is a
+  dominant-term case, not a root/product case, so it now reaches `try_dominant_term_sum`, which picks the
+  dominant term (`nⁿ ≫ n!`) and returns its signed infinity. The Stirling product/root cases (all `Mul`/`Pow`
+  forms — `(n!)^(1/n)/n`, `n!/(nⁿe⁻ⁿ)`, …) are unaffected. Now `n! − nⁿ → −∞`, `Γ(n+1) − nⁿ → −∞`,
+  `nⁿ − n! → ∞`, `n! − eⁿ → ∞`, and the ratio `(n! − nⁿ)/nⁿ → −1`. Regression: `LIMIT-SUPERPOW-1` (extended).
+  Matches SymPy. (Still open: ratios against `Γ(2n)`/`(2n)!` such as `(2n)!/nⁿ`, a separate gamma(2n)-vs-
+  super-power growth comparison.)
+
 ### LIMIT-INVHYP-1 — asinh(x)/log x and acosh(x)/log x hung
 - **Problem:** `limit(asinh(x)/log x, x, ∞) = 1` and `acosh(x)/log x → 1` did not terminate. `asinh(x) =
   log(x + √(x²+1))` and `acosh(x) = log(x + √(x²−1))` both grow like `log(2x)`, but the exact log-of-a-radical

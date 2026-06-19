@@ -3220,9 +3220,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     }
 
     // n-th roots of factorial/gamma via Stirling (numerically guarded):
-    // (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e.
+    // (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e. Skipped on a top-level
+    // sum: the Stirling rewrite of a difference of comparable divergent terms
+    // (n! − nⁿ) just yields another ∞−∞ form the substitution spins on — that is a
+    // dominant-term case, handled below.
     if (depth < 10 && target == S::Infinity()
-        && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)) {
+        && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)
+        && expr->type_id() != TypeId::Add) {
         if (auto r = try_stirling_limit(expr, var, target, depth)) return *r;
     }
 
