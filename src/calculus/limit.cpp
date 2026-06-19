@@ -2089,6 +2089,133 @@ struct Growth {
     return r;
 }
 
+// Rational form of divergent terms at ±∞: P/Q where the denominator's dominant
+// term D diverges. Divide numerator and denominator through by D, so each term
+// tends to a finite value (0 for the sub-dominant ones, a constant for D's), and
+// the quotient becomes finite/finite. This resolves ratios of exponentials —
+// (eᵏˣ+1)/(eᵏˣ−1) → 1, (2ˣ+3ˣ)/3ˣ → 1 (after cˣ→exp rewrite) — that L'Hôpital
+// loops on (the differentiated ratio never collapses) and that per-factor folding
+// mis-resolves to 0. Dominance is decided by the limit of each pairwise ratio.
+// Polynomial in var (var-free subterms are constant coefficients): the admissible
+// exponent of a constant-base exponential c^g — excludes log/general transcendentals.
+[[nodiscard]] bool is_poly_in_var(const Expr& e, const Expr& var) {
+    if (!has(e, var)) return true;
+    switch (e->type_id()) {
+        case TypeId::Symbol:
+            return true;
+        case TypeId::Add:
+        case TypeId::Mul:
+            for (const auto& a : e->args()) {
+                if (!is_poly_in_var(a, var)) return false;
+            }
+            return true;
+        case TypeId::Pow:
+            return is_poly_in_var(e->args()[0], var)
+                   && !has(e->args()[1], var)
+                   && e->args()[1]->type_id() == TypeId::Integer;
+        default:
+            return false;
+    }
+}
+
+// A rational function of constant-base exponentials cˣ (c a positive number) and
+// polynomials in var — the only shape try_dominant_ratio is sound and terminating
+// on. Anything with a logarithm, a gamma, a general power f(x)^g(x), or an exp of a
+// transcendental (e.g. exp(log x / x), into which x^(1/x) rewrites) is excluded, so
+// the divide/distribute step never reopens a hard Gruntz form.
+[[nodiscard]] bool is_exp_rational(const Expr& e, const Expr& var) {
+    if (!has(e, var)) return true;
+    switch (e->type_id()) {
+        case TypeId::Symbol:
+            return true;
+        case TypeId::Add:
+        case TypeId::Mul:
+            for (const auto& a : e->args()) {
+                if (!is_exp_rational(a, var)) return false;
+            }
+            return true;
+        case TypeId::Pow: {
+            const Expr& b = e->args()[0];
+            const Expr& p = e->args()[1];
+            if (!has(p, var) && p->type_id() == TypeId::Integer) {
+                return is_exp_rational(b, var);  // f(x)ⁿ
+            }
+            const auto bt = b->type_id();
+            const bool numeric_base = bt == TypeId::Integer
+                                      || bt == TypeId::Rational
+                                      || bt == TypeId::Float;
+            return numeric_base
+                   && is_positive(b) == std::optional<bool>{true}
+                   && is_poly_in_var(p, var);  // c^poly, c > 0
+        }
+        case TypeId::Function:
+            return static_cast<const Function&>(e.operator*()).function_id()
+                       == FunctionId::Exp
+                   && is_poly_in_var(e->args()[0], var);  // exp(poly)
+        default:
+            return false;
+    }
+}
+
+[[nodiscard]] std::optional<Expr> try_dominant_ratio(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& target,
+                                                     int depth) {
+    if (depth >= 8 || !is_infinity(target)) return std::nullopt;
+    if (!is_exp_rational(expr, var)) return std::nullopt;
+    NumDen nd = split_after_together(expr);
+    if (has(nd.den, var) && has(nd.num, var)) {
+        std::vector<Expr> dterms;
+        if (nd.den->type_id() == TypeId::Add) {
+            for (const auto& t : nd.den->args()) dterms.push_back(t);
+        } else {
+            dterms.push_back(nd.den);
+        }
+        // Dominant term D of the denominator: all other terms / D → 0.
+        Expr dominant;
+        for (const auto& ti : dterms) {
+            if (!has(ti, var)) continue;
+            bool dom = true;
+            for (const auto& tj : dterms) {
+                if (tj.get() == ti.get()) continue;
+                Expr ratio = limit_impl(simplify(mul(tj, pow(ti, integer(-1)))),
+                                        var, target, depth + 1);
+                if (!(ratio == S::Zero())) { dom = false; break; }
+            }
+            if (dom) { dominant = ti; break; }
+        }
+        if (dominant
+            && is_infinity(limit_impl(dominant, var, target, depth + 1))) {
+            Expr inv = pow(dominant, integer(-1));
+            Expr lnum = limit_impl(simplify(mul(nd.num, inv)), var, target,
+                                   depth + 1);
+            Expr lden = limit_impl(simplify(mul(nd.den, inv)), var, target,
+                                   depth + 1);
+            if (!is_nan(lnum) && !is_nan(lden) && !is_infinity(lnum)
+                && !is_infinity(lden) && !(lden == S::Zero())) {
+                return simplify(mul(lnum, pow(lden, integer(-1))));
+            }
+        }
+    }
+    // A sum multiplied by a vanishing constant-base factor that `together` will
+    // not pull into a denominator — (2ˣ+3ˣ)·3⁻ˣ — folds to 0·∞ as a product but
+    // distributes to 2ˣ3⁻ˣ + 1 → 1, which per-term linearity resolves.
+    if (expr->type_id() == TypeId::Mul) {
+        bool has_add = false;
+        for (const auto& f : expr->args()) {
+            if (f->type_id() == TypeId::Add) { has_add = true; break; }
+        }
+        if (has_add) {
+            Expr ex = expand(expr);
+            if (!(ex == expr)) {
+                Expr r = limit_impl(ex, var, target, depth + 1);
+                if (!is_nan(r)) return r;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] std::optional<Expr> try_dominant_term_sum(const Expr& expr,
                                                         const Expr& var,
                                                         const Expr& target,
@@ -2476,6 +2603,12 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // c·log(p) − c·log(q) with a var coefficient c → c·log(p/q); resolves
             // the distributed exponent x·log(x+1) − x·log(x) (from x^x/(x+1)^x).
             if (auto v = try_common_log_combine(expr, var, target, depth)) {
+                return *v;
+            }
+            // Rational form of divergent terms P/Q: divide through by Q's dominant
+            // term so the quotient is finite/finite — (2ˣ+1)/(2ˣ−1) → 1,
+            // (2ˣ+3ˣ)/3ˣ → 1 — which L'Hôpital loops on and folding mis-reads as 0.
+            if (auto v = try_dominant_ratio(expr, var, target, depth)) {
                 return *v;
             }
             // (Sum linearity for the all-finite case is handled before direct

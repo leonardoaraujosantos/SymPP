@@ -747,6 +747,46 @@ TEST_CASE("limit: ratio of var^var powers via common-log combine (LIMIT-COMMON-L
             == S::E());
 }
 
+// LIMIT-CONST-BASE-RATIO-1: rational functions of constant-base exponentials cˣ.
+// The engine resolved the eˣ analogues (eˣ has a Function node L'Hôpital handles)
+// but stalled on 2ˣ=Pow(2,x): L'Hôpital loops on the cancelling cᵏˣ/cᵏˣ ratio, and
+// the 0·∞ product (2ˣ+3ˣ)·3⁻ˣ was *mis-resolved to 0* by per-factor folding.
+// try_dominant_ratio divides through by the denominator's dominant term — finite/
+// finite — and distributes a sum × vanishing factor, so all resolve. Matches SymPy.
+TEST_CASE("limit: rational of constant-base exponentials (LIMIT-CONST-BASE-RATIO-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto P = [&](int b) { return pow(integer(b), x); };       // bˣ
+    auto ratio = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // (2ˣ+1)/(2ˣ−1) → 1: rational in a single base.
+    REQUIRE(limit(ratio(add(P(2), integer(1)), add(P(2), S::NegativeOne())), x, oo)
+            == S::One());
+    // (2ˣ+3ˣ)/3ˣ → 1: previously the WRONG answer 0 (0·∞ folded to 0).
+    REQUIRE(limit(ratio(add(P(2), P(3)), P(3)), x, oo) == S::One());
+    // (3ˣ−2ˣ)/(3ˣ+2ˣ) → 1 and (2ˣ−3ˣ)/(2ˣ+3ˣ) → −1: dominant base wins.
+    REQUIRE(limit(ratio(add(P(3), mul(S::NegativeOne(), P(2))),
+                        add(P(3), P(2))),
+                  x, oo)
+            == S::One());
+    REQUIRE(limit(ratio(add(P(2), mul(S::NegativeOne(), P(3))),
+                        add(P(2), P(3))),
+                  x, oo)
+            == S::NegativeOne());
+    // 2ˣ/(2ˣ+x) → 1: exponential dominates the polynomial term.
+    REQUIRE(limit(ratio(P(2), add(P(2), x)), x, oo) == S::One());
+    // A general power in the same shape must still short-circuit, not hang
+    // (the divide/distribute is gated to constant-base-exponential rationals).
+    REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
+                      add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+                ->type_id()
+            == TypeId::NaN);
+}
+
 // LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
 // (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
 // because n^n is outside the growth hierarchy. The handler is restricted to a

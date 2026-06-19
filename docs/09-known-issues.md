@@ -16,6 +16,24 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-CONST-BASE-RATIO-1 — rational functions of constant-base exponentials cˣ failed or were wrong
+- **Problem:** ratios of constant-base exponentials at `+∞` mis-resolved while their `eˣ` analogues worked.
+  `limit((2ˣ+1)/(2ˣ−1), x, ∞)` and `limit((3ˣ−2ˣ)/(3ˣ+2ˣ), x, ∞)` returned `nan` (SymPy: `1`), and
+  `limit((2ˣ+3ˣ)/3ˣ, x, ∞)` returned the **wrong** value `0` (SymPy: `1`). The engine resolves `eˣ` because
+  it is a `Function` node L'Hôpital differentiates cleanly, but `2ˣ = Pow(2,x)` is a constant-base power:
+  L'Hôpital loops on the cancelling `cᵏˣ/cᵏˣ` ratio (the differentiated quotient never collapses), and the
+  `0·∞` product `(2ˣ+3ˣ)·3⁻ˣ` — which `together` will not pull into a denominator — was folded per-factor to
+  `0`.
+- **Fix:** added `try_dominant_ratio`. For a fraction `P/Q` at `±∞` it finds the denominator's dominant term
+  `D` (every other term over `D → 0`), divides numerator and denominator through by `D` so the quotient is
+  finite/finite, and as a fallback distributes a sum × vanishing factor (`(2ˣ+3ˣ)·3⁻ˣ → 2ˣ3⁻ˣ + 1 → 1`) that
+  per-term linearity then resolves. The rule is gated by `is_exp_rational` to constant-base-exponential
+  rationals (`cˣ`, `c > 0`, and polynomials in `x`) — anything with a logarithm, gamma, general power
+  `f(x)^g(x)`, or an `exp` of a transcendental (the form `x^(1/x)` rewrites into) is excluded, so the
+  divide/distribute never reopens a hard Gruntz form (`LIMIT-NOHANG-1` stays terminating). Now
+  `(2ˣ+1)/(2ˣ−1) → 1`, `(2ˣ+3ˣ)/3ˣ → 1`, `(3ˣ−2ˣ)/(3ˣ+2ˣ) → 1`, `(2ˣ−3ˣ)/(2ˣ+3ˣ) → −1`, `2ˣ/(2ˣ+x) → 1`.
+  Regression: `LIMIT-CONST-BASE-RATIO-1`. Matches SymPy.
+
 ### LIMIT-COMMON-LOG-1 — x^x/(x+1)^x and (x+1)^x/x^x hung the limit engine
 - **Problem:** `limit(x^x/(x+1)^x, x, ∞) = 1/e` and `limit((x+1)^x/x^x, x, ∞) = e` did not terminate. The
   power-as-exp rewrite + exp-combine produce the **distributed** exponent `x·log(x+1) − x·log(x)`, an `∞−∞`
