@@ -2422,6 +2422,74 @@ struct Growth {
     return std::nullopt;
 }
 
+// M·(c·e^p − c·e^q) with p − q → 0: a product carrying a difference of two
+// asymptotically-equal exponentials. e^p − e^q = e^q·(e^{p−q} − 1) ~ e^q·(p − q)
+// exactly (e^t − 1 = t·(1 + t/2 + …) ~ t at t → 0), so the factor is asymptotic to
+// c·e^q·(p − q) and the limit is lim of M with that substituted — no numeric guard,
+// which would underflow on the e^{−e^{−x}} − 1 cancellation. Resolves the Gruntz
+// flagship e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1 (a bare constant term counts as
+// e^0, so e^u − 1 is handled the same way). Complements try_exp_difference, which
+// only fires when the whole expression is the bare sum of exponentials.
+[[nodiscard]] std::optional<Expr> try_exp_unit_difference(const Expr& expr,
+                                                          const Expr& var,
+                                                          const Expr& target,
+                                                          int depth) {
+    if (depth >= 8 || !is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    // term = coeff · exp(p); a term with no exponential factor is coeff · exp(0).
+    auto split_exp = [&](const Expr& term) -> std::pair<Expr, Expr> {
+        std::vector<Expr> facs;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) facs.push_back(f);
+        } else {
+            facs.push_back(term);
+        }
+        Expr coeff = S::One(), p = S::Zero();
+        bool found = false;
+        for (const auto& f : facs) {
+            if (!found && f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Exp
+                && f->args().size() == 1) {
+                p = f->args()[0];
+                found = true;
+            } else {
+                coeff = mul(coeff, f);
+            }
+        }
+        return {coeff, p};
+    };
+    const auto& factors = expr->args();
+    for (std::size_t i = 0; i < factors.size(); ++i) {
+        const Expr& f = factors[i];
+        if (f->type_id() != TypeId::Add || f->args().size() != 2) continue;
+        auto [c1, p1] = split_exp(f->args()[0]);
+        auto [c2, p2] = split_exp(f->args()[1]);
+        // The factor must be c·(e^{p1} − e^{p2}) with the exponent gap → 0, and at
+        // least one exponent var-dependent (else it is a constant difference).
+        if (!(simplify(add(c1, c2)) == S::Zero())) continue;
+        if (!has(p1, var) && !has(p2, var)) continue;
+        Expr gap = limit_impl(add(p1, mul(S::NegativeOne(), p2)), var, target,
+                              depth + 1);
+        if (!(gap == S::Zero())) continue;
+        // e^{p1} − e^{p2} ~ e^{p2}·(p1 − p2): rebuild the product with the factor
+        // replaced by its leading asymptotic and re-take. The gap is simplified so
+        // it collapses to a clean exponential (1/x − (1/x − e⁻ˣ) → e⁻ˣ) the exp
+        // machinery can recombine, rather than an opaque nested Add.
+        Expr leading = mul(mul(c1, exp(p2)),
+                           simplify(add(p1, mul(S::NegativeOne(), p2))));
+        std::vector<Expr> rest;
+        for (std::size_t j = 0; j < factors.size(); ++j) {
+            if (j != i) rest.push_back(factors[j]);
+        }
+        rest.push_back(leading);
+        Expr r = limit_impl(mul(std::move(rest)), var, target, depth + 1);
+        if (!is_nan(r)) return r;
+    }
+    return std::nullopt;
+}
+
 // Gruntz leading-term via series. For an indeterminate form built from a variable
 // power inside a sum — g(x)·(f(x)^{h(x)} − c), the 1^∞ minus its value — substitute
 // x = ±1/u (so x → ±∞ becomes u → 0⁺), rewrite each u-dependent power to exp(·log·)
@@ -4052,6 +4120,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // (exp(x²)·exp(−2x), exp(x²)/exp(x)²) into one exp(Σ) and re-take —
             // try_exponential_product below only combines a shared monomial.
             if (auto v = try_exp_combine(expr, var, target, depth)) return *v;
+            // A product carrying a difference of asymptotically-equal exponentials,
+            // M·(e^p − e^q) with p − q → 0 ~ M·e^q·(p − q): resolved before the 0·∞
+            // product path below mangles it in L'Hôpital. The Gruntz flagship
+            // e^x·(e^{1/x − e⁻ˣ} − e^{1/x}) → −1.
+            if (auto v = try_exp_unit_difference(expr, var, target, depth)) {
+                return *v;
+            }
             // Merge a product of constant-base exponentials (2^x/3^x,
             // exp(x)/exp(2x)) into one exp(rate) before the generic product path,
             // which would otherwise see ∞·0 and stall in L'Hôpital → nan.

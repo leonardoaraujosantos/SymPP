@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXPUNITDIFF-1 — product times a unit exponential difference returned nan
+- **Problem:** the Gruntz flagship `e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1` returned `nan`. The difference
+  `e^{1/x − e^{−x}} − e^{1/x}` vanishes (its two exponents differ by `−e^{−x} → 0`), so the product is `∞·0`; the
+  0·∞ path applied L'Hôpital, and the small-angle path's numeric guard rejected the correct answer because
+  `e^{−e^{−x}} − 1` underflows to exactly 0 at finite precision (catastrophic cancellation), so it could not be
+  verified.
+- **Fix:** added `try_exp_unit_difference`. A factor `c·(e^p − e^q)` with `p − q → 0` is asymptotically
+  `c·e^q·(p − q)` (since `e^t − 1 ~ t`), an *exact* algebraic equivalence needing no numeric check, so the product
+  is rebuilt with that substitution and re-taken. A bare constant term counts as `e^0`, so `e^u − 1` is the same
+  rule. The exponent gap is simplified before substitution so it collapses to a clean exponential the exp
+  machinery can recombine. Tried before the 0·∞ product path so L'Hôpital never mangles it. Now
+  `e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1`, `x·(e^{1/x} − 1) → 1`, `x²·(e^{1/x} − e^{2/x}) → −∞`, with the bare
+  exponential difference `e^{x+e^{−x}} − e^x → 1` unchanged. Regression: `LIMIT-EXPUNITDIFF-1`. Matches SymPy.
+
 ### LIMIT-DOMTERM-RADICAL-1 — different-rate radical ∞−∞ took ~40 s
 - **Problem:** `log log x − √(log x·log log x) → −∞` (and the nested ratio `log x / exp(√(log x·log log x)) → 0`
   whose log-exp reduction produces it) resolved correctly but took ~40 s. The ∞−∞ difference contains a radical,

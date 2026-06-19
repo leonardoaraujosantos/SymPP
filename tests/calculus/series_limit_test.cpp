@@ -773,13 +773,13 @@ TEST_CASE("limit: unit-tending power difference via exp(t)−1 ~ t (LIMIT-UNIT-P
     // (x^x − 1)/(x·log x) → 1 at x → 0 (base → 0).
     REQUIRE(limit(over(add(xx, S::NegativeOne()), mul(x, log(x))), x, S::Zero())
             == S::One());
-    // Non-regression: a unit power times a *divergent exponential* (e^x·(e^{1/x}−1),
-    // a 0·∞ MRV case) must not hang here — the expansion would leave an
-    // undistributed ∞−∞; it is left to other paths (honest nan), not spun on.
+    // A unit power times a *divergent exponential*, e^x·(e^{1/x} − 1): the 0·∞ MRV
+    // case. e^{1/x} − 1 ~ 1/x, so the product ~ e^x/x → ∞. Once handled as an honest
+    // nan (the expansion left an undistributed ∞−∞); the exp-unit-difference rule
+    // (LIMIT-EXPUNITDIFF-1) now reads it off as e^q·(p − q) and resolves it. SymPy: ∞.
     REQUIRE(limit(mul(exp(x), add(exp(pow(x, integer(-1))), S::NegativeOne())),
                   x, oo)
-                ->type_id()
-            == TypeId::NaN);
+            == oo);
 }
 
 // LIMIT-INVHYP-1: inverse-hyperbolic asymptotics at +∞. asinh(x) = log(x + √(x²+1))
@@ -3698,4 +3698,39 @@ TEST_CASE("limit: different-rate radical difference via dominant term (LIMIT-DOM
                               rational(1, 2)))),
                   x, oo)
             == S::Zero());
+}
+
+// LIMIT-EXPUNITDIFF-1: a product carrying a difference of two asymptotically-equal
+// exponentials, M·(e^p − e^q) with p − q → 0. Since e^p − e^q = e^q·(e^{p−q} − 1) ~
+// e^q·(p − q) exactly, the limit is lim(M·e^q·(p − q)) — read off algebraically, not
+// numerically (sampling e^{−e^{−x}} − 1 underflows to 0 and would reject the answer).
+// The Gruntz flagship e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1 previously returned nan.
+// A bare constant term counts as e^0, so e^u − 1 is the same rule. Matches SymPy.
+TEST_CASE("limit: product times a unit exponential difference (LIMIT-EXPUNITDIFF-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr emx = exp(mul(S::NegativeOne(), x));            // e^{−x}
+    const Expr inv = pow(x, integer(-1));                      // 1/x
+    const Expr a = add(inv, mul(S::NegativeOne(), emx));       // 1/x − e^{−x}
+
+    // The Gruntz flagship, both as a raw product and pre-factored to M·(e^u − 1).
+    REQUIRE(limit(mul(exp(x),
+                      add(exp(a), mul(S::NegativeOne(), exp(inv)))),
+                  x, oo)
+            == S::NegativeOne());
+    REQUIRE(limit(mul(exp(add(x, inv)),
+                      add(exp(mul(S::NegativeOne(), emx)), S::NegativeOne())),
+                  x, oo)
+            == S::NegativeOne());
+    // x·(e^{1/x} − 1) → 1 and x²·(e^{1/x} − e^{2/x}) → −∞ (e^{1/x} − e^{2/x} ~ −1/x).
+    REQUIRE(limit(mul(x, add(exp(inv), S::NegativeOne())), x, oo) == S::One());
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(exp(inv),
+                          mul(S::NegativeOne(), exp(mul(integer(2), inv))))),
+                  x, oo)
+            == S::NegativeInfinity());
+    // No regression on the bare exponential difference: e^{x+e^{−x}} − e^x → 1.
+    REQUIRE(limit(add(exp(add(x, emx)), mul(S::NegativeOne(), exp(x))), x, oo)
+            == S::One());
 }
