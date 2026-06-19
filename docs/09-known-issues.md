@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-UNIT-POWER-1 — (x^x − 1)/(x·log x) and (x^(1/x) − 1)/(log x/x) hung / nan
+- **Problem:** a power `f(x)^g(x)` that tends to 1 — its exponent `t = g·log f → 0` — inside a difference was
+  unresolved: `(x^x − 1)/(x·log x) → 1` (at `x → 0`) hung, and `(x^(1/x) − 1)/(log x/x) → 1` (at `+∞`) returned
+  `nan`. The series leading-term stage cannot help here: the base tends to `0` or `∞`, so the substituted
+  exponent carries a `log u` singularity that no polynomial series can expand (this is exactly the
+  `LIMIT-NOHANG-1` family the series stage deliberately gates out). The exact value also previously surfaced as
+  the "honest nan" for `(x^(1/x) − 1)·x/log x` (SymPy gets 1).
+- **Fix:** added `try_unit_power_expansion`. For a unit-tending power under a sum it uses the exponential
+  expansion directly: `f^g − 1 = exp(t) − 1 = t + t²/2 + t³/6 + …` with `t = g·log f`, so the leading `t`
+  carries the limit (`f^g − 1 ~ g·log f`) and a couple of extra terms cover an `h ∼ t²`/`t³` denominator. It
+  matches the power both as a raw `f(x)^g(x)` and as `exp(t)` (its form after the power-as-exp rewrite), gated
+  to `t → 0` under a difference, and is numerically verified so a too-short truncation cannot pass. Now
+  `(x^x − 1)/(x·log x) → 1`, `(x^(1/x) − 1)/(log x/x) → 1`, and `(x^(1/x) − 1)·x/log x → 1` (previously the
+  honest nan). Regression: `LIMIT-UNIT-POWER-1`; `LIMIT-NOHANG-1` updated to assert the now-correct `1`.
+  Matches SymPy.
+
 ### LIMIT-SERIES-1 (finite point) — ((1+x)^(1/x) − e)/x at x → 0 hung
 - **Problem:** the series leading-term stage handled `1^∞` corrections at `±∞` but not at a finite point, where
   the same form appears: `limit(((1+x)^(1/x) − e)/x, x, 0) = −e/2` and the order-2

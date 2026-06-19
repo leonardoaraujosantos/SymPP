@@ -728,27 +728,51 @@ TEST_CASE("limit: Stirling prefactor carries the limit (LIMIT-STIRLING-PRODUCT-1
 // LIMIT-NOHANG-1: a general power inside a difference, (x^(1/x) − 1)·x/log x, sent
 // the engine into a non-terminating path — the log-exp reduction took log of the
 // vanishing eᵍ−1 factor, and the reciprocal substitution x = 1/t produced an
-// equally hard t→0 form (x^(1/x) ↦ exp(−t·log t)). Both are now short-circuited,
-// so the limit returns a determinate value (nan here — the slow 1/x convergence
-// defeats the numeric leading-term check; SymPy gets 1) rather than hanging. The
-// reciprocal-substitution guard is narrow: a *standalone* general power (the
-// Stirling root above) must still resolve.
+// equally hard t→0 form (x^(1/x) ↦ exp(−t·log t)). Both were short-circuited so the
+// limit terminated. It now resolves to the correct value 1: x^(1/x) − 1 = exp(t) − 1
+// ~ t with t = log(x)/x → 0, so (x^(1/x) − 1)·x/log x → 1 (the unit-power expansion).
 TEST_CASE("limit: general power in a difference does not hang (LIMIT-NOHANG-1)",
           "[6][limit][infinity][regression]") {
     auto x = symbol("x");
     auto n = symbol("n");
     const Expr oo = S::Infinity();
-    // Completes (does not hang); the value is the honest nan.
+    // Completes (does not hang) and matches SymPy: → 1.
     Expr r = limit(mul(mul(x, pow(log(x), integer(-1))),
                        add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
                    x, oo);
-    REQUIRE(r->type_id() == TypeId::NaN);
+    REQUIRE(r == S::One());
     // Guard non-regression: a standalone general power still resolves via the
     // reciprocal substitution.
     REQUIRE(simplify(limit(pow(gamma(n + integer(1)), pow(n, integer(-1)))
                                * pow(n, integer(-1)),
                            n, oo))
             == exp(integer(-1)));
+}
+
+// LIMIT-UNIT-POWER-1: a power f(x)^g(x) → 1 inside a difference, where the exponent
+// t = g·log f → 0. The base tends to 0 or ∞ (x^x at 0, x^(1/x) at ∞), so the series
+// stage cannot expand the exponent (it has a log singularity). Instead exp(t) − 1 =
+// t + t²/2 + … is used directly, with the leading t carrying the limit: f^g − 1 ~
+// g·log f. Previously these hung or returned nan. Matches SymPy.
+TEST_CASE("limit: unit-tending power difference via exp(t)−1 ~ t (LIMIT-UNIT-POWER-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+    const Expr xinvx = pow(x, pow(x, integer(-1)));      // x^(1/x)
+    const Expr xx = pow(x, x);                           // x^x
+
+    // (x^(1/x) − 1)/(log x/x) → 1 at +∞.
+    REQUIRE(limit(over(add(xinvx, S::NegativeOne()), over(log(x), x)), x, oo)
+            == S::One());
+    // (x^(1/x) − 1)·x/log x → 1 (the same correction, multiplicative form).
+    REQUIRE(limit(mul(add(xinvx, S::NegativeOne()), over(x, log(x))), x, oo)
+            == S::One());
+    // (x^x − 1)/(x·log x) → 1 at x → 0 (base → 0).
+    REQUIRE(limit(over(add(xx, S::NegativeOne()), mul(x, log(x))), x, S::Zero())
+            == S::One());
 }
 
 // LIMIT-SERIES-1: the asymptotic correction to a 1^∞ power, g(x)·((1+a/x)^x − eᵃ).
@@ -794,13 +818,13 @@ TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1
                              mul(S::NegativeOne(), S::E()))),
                   x, oo)
             == mul(rational(1, 2), S::E()));
-    // Gate guard: a base that diverges (x^(1/x)) is left to the no-hang path and
-    // must still return the honest nan, not spin in the series machinery.
+    // Gate guard: a base that diverges (x^(1/x)) is left out of the series stage
+    // (its exponent has a log singularity) — the unit-power expansion resolves it
+    // instead, to the correct 1, without spinning. See LIMIT-UNIT-POWER-1.
     REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
                       add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
                   x, oo)
-                ->type_id()
-            == TypeId::NaN);
+            == S::One());
     // Finite point: the same 1^∞ correction appears at x → 0.
     // ((1+x)^(1/x) − e)/x → −e/2.
     const Expr onex = add(S::One(), x);                  // 1 + x
@@ -872,13 +896,13 @@ TEST_CASE("limit: rational of constant-base exponentials (LIMIT-CONST-BASE-RATIO
             == S::NegativeOne());
     // 2ˣ/(2ˣ+x) → 1: exponential dominates the polynomial term.
     REQUIRE(limit(ratio(P(2), add(P(2), x)), x, oo) == S::One());
-    // A general power in the same shape must still short-circuit, not hang
-    // (the divide/distribute is gated to constant-base-exponential rationals).
+    // A general power in the same shape must not hang (the divide/distribute is
+    // gated to constant-base-exponential rationals); it resolves to 1 via the
+    // unit-power expansion.
     REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
                       add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
                   x, oo)
-                ->type_id()
-            == TypeId::NaN);
+            == S::One());
 }
 
 // LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class

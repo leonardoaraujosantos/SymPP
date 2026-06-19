@@ -2015,6 +2015,109 @@ struct Growth {
     return r;
 }
 
+// A power f(x)^{g(x)} that tends to 1 — its exponent t = g·log f → 0 — expanded by
+// exp(t) − 1 = t + t²/2 + t³/6 + …. The dropped tail is o(t), so for the unit-power
+// difference forms (f^g − 1)/h → 1 the leading t carries the limit exactly; the few
+// extra terms cover an h ∼ t² or t³. Resolves (x^x − 1)/(x·log x) → 1 and
+// (x^(1/x) − 1)/(log x/x) → 1, where the base → 0 or ∞ defeats the series stage
+// (its exponent has a log singularity). Numerically verified, so a too-short
+// truncation cannot pass.
+[[nodiscard]] std::optional<Expr> try_unit_power_expansion(const Expr& expr,
+                                                           const Expr& var,
+                                                           const Expr& target,
+                                                           int depth) {
+    if (depth >= 8) return std::nullopt;
+    ExprMap<Expr> m;
+    // Match a unit-tending power under a sum (the f^g − 1 shape), as a raw
+    // f(x)^g(x) or — once the power-as-exp rewrite has fired — as exp(t).
+    auto scan = [&](auto&& self, const Expr& e, bool under_add) -> void {
+        Expr t;
+        bool match = false;
+        if (under_add && !m.count(e)) {
+            if (e->type_id() == TypeId::Pow && has(e->args()[0], var)
+                && has(e->args()[1], var)) {
+                t = mul(e->args()[1], log(e->args()[0]));  // g·log f
+                match = true;
+            } else if (e->type_id() == TypeId::Function
+                       && static_cast<const Function&>(*e).function_id()
+                              == FunctionId::Exp
+                       && has(e->args()[0], var)) {
+                t = e->args()[0];
+                match = true;
+            }
+        }
+        if (match
+            && limit_impl(t, var, target, depth + 1) == S::Zero()) {
+            Expr poly = S::One(), tk = S::One();
+            long fk = 1;
+            for (int kk = 1; kk <= 3; ++kk) {
+                tk = mul(tk, t);
+                fk *= kk;
+                poly = add(poly, mul(tk, pow(integer(fk), integer(-1))));
+            }
+            m.emplace(e, poly);
+            return;  // expanded — do not descend further into this node
+        }
+        const bool c = under_add || e->type_id() == TypeId::Add;
+        for (const auto& a : e->args()) self(self, a, c);
+    };
+    scan(scan, expr, false);
+    if (m.empty()) return std::nullopt;
+    Expr cand = limit_impl(xreplace(expr, m), var, target, depth + 1);
+    if (is_nan(cand) || has(cand, var)
+        || cand->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    // Numeric guard against a too-short truncation. Sample the ORIGINAL approaching
+    // the target: large |x| at ∞, x = a + 1/N near a finite a.
+    const bool at_inf = is_infinity(target);
+    const Expr sgn = target->type_id() == TypeId::NegativeInfinity
+                         ? S::NegativeOne()
+                         : S::One();
+    const bool c_pinf = cand->type_id() == TypeId::Infinity;
+    const bool c_ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cvd = 0.0;
+    if (!c_pinf && !c_ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            cvd = std::stod(cvf->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    double prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
+    for (long gp : {300L, 3000L, 30000L}) {
+        const Expr pt = at_inf
+                            ? Expr{mul(sgn, integer(gp))}
+                            : Expr{add(target, pow(integer(gp), integer(-1)))};
+        Expr at = evalf(subs(expr, var, pt), 60);
+        if (at->type_id() != TypeId::Float) return std::nullopt;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        if (c_pinf) {
+            if (checks > 0 && !(v > prev_val)) return std::nullopt;
+            if (gp == 30000L && !(v > 1.0)) return std::nullopt;
+        } else if (c_ninf) {
+            if (checks > 0 && !(v < prev_val)) return std::nullopt;
+            if (gp == 30000L && !(v < -1.0)) return std::nullopt;
+        } else {
+            const double d = std::fabs(v - cvd);
+            if (!(d <= prev_diff + 1e-9)) return std::nullopt;
+            prev_diff = d;
+            if (gp == 30000L && !(d < 1e-2)) return std::nullopt;
+        }
+        prev_val = v;
+        ++checks;
+    }
+    return cand;
+}
+
 // Gruntz leading-term via series. For an indeterminate form built from a variable
 // power inside a sum — g(x)·(f(x)^{h(x)} − c), the 1^∞ minus its value — substitute
 // x = ±1/u (so x → ±∞ becomes u → 0⁺), rewrite each u-dependent power to exp(·log·)
@@ -3138,6 +3241,12 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *v;
             }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
+            // A unit-tending power f(x)^g(x) → 1 in a difference: expand exp(g·log f)
+            // − 1 = g·log f + …, resolving (x^x − 1)/(x·log x) → 1 where the log
+            // singularity in the exponent defeats the polynomial series stage.
+            if (auto v = try_unit_power_expansion(expr, var, target, depth)) {
+                return *v;
+            }
             // Gruntz leading-term via series for an f(x)^g(x) − c difference, before
             // the power-as-exp rewrite (which would otherwise spin on the resulting
             // ∞·0): x·((1+1/x)^x − e) → −e/2.
