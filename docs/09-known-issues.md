@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-NOHANG-1 — (x^(1/x) − 1)·x/log x hung the limit engine
+- **Problem:** `limit((x^(1/x) − 1)·x/log x, x, ∞)` (SymPy: `1`) did not terminate. Two paths drove the hang:
+  the log-exp reduction took `log` of the vanishing `eᵍ − 1` factor (after `x^(1/x) ↦ exp(g)`), turning the
+  reduction into an expensive `∞ − ∞`; and the reciprocal substitution `x = 1/t` mapped `x^(1/x)` to the
+  equally hard `exp(−t·log t)` at `t → 0`, on which the finite-point machinery spun.
+- **Fix:** two narrow guards. (a) `log_factor_positive` (the log-exp reduction's splitter) now abstains on an
+  **Add factor** — a sum like `eᵍ − 1` is not a clean log-factor (its log neither expands nor stays bounded),
+  so such products defer to the small-angle / product paths. (b) The reciprocal substitution is skipped when a
+  general power `f(x)^g(x)` (var in both base and exponent) sits **inside a sum** — the `f(x)^g(x) − c`
+  difference shape — since `x = 1/t` only relocates the hardness; a *standalone* such power (the Stirling root
+  `(n!)^(1/n)`) is still substituted and resolves. The limit now returns a determinate `nan` (the slow `1/x`
+  convergence defeats the numeric leading-term check, so the exact `1` is not recovered — but it no longer
+  hangs). Both guards leave every existing target unchanged (log-exp reduction, radical differences, Stirling
+  roots). Regression: `LIMIT-NOHANG-1`.
+
 ### LIMIT-NESTED-RADICAL-1 — √(x+√x) − √x and similar nested differences returned nan
 - **Problem:** `limit(√(x+√x) − √x, x, ∞) = 1/2` returned `nan`. The conjugate handler rationalises
   `t₁ − t₂ = (t₁²−t₂²)/(t₁+t₂)`, but bailed whenever the numerator `t₁²−t₂²` still contained a radical — and a

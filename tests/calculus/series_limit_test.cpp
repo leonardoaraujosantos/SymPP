@@ -696,6 +696,32 @@ TEST_CASE("limit: n-th root of factorial via Stirling (LIMIT-STIRLING-1)",
     REQUIRE(limit(root(factorial(n)) * pow(n, rational(-1, 2)), n, oo) == oo);
 }
 
+// LIMIT-NOHANG-1: a general power inside a difference, (x^(1/x) − 1)·x/log x, sent
+// the engine into a non-terminating path — the log-exp reduction took log of the
+// vanishing eᵍ−1 factor, and the reciprocal substitution x = 1/t produced an
+// equally hard t→0 form (x^(1/x) ↦ exp(−t·log t)). Both are now short-circuited,
+// so the limit returns a determinate value (nan here — the slow 1/x convergence
+// defeats the numeric leading-term check; SymPy gets 1) rather than hanging. The
+// reciprocal-substitution guard is narrow: a *standalone* general power (the
+// Stirling root above) must still resolve.
+TEST_CASE("limit: general power in a difference does not hang (LIMIT-NOHANG-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    // Completes (does not hang); the value is the honest nan.
+    Expr r = limit(mul(mul(x, pow(log(x), integer(-1))),
+                       add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                   x, oo);
+    REQUIRE(r->type_id() == TypeId::NaN);
+    // Guard non-regression: a standalone general power still resolves via the
+    // reciprocal substitution.
+    REQUIRE(simplify(limit(pow(gamma(n + integer(1)), pow(n, integer(-1)))
+                               * pow(n, integer(-1)),
+                           n, oo))
+            == exp(integer(-1)));
+}
+
 // LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
 // (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
 // because n^n is outside the growth hierarchy. The handler is restricted to a

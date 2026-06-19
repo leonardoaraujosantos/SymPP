@@ -1960,6 +1960,11 @@ struct Growth {
         }
         return mul(e, *lb);
     }
+    // A sum factor (e.g. eᵍ − 1, which vanishes) is not a clean log-factor: its
+    // log neither expands nor stays bounded, and taking log of a → 0 factor turns
+    // the reduction into an expensive ∞ − ∞. Defer such products to the
+    // small-angle / product paths rather than expanding here.
+    if (f->type_id() == TypeId::Add) return std::nullopt;
     if (!sample_positive_inf(f, var)) return std::nullopt;
     return log(f);
 }
@@ -2479,7 +2484,29 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // candidate is accepted only after a numeric check against the original at
         // large x, so a one-sided/two-sided mismatch (or a wrong t-limit) cannot
         // slip through.
-        if (is_infinity(target) && depth < 8 && has(expr, var)) {
+        // Skip the substitution when a general power f(x)^g(x) (var in both base
+        // and exponent, e.g. x^(1/x)) sits inside a *sum* — the f(x)^g(x) − c
+        // difference shape. x = 1/t only turns it into an equally hard t→0 form
+        // (x^(1/x) ↦ exp(−t·log t)) on which the t→0 machinery can spin. A
+        // standalone such power (e.g. the Stirling root (n!)^(1/n)) is *not*
+        // skipped — the substitution resolves it cleanly.
+        bool var_power_in_sum = false;
+        {
+            auto vp = [&](auto&& self, const Expr& e, bool under_add) -> void {
+                if (var_power_in_sum) return;
+                if (under_add && e->type_id() == TypeId::Pow
+                    && has(e->args()[0], var) && has(e->args()[1], var)) {
+                    var_power_in_sum = true;
+                    return;
+                }
+                const bool child_under_add =
+                    under_add || e->type_id() == TypeId::Add;
+                for (const auto& a : e->args()) self(self, a, child_under_add);
+            };
+            vp(vp, expr, false);
+        }
+        if (is_infinity(target) && depth < 8 && has(expr, var)
+            && !var_power_in_sum) {
             const Expr sgn = target->type_id() == TypeId::Infinity
                                  ? S::One()
                                  : S::NegativeOne();
