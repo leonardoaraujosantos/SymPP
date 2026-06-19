@@ -936,6 +936,37 @@ TEST_CASE("limit: ratio of var^var powers via common-log combine (LIMIT-COMMON-L
             == S::E());
 }
 
+// LIMIT-TOWERPROD-1: a product of variable-exponent powers — a "tower product"
+// like x^x·(x+1)^{−(x+1)} — substitutes to the indeterminate ∞·0 and sent the
+// f(x)^g(x) power stages into a non-terminating rewrite (the related x^x/(x+1)^x
+// resolves, but the extra (x+1) factor that makes x^x/(x+1)^{x+1} hung). Its log is
+// an ordinary sum x·log x − (x+1)·log(x+1) → −∞, so lim e = exp(lim log e) resolves
+// it: x^x/(x+1)^{x+1} → 0 and its reciprocal → ∞. Matches SymPy.
+TEST_CASE("limit: tower product x^x/(x+1)^(x+1) via log-exp reduction (LIMIT-TOWERPROD-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr xp1 = add(x, integer(1));
+
+    // The previously-hanging pair: x^x/(x+1)^{x+1} → 0, (x+1)^{x+1}/x^x → ∞.
+    REQUIRE(limit(mul(pow(x, x), pow(pow(xp1, xp1), integer(-1))), x, oo)
+            == S::Zero());
+    REQUIRE(limit(mul(pow(xp1, xp1), pow(pow(x, x), integer(-1))), x, oo) == oo);
+    // The narrower tower products still resolve: x^x/(x+1)^x → 1/e, x^x·x^{-x} → 1.
+    REQUIRE(limit(mul(pow(x, x), pow(pow(xp1, x), integer(-1))), x, oo)
+            == exp(integer(-1)));
+    REQUIRE(limit(mul(pow(x, x), pow(x, mul(S::NegativeOne(), x))), x, oo)
+            == S::One());
+    // x^{2x}/(x²)^x = 1 (equal towers), (2x)^x/x^x → ∞ (a 2^x factor survives).
+    REQUIRE(limit(mul(pow(x, mul(integer(2), x)),
+                      pow(pow(pow(x, integer(2)), x), integer(-1))),
+                  x, oo)
+            == S::One());
+    REQUIRE(limit(mul(pow(mul(integer(2), x), x), pow(pow(x, x), integer(-1))),
+                  x, oo)
+            == oo);
+}
+
 // LIMIT-LOGEXPAND-1: a ∞−∞ of same-rank but differently-scaled log·polynomial
 // terms — 2x·log(2x) − x·log x — was nan: the strict dominant-term rule abstains
 // (the ratio of the terms tends to 1/2, not 0) and the matching-coefficient

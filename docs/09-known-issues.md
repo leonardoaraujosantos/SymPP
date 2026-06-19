@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-TOWERPROD-1 — x^x/(x+1)^(x+1) and other tower products hung
+- **Problem:** a product of variable-exponent powers — `x^x·(x+1)^{−(x+1)}` — substitutes to the indeterminate
+  `∞·0`, and the `f(x)^g(x)` power stages (`try_unit_power_expansion` / `try_series_limit` / `try_power_as_exp`)
+  sent the engine into a non-terminating rewrite. The narrower `x^x/(x+1)^x` resolved, but the extra `(x+1)`
+  factor of `x^x/(x+1)^{x+1}` hung, as did its reciprocal.
+- **Fix:** the logarithm of a tower product is an ordinary sum of `g·log(b)` terms
+  (`x·log x − (x+1)·log(x+1) → −∞`), which the engine already resolves, so `lim e = exp(lim log e)` closes it.
+  `try_log_exp_reduction` performs exactly this reduction but was reached only after the looping stages; a tightly
+  gated early call (fires only when every var-dependent factor of a `Mul` is a variable-exponent power) hoists it
+  ahead of them. It is sound because `try_log_exp_reduction` certifies positivity before splitting the log, and
+  the gate keeps the broader log-exp path unchanged. Now `x^x/(x+1)^{x+1} → 0`, `(x+1)^{x+1}/x^x → ∞`, with the
+  pre-existing `x^x/(x+1)^x → 1/e`, `x^{2x}/(x²)^x → 1`, `(2x)^x/x^x → ∞` still resolving. Regression:
+  `LIMIT-TOWERPROD-1`. Matches SymPy.
+
 ### LIMIT-ATAN-1 — subleading arctangent limits returned nan
 - **Problem:** the engine knew `atan(∞) = π/2` but not the *rate*, so once the leading term was cancelled off a
   limit went indeterminate: `x²·(atan x − π/2 + 1/x) → 0`, `x³·(atan x − π/2 + 1/x) → 1/3`, the subleading

@@ -3896,6 +3896,32 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                     return *v;
                 }
             }
+            // A product of variable-exponent powers — a "tower product" like
+            // x^x·(x+1)^{−(x+1)} — substitutes to the indeterminate ∞·0 and sends
+            // the f(x)^g(x) power stages below into a non-terminating rewrite. Its
+            // logarithm is an ordinary sum of g·log(b) terms, so resolve it up front
+            // by lim e = exp(lim log e) (the same reduction the late log-exp path
+            // would apply, hoisted past the loopers). Gated tightly to the
+            // all-powers shape so the broader log-exp path is unchanged; sound
+            // because try_log_exp_reduction certifies positivity before splitting.
+            if (is_infinity(target) && expr->type_id() == TypeId::Mul) {
+                int tower_factors = 0;
+                bool only_powers = true;
+                for (const auto& f : expr->args()) {
+                    if (!has(f, var)) continue;
+                    if (f->type_id() == TypeId::Pow && has(f->args()[1], var)) {
+                        ++tower_factors;
+                    } else {
+                        only_powers = false;
+                        break;
+                    }
+                }
+                if (only_powers && tower_factors >= 2) {
+                    if (auto v = try_log_exp_reduction(expr, var, target, depth)) {
+                        return *v;
+                    }
+                }
+            }
             // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
             if (auto v = try_log_limit(expr, var, target, depth)) return *v;
             // c·log(p) − c·log(q) with a var coefficient c → c·log(p/q); resolves
