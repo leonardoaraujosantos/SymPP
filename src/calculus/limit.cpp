@@ -2082,7 +2082,12 @@ struct Growth {
                                                   const Expr& var,
                                                   const Expr& target,
                                                   int depth) {
-    if (depth >= 8 || !is_infinity(target) || !has(expr, var)) {
+    // Only a product can give the 0·∞ these leading terms resolve (a diverging
+    // factor times a vanishing f(g)). Restricting to Mul keeps every target while
+    // skipping the many other nan-branch expressions that merely *contain* an
+    // f(g → 0) — important now that eᵍ and cos g (common subterms) are expanded.
+    if (depth >= 8 || !is_infinity(target) || expr->type_id() != TypeId::Mul
+        || !has(expr, var)) {
         return std::nullopt;
     }
     ExprMap<Expr> m;
@@ -2095,11 +2100,32 @@ struct Growth {
                 || id == FunctionId::Sinh || id == FunctionId::Tanh
                 || id == FunctionId::Asin || id == FunctionId::Atan
                 || id == FunctionId::Asinh || id == FunctionId::Atanh;
-            if (linear_at_zero && fn.args().size() == 1 && !m.count(e)) {
+            // Functions that are 1 + O(g) at 0 are replaced by their Maclaurin
+            // head (through g⁴), so eᵍ − 1 ~ g and cos g − 1 ~ −g²/2 resolve too.
+            const bool unit_at_zero =
+                id == FunctionId::Exp || id == FunctionId::Cos
+                || id == FunctionId::Cosh;
+            if ((linear_at_zero || unit_at_zero) && fn.args().size() == 1
+                && !m.count(e)) {
                 const Expr& g = fn.args()[0];
                 if (has(g, var)
                     && limit_impl(g, var, target, depth + 1) == S::Zero()) {
-                    m.emplace(e, g);
+                    if (linear_at_zero) {
+                        m.emplace(e, g);
+                    } else if (id == FunctionId::Exp) {
+                        // 1 + g + g²/2 (eᵍ − 1 ~ g); the numeric check rejects any
+                        // case that would need a higher term.
+                        m.emplace(e, add({S::One(), g,
+                                          mul(rational(1, 2),
+                                              pow(g, integer(2)))}));
+                    } else {  // Cos / Cosh: 1 ∓ g²/2 (cos g − 1 ~ −g²/2). Kept to
+                        // the quadratic head so a sum-valued g does not blow up
+                        // expand() with a g⁴ term.
+                        const Expr s2 = id == FunctionId::Cos ? rational(-1, 2)
+                                                             : rational(1, 2);
+                        m.emplace(e, add({S::One(),
+                                          mul(s2, pow(g, integer(2)))}));
+                    }
                 }
             }
         }
@@ -2124,12 +2150,12 @@ struct Growth {
                                                            : S::NegativeOne();
     double prev = 1e300;
     int checks = 0;
-    // Sample points stay ≤ 600 so a big exponential (e^x) does not overflow, yet
-    // are large enough that an ∼1/x² approach is already within tolerance. The
-    // working precision scales with the point: a difference sin(a+h)−sin(a) with
-    // h ∼ e^{−x} would lose the tiny gap to catastrophic cancellation at fixed
-    // precision, so carry ≈ x·log₁₀e + margin digits to resolve it.
-    for (long xv : {100L, 300L, 600L}) {
+    // Sample points stay moderate so a big exponential (e^x) does not overflow and
+    // the working precision (which scales with the point to resolve a difference
+    // sin(a+h)−sin(a) with h ∼ e^{−x} that would otherwise be lost to catastrophic
+    // cancellation) stays affordable, yet are large enough that an ∼1/x² approach
+    // is already within tolerance (at x = 300, 1/(2x²) ≈ 6e−6 < 1e−4).
+    for (long xv : {100L, 200L, 300L}) {
         const int prec = static_cast<int>(static_cast<double>(xv) * 0.45) + 40;
         Expr at = evalf(simplify(subs(expr, var, mul(sgn, integer(xv)))), prec);
         if (!is_number(at)) return std::nullopt;

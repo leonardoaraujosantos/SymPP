@@ -2703,6 +2703,15 @@ TEST_CASE("limit: small-angle substitution and the Gruntz oscillation (LIMIT-SMA
     REQUIRE(limit(mul(x, sin(pow(x, integer(-1)))), x, oo) == S::One());
     REQUIRE(limit(mul(x, tan(pow(x, integer(-1)))), x, oo) == S::One());
     REQUIRE(limit(mul(x, atan(pow(x, integer(-1)))), x, oo) == S::One());
+    // Unit-at-zero heads: eᵍ − 1 ~ g and cos g − 1 ~ −g²/2.
+    REQUIRE(limit(mul(exp(x), add(exp(emx), S::NegativeOne())), x, oo)
+            == S::One());                                    // eˣ·(e^{e⁻ˣ} − 1) → 1
+    REQUIRE(limit(mul(exp(x), add(cos(emx), S::NegativeOne())), x, oo)
+            == S::Zero());                                   // eˣ·(cos e⁻ˣ − 1) → 0
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(S::One(), mul(S::NegativeOne(), cos(pow(x, integer(-1)))))),
+                  x, oo)
+            == S::Half());                                   // x²·(1 − cos 1/x) → 1/2
     // No over-reach: an argument that does NOT vanish (sin(x), x → ∞) stays nan.
     REQUIRE(limit(mul(x, sin(x)), x, oo)->type_id() == TypeId::NaN);
 }

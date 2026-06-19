@@ -29,6 +29,11 @@ truth and links the issue number.
   `eˣ·sin(e⁻ˣ) → 1`, `eˣ·sin(e⁻ˣ/2) → 1/2`, `x·sin(1/x) → 1`, and the Gruntz oscillation → 1, while a
   non-vanishing argument (`x·sin x`) correctly stays `nan`. Regression: `LIMIT-SMALL-ANGLE-1`. Matches SymPy
   (closes the brief's headline oscillatory example).
+- **Extended** to the unit-at-zero functions: `exp`, `cos`, `cosh` are replaced by their Maclaurin heads
+  (`eᵍ ~ 1 + g + g²/2`, `cos g ~ 1 − g²/2`), so `eˣ·(e^{e⁻ˣ} − 1) → 1`, `eˣ·(cos e⁻ˣ − 1) → 0`, and
+  `x²·(1 − cos 1/x) → 1/2` resolve too. The quadratic-head truncation avoids an `expand()` blow-up on a
+  sum-valued `g`, and the whole rule is gated to **product** expressions (the only shape giving the `0·∞` it
+  targets) so the common `eᵍ`/`cos g` subterms do not slow the rest of the engine.
 
 ### LIMIT-HARMONIC-1 — harmonic-number limits returned nan or a wrong 0
 - **Problem:** `H(n)` (the harmonic number) was opaque to the limit engine — `H(∞)` did not fold, so
