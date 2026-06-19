@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SERIESMUL-1 — series core times a non-polynomial multiplier hung
+- **Problem:** the engine resolves the 1^∞ correction `x·((1+1/x)^x − e) → −e/2` (and the subleading
+  `x²·(… + e/(2x)) → 11e/24`), so it can extract the core's series, but multiplying that vanishing core by a
+  non-polynomial factor hung: `eˣ·((1+1/x)^x − e) → −∞`, `√x·(…) → 0`, and `log x·(…) → 0` all spun. The direct
+  series stage substitutes `x = 1/u` over the *whole* product, where `eˣ` becomes `exp(1/u)` (an essential
+  singularity, not a `u`-power pole) and `√x`/`log x` give a fractional/log pole — none of which `series()` can
+  expand.
+- **Fix:** added the Gruntz leading-term peel `try_series_times_multiplier`. The core has a leading monomial
+  `c₀·x^{−m}` (the engine already resolves `xᵐ·core` for an integer `m`), so `M·core ~ M·c₀·x^{−m}`, whose limit
+  the ordinary exp/poly machinery reads off. It runs before the direct series stage (whose `x = 1/u` would hang
+  on these multipliers) and defers the pure integer-power-monomial case to that stage, so it never recurses on
+  its own probes. Now `eˣ·((1+1/x)^x − e) → −∞`, `√x·(…) → 0`, `log x·(…) → 0`, with the pre-existing
+  `x²·(…) → −∞` unchanged. Regression: `LIMIT-SERIESMUL-1`. Matches SymPy.
+
 ### LIMIT-TOWERPROD-1 — x^x/(x+1)^(x+1) and other tower products hung
 - **Problem:** a product of variable-exponent powers — `x^x·(x+1)^{−(x+1)}` — substitutes to the indeterminate
   `∞·0`, and the `f(x)^g(x)` power stages (`try_unit_power_expansion` / `try_series_limit` / `try_power_as_exp`)

@@ -911,6 +911,33 @@ TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1
             == mul(rational(11, 24), S::E()));
 }
 
+// LIMIT-SERIESMUL-1: the LIMIT-SERIES-1 core ((1+1/x)^x − e ~ −e/(2x)) times a
+// multiplier the direct x = 1/u substitution cannot expand. eˣ becomes exp(1/u) —
+// an essential singularity — and √x / log x give a fractional / log pole, all of
+// which hung try_series_limit. Peeling the core's leading monomial c₀·x^{−m} and
+// re-taking M·c₀·x^{−m} resolves them: eˣ·((1+1/x)^x − e) → −∞, √x·(…) → 0,
+// log x·(…) → 0. The integer-power-monomial multiplier (x²·(…)) is unchanged,
+// still routed through the direct series stage. Matches SymPy.
+TEST_CASE("limit: series core times a hard multiplier (LIMIT-SERIESMUL-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr diff = add(pow(add(S::One(), pow(x, integer(-1))), x),
+                          mul(S::NegativeOne(), S::E()));  // (1+1/x)^x − e → 0
+
+    // Exponential multiplier dominates: eˣ·diff → −∞ (e²ˣ·diff likewise).
+    REQUIRE(limit(mul(exp(x), diff), x, oo) == S::NegativeInfinity());
+    REQUIRE(limit(mul(exp(mul(integer(2), x)), diff), x, oo)
+            == S::NegativeInfinity());
+    // Sub-1/x multipliers vanish faster than the core: √x·diff → 0, log x·diff → 0.
+    REQUIRE(limit(mul(pow(x, rational(1, 2)), diff), x, oo) == S::Zero());
+    REQUIRE(limit(mul(log(x), diff), x, oo) == S::Zero());
+    // The integer-power-monomial case is unchanged (direct series stage): x²·diff
+    // → −∞, and the diverging x³·diff → −∞.
+    REQUIRE(limit(mul(pow(x, integer(2)), diff), x, oo) == S::NegativeInfinity());
+    REQUIRE(limit(mul(pow(x, integer(3)), diff), x, oo) == S::NegativeInfinity());
+}
+
 // LIMIT-COMMON-LOG-1: a ratio of var-base/var-exponent powers, x^x/(x+1)^x and
 // (x+1)^x/x^x, previously hung. The power-as-exp/exp-combine path produces the
 // distributed exponent x·log(x+1) − x·log(x), an ∞−∞ the standard (var-free

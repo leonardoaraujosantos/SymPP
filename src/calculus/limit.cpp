@@ -2709,6 +2709,86 @@ struct Growth {
     return cand;
 }
 
+// A vanishing series core S (an f(x)^{g(x)} − c difference) times a multiplier M
+// the direct series substitution cannot handle: M = eˣ becomes exp(1/u) — an
+// essential singularity, not a u-power pole — and M = √x a fractional pole, both of
+// which defeat try_series_limit (which expands the *whole* product in u). The
+// Gruntz leading-term step factors them apart instead: S has a leading monomial
+// c₀·x^{−m} (try_series_limit already resolves xᵐ·S for an integer m), so
+// M·S ~ M·c₀·x^{−m}, whose limit the ordinary exp/poly machinery reads off —
+// eˣ·((1+1/x)ˣ − e) → −∞, √x·((1+1/x)ˣ − e) → 0. The pure-monomial multiplier case
+// (xᵏ, integer k) is left to try_series_limit, so this never recurses on itself.
+[[nodiscard]] std::optional<Expr> try_series_times_multiplier(const Expr& expr,
+                                                              const Expr& var,
+                                                              const Expr& target,
+                                                              int depth) {
+    if (depth >= 8 || !is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    // An Add factor carries a series core when it contains a variable power
+    // f(x)^{g(x)} whose base tends to a finite nonzero limit (the try_series_limit
+    // gate — the analytic 1^∞ shape, not the log-singular x^(1/x)).
+    auto has_series_power = [&](const Expr& add_term) -> bool {
+        bool ok = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (ok) return;
+            if (e->type_id() == TypeId::Pow && has(e->args()[0], var)
+                && has(e->args()[1], var)) {
+                Expr lb = limit_impl(e->args()[0], var, target, depth + 1);
+                if (!is_nan(lb) && !is_infinity(lb) && !(lb == S::Zero())
+                    && lb->type_id() != TypeId::ComplexInfinity) {
+                    ok = true;
+                }
+                return;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, add_term);
+        return ok;
+    };
+    // A multiplier handled by try_series_limit directly (a constant or an
+    // integer power of var) — leave those alone so this stage cannot recurse on
+    // its own xᵐ·S probes.
+    auto plain_monomial = [&](const Expr& f) -> bool {
+        if (!has(f, var)) return true;
+        if (f == var) return true;
+        return f->type_id() == TypeId::Pow && f->args()[0] == var
+               && f->args()[1]->type_id() == TypeId::Integer;
+    };
+
+    Expr core;
+    std::vector<Expr> mult;
+    bool nontrivial_mult = false;
+    for (const auto& f : expr->args()) {
+        if (!core && f->type_id() == TypeId::Add && has_series_power(f)) {
+            core = f;
+        } else {
+            mult.push_back(f);
+            if (!plain_monomial(f)) nontrivial_mult = true;
+        }
+    }
+    if (!core || mult.empty() || !nontrivial_mult) return std::nullopt;
+    Expr M = mul(mult);
+    // The core must vanish (the leading-monomial peel below assumes m ≥ 1).
+    if (!(limit_impl(core, var, target, depth + 1) == S::Zero())) {
+        return std::nullopt;
+    }
+    // Leading monomial of the core: smallest integer m ≥ 1 with lim(xᵐ·core)
+    // finite nonzero, so core ~ c₀·x^{−m}.
+    for (long m = 1; m <= 6; ++m) {
+        Expr c0 = limit_impl(mul(pow(var, integer(m)), core), var, target,
+                             depth + 1);
+        if (is_nan(c0)) return std::nullopt;
+        if (c0 == S::Zero()) continue;       // core decays faster — try larger m
+        if (is_infinity(c0)) return std::nullopt;  // overshot (non-integer m)
+        Expr r = limit_impl(mul(M, mul(c0, pow(var, integer(-m)))), var, target,
+                            depth + 1);
+        if (is_nan(r)) return std::nullopt;
+        return r;
+    }
+    return std::nullopt;
+}
+
 // Continuity of a power with a constant exponent: lim base^r = (lim base)^r when
 // the inner limit is determinate. Direct substitution computes the base
 // pointwise and a non-rational base (e.g. log(log x)/log x) substitutes to an
@@ -3985,6 +4065,14 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // Gruntz leading-term via series for an f(x)^g(x) − c difference, before
             // the power-as-exp rewrite (which would otherwise spin on the resulting
             // ∞·0): x·((1+1/x)^x − e) → −e/2.
+            // A series core times a multiplier the direct substitution can't expand
+            // (eˣ → exp(1/u), √x/log x → fractional/log pole): peel the core's
+            // leading monomial and re-take — eˣ·((1+1/x)ˣ − e) → −∞, √x·(…) → 0.
+            // Tried before try_series_limit, whose x = 1/u substitution would hang on
+            // those multipliers; the pure-monomial case it owns is deferred to it.
+            if (auto v = try_series_times_multiplier(expr, var, target, depth)) {
+                return *v;
+            }
             if (auto v = try_series_limit(expr, var, target, depth)) return *v;
             // Gruntz: rewrite general powers f(x)^g(x) as exp(g·log f) and
             // re-take, so the exp/gamma growth machinery can resolve forms the
