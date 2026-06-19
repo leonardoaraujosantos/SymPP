@@ -260,6 +260,7 @@ public:
     }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 // factorial2(n): the double factorial n!! = n(n−2)(n−4)…. Evaluates for an

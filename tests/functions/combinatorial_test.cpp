@@ -504,6 +504,33 @@ TEST_CASE("harmonic/factorial2 (HARMONIC-FACT2-1)",
     REQUIRE(factorial2(integer(-3))->type_id() == TypeId::Function);
 }
 
+// FUNC-HARMONIC-DIFF-1: the harmonic-number derivative closed form. Since
+// H(x) = ψ(x+1) + γ, H′(x) = ψ′(x+1) = polygamma(1, x+1) (the trigamma; SymPy writes
+// the equal Hurwitz form ζ(2, x+1) — oracle.equivalent cannot bridge the two
+// representations, so the value is pinned structurally and checked numerically).
+// Previously the derivative was left unevaluated. The generalized Hₙ⁽ᵐ⁾ stays an
+// unevaluated Derivative (it needs a symbolic-order Hurwitz zeta SymPP lacks).
+TEST_CASE("harmonic: derivative is the trigamma (FUNC-HARMONIC-DIFF-1)",
+          "[3i][harmonic][diff][regression]") {
+    auto x = symbol("x");
+    auto m = symbol("m");
+
+    REQUIRE(diff(harmonic(x), x) == polygamma(integer(1), add(x, integer(1))));
+    // Chain rule through a scaled argument.
+    REQUIRE(diff(harmonic(mul(integer(2), x)), x)
+            == mul(integer(2), polygamma(integer(1), add(mul(integer(2), x),
+                                                         integer(1)))));
+    // Numeric cross-check against SymPy's equal Hurwitz form ζ(2, 6): both equal
+    // the trigamma ψ′(6) at x = 5 (oracle.equivalent cannot reduce polygamma↔zeta,
+    // so the values are compared as evalf strings at matching precision).
+    auto& oracle = Oracle::instance();
+    const std::string sympp_val =
+        evalf(subs(diff(harmonic(x), x), x, integer(5)), 15)->str();
+    REQUIRE(sympp_val == oracle.evalf("zeta(2, 6)", 15));
+    // The generalized two-argument harmonic stays an unevaluated Derivative.
+    REQUIRE(diff(harmonic(x, m), x)->type_id() == TypeId::Derivative);
+}
+
 // BERNOULLI-EULER-1: the Bernoulli numbers Bₙ (SymPy convention B₁ = +1/2) and
 // Euler numbers Eₙ, computed from their binomial recurrences. Both evaluate for
 // non-negative integers (odd Bₙ>1 and odd Eₙ are 0) and stay symbolic otherwise.

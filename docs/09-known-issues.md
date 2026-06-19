@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-HARMONIC-DIFF-1 — harmonic-number derivative was left unevaluated
+- **Problem:** `diff(harmonic(x), x)` returned an unevaluated `Derivative`, even though the derivative has a
+  closed form SymPP can represent.
+- **Fix:** added `Harmonic::diff_arg`. Since `H(x) = ψ(x+1) + γ`, `H′(x) = ψ′(x+1) = polygamma(1, x+1)` (the
+  trigamma). SymPy writes the equal Hurwitz form `ζ(2, x+1)`; the two are numerically identical (verified at
+  several points), and `polygamma(1, x+1)` is the form SymPP can express. Now `diff(harmonic(x), x) =
+  polygamma(1, x+1)` and `d/dx H(2x) = 2·polygamma(1, 2x+1)` (chain rule). The generalized two-argument `Hₙ⁽ᵐ⁾`
+  needs a symbolic-order Hurwitz zeta SymPP lacks, so it stays an honest unevaluated `Derivative`. Regression:
+  `FUNC-HARMONIC-DIFF-1`.
+
 ### FUNC-BETA-DIFF-1 — beta-function derivative was left unevaluated; polygamma order derivative returned 0
 - **Problem:** `diff(beta(a, b), a)` returned an unevaluated `Derivative(beta(a, b), a)` even though the
   derivative has an elementary closed form, and `diff(polygamma(m, x), m)` (derivative w.r.t. the *order*)

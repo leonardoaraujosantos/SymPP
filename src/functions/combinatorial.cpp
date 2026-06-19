@@ -498,6 +498,16 @@ std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
             return std::nullopt;
     }
 }
+// H(x) = ψ(x+1) + γ ⇒ H′(x) = ψ′(x+1) = polygamma(1, x+1) (= the trigamma; SymPy
+// writes the equal Hurwitz form ζ(2, x+1)). The generalized Hₙ⁽ᵐ⁾ derivative needs
+// a Hurwitz zeta with a symbolic order, which SymPP does not have, so it falls back
+// to the base unevaluated Derivative.
+Expr Harmonic::diff_arg(std::size_t i) const {
+    if (args_.size() == 1) {
+        return polygamma(S::One(), add(args_[0], S::One()));
+    }
+    return Function::diff_arg(i);
+}
 
 Expr harmonic(const Expr& arg) {
     if (arg->type_id() == TypeId::Integer) {
