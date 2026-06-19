@@ -2611,6 +2611,39 @@ struct Growth {
     return exp_of_limit(m);
 }
 
+// Expand log(c·x), log(xᵏ), … subterms (argument a positive product/power) into a
+// sum of logs and re-take, so an ∞−∞ of same-rank but differently-scaled log terms
+// combines: 2x·log(2x) − x·log x = 2x·log 2 + x·log x → ∞ once log(2x) splits.
+// (try_common_log_combine handles only matching coefficients — 2x vs x do not.)
+[[nodiscard]] std::optional<Expr> rewrite_expand_logs(const Expr& expr,
+                                                      const Expr& var,
+                                                      const Expr& target,
+                                                      int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)
+            && static_cast<const Function&>(*e).function_id() == FunctionId::Log
+            && e->args().size() == 1) {
+            const Expr& arg = e->args()[0];
+            if ((arg->type_id() == TypeId::Mul || arg->type_id() == TypeId::Pow)
+                && has(arg, var)) {
+                if (auto le = expand_log_positive(arg, var, 0)) {
+                    if (!(*le == e)) m.emplace(e, *le);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    Expr r = limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 // Gruntz dominant-term rule for an indeterminate ∞−∞ sum at ±∞: if one term
 // strictly outgrows every other (each other term divided by it tends to 0), the
 // sum is asymptotic to that term, so the limit equals the dominant term's limit.
@@ -3384,6 +3417,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             if (auto v = try_common_log_combine(expr, var, target, depth)) {
                 return *v;
             }
+            // Expand log(c·x), log(xᵏ) subterms so same-rank, differently-scaled log
+            // terms combine: 2x·log(2x) − x·log x → ∞.
+            if (auto v = rewrite_expand_logs(expr, var, target, depth)) return *v;
             // Rational form of divergent terms P/Q: divide through by Q's dominant
             // term so the quotient is finite/finite — (2ˣ+1)/(2ˣ−1) → 1,
             // (2ˣ+3ˣ)/3ˣ → 1 — which L'Hôpital loops on and folding mis-reads as 0.

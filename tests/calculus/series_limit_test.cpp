@@ -936,6 +936,46 @@ TEST_CASE("limit: ratio of var^var powers via common-log combine (LIMIT-COMMON-L
             == S::E());
 }
 
+// LIMIT-LOGEXPAND-1: a ∞−∞ of same-rank but differently-scaled log·polynomial
+// terms — 2x·log(2x) − x·log x — was nan: the strict dominant-term rule abstains
+// (the ratio of the terms tends to 1/2, not 0) and the matching-coefficient
+// log-combine does not apply (2x vs x). Expanding log(c·x) = log c + log x and
+// log(xᵏ) = k·log x lets the like terms collect (2x·log 2 + x·log x → ∞). Matches
+// SymPy.
+TEST_CASE("limit: expand-log to combine same-rank log differences (LIMIT-LOGEXPAND-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    auto nlog = [&](const Expr& a) { return mul(n, log(a)); };
+
+    // 2n·log(2n) − n·log n → ∞ (collects to 2n·log 2 + n·log n).
+    REQUIRE(limit(add(mul(integer(2), nlog(mul(integer(2), n))),
+                      mul(S::NegativeOne(), nlog(n))),
+                  n, oo)
+            == oo);
+    // n·log(2n) − n·log n = n·log 2 → ∞.
+    REQUIRE(limit(add(nlog(mul(integer(2), n)), mul(S::NegativeOne(), nlog(n))),
+                  n, oo)
+            == oo);
+    // Exact cancellation: n·log(n²) − 2n·log n → 0.
+    REQUIRE(limit(add(nlog(pow(n, integer(2))),
+                      mul(S::NegativeOne(), mul(integer(2), nlog(n)))),
+                  n, oo)
+            == S::Zero());
+    // 3n·log(2n) − 2n·log(3n) → ∞ (leading coefficient 3 − 2 = 1 on n·log n).
+    REQUIRE(limit(add(mul(integer(3), nlog(mul(integer(2), n))),
+                      mul(S::NegativeOne(),
+                          mul(integer(2), nlog(mul(integer(3), n))))),
+                  n, oo)
+            == oo);
+    // log of a doubled-rate factorial resolves via the same expansion under the
+    // log-Stirling stage: log((2n)!) − n·log n → ∞.
+    REQUIRE(limit(add(log(factorial(mul(integer(2), n))),
+                      mul(S::NegativeOne(), nlog(n))),
+                  n, oo)
+            == oo);
+}
+
 // LIMIT-CONST-BASE-RATIO-1: rational functions of constant-base exponentials cˣ.
 // The engine resolved the eˣ analogues (eˣ has a Function node L'Hôpital handles)
 // but stalled on 2ˣ=Pow(2,x): L'Hôpital loops on the cancelling cᵏˣ/cᵏˣ ratio, and

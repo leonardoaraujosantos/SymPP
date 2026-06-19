@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGEXPAND-1 — same-rank log·polynomial differences (2n·log(2n) − n·log n) gave nan
+- **Problem:** `limit(2n·log(2n) − n·log n, n, ∞) = ∞` returned `nan`. The two terms have the *same* growth
+  rank (both `∼ n·log n`), so the strict dominant-term rule abstains (their ratio tends to `1/2`, not `0`), and
+  the matching-coefficient log-combine does not apply (the coefficients `2n` and `n` differ). The like terms
+  only collect once the inner logs are expanded.
+- **Fix:** added `rewrite_expand_logs`, which expands `log(c·x) = log c + log x` and `log(xᵏ) = k·log x`
+  subterms (each split factor certified positive at `+∞`, so the identity is exact in the asymptotic regime)
+  and re-takes the limit. `2n·log(2n) − n·log n` becomes `2n·log 2 + n·log n → ∞` (now also using
+  `LOG-SIGN-1` for `log 2 > 0`). Now `2n·log(2n) − n·log n → ∞`, `n·log(2n) − n·log n → ∞`,
+  `n·log(n²) − 2n·log n → 0`, `3n·log(2n) − 2n·log(3n) → ∞`, and — through the log-Stirling stage —
+  `log((2n)!) − n·log n → ∞`. Regression: `LIMIT-LOGEXPAND-1`. Matches SymPy. (Still open: the bare ratio
+  `(2n)!/nⁿ`, whose Stirling-root rewrite produces a mixed-base super-power the engine spins on before the
+  log-exp reduction is reached.)
+
 ### LOG-SIGN-1 — log of a constant had an unknown sign, so log(2)·n → nan
 - **Problem:** `is_positive(log 2)` returned *unknown*, so `limit(log(2)·n, n, ∞)` returned `nan` — the engine
   could not fold `(positive const)·∞ → ∞` without the sign of the coefficient. By contrast `√2·n` and `π·n`
