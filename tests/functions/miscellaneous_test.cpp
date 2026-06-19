@@ -6,6 +6,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <sympp/core/assumption_context.hpp>
 #include <sympp/core/assumption_mask.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
@@ -352,6 +353,31 @@ TEST_CASE("im: real arg yields zero", "[3h][im]") {
     auto x = symbol("x", AssumptionMask{}.set_real(true));
     REQUIRE(im(x) == S::Zero());
     REQUIRE(im(integer(7)) == S::Zero());
+}
+
+// REIM-IMAG-1: re/im of a purely imaginary argument (under an `assuming`
+// Q.imaginary scope, or a symbol declared imaginary). re(x) = 0 and im(x) = −i·x
+// for x = i·b. Previously these stayed unevaluated (only the real case folded).
+// Mirrors SymPy's refine_re / refine_im. Matches the SymPy oracle.
+TEST_CASE("re/im: purely imaginary argument folds (REIM-IMAG-1)",
+          "[3h][re][im][complex][assumptions][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x", AssumptionMask{}.set_imaginary(true));
+
+    REQUIRE(re(x) == S::Zero());
+    REQUIRE(oracle.equivalent(im(x)->str(), "-I*x"));
+    // A real scalar multiple stays imaginary: re vanishes, im scales.
+    REQUIRE(re(mul(integer(2), x)) == S::Zero());
+    REQUIRE(oracle.equivalent(im(mul(integer(2), x))->str(), "-2*I*x"));
+    // The scoped form (assuming) unlocks the same fold for an unmarked symbol.
+    auto y = symbol("y");
+    {
+        assuming scope(y, AssumptionMask{}.set_imaginary(true));
+        REQUIRE(re(y) == S::Zero());
+        REQUIRE(oracle.equivalent(im(y)->str(), "-I*y"));
+    }
+    // Fact retracted at scope exit — y is unknown again, so im stays symbolic.
+    REQUIRE(im(y)->type_id() == TypeId::Function);
 }
 
 TEST_CASE("conjugate: real arg passes through; involution otherwise",

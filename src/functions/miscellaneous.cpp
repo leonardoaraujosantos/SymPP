@@ -473,6 +473,9 @@ Expr re(const Expr& arg) {
     if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return re(n);
     // Numeric: real -> identity.
     if (is_real(arg) == true) return arg;
+    // Purely imaginary (e.g. under an `assuming` Q.imaginary scope): re(i·b) = 0.
+    // Mirrors SymPy's refine_re.
+    if (is_imaginary(arg) == true) return S::Zero();
     // Numeric complex a + b·I → a.
     if (auto z = rational_complex(arg); z.has_value()) return z->first;
     // Linearity over a sum: re(Σ aᵢ) = Σ re(aᵢ).
@@ -502,6 +505,11 @@ Expr re(const Expr& arg) {
 Expr im(const Expr& arg) {
     if (Expr n = expand(rationalize_complex(arg)); !(n == arg)) return im(n);
     if (is_real(arg) == true) return S::Zero();
+    // Purely imaginary (e.g. under an `assuming` Q.imaginary scope): im(x) = x/i =
+    // −i·x, since x = i·b ⇒ im(x) = b = −i·(i·b). Mirrors SymPy's refine_im.
+    if (is_imaginary(arg) == true) {
+        return mul(mul(S::NegativeOne(), S::I()), arg);
+    }
     // Numeric complex a + b·I → b.
     if (auto z = rational_complex(arg); z.has_value()) return z->second;
     // Linearity over a sum: im(Σ aᵢ) = Σ im(aᵢ).

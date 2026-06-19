@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### REIM-IMAG-1 — re/im of a purely imaginary argument were not refined
+- **Problem:** `re(x)` and `im(x)` folded only when the argument was known *real* (`re(x) → x`, `im(x) → 0`).
+  A purely imaginary argument — a symbol declared `imaginary`, or one under an `assuming` Q.imaginary scope —
+  was left unevaluated, where SymPy's `refine_re`/`refine_im` give `re(x) → 0` and `im(x) → −i·x`.
+- **Fix:** added the imaginary-case branch to both builders: when `is_imaginary(arg)` is true, `re(arg) → 0`
+  and `im(arg) → −i·arg` (since `x = i·b ⇒ im(x) = b = −i·(i·b)`). The fact is consulted through `ask`, so it
+  fires both for a symbol declared imaginary and for one carrying the fact only via a scoped `assuming` context
+  (retracted at scope exit). Now `re(x) → 0`, `im(x) → −I·x`, `re(2x) → 0`, `im(2x) → −2·I·x` under
+  Q.imaginary(x). Regression: `REIM-IMAG-1`. Matches SymPy.
+
 ### LIMIT-LOGSUMDOM-1 — log of a non-exponential sum (log(log x + log log x)) hung
 - **Problem:** `log(log x + log log x) − log log x → 0`, `log(log x + log log x)/log log x → 1`, and the ratio
   against a faster log all hung. The log-of-a-sum rewrite (`LIMIT-LOGEXPSUM-1`) only fired when the sum had an
