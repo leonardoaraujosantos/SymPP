@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SERIES-1 (transcendental base / divergent term) — x·(cos(1/x)^x − 1) hung
+- **Problem:** the series leading-term stage handled rational-base powers like `(1+1/x)^x` but still hung on a
+  *transcendental* base — `x·(cos(1/x)^x − 1) → −1/2`, `x²·(cos(1/x)^x − 1) → −∞` — because `series` expands
+  `log(cos u)/u` but stalls on `exp(log(cos u)/u)`. It also could not report a divergent (`±∞`) correction:
+  the final limit went through a two-sided `limit()` on a Laurent form that returns `zoo`.
+- **Fix:** two changes to `try_series_limit`. (1) Pre-expand the exponent: rewrite `f^g → exp(series(g·log f))`
+  so the `exp` argument is already a polynomial, which `series(exp(poly))` expands cleanly (it stalls on
+  `exp(log(cos u)/u)`); the exponent series is required to reduce to a polynomial or the form is abandoned.
+  (2) Read the limit straight off the leading term of `u^p · series` — lowest `u`-degree term, combined with
+  the pole `p` — giving the finite coefficient when the order is 0, `0` when positive, and `sign·∞` (one-sided
+  as `u → 0⁺`) when negative. This replaces the two-sided `limit()` call (which lost the sign and could hang
+  on a stray pole) and adds `±∞` support, numerically verified by a divergence check. Now
+  `x·(cos(1/x)^x − 1) → −1/2`, `x²·(cos(1/x)^x − 1) → −∞`, `x·((1+1/x)^(x+1) − e) → e/2`, alongside the
+  existing rational-base cases. Regression: `LIMIT-SERIES-1` (extended). Matches SymPy.
+
 ### LIMIT-SERIES-1 — asymptotic correction of a 1^∞ power, x·((1+1/x)^x − e), hung
 - **Problem:** `limit(x·((1+1/x)^x − e), x, ∞)` (= `−e/2`) did not terminate, and likewise the `0/0` form
   `((1+1/x)^x − e)/(1/x)` and the `a≠1` variants `x·((1+a/x)^x − eᵃ) → −a²eᵃ/2`. `(1+1/x)^x → e` and

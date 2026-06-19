@@ -1,5 +1,6 @@
 #include <sympp/calculus/limit.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <optional>
@@ -2054,24 +2055,12 @@ struct Growth {
     // rewrite below canonicalizes straight back to f^g, defeating the series step.
     Expr u = symbol("__series_u");
     Expr eu = subs(expr, var, mul(sgn, pow(u, integer(-1))));  // x = ±1/u
-    // Rewrite any power with a u-dependent exponent to exp(exponent·log base): the
-    // series machinery cannot expand a raw f(u)^{g(u)}, only its exponential form.
-    ExprMap<Expr> rwmap;
-    auto rw = [&](auto&& self, const Expr& e) -> void {
-        if (e->type_id() == TypeId::Pow && !rwmap.count(e)
-            && has(e->args()[1], u)) {
-            rwmap.emplace(e, exp(mul(e->args()[1], log(e->args()[0]))));
-        }
-        for (const auto& a : e->args()) self(self, a);
-    };
-    rw(rw, eu);
-    Expr re = rwmap.empty() ? eu : xreplace(eu, rwmap);
-    // Factor the explicit u-power pole: re = u^p · rest. Pulling the pole out keeps
-    // series(rest) regular — it stalls on a raw (1/u)·(nested-exp) form.
+    // Factor the explicit u-power pole eu = u^p · rest_raw. Pulling the pole out
+    // keeps series(rest) regular — it stalls on a raw (1/u)·(nested-exp) form.
     Expr p = S::Zero();
     std::vector<Expr> rest_factors;
-    if (re->type_id() == TypeId::Mul) {
-        for (const auto& f : re->args()) {
+    if (eu->type_id() == TypeId::Mul) {
+        for (const auto& f : eu->args()) {
             if (f == u) {
                 p = add(p, S::One());
             } else if (f->type_id() == TypeId::Pow && f->args()[0] == u
@@ -2082,21 +2071,71 @@ struct Growth {
             }
         }
     } else {
-        rest_factors.push_back(re);
+        rest_factors.push_back(eu);
     }
-    Expr rest = rest_factors.empty() ? Expr{S::One()} : mul(rest_factors);
-    // Low order: the nested-exp expansions return unevaluated at higher orders, and
-    // the constant term after the u^p shift needs only a few coefficients.
+    Expr rest_raw = rest_factors.empty() ? Expr{S::One()} : mul(rest_factors);
+    // Expansion order: enough to recover the u^{-p} coefficient (the term the pole
+    // shifts to u⁰), plus a couple of spares. Capped — high orders both cost and
+    // make the nested-exp expansions give up.
+    std::size_t order = 4;
+    {
+        Expr pf = evalf(p, 20);
+        if (pf->type_id() == TypeId::Float) {
+            try {
+                const long o = static_cast<long>(std::ceil(-std::stod(pf->str())))
+                               + 3;
+                order = static_cast<std::size_t>(std::max(3L, std::min(7L, o)));
+            } catch (...) {
+            }
+        }
+    }
+    // Rewrite each u-dependent power f^g to exp(series(g·log f)). Pre-expanding the
+    // exponent is essential: series can expand exp(polynomial) but stalls on
+    // exp(log(cos u)/u) and similar nested-transcendental exponents.
+    ExprMap<Expr> rwmap;
+    bool rw_fail = false;
+    auto rw = [&](auto&& self, const Expr& e) -> void {
+        if (rw_fail) return;
+        if (e->type_id() == TypeId::Pow && !rwmap.count(e)
+            && has(e->args()[1], u)) {
+            Expr hs;
+            try {
+                hs = series(mul(e->args()[1], log(e->args()[0])), u, S::Zero(),
+                            order);
+            } catch (...) {
+                rw_fail = true;
+                return;
+            }
+            bool bad = false;
+            auto ck = [&](auto&& s, const Expr& x) -> void {
+                if (bad) return;
+                if (x->type_id() == TypeId::Function && has(x, u)) {
+                    bad = true;
+                    return;
+                }
+                for (const auto& a : x->args()) s(s, a);
+            };
+            ck(ck, hs);
+            if (bad) {  // exponent did not reduce to a polynomial — abandon
+                rw_fail = true;
+                return;
+            }
+            rwmap.emplace(e, exp(hs));
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    rw(rw, rest_raw);
+    if (rw_fail) return std::nullopt;
+    Expr rest = rwmap.empty() ? rest_raw : xreplace(rest_raw, rwmap);
     Expr s;
     try {
-        s = series(rest, u, S::Zero(), static_cast<std::size_t>(3));
+        s = series(rest, u, S::Zero(), order);
     } catch (...) {
         return std::nullopt;
     }
     // Unify the constant's representations: series emits the lifted base as exp(k)
     // while the original carries e^k = E^k, and SymPP does not equate exp(2) with
-    // E². A stray exp(k) − E^k would otherwise survive as a spurious (nonzero)/u
-    // pole after the u^p shift and hang the limit. Rewrite every constant exp(c) → E^c.
+    // E². A stray exp(k) − E^k would otherwise survive as a spurious leading term.
     {
         ExprMap<Expr> em;
         auto norm = [&](auto&& self, const Expr& e) -> void {
@@ -2111,46 +2150,116 @@ struct Growth {
         norm(norm, s);
         if (!em.empty()) s = xreplace(s, em);
     }
-    // Reject an incomplete expansion: a transcendental still carrying u means
-    // series gave up, and recombining would re-introduce the stall.
-    bool incomplete = false;
-    auto chk = [&](auto&& self, const Expr& e) -> void {
-        if (incomplete) return;
-        if (e->type_id() == TypeId::Function && has(e, u)) {
-            incomplete = true;
-            return;
+    // The limit is the leading term of u^p · s. Read it directly off the truncated
+    // series rather than calling limit() on a Laurent form (which a stray exp(k) −
+    // E^k pole would hang, and whose one-sided u → 0⁺ sign limit() would lose).
+    auto term_degree = [&](const Expr& t, Expr& coeff_out)
+        -> std::optional<Expr> {
+        Expr deg = S::Zero();
+        std::vector<Expr> cfac;
+        std::vector<Expr> facs;
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) facs.push_back(f);
+        } else {
+            facs.push_back(t);
         }
-        for (const auto& a : e->args()) self(self, a);
+        for (const auto& f : facs) {
+            if (f == u) {
+                deg = add(deg, S::One());
+            } else if (f->type_id() == TypeId::Pow && f->args()[0] == u
+                       && is_number(f->args()[1])) {
+                deg = add(deg, f->args()[1]);
+            } else if (has(f, u)) {
+                return std::nullopt;  // non-monomial u dependence (e.g. log u)
+            } else {
+                cfac.push_back(f);
+            }
+        }
+        coeff_out = cfac.empty() ? Expr{S::One()} : mul(cfac);
+        return simplify(deg);
     };
-    chk(chk, s);
-    if (incomplete) return std::nullopt;
-    Expr full = simplify(mul(pow(u, p), s));
-    Expr cand = limit_impl(full, u, S::Zero(), depth + 1);
-    // Accept only a finite value here (the f^g − c corrections this targets); leave
-    // divergent shapes to the growth paths. The value may be a symbolic constant
-    // such as −e/2, so test finiteness directly rather than via is_number.
-    if (has(cand, u) || is_nan(cand) || is_infinity(cand)
-        || cand->type_id() == TypeId::ComplexInfinity) {
-        return std::nullopt;
+    std::vector<Expr> terms;
+    if (s->type_id() == TypeId::Add) {
+        for (const auto& t : s->args()) terms.push_back(t);
+    } else {
+        terms.push_back(s);
     }
-    // Numeric guard: the leading term is the exact limit, but verify against the
-    // original at large |x| so a mis-extraction cannot pass.
-    Expr cvf = evalf(cand, 30);
-    if (cvf->type_id() != TypeId::Float) return std::nullopt;
-    double cvd = 0.0;
+    Expr min_deg, min_coeff;
+    double min_dv = 1e300;
+    bool found = false;
+    for (const auto& t : terms) {
+        Expr c;
+        auto d = term_degree(t, c);
+        if (!d) return std::nullopt;
+        Expr df = evalf(*d, 20);
+        if (df->type_id() != TypeId::Float) return std::nullopt;
+        double dv = 0.0;
+        try {
+            dv = std::stod(df->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        if (!found || dv < min_dv) {
+            min_dv = dv;
+            min_deg = *d;
+            min_coeff = c;
+            found = true;
+        }
+    }
+    if (!found) return std::nullopt;
+    auto sign_of = [](const Expr& e) -> int {
+        if (is_positive(e) == std::optional<bool>{true}) return 1;
+        if (is_negative(e) == std::optional<bool>{true}) return -1;
+        Expr f = evalf(e, 30);
+        if (f->type_id() == TypeId::Float) {
+            try {
+                const double d = std::stod(f->str());
+                if (d > 1e-12) return 1;
+                if (d < -1e-12) return -1;
+            } catch (...) {
+            }
+        }
+        return 0;
+    };
+    Expr order_total = simplify(add(p, min_deg));  // leading power of u^p · s
+    Expr of = evalf(order_total, 20);
+    if (of->type_id() != TypeId::Float) return std::nullopt;
+    double ordv = 0.0;
     try {
-        cvd = std::stod(cvf->str());
+        ordv = std::stod(of->str());
     } catch (...) {
         return std::nullopt;
     }
-    double prev = 1e300;
-    // Sample over a wide range: these corrections converge as ∼1/x, so the far
-    // point must be large for the residual to drop below tolerance, while a wrong
-    // value keeps an O(1) offset and fails the shrink test. High precision absorbs
-    // the catastrophic cancellation in f(x) − c at large x.
+    Expr cand;
+    if (ordv > 1e-9) {
+        cand = S::Zero();  // vanishes
+    } else if (std::fabs(ordv) < 1e-9) {
+        cand = min_coeff;  // finite leading constant
+    } else {
+        const int sc = sign_of(min_coeff);  // u^{negative} → +∞ as u → 0⁺
+        if (sc > 0) cand = S::Infinity();
+        else if (sc < 0) cand = S::NegativeInfinity();
+        else return std::nullopt;
+    }
+    if (has(cand, u) || is_nan(cand)) return std::nullopt;
+    // Numeric guard: verify against the original at large |x|. High precision
+    // absorbs the catastrophic cancellation in f(x) − c; the corrections converge
+    // as ∼1/x, so the far point must be large.
+    const bool cand_pinf = cand->type_id() == TypeId::Infinity;
+    const bool cand_ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cvd = 0.0;
+    if (!cand_pinf && !cand_ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            cvd = std::stod(cvf->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    double prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
     for (long xv : {300L, 3000L, 30000L}) {
-        // evalf directly — a simplify() here tries to expand a huge rational power
-        // like (501/500)^3000 exactly and stalls.
         Expr at = evalf(subs(expr, var, mul(sgn, integer(xv))), 60);
         if (at->type_id() != TypeId::Float) return std::nullopt;
         double v = 0.0;
@@ -2159,10 +2268,20 @@ struct Growth {
         } catch (...) {
             return std::nullopt;
         }
-        const double d = std::fabs(v - cvd);
-        if (!(d <= prev + 1e-9)) return std::nullopt;
-        prev = d;
-        if (xv == 30000L && !(d < 1e-2)) return std::nullopt;
+        if (cand_pinf) {
+            if (checks > 0 && !(v > prev_val)) return std::nullopt;
+            if (xv == 30000L && !(v > 1.0)) return std::nullopt;
+        } else if (cand_ninf) {
+            if (checks > 0 && !(v < prev_val)) return std::nullopt;
+            if (xv == 30000L && !(v < -1.0)) return std::nullopt;
+        } else {
+            const double d = std::fabs(v - cvd);
+            if (!(d <= prev_diff + 1e-9)) return std::nullopt;
+            prev_diff = d;
+            if (xv == 30000L && !(d < 1e-2)) return std::nullopt;
+        }
+        prev_val = v;
+        ++checks;
     }
     return cand;
 }

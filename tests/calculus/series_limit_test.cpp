@@ -778,6 +778,22 @@ TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1
                              mul(S::NegativeOne(), pow(S::E(), integer(2))))),
                   x, oo)
             == mul(integer(-2), pow(S::E(), integer(2))));
+    // Transcendental base: cos(1/x)^x = 1 − 1/(2x) + …, so x·(cos(1/x)^x − 1) →
+    // −1/2. The exponent is pre-expanded to a polynomial before exp(·), since
+    // series stalls on exp(log(cos u)/u).
+    REQUIRE(limit(mul(x, add(pow(cos(recip(x)), x), S::NegativeOne())), x, oo)
+            == rational(-1, 2));
+    // A divergent leading term: x²·(cos(1/x)^x − 1) ~ −x/2 → −∞ (read straight off
+    // the series leading term, one-sided as u → 0⁺).
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(pow(cos(recip(x)), x), S::NegativeOne())),
+                  x, oo)
+            == S::NegativeInfinity());
+    // Shifted exponent: x·((1+1/x)^(x+1) − e) → e/2.
+    REQUIRE(limit(mul(x, add(pow(onep, add(x, S::One())),
+                             mul(S::NegativeOne(), S::E()))),
+                  x, oo)
+            == mul(rational(1, 2), S::E()));
     // Gate guard: a base that diverges (x^(1/x)) is left to the no-hang path and
     // must still return the honest nan, not spin in the series machinery.
     REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
