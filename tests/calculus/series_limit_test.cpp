@@ -782,6 +782,31 @@ TEST_CASE("limit: unit-tending power difference via exp(t)−1 ~ t (LIMIT-UNIT-P
             == TypeId::NaN);
 }
 
+// LIMIT-INVHYP-1: inverse-hyperbolic asymptotics at +∞. asinh(x) = log(x + √(x²+1))
+// and acosh(x) = log(x + √(x²−1)) both ~ log(2x), so asinh(x)/log x → 1. The exact
+// log-of-a-radical form hangs the engine (the radical balloons under L'Hôpital), so
+// the leading log(2x) is substituted and the re-take numerically verified — over a
+// wide span, since the ∼1/log x convergence is slow. Matches SymPy.
+TEST_CASE("limit: inverse-hyperbolic asymptotics (LIMIT-INVHYP-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // asinh(x)/log x → 1, acosh(x)/log x → 1.
+    REQUIRE(limit(mul(asinh(x), pow(log(x), integer(-1))), x, oo) == S::One());
+    REQUIRE(limit(mul(acosh(x), pow(log(x), integer(-1))), x, oo) == S::One());
+    // asinh(x²)/log x → 2 (the argument's growth carries through the log).
+    REQUIRE(limit(mul(asinh(pow(x, integer(2))), pow(log(x), integer(-1))), x, oo)
+            == integer(2));
+    // asinh(x) − log(2x) → 0.
+    REQUIRE(limit(add(asinh(x), mul(S::NegativeOne(), log(mul(integer(2), x)))),
+                  x, oo)
+            == S::Zero());
+    // asinh itself is unchanged: → ∞, and asinh(x)/x → 0.
+    REQUIRE(limit(asinh(x), x, oo) == oo);
+    REQUIRE(limit(mul(asinh(x), pow(x, integer(-1))), x, oo) == S::Zero());
+}
+
 // LIMIT-EXP-DIFF-1: Gruntz's flagship example — a difference of asymptotically-equal
 // exponentials, e^{x+e⁻ˣ} − e^x. The exponents differ by e⁻ˣ → 0, so factoring the
 // common e^x gives e^x·(e^{e⁻ˣ} − 1) → 1 (exp(e⁻ˣ) − 1 ~ e⁻ˣ). The factoring is an

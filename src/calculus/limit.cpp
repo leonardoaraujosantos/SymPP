@@ -2944,6 +2944,90 @@ struct Growth {
     return limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
 }
 
+// Verify a candidate limit numerically: sample the ORIGINAL at large +x and require
+// convergence to a finite candidate / consistent divergence for ±∞.
+[[nodiscard]] bool numeric_verify_at_inf(const Expr& expr, const Expr& var,
+                                         const Expr& cand) {
+    const bool pinf = cand->type_id() == TypeId::Infinity;
+    const bool ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cvd = 0.0;
+    if (!pinf && !ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return false;
+        try {
+            cvd = std::stod(cvf->str());
+        } catch (...) {
+            return false;
+        }
+    }
+    // Wide sample span: asinh/log-type corrections converge only as ∼1/log x, far
+    // too slow for an absolute tolerance, so a finite candidate is accepted on a
+    // strictly *shrinking* gap that decays substantially across the span — a trend a
+    // wrong (e.g. precision-truncated) candidate, whose gap stays O(1), fails.
+    double first_diff = -1.0, prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
+    for (long g : {10L, 1000L, 100000L}) {
+        Expr at = evalf(subs(expr, var, integer(g)), 50);
+        if (at->type_id() != TypeId::Float) return false;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return false;
+        }
+        if (pinf) {
+            if (checks > 0 && !(v > prev_val)) return false;
+            if (g == 100000L && !(v > 1.0)) return false;
+        } else if (ninf) {
+            if (checks > 0 && !(v < prev_val)) return false;
+            if (g == 100000L && !(v < -1.0)) return false;
+        } else {
+            const double d = std::fabs(v - cvd);
+            if (checks == 0) first_diff = d;
+            if (checks > 0 && !(d < prev_diff)) return false;  // strictly shrinking
+            prev_diff = d;
+            if (g == 100000L && !(d < 0.15 && d < 0.5 * first_diff)) return false;
+        }
+        prev_val = v;
+        ++checks;
+    }
+    return checks == 3;
+}
+
+// Inverse-hyperbolic asymptotics at +∞: asinh(g), acosh(g) ~ log(2g) as g → +∞
+// (both equal log(g + √(g²±1)), and √(g²±1) ~ g). The engine hangs on the exact
+// log-of-a-radical form, so the leading log(2g) is substituted and the re-taken
+// limit numerically verified — resolving asinh(x)/log x → 1, acosh(x)/log x → 1.
+[[nodiscard]] std::optional<Expr> try_inverse_hyperbolic_asymptotic(
+    const Expr& expr, const Expr& var, const Expr& target, int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)) {
+            const auto id = static_cast<const Function&>(*e).function_id();
+            if ((id == FunctionId::Asinh || id == FunctionId::Acosh)
+                && e->args().size() == 1 && has(e->args()[0], var)
+                && limit_impl(e->args()[0], var, target, depth + 1)
+                       == S::Infinity()) {
+                m.emplace(e, log(mul(integer(2), e->args()[0])));
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    Expr cand = limit_impl(xreplace(expr, m), var, target, depth + 1);
+    if (is_nan(cand) || has(cand, var)
+        || cand->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    return numeric_verify_at_inf(expr, var, cand)
+               ? std::optional<Expr>{cand}
+               : std::nullopt;
+}
+
 // Leading-term (small-angle) substitution: every f(g) with f(t) = t + O(t³) at 0
 // — sin, tan, sinh, tanh, asin, atan, asinh, atanh — and g → 0 is replaced by its
 // argument g, after which the limit is re-taken. This resolves the 0·∞ forms the
@@ -3080,6 +3164,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // log of a divergent factorial/gamma → its log-Stirling expansion; opaque
     // otherwise (log(n!)/n → 0 wrong, log(n!)/log(nⁿ) hung).
     if (auto v = rewrite_loggamma_asymptotic(expr, var, target, depth)) {
+        return *v;
+    }
+    // asinh(g), acosh(g) ~ log(2g) at +∞ — the exact log-of-radical form hangs.
+    if (auto v = try_inverse_hyperbolic_asymptotic(expr, var, target, depth)) {
         return *v;
     }
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve

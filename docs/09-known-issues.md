@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-INVHYP-1 — asinh(x)/log x and acosh(x)/log x hung
+- **Problem:** `limit(asinh(x)/log x, x, ∞) = 1` and `acosh(x)/log x → 1` did not terminate. `asinh(x) =
+  log(x + √(x²+1))` and `acosh(x) = log(x + √(x²−1))` both grow like `log(2x)`, but the exact log-of-a-radical
+  form sends L'Hôpital into a non-terminating path (each step balloons the nested radical in the derivative
+  `1/√(x²±1)`).
+- **Fix:** added `try_inverse_hyperbolic_asymptotic`, which substitutes the leading asymptotic
+  `asinh(g), acosh(g) ~ log(2g)` for `g → +∞` and re-takes the limit (the engine handles `log(2x)/log x`
+  cleanly). Because the substitution is only leading-order, the result is verified numerically; the guard uses
+  a wide sample span and a strictly-shrinking-gap trend test, since the `∼1/log x` convergence is far too slow
+  for an absolute tolerance. That trend test also rejects the precision-sensitive cases the leading form gets
+  wrong (e.g. `x²·(asinh(x) − log(2x)) → 1/4`, whose gap stays O(1)), returning an honest nan rather than a
+  wrong 0. Now `asinh(x)/log x → 1`, `acosh(x)/log x → 1`, `asinh(x²)/log x → 2`, `asinh(x) − log(2x) → 0`.
+  Regression: `LIMIT-INVHYP-1`. Matches SymPy.
+
 ### LIMIT-EXP-DIFF-1 — e^{x+e⁻ˣ} − e^x (Gruntz's flagship example) returned nan
 - **Problem:** a difference of asymptotically-equal exponentials returned `nan`: `e^{x+e⁻ˣ} − e^x → 1` (the
   canonical Gruntz most-rapidly-varying example), `e^x − e^{x+e⁻ˣ} → −1`, `e^{x+2e⁻ˣ} − e^x → 2`. The two
