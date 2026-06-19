@@ -773,6 +773,40 @@ TEST_CASE("limit: unit-tending power difference via exp(t)−1 ~ t (LIMIT-UNIT-P
     // (x^x − 1)/(x·log x) → 1 at x → 0 (base → 0).
     REQUIRE(limit(over(add(xx, S::NegativeOne()), mul(x, log(x))), x, S::Zero())
             == S::One());
+    // Non-regression: a unit power times a *divergent exponential* (e^x·(e^{1/x}−1),
+    // a 0·∞ MRV case) must not hang here — the expansion would leave an
+    // undistributed ∞−∞; it is left to other paths (honest nan), not spun on.
+    REQUIRE(limit(mul(exp(x), add(exp(pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+                ->type_id()
+            == TypeId::NaN);
+}
+
+// LIMIT-EXP-DIFF-1: Gruntz's flagship example — a difference of asymptotically-equal
+// exponentials, e^{x+e⁻ˣ} − e^x. The exponents differ by e⁻ˣ → 0, so factoring the
+// common e^x gives e^x·(e^{e⁻ˣ} − 1) → 1 (exp(e⁻ˣ) − 1 ~ e⁻ˣ). The factoring is an
+// exact identity. Previously these returned nan. Matches SymPy.
+TEST_CASE("limit: difference of asymptotically-equal exponentials (LIMIT-EXP-DIFF-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr emx = exp(mul(S::NegativeOne(), x));      // e^{-x}
+
+    // e^{x+e⁻ˣ} − e^x → 1, and the negation → −1.
+    REQUIRE(limit(add(exp(add(x, emx)), mul(S::NegativeOne(), exp(x))), x, oo)
+            == S::One());
+    REQUIRE(limit(add(exp(x), mul(S::NegativeOne(), exp(add(x, emx)))), x, oo)
+            == S::NegativeOne());
+    // Coefficient carries through: e^{x+2e⁻ˣ} − e^x → 2.
+    REQUIRE(limit(add(exp(add(x, mul(integer(2), emx))),
+                      mul(S::NegativeOne(), exp(x))),
+                  x, oo)
+            == integer(2));
+    // A faster-vanishing gap: e^{x+e⁻²ˣ} − e^x ~ e⁻ˣ → 0.
+    REQUIRE(limit(add(exp(add(x, exp(mul(integer(-2), x)))),
+                      mul(S::NegativeOne(), exp(x))),
+                  x, oo)
+            == S::Zero());
 }
 
 // LIMIT-SERIES-1: the asymptotic correction to a 1^∞ power, g(x)·((1+a/x)^x − eᵃ).

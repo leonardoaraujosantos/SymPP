@@ -2063,6 +2063,25 @@ struct Growth {
     };
     scan(scan, expr, false);
     if (m.empty()) return std::nullopt;
+    // Skip when a divergent exponential exp(h → +∞) multiplies the unit difference
+    // (e.g. eˣ·(e^{1/x} − 1)): substituting the expansion leaves an undistributed
+    // eˣ·(1 + …) − eˣ — an ∞ − ∞ the reciprocal substitution spins on. Those 0·∞
+    // exp products are the MRV-rewrite cases, left to other paths (honest nan), not
+    // this elementary expansion. The matched unit exp(t → 0) never trips this.
+    bool divergent_exp = false;
+    auto scan2 = [&](auto&& self, const Expr& e) -> void {
+        if (divergent_exp) return;
+        if (e->type_id() == TypeId::Function
+            && static_cast<const Function&>(*e).function_id() == FunctionId::Exp
+            && has(e->args()[0], var)
+            && is_infinity(limit_impl(e->args()[0], var, target, depth + 1))) {
+            divergent_exp = true;
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan2(scan2, expr);
+    if (divergent_exp) return std::nullopt;
     Expr cand = limit_impl(xreplace(expr, m), var, target, depth + 1);
     if (is_nan(cand) || has(cand, var)
         || cand->type_id() == TypeId::ComplexInfinity) {
@@ -2116,6 +2135,70 @@ struct Growth {
         ++checks;
     }
     return cand;
+}
+
+// Gruntz MRV rewrite for a difference of exponentials. A sum Σ cᵢ·exp(aᵢ) of
+// asymptotically-equal exponentials (every aᵢ − aⱼ → finite) is the canonical
+// most-rapidly-varying case: e^{x+e⁻ˣ} − e^x → 1 (Gruntz's flagship example).
+// Factor out the common exp(b) for a reference exponent b — exact, since
+// exp(b)·Σ cᵢ·exp(aᵢ − b) = Σ cᵢ·exp(aᵢ) — so the difference collapses to a unit
+// term the existing machinery resolves: e^x·(e^{e⁻ˣ} − 1) → 1. Each candidate b is
+// tried; the rewrite is an identity, so any determinate re-take is exact.
+[[nodiscard]] std::optional<Expr> try_exp_difference(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& target,
+                                                     int depth) {
+    if (depth >= 8 || !is_infinity(target)
+        || expr->type_id() != TypeId::Add) {
+        return std::nullopt;
+    }
+    struct Term {
+        Expr coeff;
+        Expr expo;
+    };
+    std::vector<Term> terms;
+    for (const auto& t : expr->args()) {
+        Expr coeff = S::One(), expo;
+        bool found = false;
+        std::vector<Expr> facs;
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) facs.push_back(f);
+        } else {
+            facs.push_back(t);
+        }
+        for (const auto& f : facs) {
+            if (!found && f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Exp
+                && has(f->args()[0], var)) {
+                expo = f->args()[0];
+                found = true;
+            } else {
+                coeff = mul(coeff, f);
+            }
+        }
+        if (!found) return std::nullopt;  // a non-exponential term — not this shape
+        terms.push_back({coeff, expo});
+    }
+    if (terms.size() < 2) return std::nullopt;
+    for (const auto& ref : terms) {
+        bool ok = true;
+        Expr inner = S::Zero();
+        for (const auto& tm : terms) {
+            Expr d = simplify(add(tm.expo, mul(S::NegativeOne(), ref.expo)));
+            Expr ld = limit_impl(d, var, target, depth + 1);
+            if (is_infinity(ld) || is_nan(ld)
+                || ld->type_id() == TypeId::ComplexInfinity) {
+                ok = false;
+                break;
+            }
+            inner = add(inner, mul(tm.coeff, exp(d)));  // cᵢ·exp(aᵢ − b)
+        }
+        if (!ok) continue;
+        Expr r = limit_impl(mul(exp(ref.expo), inner), var, target, depth + 1);
+        if (!is_nan(r) && r->type_id() != TypeId::ComplexInfinity) return r;
+    }
+    return std::nullopt;
 }
 
 // Gruntz leading-term via series. For an indeterminate form built from a variable
@@ -3241,6 +3324,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *v;
             }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
+            // Gruntz MRV rewrite: a difference of asymptotically-equal exponentials,
+            // e^{x+e⁻ˣ} − e^x → 1, factored to e^x·(e^{e⁻ˣ} − 1).
+            if (auto v = try_exp_difference(expr, var, target, depth)) return *v;
             // A unit-tending power f(x)^g(x) → 1 in a difference: expand exp(g·log f)
             // − 1 = g·log f + …, resolving (x^x − 1)/(x·log x) → 1 where the log
             // singularity in the exponent defeats the polynomial series stage.

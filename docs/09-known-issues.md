@@ -16,6 +16,23 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EXP-DIFF-1 — e^{x+e⁻ˣ} − e^x (Gruntz's flagship example) returned nan
+- **Problem:** a difference of asymptotically-equal exponentials returned `nan`: `e^{x+e⁻ˣ} − e^x → 1` (the
+  canonical Gruntz most-rapidly-varying example), `e^x − e^{x+e⁻ˣ} → −1`, `e^{x+2e⁻ˣ} − e^x → 2`. The two
+  exponentials have the same growth rate, so direct substitution gives `∞ − ∞` and the heuristic paths cannot
+  separate them.
+- **Fix:** added `try_exp_difference`, the Gruntz MRV-rewrite step for an exponential sum. For
+  `Σ cᵢ·exp(aᵢ)` with every `aᵢ − aⱼ → finite`, factor out a common `exp(b)` (an exact identity, since
+  `exp(b)·Σ cᵢ·exp(aᵢ − b) = Σ cᵢ·exp(aᵢ)`), collapsing the difference to a unit term the existing machinery
+  resolves: `e^{x+e⁻ˣ} − e^x = e^x·(e^{e⁻ˣ} − 1) → 1`. Each exponent is tried as the reference `b`; because the
+  rewrite is an identity, any determinate re-take is exact. Now `e^{x+e⁻ˣ} − e^x → 1`, `e^x − e^{x+e⁻ˣ} → −1`,
+  `e^{x+2e⁻ˣ} − e^x → 2`, `e^{x+e⁻²ˣ} − e^x → 0`. Regression: `LIMIT-EXP-DIFF-1`. Matches SymPy.
+- **Also fixed (regression):** the unit-power expansion (`LIMIT-UNIT-POWER-1`) had begun firing on a unit
+  difference multiplied by a *divergent* exponential — `e^x·(e^{1/x} − 1)` — where substituting the expansion
+  leaves an undistributed `e^x·(1+…) − e^x` (`∞ − ∞`) that the reciprocal substitution spins on, a hang. It is
+  now gated off any `exp(h → +∞)` factor (those `0·∞` MRV products are left to other paths, honest nan), while
+  the genuine ratio cases still resolve.
+
 ### LIMIT-UNIT-POWER-1 — (x^x − 1)/(x·log x) and (x^(1/x) − 1)/(log x/x) hung / nan
 - **Problem:** a power `f(x)^g(x)` that tends to 1 — its exponent `t = g·log f → 0` — inside a difference was
   unresolved: `(x^x − 1)/(x·log x) → 1` (at `x → 0`) hung, and `(x^(1/x) − 1)/(log x/x) → 1` (at `+∞`) returned
