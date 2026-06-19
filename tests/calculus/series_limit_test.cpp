@@ -2679,6 +2679,34 @@ TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
     REQUIRE(limit(gamma(x), x, oo) == oo);
 }
 
+// LIMIT-SMALL-ANGLE-1: the leading-term (small-angle) substitution f(g) → g for
+// f ∈ {sin, tan, sinh, tanh, asin, atan, …} and g → 0, numerically verified.
+// Closes the 0·∞ forms the heuristic engine abandons — including the canonical
+// Gruntz oscillation eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1.
+TEST_CASE("limit: small-angle substitution and the Gruntz oscillation (LIMIT-SMALL-ANGLE-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr emx = exp(mul(S::NegativeOne(), x));
+
+    // The canonical Gruntz oscillation.
+    REQUIRE(limit(mul(exp(x),
+                      add(sin(add(pow(x, integer(-1)), emx)),
+                          mul(S::NegativeOne(), sin(pow(x, integer(-1)))))),
+                  x, oo)
+            == S::One());
+    // eˣ·sin(e⁻ˣ) → 1, eˣ·sin(e⁻ˣ/2) → 1/2, eˣ·tanh(e⁻ˣ) → 1.
+    REQUIRE(limit(mul(exp(x), sin(emx)), x, oo) == S::One());
+    REQUIRE(limit(mul(exp(x), sin(mul(rational(1, 2), emx))), x, oo) == S::Half());
+    REQUIRE(limit(mul(exp(x), tanh(emx)), x, oo) == S::One());
+    // x·f(1/x) → 1 for the linear-at-0 functions.
+    REQUIRE(limit(mul(x, sin(pow(x, integer(-1)))), x, oo) == S::One());
+    REQUIRE(limit(mul(x, tan(pow(x, integer(-1)))), x, oo) == S::One());
+    REQUIRE(limit(mul(x, atan(pow(x, integer(-1)))), x, oo) == S::One());
+    // No over-reach: an argument that does NOT vanish (sin(x), x → ∞) stays nan.
+    REQUIRE(limit(mul(x, sin(x)), x, oo)->type_id() == TypeId::NaN);
+}
+
 // LIMIT-HARMONIC-1: a harmonic number H(n) with a diverging argument expands to
 // its asymptotic log n + γ + 1/(2n) − 1/(12n²). H(n) was opaque to the limit
 // machinery — H(n)/log n returned a wrong 0 and H(n) returned nan.

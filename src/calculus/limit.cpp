@@ -2070,6 +2070,82 @@ struct Growth {
     return limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
 }
 
+// Leading-term (small-angle) substitution: every f(g) with f(t) = t + O(t³) at 0
+// — sin, tan, sinh, tanh, asin, atan, asinh, atanh — and g → 0 is replaced by its
+// argument g, after which the limit is re-taken. This resolves the 0·∞ forms the
+// heuristic engine abandons, e.g. eˣ·sin(e⁻ˣ) → 1 and the canonical Gruntz
+// oscillation eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1. The substitution drops the
+// cubic tail, so the candidate is accepted only after a numeric check against the
+// original at large |x| (a wrong value keeps an O(1) offset and is rejected; the
+// non-increasing ladder tolerates the ∼1/x² approach of these limits).
+[[nodiscard]] std::optional<Expr> try_small_angle(const Expr& expr,
+                                                  const Expr& var,
+                                                  const Expr& target,
+                                                  int depth) {
+    if (depth >= 8 || !is_infinity(target) || !has(expr, var)) {
+        return std::nullopt;
+    }
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            const FunctionId id = fn.function_id();
+            const bool linear_at_zero =
+                id == FunctionId::Sin || id == FunctionId::Tan
+                || id == FunctionId::Sinh || id == FunctionId::Tanh
+                || id == FunctionId::Asin || id == FunctionId::Atan
+                || id == FunctionId::Asinh || id == FunctionId::Atanh;
+            if (linear_at_zero && fn.args().size() == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Zero()) {
+                    m.emplace(e, g);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    Expr cand = limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
+    if (is_nan(cand) || is_infinity(cand) || has(cand, var)
+        || cand->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    Expr cv = evalf(cand, 30);
+    if (!is_number(cv)) return std::nullopt;  // a real numeric candidate
+    double cvd = 0.0;
+    try {
+        cvd = std::stod(cv->str());  // "1" (int) or "0.5" (float) both parse
+    } catch (...) {
+        return std::nullopt;
+    }
+    const Expr sgn = target->type_id() == TypeId::Infinity ? S::One()
+                                                           : S::NegativeOne();
+    double prev = 1e300;
+    int checks = 0;
+    // Sample points stay ≤ 600 so a big exponential (e^x) does not overflow, yet
+    // are large enough that an ∼1/x² approach is already within tolerance. The
+    // working precision scales with the point: a difference sin(a+h)−sin(a) with
+    // h ∼ e^{−x} would lose the tiny gap to catastrophic cancellation at fixed
+    // precision, so carry ≈ x·log₁₀e + margin digits to resolve it.
+    for (long xv : {100L, 300L, 600L}) {
+        const int prec = static_cast<int>(static_cast<double>(xv) * 0.45) + 40;
+        Expr at = evalf(simplify(subs(expr, var, mul(sgn, integer(xv)))), prec);
+        if (!is_number(at)) return std::nullopt;
+        try {
+            const double d = std::fabs(std::stod(at->str()) - cvd);
+            if (!(d <= prev + 1e-12)) return std::nullopt;  // must not diverge
+            prev = d;
+            ++checks;
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    if (checks == 3 && prev < 1e-4) return cand;
+    return std::nullopt;
+}
+
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
@@ -2330,6 +2406,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             if (auto v = try_log_exp_reduction(expr, var, target, depth)) {
                 return *v;
             }
+            // Small-angle: replace sin/tan/…(g) by g when g → 0 (numerically
+            // verified) — closes eˣ·sin(e⁻ˣ) → 1 and the Gruntz oscillation.
+            if (auto v = try_small_angle(expr, var, target, depth)) return *v;
         }
         // 0/0 and ∞/∞ quotients (also recovers finite 0/0 where direct
         // substitution collapses to 0 or nan). A nan result is not an answer —

@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SMALL-ANGLE-1 — 0·∞ trig forms and the canonical Gruntz oscillation returned nan
+- **Problem:** `eˣ·sin(e⁻ˣ) → 1`, `x·tan(1/x) → 1`, and the canonical Gruntz oscillation
+  `eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1` all returned `nan`. The heuristic engine has no leading-term rule for
+  `sin(g) ~ g` as `g → 0`, so these `0·∞` forms were abandoned.
+- **Fix:** added `try_small_angle`, a nan-branch fallback at `±∞`. Every `f(g)` with `f(t) = t + O(t³)` at 0
+  (`sin, tan, sinh, tanh, asin, atan, asinh, atanh`) whose argument `g → 0` is replaced by `g`, the form is
+  expanded, and the limit is re-taken. The substitution drops the cubic tail, so the candidate is **accepted
+  only after a numeric check** against the original at `|x| ∈ {100, 300, 600}` — a wrong value keeps an
+  `O(1)` offset and is rejected, and the working precision scales with the sample point so a difference
+  `sin(a+h) − sin(a)` with `h ∼ e⁻ˣ` is resolved rather than lost to catastrophic cancellation. Now
+  `eˣ·sin(e⁻ˣ) → 1`, `eˣ·sin(e⁻ˣ/2) → 1/2`, `x·sin(1/x) → 1`, and the Gruntz oscillation → 1, while a
+  non-vanishing argument (`x·sin x`) correctly stays `nan`. Regression: `LIMIT-SMALL-ANGLE-1`. Matches SymPy
+  (closes the brief's headline oscillatory example).
+
 ### LIMIT-HARMONIC-1 — harmonic-number limits returned nan or a wrong 0
 - **Problem:** `H(n)` (the harmonic number) was opaque to the limit engine — `H(∞)` did not fold, so
   `limit(H(n), n, ∞)` returned `nan` and, worse, `H(n)/log n` returned `0` instead of `1` (the engine treated
