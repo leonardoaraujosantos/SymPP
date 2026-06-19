@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### LOG-SIGN-1 — log of a constant had an unknown sign, so log(2)·n → nan
+- **Problem:** `is_positive(log 2)` returned *unknown*, so `limit(log(2)·n, n, ∞)` returned `nan` — the engine
+  could not fold `(positive const)·∞ → ∞` without the sign of the coefficient. By contrast `√2·n` and `π·n`
+  worked (those constants report `positive`). The same blocked `n·log(2n) − n·log n = n·log 2 → ∞` after the
+  log-combine.
+- **Fix:** `Log::ask` now derives the sign from the argument versus 1: `log(a) > 0 ⟺ a > 1`, `log(a) < 0 ⟺
+  0 < a < 1`, and `log(a) ≠ 0 ⟺ a ≠ 1` (for a real log, `a > 0`). Now `is_positive(log 2) = true`,
+  `is_negative(log(1/2)) = true`, `limit(log(2)·n) → ∞`, `limit(log(1/2)·n) → −∞`, and
+  `n·log(2n) − n·log n → ∞`. Regression: `LOG-SIGN-1`. Matches SymPy (`log(2).is_positive == True`).
+
 ### LIMIT-SUPERPOW-DIFF-1 — n! − nⁿ and similar factorial/super-power differences hung
 - **Problem:** a difference of a factorial/gamma and a super-power `n^(c·n)` did not terminate:
   `limit(n! − nⁿ, n, ∞) = −∞`, `limit(Γ(n+1) − nⁿ, n, ∞) = −∞`, `limit(nⁿ − n!, n, ∞) = ∞`, `limit(n! − eⁿ, n, ∞) = ∞`

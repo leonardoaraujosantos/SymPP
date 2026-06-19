@@ -1151,6 +1151,21 @@ TEST_CASE("limit: reciprocal trig/hyperbolic (LIMIT-RECIPTRIG-1)",
     REQUIRE(limit((cos(x) - integer(1)) * csc(x), x, z) == S::Zero());
 }
 
+// LOG-SIGN-1 (limit side): a symbolic positive constant coefficient (log 2 > 0)
+// must fold (const)·∞ → ±∞ — previously nan, since log(2)'s sign was unknown.
+TEST_CASE("limit: constant log coefficient times n (LOG-SIGN-1)",
+          "[6][limit][infinity][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    REQUIRE(limit(mul(log(integer(2)), n), n, oo) == oo);
+    REQUIRE(limit(mul(log(rational(1, 2)), n), n, oo) == S::NegativeInfinity());
+    // n·log(2n) − n·log n = n·log 2 → ∞ (needs sign(log 2) > 0 after the combine).
+    REQUIRE(limit(add(mul(n, log(mul(integer(2), n))),
+                      mul(S::NegativeOne(), mul(n, log(n)))),
+                  n, oo)
+            == oo);
+}
+
 TEST_CASE("limit: at -oo", "[6][limit][infinity][oracle][regression]") {
     auto x = symbol("x");
     REQUIRE(limit(exp(x), x, S::NegativeInfinity()) == S::Zero());

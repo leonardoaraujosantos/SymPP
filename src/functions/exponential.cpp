@@ -149,6 +149,28 @@ std::optional<bool> Log::ask(AssumptionKey k) const noexcept {
             // log is real iff arg > 0.
             if (is_positive(a) == true) return true;
             return std::nullopt;
+        case AssumptionKey::Positive: {
+            // log(a) > 0 ⟺ a > 1.
+            const Expr am1 = add(a, S::NegativeOne());
+            if (is_positive(am1) == true) return true;
+            if (is_positive(a) == true && is_negative(am1) == true) {
+                return false;  // 0 < a < 1 ⟹ log(a) < 0
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Negative: {
+            // log(a) < 0 ⟺ 0 < a < 1.
+            const Expr am1 = add(a, S::NegativeOne());
+            if (is_positive(a) == true && is_negative(am1) == true) return true;
+            if (is_positive(am1) == true) return false;  // a > 1 ⟹ log(a) > 0
+            return std::nullopt;
+        }
+        case AssumptionKey::Nonzero: {
+            // log(a) ≠ 0 ⟺ a ≠ 1 (taking a > 0 for a real log).
+            const Expr am1 = add(a, S::NegativeOne());
+            if (is_positive(am1) == true || is_negative(am1) == true) return true;
+            return std::nullopt;
+        }
         default:
             return std::nullopt;
     }
