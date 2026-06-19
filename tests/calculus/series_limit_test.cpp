@@ -801,6 +801,19 @@ TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1
                   x, oo)
                 ->type_id()
             == TypeId::NaN);
+    // Finite point: the same 1^∞ correction appears at x → 0.
+    // ((1+x)^(1/x) − e)/x → −e/2.
+    const Expr onex = add(S::One(), x);                  // 1 + x
+    REQUIRE(limit(mul(add(pow(onex, recip(x)), mul(S::NegativeOne(), S::E())),
+                      recip(x)),
+                  x, S::Zero())
+            == mul(rational(-1, 2), S::E()));
+    // The order-2 correction: ((1+x)^(1/x) − e + e·x/2)/x² → 11e/24.
+    REQUIRE(limit(mul(add({pow(onex, recip(x)), mul(S::NegativeOne(), S::E()),
+                           mul(rational(1, 2), mul(S::E(), x))}),
+                      pow(x, integer(-2))),
+                  x, S::Zero())
+            == mul(rational(11, 24), S::E()));
 }
 
 // LIMIT-COMMON-LOG-1: a ratio of var-base/var-exponent powers, x^x/(x+1)^x and

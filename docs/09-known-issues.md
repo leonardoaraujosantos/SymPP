@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SERIES-1 (finite point) — ((1+x)^(1/x) − e)/x at x → 0 hung
+- **Problem:** the series leading-term stage handled `1^∞` corrections at `±∞` but not at a finite point, where
+  the same form appears: `limit(((1+x)^(1/x) − e)/x, x, 0) = −e/2` and the order-2
+  `((1+x)^(1/x) − e + e·x/2)/x² → 11e/24` hung (the `x = 1/u` substitution and the gate were `∞`-only).
+- **Fix:** generalized `try_series_limit` to a finite real target `a`: instead of `x = ±1/u` it substitutes
+  `x = a + u`, so the limit again becomes `u → 0`, and reuses the same exponent-preexpansion, pole-factoring,
+  and leading-term extraction. Numeric verification samples `x = a + 1/N` for growing `N`. A finite-point pole
+  (leading order `< 0`) is declined — its two-sided value depends on the approach direction and the power's
+  parity, so it is left to the other machinery. Now `((1+x)^(1/x) − e)/x → −e/2` and
+  `((1+x)^(1/x) − e + e·x/2)/x² → 11e/24`. Regression: `LIMIT-SERIES-1` (extended). Matches SymPy.
+
 ### LIMIT-SERIES-1 (transcendental base / divergent term) — x·(cos(1/x)^x − 1) hung
 - **Problem:** the series leading-term stage handled rational-base powers like `(1+1/x)^x` but still hung on a
   *transcendental* base — `x·(cos(1/x)^x − 1) → −1/2`, `x²·(cos(1/x)^x − 1) → −∞` — because `series` expands

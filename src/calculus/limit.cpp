@@ -1,6 +1,7 @@
 #include <sympp/calculus/limit.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <numeric>
 #include <optional>
@@ -2024,7 +2025,10 @@ struct Growth {
                                                    const Expr& var,
                                                    const Expr& target,
                                                    int depth) {
-    if (depth >= 8 || !is_infinity(target)) return std::nullopt;
+    const bool at_inf = is_infinity(target);
+    // Handles both x → ±∞ and a finite real point a (the same 1^∞ correction
+    // appears at x → 0, e.g. ((1+x)^(1/x) − e)/x → −e/2).
+    if (depth >= 8 || (!at_inf && !is_number(target))) return std::nullopt;
     // Gate to a variable power f(x)^{g(x)} sitting inside a sum (the f^g − c shape
     // the other asymptotic paths leave hanging), AND whose base tends to a finite
     // nonzero limit. The base condition is essential: x^(1/x) (base → ∞) becomes
@@ -2049,12 +2053,15 @@ struct Growth {
     g(g, expr, false);
     if (!gated) return std::nullopt;
 
-    const Expr sgn = target->type_id() == TypeId::Infinity ? S::One()
-                                                           : S::NegativeOne();
+    const Expr sgn = target->type_id() == TypeId::NegativeInfinity
+                         ? S::NegativeOne()
+                         : S::One();
     // A plain symbol (no positivity): with u marked positive the exp(g·log f)
     // rewrite below canonicalizes straight back to f^g, defeating the series step.
+    // Local coordinate u → 0: x = ±1/u at ∞, x = a + u at a finite point a.
     Expr u = symbol("__series_u");
-    Expr eu = subs(expr, var, mul(sgn, pow(u, integer(-1))));  // x = ±1/u
+    Expr eu = at_inf ? subs(expr, var, mul(sgn, pow(u, integer(-1))))
+                     : subs(expr, var, add(target, u));
     // Factor the explicit u-power pole eu = u^p · rest_raw. Pulling the pole out
     // keeps series(rest) regular — it stalls on a raw (1/u)·(nested-exp) form.
     Expr p = S::Zero();
@@ -2235,11 +2242,15 @@ struct Growth {
         cand = S::Zero();  // vanishes
     } else if (std::fabs(ordv) < 1e-9) {
         cand = min_coeff;  // finite leading constant
-    } else {
+    } else if (at_inf) {
         const int sc = sign_of(min_coeff);  // u^{negative} → +∞ as u → 0⁺
         if (sc > 0) cand = S::Infinity();
         else if (sc < 0) cand = S::NegativeInfinity();
         else return std::nullopt;
+    } else {
+        // A pole at a finite point is two-sided (the sign depends on the approach
+        // direction and the power's parity); leave it to the other machinery.
+        return std::nullopt;
     }
     if (has(cand, u) || is_nan(cand)) return std::nullopt;
     // Numeric guard: verify against the original at large |x|. High precision
@@ -2257,10 +2268,15 @@ struct Growth {
             return std::nullopt;
         }
     }
+    // Sample points approaching the target: large |x| at ∞ (the corrections decay
+    // as ∼1/x, so the far point must be large), or x = a + 1/N near a finite a.
+    const std::array<long, 3> grid{300L, 3000L, 30000L};
     double prev_diff = 1e300, prev_val = 0.0;
     int checks = 0;
-    for (long xv : {300L, 3000L, 30000L}) {
-        Expr at = evalf(subs(expr, var, mul(sgn, integer(xv))), 60);
+    for (long gp : grid) {
+        const Expr pt = at_inf ? Expr{mul(sgn, integer(gp))}
+                               : Expr{add(target, pow(integer(gp), integer(-1)))};
+        Expr at = evalf(subs(expr, var, pt), 60);
         if (at->type_id() != TypeId::Float) return std::nullopt;
         double v = 0.0;
         try {
@@ -2270,15 +2286,15 @@ struct Growth {
         }
         if (cand_pinf) {
             if (checks > 0 && !(v > prev_val)) return std::nullopt;
-            if (xv == 30000L && !(v > 1.0)) return std::nullopt;
+            if (gp == 30000L && !(v > 1.0)) return std::nullopt;
         } else if (cand_ninf) {
             if (checks > 0 && !(v < prev_val)) return std::nullopt;
-            if (xv == 30000L && !(v < -1.0)) return std::nullopt;
+            if (gp == 30000L && !(v < -1.0)) return std::nullopt;
         } else {
             const double d = std::fabs(v - cvd);
             if (!(d <= prev_diff + 1e-9)) return std::nullopt;
             prev_diff = d;
-            if (xv == 30000L && !(d < 1e-2)) return std::nullopt;
+            if (gp == 30000L && !(d < 1e-2)) return std::nullopt;
         }
         prev_val = v;
         ++checks;
