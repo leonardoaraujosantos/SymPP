@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMARATIO-1 (combined denominator) — Γ(n+½)/(√n·Γ(n)) gave nan / hung
+- **Problem:** half-integer gamma ratios written as ordinary division failed: `limit(Γ(n+½)/(√n·Γ(n)), n, ∞)`
+  returned `nan` (SymPy: `1`) and `limit(Γ(n+3/2)/(n^(3/2)·Γ(n)), n, ∞)` even hung. The balanced-gamma-ratio
+  asymptotic (`Γ(x+a)/Γ(x) ~ x^a`) already covered these *when the factors were handed to it pre-separated*,
+  but `together` collapses a ratio's denominator into a single combined power: `Γ(n+½)/(√n·Γ(n))` becomes
+  `(√n·Γ(n))⁻¹·Γ(n+½)`. The rule iterates the top-level `Mul` factors and saw `(√n·Γ(n))⁻¹` — a `Pow` with a
+  *product* base — as one unrecognized factor, so it aborted; the expression then fell through to the wrong-0
+  growth-rank path (nan) or the Stirling-root numeric guard (hang). Integer shifts slipped through only
+  because the `Γ(n+1)=n·Γ(n)` recurrence rewrites them first.
+- **Fix:** `gamma_ratio_asymptotic` now flattens its input, distributing a numeric power of a product
+  `(∏ gᵢ)^p → ∏ gᵢ^p`, so `(√n·Γ(n))⁻¹` splits back into `n^(−1/2)` and `Γ(n)⁻¹` and every gamma/power factor
+  is recognized. Now `Γ(n+½)/(√n·Γ(n)) → 1`, `Γ(n+3/2)/(n^(3/2)·Γ(n)) → 1`,
+  `Γ(n+¼)·Γ(n+¾)/(n·Γ(n)²) → 1` (quarter-integer shifts too). Because the asymptotic returns first, the
+  earlier hang is also gone. Regression: `LIMIT-GAMMARATIO-1` (combined-denominator cases added). Matches SymPy.
+
 ### LIMIT-STIRLING-PRODUCT-1 — Stirling-prefactor limits like n!/(nⁿ·e⁻ⁿ) hung
 - **Problem:** `limit(n!/(nⁿ·e⁻ⁿ), n, ∞)` (= `n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞`) did not terminate. The Stirling
   handler rewrote `n! ~ (n/e)ⁿ` using only the **leading** power form, which cancels exactly against the

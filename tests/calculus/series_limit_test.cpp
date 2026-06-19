@@ -2601,6 +2601,22 @@ TEST_CASE("limit: balanced gamma-ratio asymptotics (LIMIT-GAMMARATIO-1)",
                                * pow(x, integer(-1)),
                            x, oo))
             == S::One());
+    // Combined-denominator form, as a/(b·c) division produces it: together()
+    // leaves the denominator a single (√x·Γ(x))⁻¹ Pow with a product base. The
+    // factor flattening distributes (∏gᵢ)^p so the rule still applies. Previously
+    // Γ(x+1/2)/(√x·Γ(x)) → nan and Γ(x+3/2)/(x^(3/2)·Γ(x)) even hung.
+    auto over = [&](const Expr& num, const Expr& den) {
+        return mul(num, pow(den, integer(-1)));
+    };
+    REQUIRE(limit(over(G(half), mul(pow(x, half), gamma(x))), x, oo) == S::One());
+    REQUIRE(limit(over(G(rational(3, 2)), mul(pow(x, rational(3, 2)), gamma(x))),
+                  x, oo)
+            == S::One());
+    // Quarter-integer shifts via the same flattening: Γ(x+1/4)·Γ(x+3/4)/(x·Γ(x)²).
+    REQUIRE(limit(over(mul(G(rational(1, 4)), G(rational(3, 4))),
+                       mul(x, pow(gamma(x), integer(2)))),
+                  x, oo)
+            == S::One());
 }
 
 // LIMIT-EXP-CONTINUITY-1: limit(exp(g)) = exp(limit g) with exp(+∞)=∞,

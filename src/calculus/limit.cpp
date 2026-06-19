@@ -956,12 +956,26 @@ struct Growth {
 // and every pᵢ, aᵢ, q numeric; otherwise nullopt.
 [[nodiscard]] std::optional<Expr> gamma_ratio_asymptotic(const Expr& expr,
                                                          const Expr& var) {
+    // Flatten into multiplicative factors, distributing a power of a product
+    // (∏ gᵢ)^p → ∏ gᵢ^p with p numeric. `together` leaves a ratio's denominator
+    // as one combined Pow — Γ(n+½)/(√n·Γ(n)) becomes (√n·Γ(n))⁻¹·Γ(n+½) — which
+    // would otherwise read as a single unrecognized factor and abort the rule.
     std::vector<Expr> factors;
-    if (expr->type_id() == TypeId::Mul) {
-        for (const auto& f : expr->args()) factors.push_back(f);
-    } else {
-        factors.push_back(expr);
-    }
+    auto add_factor = [&](auto&& self, const Expr& f) -> void {
+        if (f->type_id() == TypeId::Mul) {
+            for (const auto& g : f->args()) self(self, g);
+            return;
+        }
+        if (f->type_id() == TypeId::Pow && is_number(f->args()[1])
+            && f->args()[0]->type_id() == TypeId::Mul) {
+            for (const auto& g : f->args()[0]->args()) {
+                self(self, pow(g, f->args()[1]));
+            }
+            return;
+        }
+        factors.push_back(f);
+    };
+    add_factor(add_factor, expr);
     Expr C = S::One(), q_total = S::Zero();
     Expr sum_p = S::Zero(), sum_pa = S::Zero();
     Expr log_rate = S::Zero();  // ρ = Σ kᵢ·log cᵢ from constant-base c^(kᵢ·x)
