@@ -3201,6 +3201,37 @@ TEST_CASE("limit: harmonic number asymptotics (LIMIT-HARMONIC-1)",
     REQUIRE(harmonic(integer(5)) == rational(137, 60));
 }
 
+// LIMIT-DIGAMMA-1: the digamma ψ(n) = polygamma(0, n) with a diverging argument
+// expands to its asymptotic log n − 1/(2n) − 1/(12n²) + 1/(120n⁴) − … (consistent
+// with H(n) via ψ(n) = H(n−1) − γ). ψ(n)/log n and ψ(n) − log n previously hung.
+// Matches SymPy.
+TEST_CASE("limit: digamma asymptotics (LIMIT-DIGAMMA-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr psi = digamma(n);
+
+    REQUIRE(limit(psi, n, oo) == oo);                               // ψ(n) → ∞
+    REQUIRE(simplify(limit(mul(psi, pow(log(n), integer(-1))), n, oo))
+            == S::One());                                          // ψ(n)/log n → 1
+    REQUIRE(simplify(limit(add(psi, mul(S::NegativeOne(), log(n))), n, oo))
+            == S::Zero());                                         // ψ(n) − log n → 0
+    // n·(ψ(n) − log n) → −1/2 (the 1/(2n) correction term).
+    REQUIRE(simplify(limit(mul(n, add(psi, mul(S::NegativeOne(), log(n)))), n, oo))
+            == rational(-1, 2));
+    // n²·(ψ(n) − log n + 1/(2n)) → −1/12 (the 1/(12n²) term).
+    REQUIRE(simplify(limit(mul(pow(n, integer(2)),
+                               add({psi, mul(S::NegativeOne(), log(n)),
+                                    mul(rational(1, 2), pow(n, integer(-1)))})),
+                           n, oo))
+            == rational(-1, 12));
+    // ψ(n+1) − ψ(n) = 1/n → 0.
+    REQUIRE(limit(add(digamma(add(n, integer(1))),
+                      mul(S::NegativeOne(), digamma(n))),
+                  n, oo)
+            == S::Zero());
+}
+
 // LIMIT-LOGGAMMA-1: log of a diverging factorial/gamma expands by log-Stirling,
 // log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so log(n!) ~ (n+½)·log n − n + …
 // These were opaque: log(n!)/n returned a wrong 0, log(n!)/(n·log n) and

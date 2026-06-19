@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-DIGAMMA-1 — digamma ψ(n)/log n and ψ(n) − log n hung
+- **Problem:** `limit(ψ(n)/log n, n, ∞) = 1` and `limit(ψ(n) − log n, n, ∞) = 0` did not terminate
+  (`ψ = digamma = polygamma(0,·)`). The engine knew `ψ(n) → ∞` but had no asymptotic expansion, so the
+  ratio/difference forms spun.
+- **Fix:** extended the special-function asymptotic rewrite (which already expands a harmonic number `H(g)`) to
+  `polygamma(0, g)` with `g → +∞`: `ψ(g) = log g − 1/(2g) − 1/(12g²) + 1/(120g⁴) − …` (consistent with the
+  harmonic expansion via `ψ(g) = H(g−1) − γ`). Now `ψ(n)/log n → 1`, `ψ(n) − log n → 0`,
+  `n·(ψ(n) − log n) → −1/2`, `n²·(ψ(n) − log n + 1/(2n)) → −1/12`, and `ψ(n+1) − ψ(n) → 0`. Regression:
+  `LIMIT-DIGAMMA-1`. Matches SymPy.
+
 ### LIMIT-GAMMARATIO-SERIES-1 — gamma-ratio differences (Γ(n+1)/Γ(n+½) − √n) hung
 - **Problem:** `limit(Γ(n+1)/Γ(n+½) − √n, n, ∞) = 0`, `limit(√n·(Γ(n+1)/Γ(n+½) − √n), n, ∞) = 1/8`, and
   `·n² → ∞` did not terminate. The leading gamma-ratio asymptotic gives `Γ(n+1)/Γ(n+½) ~ √n` (which resolves

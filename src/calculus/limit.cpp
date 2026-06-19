@@ -3027,6 +3027,21 @@ struct Growth {
                                 mul(rational(-1, 12), pow(g, integer(-2)))}));
                 }
             }
+            // Digamma ψ(g) = polygamma(0, g), g → +∞: log g − 1/(2g) − 1/(12g²) +
+            // 1/(120g⁴) − …. (Consistent with H(g) above via ψ(g) = H(g−1) − γ.)
+            if (fn.function_id() == FunctionId::PolyGamma
+                && fn.args().size() == 2 && fn.args()[0] == S::Zero()
+                && !m.count(e)) {
+                const Expr& g = fn.args()[1];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(
+                        e, add({log(g),
+                                mul(rational(-1, 2), pow(g, integer(-1))),
+                                mul(rational(-1, 12), pow(g, integer(-2))),
+                                mul(rational(1, 120), pow(g, integer(-4)))}));
+                }
+            }
         }
         for (const auto& a : e->args()) self(self, a);
     };
