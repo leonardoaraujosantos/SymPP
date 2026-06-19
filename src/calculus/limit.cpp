@@ -894,6 +894,29 @@ struct NumDen { Expr num; Expr den; };
     return n;
 }
 
+// True if some gamma/factorial in e has an argument growing faster than var
+// (slope ≥ 2 — Γ(2n), (2n)!). The Stirling-root stage's leading (g/e)^g is then a
+// mixed-base super-power (base 2n+1 against a competing nⁿ) the engine spins on, so
+// such expressions are routed to the log-exp reduction instead.
+[[nodiscard]] bool has_multirate_gamma(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Function) {
+        const auto id = static_cast<const Function&>(*e).function_id();
+        if ((id == FunctionId::Gamma || id == FunctionId::Factorial)
+            && e->args().size() == 1 && has(e->args()[0], var)) {
+            const Expr slope = simplify(diff(e->args()[0], var));
+            if (slope->type_id() == TypeId::Integer
+                && is_positive(add(slope, integer(-1)))
+                       == std::optional<bool>{true}) {
+                return true;
+            }
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_multirate_gamma(a, var)) return true;
+    }
+    return false;
+}
+
 // Asymptotic growth at +∞ obeys the strict hierarchy
 //   factorial/gamma  ≫  exponential  ≫  polynomial  ≫  logarithm.
 // classify_growth maps one multiplicative factor f^s (s = ±1 the side it sits
@@ -3259,7 +3282,8 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // dominant-term case, handled below.
     if (depth < 10 && target == S::Infinity()
         && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)
-        && expr->type_id() != TypeId::Add) {
+        && expr->type_id() != TypeId::Add
+        && !has_multirate_gamma(expr, var)) {
         if (auto r = try_stirling_limit(expr, var, target, depth)) return *r;
     }
 

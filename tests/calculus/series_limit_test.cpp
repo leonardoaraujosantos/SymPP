@@ -1061,6 +1061,15 @@ TEST_CASE("limit: super-power vs factorial (LIMIT-SUPERPOW-1)",
                       nton(mul(S::NegativeOne(), n))),
                   n, oo)
             == S::NegativeOne());
+    // A *doubled-rate* factorial against a super-power: (2n)! = Γ(2n+1), whose
+    // Stirling-root leading form ((2n+1)/e)^(2n+1) is a mixed-base super-power the
+    // engine spins on, is routed to the log-exp reduction instead — log((2n)!/n^n)
+    // = log((2n)!) − n·log n → ∞ (log-Stirling + log-expansion), so exp → ∞.
+    REQUIRE(limit(mul(factorial(integer(2) * n), nton(mul(S::NegativeOne(), n))),
+                  n, oo)
+            == oo);                                          // (2n)!/n^n → ∞
+    REQUIRE(limit(mul(nton(n), pow(factorial(integer(2) * n), integer(-1))), n, oo)
+            == S::Zero());                                   // n^n/(2n)! → 0
 }
 
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental

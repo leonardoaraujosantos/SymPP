@@ -26,9 +26,20 @@ truth and links the issue number.
   and re-takes the limit. `2n·log(2n) − n·log n` becomes `2n·log 2 + n·log n → ∞` (now also using
   `LOG-SIGN-1` for `log 2 > 0`). Now `2n·log(2n) − n·log n → ∞`, `n·log(2n) − n·log n → ∞`,
   `n·log(n²) − 2n·log n → 0`, `3n·log(2n) − 2n·log(3n) → ∞`, and — through the log-Stirling stage —
-  `log((2n)!) − n·log n → ∞`. Regression: `LIMIT-LOGEXPAND-1`. Matches SymPy. (Still open: the bare ratio
-  `(2n)!/nⁿ`, whose Stirling-root rewrite produces a mixed-base super-power the engine spins on before the
-  log-exp reduction is reached.)
+  `log((2n)!) − n·log n → ∞`. Regression: `LIMIT-LOGEXPAND-1`. Matches SymPy.
+
+### LIMIT-MULTIRATE-GAMMA-1 — (2n)!/nⁿ and nⁿ/(2n)! hung
+- **Problem:** `limit((2n)!/nⁿ, n, ∞) = ∞` and `limit(nⁿ/(2n)!, n, ∞) = 0` did not terminate. The
+  Stirling-root stage fired (`nⁿ` is a var-radical) and rewrote `(2n)! = Γ(2n+1)` to its leading
+  `((2n+1)/e)^(2n+1)` — a super-power with base `2n+1` that does not factor against the competing `nⁿ` (base
+  `n`), so `limit_impl` spun on the mixed-base form. (`Γ(2n)/nⁿ` worked because `(2n)^(2n)` *does* factor to
+  `2^(2n)·n^(2n)`.)
+- **Fix:** skip the Stirling-root stage when a gamma/factorial argument grows faster than the variable
+  (slope ≥ 2 — `Γ(2n)`, `(2n)!`). Such expressions now reach the log-exp reduction `lim e = exp(lim log e)`,
+  whose `log e = log((2n)!) − n·log n` resolves via the log-Stirling + log-expansion stages (`LIMIT-LOGEXPAND-1`)
+  to `∞`, so `exp → ∞` (and `−∞ → 0` for the reciprocal). `Γ(2n)/nⁿ` keeps resolving — now through the same
+  log-exp path rather than the Stirling root. Now `(2n)!/nⁿ → ∞`, `nⁿ/(2n)! → 0`. Regression:
+  `LIMIT-SUPERPOW-1` (extended). Matches SymPy.
 
 ### LOG-SIGN-1 — log of a constant had an unknown sign, so log(2)·n → nan
 - **Problem:** `is_positive(log 2)` returned *unknown*, so `limit(log(2)·n, n, ∞)` returned `nan` — the engine
