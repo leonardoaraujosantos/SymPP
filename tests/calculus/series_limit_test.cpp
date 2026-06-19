@@ -656,6 +656,12 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
     REQUIRE(limit(cbrt(x3 + x2) - cbrt(x3 - x2), x, oo) == rational(2, 3));
     REQUIRE(limit(cbrt(integer(8) * x3 + x2) - integer(2) * x, x, oo)
             == rational(1, 12));
+    // LIMIT-NESTED-RADICAL: a nested radical leaves a residual radical in the
+    // conjugate numerator (√(x+√x) − √x ⇒ num = √x), but the rationalised ratio is
+    // still a determinate lower-order form. √(x+√x) − √x → 1/2,
+    // √(x+2√x) − √x → 1. Previously nan. Matches SymPy.
+    REQUIRE(limit(sq(x + sq(x)) - sq(x), x, oo) == rational(1, 2));
+    REQUIRE(limit(sq(x + integer(2) * sq(x)) - sq(x), x, oo) == S::One());
 }
 
 // LIMIT-STIRLING-1: n-th roots of factorial/gamma via Stirling's asymptotic

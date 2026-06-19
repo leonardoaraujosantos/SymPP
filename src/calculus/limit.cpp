@@ -1471,7 +1471,31 @@ struct Growth {
     const Expr& t2 = expr->args()[1];
     Expr num = simplify(mul(t1, t1) + mul(S::NegativeOne(), mul(t2, t2)));
     Expr den = simplify(t1 + mul(S::NegativeOne(), t2));  // t₁ − t₂
-    if (den == S::Zero() || has_var_radical(num, var)) return std::nullopt;
+    if (den == S::Zero()) return std::nullopt;
+    // The conjugate t₁²−t₂² normally clears the radical; when it does not (a
+    // nested radical like √(x+√x)−√x leaves num = √x), the rationalised ratio
+    // num/den is still a determinate lower-order form (√x/(√(x+√x)+√x) → 1/2), so
+    // attempt it rather than abstaining — but only when the residual num is a
+    // *simple* var radical c·x^q. That is exactly the nested-difference shape and
+    // keeps the engine from recursing on every other radical ∞−∞. Failure falls
+    // through on the nan check below, so it cannot loop.
+    if (has_var_radical(num, var)) {
+        Expr core = num;
+        if (num->type_id() == TypeId::Mul) {
+            int var_factors = 0;
+            for (const auto& f : num->args()) {
+                if (has(f, var)) {
+                    ++var_factors;
+                    core = f;
+                }
+            }
+            if (var_factors != 1) core = S::NaN();  // not a single var factor
+        }
+        const bool simple_radical =
+            core->type_id() == TypeId::Pow && core->args()[0] == var
+            && core->args()[1]->type_id() == TypeId::Rational;
+        if (!simple_radical) return std::nullopt;
+    }
     // Pass the ratio UNSIMPLIFIED: simplify() would rationalize the denominator
     // straight back to the original ∞ − ∞ form and loop. limit_impl substitutes
     // before simplifying, so the genuine pole collapses first.

@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-NESTED-RADICAL-1 — √(x+√x) − √x and similar nested differences returned nan
+- **Problem:** `limit(√(x+√x) − √x, x, ∞) = 1/2` returned `nan`. The conjugate handler rationalises
+  `t₁ − t₂ = (t₁²−t₂²)/(t₁+t₂)`, but bailed whenever the numerator `t₁²−t₂²` still contained a radical — and a
+  nested radical leaves exactly that (`num = √x`), even though the rationalised ratio `√x/(√(x+√x)+√x) → 1/2`
+  is perfectly determinate.
+- **Fix:** when the conjugate numerator is a **simple var radical** `c·x^q` (the nested-difference shape), the
+  ratio `num/den` is attempted rather than abstaining — it resolves as a clean lower-order form. Restricted to
+  that shape so the engine does not recurse on every other radical `∞−∞`, and any failure falls through on the
+  existing `nan` guard, so it cannot loop. Now `√(x+√x) − √x → 1/2`, `√(x+2√x) − √x → 1`; the plain radical
+  differences (`√(x²+x) − x → 1/2`, the n-th-root cases) are unchanged. Regression: `LIMIT-RADICAL-INF-1`
+  (extended). Matches SymPy.
+
 ### LIMIT-SMALL-ANGLE-1 — 0·∞ trig forms and the canonical Gruntz oscillation returned nan
 - **Problem:** `eˣ·sin(e⁻ˣ) → 1`, `x·tan(1/x) → 1`, and the canonical Gruntz oscillation
   `eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1` all returned `nan`. The heuristic engine has no leading-term rule for
