@@ -16,6 +16,20 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGGAMMA-1 — log of a factorial/gamma at +∞ gave nan / wrong 0 / hung
+- **Problem:** limits of `log(n!)` and `log Γ(n)` were unresolved. `log(n!)/n` returned a **wrong 0**
+  (SymPy: `∞`), `log(n!)/(n·log n)` and `log(n!) − n·log n` returned `nan` (SymPy: `1` and `−∞`), and
+  `log(n!)/log(nⁿ)` hung. The growth hierarchy has no entry for the log of a factorial/gamma, so these fell to
+  generic paths that mis-ranked or spun.
+- **Fix:** added `rewrite_loggamma_asymptotic`, which replaces each `log` of a divergent factorial/gamma by its
+  log-Stirling expansion `log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1)` — `log(n!) ~ (n+½)·log n − n + ½·log 2π`,
+  `log Γ(n) ~ (n−½)·log n − n + ½·log 2π` — then re-takes the (now elementary, exact-in-the-limit) limit. A
+  gamma with a positive-integer shift `Γ(var+k) = (var+k−1)!` is recast as that factorial so its log argument
+  stays var-clean (`Γ(n+1) ⇒ log n`, matching `n!`) rather than `log(n+1)`, on which the engine's
+  polynomial·log-ratio handling stalls — without this, `log(n!)/log Γ(n+1)` regressed from `1` to a hang.
+  Now `log(n!)/(n·log n) → 1`, `log(n!)/n → ∞`, `log(n!) − n·log n → −∞`, `(log(n!) − n·log n + n)/log n → ½`,
+  `log(n!)/log(nⁿ) → 1`, `log Γ(2n)/(n·log n) → 2`. Regression: `LIMIT-LOGGAMMA-1`. Matches SymPy.
+
 ### LIMIT-GAMMARATIO-1 (combined denominator) — Γ(n+½)/(√n·Γ(n)) gave nan / hung
 - **Problem:** half-integer gamma ratios written as ordinary division failed: `limit(Γ(n+½)/(√n·Γ(n)), n, ∞)`
   returned `nan` (SymPy: `1`) and `limit(Γ(n+3/2)/(n^(3/2)·Γ(n)), n, ∞)` even hung. The balanced-gamma-ratio

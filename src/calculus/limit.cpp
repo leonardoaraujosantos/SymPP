@@ -2331,6 +2331,71 @@ struct Growth {
     return limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
 }
 
+// Log-Stirling asymptotic at +∞. log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so
+//   log(g!)   = log Γ(g+1) ~ (g+½)·log g − g + ½·log 2π   (the log(g+1) folds away),
+//   log Γ(g)               ~ (g−½)·log g − g + ½·log 2π.
+// Replacing each log of a divergent factorial/gamma by its expansion turns the
+// expression elementary (the dropped o(1) vanishes, so the limit is exact). This
+// resolves log(n!)/(n log n) → 1, log(n!)/n → ∞ (was a wrong 0), log(n!) − n log n
+// → −∞, and log(n!)/log(nⁿ) → 1 (which previously hung).
+[[nodiscard]] std::optional<Expr> rewrite_loggamma_asymptotic(const Expr& expr,
+                                                              const Expr& var,
+                                                              const Expr& target,
+                                                              int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    const Expr half_log2pi =
+        mul(rational(1, 2), log(mul(integer(2), S::Pi())));
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.function_id() == FunctionId::Log && fn.args().size() == 1
+                && fn.args()[0]->type_id() == TypeId::Function) {
+                const auto& inner =
+                    static_cast<const Function&>(*fn.args()[0]);
+                const auto id = inner.function_id();
+                if ((id == FunctionId::Factorial || id == FunctionId::Gamma)
+                    && inner.args().size() == 1) {
+                    const Expr& g = inner.args()[0];
+                    if (has(g, var)
+                        && limit_impl(g, var, target, depth + 1)
+                               == S::Infinity()) {
+                        // z·log z − z form. factorial(g) = Γ(g+1) carries the +½
+                        // coefficient on log g; Γ(g) carries −½. A gamma with a
+                        // positive-integer shift, Γ(var+k) = (var+k−1)!, is recast as
+                        // the factorial of var+k−1 so its log argument stays var-clean
+                        // (Γ(n+1) ⇒ log n, matching n!) rather than log(n+1) — on which
+                        // the engine's polynomial·log-ratio handling stalls.
+                        Expr z = g, coeff = rational(1, 2);
+                        if (id == FunctionId::Gamma) {
+                            Expr s =
+                                simplify(add(g, mul(S::NegativeOne(), var)));
+                            if (s->type_id() == TypeId::Integer
+                                && is_positive(s) == std::optional<bool>{true}) {
+                                z = simplify(add(g, S::NegativeOne()));
+                            } else {
+                                coeff = rational(-1, 2);
+                            }
+                        }
+                        m.emplace(e, add({mul(add(z, coeff), log(z)),
+                                          mul(S::NegativeOne(), z),
+                                          half_log2pi}));
+                    }
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    // Expand so a difference such as log(n!) − n·log n flattens to a sum the
+    // log-combine / dominant-term rules resolve, rather than hiding behind a
+    // product as it would after a bare substitution.
+    return limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
+}
+
 // Leading-term (small-angle) substitution: every f(g) with f(t) = t + O(t³) at 0
 // — sin, tan, sinh, tanh, asin, atan, asinh, atanh — and g → 0 is replaced by its
 // argument g, after which the limit is re-taken. This resolves the 0·∞ forms the
@@ -2445,6 +2510,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // Harmonic numbers H(g), g → +∞, expand to log g + γ + 1/(2g) − …; opaque
     // otherwise (H(n)/log n → 0 wrong, H(n) → nan).
     if (auto v = rewrite_harmonic_asymptotic(expr, var, target, depth)) {
+        return *v;
+    }
+    // log of a divergent factorial/gamma → its log-Stirling expansion; opaque
+    // otherwise (log(n!)/n → 0 wrong, log(n!)/log(nⁿ) hung).
+    if (auto v = rewrite_loggamma_asymptotic(expr, var, target, depth)) {
         return *v;
     }
     // An expression with sign(g), g → 0, is discontinuous at the target; resolve

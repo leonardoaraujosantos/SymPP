@@ -2891,6 +2891,50 @@ TEST_CASE("limit: harmonic number asymptotics (LIMIT-HARMONIC-1)",
     REQUIRE(harmonic(integer(5)) == rational(137, 60));
 }
 
+// LIMIT-LOGGAMMA-1: log of a diverging factorial/gamma expands by log-Stirling,
+// log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so log(n!) ~ (n+½)·log n − n + …
+// These were opaque: log(n!)/n returned a wrong 0, log(n!)/(n·log n) and
+// log(n!) − n·log n returned nan, and log(n!)/log(nⁿ) hung. A gamma with a
+// positive-integer shift is recast as the equal factorial so its log argument
+// stays var-clean (Γ(n+1) ⇒ log n, matching n!). Matches SymPy.
+TEST_CASE("limit: log-Stirling asymptotics of log Γ / log n! (LIMIT-LOGGAMMA-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr nln = mul(n, log(n));
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // log(n!)/(n·log n) → 1, log Γ(n)/(n·log n) → 1.
+    REQUIRE(simplify(limit(over(log(factorial(n)), nln), n, oo)) == S::One());
+    REQUIRE(simplify(limit(over(log(gamma(n)), nln), n, oo)) == S::One());
+    // log(n!)/n → ∞ (previously a wrong 0).
+    REQUIRE(limit(over(log(factorial(n)), n), n, oo) == oo);
+    // log(n!) − n·log n → −∞, and divided by n → −1.
+    REQUIRE(limit(add(log(factorial(n)), mul(S::NegativeOne(), nln)), n, oo)
+            == S::NegativeInfinity());
+    REQUIRE(simplify(limit(
+                over(add(log(factorial(n)), mul(S::NegativeOne(), nln)), n),
+                n, oo))
+            == S::NegativeOne());
+    // The ½·log n term: (log(n!) − n·log n + n)/log n → 1/2.
+    REQUIRE(simplify(limit(
+                over(add({log(factorial(n)), mul(S::NegativeOne(), nln), n}),
+                     log(n)),
+                n, oo))
+            == S::Half());
+    // log(n!)/log(nⁿ) → 1 (previously hung), and log Γ(2n)/(n·log n) → 2.
+    REQUIRE(simplify(limit(over(log(factorial(n)), log(pow(n, n))), n, oo))
+            == S::One());
+    REQUIRE(simplify(limit(over(log(gamma(mul(integer(2), n))), nln), n, oo))
+            == integer(2));
+    // Γ(n+1) = n! recast keeps the log argument var-clean: log(n!)/log Γ(n+1) → 1
+    // (previously hung on the mismatched log n vs log(n+1)).
+    REQUIRE(limit(over(log(factorial(n)), log(gamma(n + integer(1)))), n, oo)
+            == S::One());
+}
+
 // LIMIT-GAMMA-DUP-1: Legendre duplication splits a doubled-rate Γ(2x+b) into
 // slope-1 gammas plus a 4ˣ, which the gamma-ratio asymptotic's exponential-rate
 // branch then resolves: the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0,
