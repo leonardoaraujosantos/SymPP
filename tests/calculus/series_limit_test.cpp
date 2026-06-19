@@ -3274,6 +3274,36 @@ TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOG
             == S::Zero());
 }
 
+// LIMIT-LOGSUMDOM-1: log of a sum with no exponential dominator — the
+// logarithmic-rate companion to LIMIT-LOGEXPSUM-1. For log(Σ tᵢ) at +∞ with a
+// unique dominant summand t* (every other tⱼ/t* → 0), log(Σ) = log(t*) + log(Σ/t*)
+// and Σ/t* → 1, so the residual log → 0. This unfolds nested-log sums the
+// exponential path skips: log(log x + log log x) − log log x → 0, the ratio
+// /log log x → 1, and a ratio against a faster log → 0. Previously these hung.
+// Matches SymPy.
+TEST_CASE("limit: log of a sum with a logarithmic-rate dominant term (LIMIT-LOGSUMDOM-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr lx = log(x);
+    const Expr llx = log(log(x));
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // log(log x + log log x) ~ log log x: the difference → 0, the ratio → 1.
+    REQUIRE(limit(add(log(add(lx, llx)), mul(S::NegativeOne(), llx)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(over(log(add(lx, llx)), llx), x, oo) == S::One());
+    // A faster log in the denominator wins: log(log x + log log x)/log(x + log x) → 0.
+    REQUIRE(limit(over(log(add(lx, llx)), log(add(x, lx))), x, oo) == S::Zero());
+    // Triple nesting still peels: log(log x + log log log x) − log log x → 0.
+    REQUIRE(limit(add(log(add(lx, log(llx))), mul(S::NegativeOne(), llx)), x, oo)
+            == S::Zero());
+    // Sanity: the bare log of the sum still diverges.
+    REQUIRE(limit(log(add(lx, llx)), x, oo) == oo);
+}
+
 // LIMIT-LOGEXPSUM-1: log of an exponential-dominated sum that also carries
 // polynomial terms — log(x + eˣ), log(x³ + 5eˣ) — extracts the dominant exponent:
 // log(Σ) = e_dom + log(1 + residual/e^{e_dom}). Previously the polynomial summand

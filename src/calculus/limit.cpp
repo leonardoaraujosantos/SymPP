@@ -2045,6 +2045,77 @@ struct Growth {
     return r;
 }
 
+// Gruntz leading-term of a log of a sum with no exponential dominator — the
+// logarithmic-rate companion to try_log_exp_asymptotic. For log(Σ tᵢ) at +∞ with
+// a unique dominant summand t* (every other tⱼ/t* → 0) that itself diverges or
+// vanishes, log(Σ) = log(t*) + log(Σ/t*), and Σ/t* → 1 so the residual log is
+// bounded (→ 0). This unfolds nested-log sums the exponential path skips:
+// log(log x + log log x) → log(log x) + log(1 + log log x/log x), so
+// log(log x + log log x) − log log x → 0 and the ratio /log log x → 1. Held to a
+// shallow depth and a single rewrite per pass; the residual quotient is resolved
+// by the dominant-denominator division. Only fires when the exponential path has
+// already abstained, so exp-dominated sums keep their dedicated (sharper) rewrite.
+[[nodiscard]] std::optional<Expr> rewrite_log_sum_dominant(const Expr& expr,
+                                                           const Expr& var,
+                                                           const Expr& target,
+                                                           int depth) {
+    if (depth >= 4 || target->type_id() != TypeId::Infinity) return std::nullopt;
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    // First log(g) with g a var-dependent sum.
+    Expr the_log;
+    auto find = [&](auto&& self, const Expr& e) -> void {
+        if (the_log) return;
+        if (is_log(e) && e->args()[0]->type_id() == TypeId::Add
+            && has(e->args()[0], var)) {
+            the_log = e;
+            return;
+        }
+        for (const auto& a : e->args()) {
+            if (the_log) return;
+            self(self, a);
+        }
+    };
+    find(find, expr);
+    if (!the_log) return std::nullopt;
+
+    const Expr& g = the_log->args()[0];
+    const auto& terms = g->args();
+    if (terms.size() < 2 || terms.size() > 6) return std::nullopt;
+    // Unique dominant summand: every other term divided by it tends to 0.
+    Expr dom;
+    for (const auto& ti : terms) {
+        if (!has(ti, var)) continue;
+        bool dominates = true;
+        for (const auto& tj : terms) {
+            if (tj.get() == ti.get()) continue;
+            Expr ratio = limit_impl(simplify(mul(tj, pow(ti, integer(-1)))),
+                                    var, target, depth + 1);
+            if (!(ratio == S::Zero())) { dominates = false; break; }
+        }
+        if (dominates) { dom = ti; break; }
+    }
+    if (!dom) return std::nullopt;
+    // Require the dominant term to diverge or vanish, so log(dom) is unbounded and
+    // the split makes progress (a constant dominator would just reproduce log(g)).
+    Expr dl = limit_impl(dom, var, target, depth + 1);
+    if (!is_infinity(dl) && !(dl == S::Zero())) return std::nullopt;
+
+    Expr residual = simplify(mul(g, pow(dom, integer(-1))));  // → 1
+    Expr new_log = add(log(dom), log(residual));
+    ExprMap<Expr> repl;
+    repl.emplace(the_log, new_log);
+    Expr expr2 = expand(xreplace(expr, repl));
+    if (expr2 == expr) return std::nullopt;
+    Expr r = limit_impl(expr2, var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 // Resolve logarithms at the target.
 //   (a) limit(log(g)) = log(limit g)   for a positive-finite or +∞ inner limit;
 //   (b) Σ cᵢ·log(gᵢ) + rest: factor a common κ so every cᵢ/κ is an integer,
@@ -3609,6 +3680,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // it. The handler bails fast unless such a log is present.
     if (depth < 12) {
         if (auto v = try_log_exp_asymptotic(expr, var, target, depth)) return *v;
+        // No exponential dominator: peel the dominant summand of a nested-log sum
+        // (log(log x + log log x) − log log x → 0).
+        if (auto v = rewrite_log_sum_dominant(expr, var, target, depth)) return *v;
     }
 
     // Linearity over a sum, attempted before direct substitution: when every

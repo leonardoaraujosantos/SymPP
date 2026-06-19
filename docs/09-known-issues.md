@@ -16,6 +16,21 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGSUMDOM-1 — log of a non-exponential sum (log(log x + log log x)) hung
+- **Problem:** `log(log x + log log x) − log log x → 0`, `log(log x + log log x)/log log x → 1`, and the ratio
+  against a faster log all hung. The log-of-a-sum rewrite (`LIMIT-LOGEXPSUM-1`) only fired when the sum had an
+  *exponential* dominator; a sum whose dominant summand has logarithmic rate (`log x` dominating `log log x`) was
+  left untouched, and the bare `log(∞)` folded into a non-terminating form. (This was the open item noted under
+  `LIMIT-LOGEXPSUM-1`.)
+- **Fix:** added the logarithmic-rate companion `rewrite_log_sum_dominant` — the Gruntz leading-term of a log of
+  a sum. For `log(Σ tᵢ)` at +∞ with a unique dominant summand `t*` (every other `tⱼ/t* → 0`) that itself
+  diverges or vanishes, `log(Σ) = log(t*) + log(Σ/t*)` with `Σ/t* → 1`, so the residual log is bounded (→ 0). It
+  fires only after the exponential path abstains, is held to a shallow depth and one rewrite per pass, and bails
+  on a constant dominator (so `log(1 + a/x)` from the power-series machinery is untouched — no slowdown). The
+  residual quotient is closed by the dominant-denominator division. Now `log(log x + log log x) − log log x → 0`,
+  `log(log x + log log x)/log log x → 1`, `log(log x + log log x)/log(x + log x) → 0`, and the triple-nested
+  `log(log x + log log log x) − log log x → 0`. Regression: `LIMIT-LOGSUMDOM-1`. Matches SymPy.
+
 ### LIMIT-LOGEXPSUM-1 — log of an exponential sum with polynomial terms hung in a ratio
 - **Problem:** `log(x + eˣ)/log(x + e²ˣ) → 1/2` (and the wider family of ratios of logs of exponential-dominated
   sums that also carry polynomial terms) did not terminate. The log-of-an-exponential-sum rewrite identifies the
