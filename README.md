@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1534%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1554%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1534 tests / 5373 assertions  all passing
-670 cases (2711 assertions) oracle-validated against SymPy
+1554 tests / 5488 assertions  all passing
+672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
 
@@ -243,8 +243,11 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
   (incomplete gamma, with positive-integer and half-integer erf/erfc closed
   forms), `Hyper` and `MeijerG` (proper Function classes with auto-eval) and the
   rest of the elementary + special + combinatorial canon.
-- **Calculus** — `diff` (with an unevaluated `Derivative` node for
-  undefined/untabulated functions — never a silent `0`), `integrate`
+- **Calculus** — `diff` (closed-form parameter derivatives for the gamma family —
+  `∂ₐΒ(a,b)=Β(a,b)(ψ(a)−ψ(a+b))`, `H′(x)=ψ⁽¹⁾(x+1)` — with an unevaluated
+  `Derivative` node for the genuinely non-elementary directions (`∂ₛγ(s,x)`,
+  `∂ₙψ⁽ⁿ⁾`) and for undefined/untabulated functions — never a silent `0`),
+  `integrate`
   (table + trig + reciprocal-trig/hyperbolic + parts + arctan/asin/asinh +
   rational incl. improper/linear-denominator + heurisch + Weierstrass
   half-angle + incomplete-gamma forms `∫xˢ⁻¹e⁻ˣ = γ(s,x)`, `∫₀^∞ xˢ⁻¹e⁻ᶜˣ = Γ(s)/cˢ`;
@@ -259,9 +262,17 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
   products (`n!/(nⁿe⁻ⁿ)→∞`), constant-base-exponential rationals
   (`(2ˣ+3ˣ)/3ˣ→1`), hyperbolic→exp rewriting (`(sinh x+cosh x)/eˣ→1`),
   inverse-hyperbolic two-term asymptotics (`asinh x/log x→1`), an MRV rewrite for
-  exponential differences (Gruntz's flagship `e^{x+e⁻ˣ}−eˣ→1`), and a
+  exponential differences — including a product carrying one, `M·(eᵖ−eᵍ)` with
+  `p−q→0` (Gruntz's flagship `eˣ·(e^{1/x−e⁻ˣ}−e^{1/x})→−1`) — special-function
+  asymptotic series for `erfc`/`erf` (Gaussian tail), `Ei`, Riemann `ζ`, digamma /
+  higher polygamma, log-Stirling `loggamma`, the Tricomi–Erdélyi gamma-ratio
+  subleading term, and the arctangent (`x·(atan x−π/2)→−1`, with subleading),
+  dominant-summand extraction from a `log` of an exponential- or logarithmic-rate
+  sum (`log(x+eˣ)/log(x+e²ˣ)→1/2`, `log(log x+log log x)−log log x→0`), the
+  log-exp reduction for tower products (`xˣ/(x+1)^{x+1}→0`), and a
   leading-term-by-series stage for `1^∞` corrections at `±∞` and finite points
-  (`x·((1+1/x)ˣ−e)→−e/2`, `(xˣ−1)/(x·log x)→1`) — resolves `Γ(2n)/nⁿ`,
+  (`x·((1+1/x)ˣ−e)→−e/2`, `(xˣ−1)/(x·log x)→1`), generalized to a series core
+  times a non-polynomial multiplier (`eˣ·((1+1/x)ˣ−e)→−∞`) — resolves `Γ(2n)/nⁿ`,
   `eˣ·(sin(1/x+e⁻ˣ)−sin(1/x))→1`; size-bounded so it never hangs),
   `summation` (p-series → ζ, exponential/geometric series, telescoping,
   geometric/arithmetic-geometric, irreducible-quadratic

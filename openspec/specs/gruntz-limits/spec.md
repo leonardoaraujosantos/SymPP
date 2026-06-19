@@ -1,7 +1,13 @@
 # gruntz-limits Specification
 
 ## Purpose
-TBD - created by archiving change add-heavy-algorithm-engines. Update Purpose after archive.
+
+Evaluate hard asymptotic limits at `±∞` and at finite points that the bare
+substitution / L'Hôpital heuristics leave as `nan` or spin on, using a composable
+stack of Gruntz-style named asymptotic stages (most-rapidly-varying rewrites,
+dominant-term selection, special-function asymptotic series, and leading-term-by-
+series), always terminating with a determinate value or an honest `nan`.
+
 ## Requirements
 ### Requirement: Gamma-ratio asymptotics at infinity
 
@@ -146,9 +152,91 @@ inverse hyperbolic of a diverging argument (numerically verified).
 
 The engine SHALL resolve a difference of asymptotically-equal exponentials by
 factoring out a common `exp(b)` (an exact identity), collapsing the difference
-to a unit term — Gruntz's flagship most-rapidly-varying example.
+to a unit term — Gruntz's flagship most-rapidly-varying example. It SHALL also
+resolve such a difference wrapped in a product, `M·(c·eᵖ − c·eᵍ)` with `p − q → 0`,
+via the exact equivalence `eᵖ − eᵍ ~ eᵍ·(p − q)` (a bare constant counts as `e⁰`,
+so `eᵘ − 1` is the same rule), read off algebraically without a numeric guard
+(which would underflow on the `e^{−e⁻ˣ} − 1` cancellation).
 
 #### Scenario: Difference of asymptotically-equal exponentials
 - **WHEN** `limit(e^{x+e⁻ˣ} − eˣ, x, ∞)` is requested
 - **THEN** the result is `1`
+
+#### Scenario: Product times a unit exponential difference
+- **WHEN** `limit(eˣ·(e^{1/x − e⁻ˣ} − e^{1/x}), x, ∞)`, `limit(eˣ·(e^{1/x} − 1), x, ∞)` are requested
+- **THEN** the results are `−1` and `∞`
+
+### Requirement: Special-function asymptotic series
+
+The engine SHALL expand a special function of a diverging argument by its named
+asymptotic series so that limits where a leading term has been cancelled resolve to
+a determinate value: the complementary error function `erfc`/`erf` (Gaussian tail,
+DLMF 7.12.1), the exponential integral `Ei` (DLMF 6.12.2), the Riemann zeta `ζ(s)`
+(`→ 1` with `2⁻ˢ` correction), the digamma and higher polygamma (DLMF 5.15.8), the
+log-Stirling `loggamma`, the Tricomi–Erdélyi gamma-ratio subleading term, and the
+arctangent / arccotangent (`atan(g) ~ ±π/2 − 1/g + 1/(3g³) − …`, DLMF 4.24.3).
+
+#### Scenario: Complementary error function and exponential integral
+- **WHEN** `limit(x·eˣ²·erfc(x), x, ∞)` and `limit(x·e⁻ˣ·Ei(x), x, ∞)` are requested
+- **THEN** the results are `1/√π` and `1`
+
+#### Scenario: Riemann zeta tends to 1
+- **WHEN** `limit(ζ(x), x, ∞)` and `limit(2ˣ·(ζ(x) − 1), x, ∞)` are requested
+- **THEN** the results are `1` and `1`
+
+#### Scenario: Arctangent subleading asymptotics
+- **WHEN** `limit(x·(atan x − π/2), x, ∞)`, `limit(x³·(atan x − π/2 + 1/x), x, ∞)`, and the expanded `limit(x·atan x − π·x/2, x, ∞)` are requested
+- **THEN** the results are `−1`, `1/3`, and `−1`
+
+### Requirement: Logarithm of a dominated sum
+
+The engine SHALL extract the dominant summand of a `log` of a var-dependent sum,
+`log(Σ tᵢ) = log(t*) + log(Σ/t*)`, for both an exponential-dominated sum (treating
+a polynomial summand as a sub-exponential, rate-0 coefficient) and a sum whose
+dominant summand has logarithmic rate, so the residual `log(1 + small)` vanishes
+and ratios/differences of such logs resolve.
+
+#### Scenario: Ratio of logs of exponential-dominated polynomial sums
+- **WHEN** `limit(log(x + eˣ)/log(x + e²ˣ), x, ∞)` and `limit(log(x³ + 5eˣ)/x, x, ∞)` are requested
+- **THEN** the results are `1/2` and `1`
+
+#### Scenario: Log of a logarithmic-rate sum
+- **WHEN** `limit(log(log x + log log x) − log log x, x, ∞)` is requested
+- **THEN** the result is `0`
+
+### Requirement: Series core times a non-polynomial multiplier
+
+The engine SHALL resolve a vanishing `1^∞` series core multiplied by a factor the
+direct coordinate substitution cannot expand (`eˣ → exp(1/u)`, `√x`/`log x` poles)
+by peeling the core's leading monomial `c₀·x⁻ᵐ` and re-taking `M·c₀·x⁻ᵐ`.
+
+#### Scenario: Series core times an exponential / fractional-power multiplier
+- **WHEN** `limit(eˣ·((1+1/x)ˣ − e), x, ∞)`, `limit(√x·((1+1/x)ˣ − e), x, ∞)` are requested
+- **THEN** the results are `−∞` and `0`
+
+### Requirement: Tower products via log-exp reduction
+
+The engine SHALL resolve a product of variable-exponent powers (a "tower product"
+substituting to the indeterminate `∞·0`) by `lim e = exp(lim log e)`, hoisted ahead
+of the `f(x)^{g(x)}` power stages that otherwise spin on it.
+
+#### Scenario: x^x / (x+1)^(x+1)
+- **WHEN** `limit(xˣ/(x+1)^{x+1}, x, ∞)` and `limit((x+1)^{x+1}/xˣ, x, ∞)` are requested
+- **THEN** the results are `0` and `∞`
+
+### Requirement: Different-rate radical differences resolve by dominant term
+
+For an `∞−∞` difference whose terms have different growth rates, the engine SHALL
+apply the dominant-term rule before the conjugate-rationalization stage, so a
+radical difference of unequal rate (`log log x − √(log x·log log x)`) follows its
+dominant term rather than recursing on a worse `∞−∞`. Equal-rate radical
+differences SHALL still resolve via the conjugate.
+
+#### Scenario: Different-rate radical difference
+- **WHEN** `limit(log log x − √(log x·log log x), x, ∞)` is requested
+- **THEN** the result is `−∞`, resolved in milliseconds (not by tens of seconds of conjugate recursion)
+
+#### Scenario: Equal-rate radical difference unchanged
+- **WHEN** `limit(√(x²+x) − x, x, ∞)` is requested
+- **THEN** the result is `1/2` (still the conjugate path)
 
