@@ -3274,6 +3274,39 @@ TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOG
             == S::Zero());
 }
 
+// LIMIT-ERFC-1: the complementary error function erfc(g) with a diverging argument
+// expands by its Gaussian-tail asymptotic erfc(g) ~ e^{−g²}/(g√π)·(1 − 1/(2g²) +
+// 3/(4g⁴) − …) (DLMF 7.12.1), and erf(g) = 1 − erfc(g). Previously these returned
+// nan. The expansion fires only with a single erf/erfc node, so a ratio like
+// erfc(x)/erfc(2x) — whose e^{−g²} factors do not cancel and which SymPy also leaves
+// unevaluated — stays nan rather than spinning. Matches SymPy.
+TEST_CASE("limit: complementary error function asymptotics (LIMIT-ERFC-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr sqrt_pi = pow(S::Pi(), rational(1, 2));
+
+    // x·erfc(x) → 0 and e^{x²}·erfc(x) → 0 (the tail beats any polynomial alone).
+    REQUIRE(limit(mul(x, erfc(x)), x, oo) == S::Zero());
+    REQUIRE(limit(mul(exp(pow(x, integer(2))), erfc(x)), x, oo) == S::Zero());
+    // x·e^{x²}·erfc(x) → 1/√π is the leading tail coefficient.
+    REQUIRE(simplify(limit(mul(mul(x, exp(pow(x, integer(2)))), erfc(x)), x, oo))
+            == pow(sqrt_pi, integer(-1)));
+    // Subleading term: x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π).
+    REQUIRE(simplify(limit(
+                add(mul(mul(pow(x, integer(3)), exp(pow(x, integer(2)))), erfc(x)),
+                    mul(S::NegativeOne(), mul(pow(x, integer(2)),
+                                             pow(sqrt_pi, integer(-1))))),
+                x, oo))
+            == mul(rational(-1, 2), pow(sqrt_pi, integer(-1))));
+    // erf(x) = 1 − erfc(x): (1 − erf(x))/e^{−x²} → 0.
+    REQUIRE(limit(mul(add(S::One(), mul(S::NegativeOne(), erf(x))),
+                      pow(exp(mul(S::NegativeOne(), pow(x, integer(2)))),
+                          integer(-1))),
+                  x, oo)
+            == S::Zero());
+}
+
 // LIMIT-LOGGAMMA-1: log of a diverging factorial/gamma expands by log-Stirling,
 // log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so log(n!) ~ (n+½)·log n − n + …
 // These were opaque: log(n!)/n returned a wrong 0, log(n!)/(n·log n) and

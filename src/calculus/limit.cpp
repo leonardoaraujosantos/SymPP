@@ -3012,6 +3012,21 @@ struct Growth {
     if (depth >= 10 || target->type_id() != TypeId::Infinity) {
         return std::nullopt;
     }
+    // Count erf/erfc occurrences once: the Gaussian-tail expansion is only applied
+    // when a single one is present, so a ratio erfc(x)/erfc(2x) — whose e^{−g²}
+    // factors do not cancel and which SymPy also leaves unevaluated — is not turned
+    // into a spinning e^{3x²}·(series ratio) form.
+    int erf_count = 0;
+    {
+        auto cnt = [&](auto&& self, const Expr& e) -> void {
+            if (e->type_id() == TypeId::Function) {
+                const auto id = static_cast<const Function&>(*e).function_id();
+                if (id == FunctionId::Erf || id == FunctionId::Erfc) ++erf_count;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        cnt(cnt, expr);
+    }
     ExprMap<Expr> m;
     auto scan = [&](auto&& self, const Expr& e) -> void {
         if (e->type_id() == TypeId::Function) {
@@ -3099,6 +3114,31 @@ struct Growth {
                              mul(S::NegativeOne(), z),
                              mul(rational(1, 2), log(mul(integer(2), S::Pi()))),
                              mul(rational(1, 12), pow(z, integer(-1)))}));
+                }
+            }
+            // erfc(g) / erf(g), g → +∞ (DLMF 7.12.1): the complementary error
+            // function decays as a Gaussian times a 1/g² series,
+            //   erfc(g) ~ e^{−g²}/(g·√π)·(1 − 1/(2g²) + 3/(4g⁴) − 15/(8g⁶) + …),
+            // and erf(g) = 1 − erfc(g). This gives the rate the bare erf(∞)=1,
+            // erfc(∞)=0 values lack — x·e^{x²}·erfc(x) → 1/√π, etc.
+            if ((fn.function_id() == FunctionId::Erf
+                 || fn.function_id() == FunctionId::Erfc)
+                && fn.args().size() == 1 && erf_count == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    const Expr erfc_asy = mul(
+                        mul(exp(mul(S::NegativeOne(), pow(g, integer(2)))),
+                            pow(mul(g, pow(S::Pi(), rational(1, 2))),
+                                integer(-1))),
+                        add({S::One(),
+                             mul(rational(-1, 2), pow(g, integer(-2))),
+                             mul(rational(3, 4), pow(g, integer(-4))),
+                             mul(rational(-15, 8), pow(g, integer(-6)))}));
+                    m.emplace(e, fn.function_id() == FunctionId::Erfc
+                                     ? erfc_asy
+                                     : add(S::One(), mul(S::NegativeOne(),
+                                                         erfc_asy)));
                 }
             }
         }

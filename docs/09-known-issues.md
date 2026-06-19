@@ -16,6 +16,17 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ERFC-1 — complementary error function erfc(x) limits returned nan
+- **Problem:** `erfc`/`erf` of a diverging argument had no asymptotic expansion, so `x·erfc(x) → 0`,
+  `e^{x²}·erfc(x) → 0`, `x·e^{x²}·erfc(x) → 1/√π`, `x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π)`, and
+  `(1 − erf(x))/e^{−x²} → 0` all returned `nan`.
+- **Fix:** extended the special-function asymptotic rewrite with the Gaussian-tail expansion (DLMF 7.12.1)
+  `erfc(g) ~ e^{−g²}/(g√π)·(1 − 1/(2g²) + 3/(4g⁴) − 15/(8g⁶) + …)` for `g → +∞`, with `erf(g) = 1 − erfc(g)`.
+  The rewrite fires only when a single `erf`/`erfc` node is present: a ratio such as `erfc(x)/erfc(2x)`, whose
+  `e^{−g²}` factors do not cancel and which SymPy itself leaves unevaluated, stays `nan` rather than spinning on
+  an `e^{3x²}·(series ratio)` form. Now `x·erfc(x) → 0`, `e^{x²}·erfc(x) → 0`, `x·e^{x²}·erfc(x) → 1/√π`,
+  `x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π)`, `(1 − erf(x))/e^{−x²} → 0`. Regression: `LIMIT-ERFC-1`. Matches SymPy.
+
 ### LIMIT-POLYGAMMA-LOGGAMMA-1 — higher polygamma ψ⁽ᵐ⁾(n) and loggamma(n) limits hung
 - **Problem:** the higher polygammas `ψ⁽ᵐ⁾(n) = polygamma(m, n)` for `m ≥ 1` and the `loggamma` function had
   no asymptotic expansion, so `n·ψ'(n) → 1`, `n³·ψ''(n) → −∞`, `loggamma(n)/(n·log n) → 1`, and
