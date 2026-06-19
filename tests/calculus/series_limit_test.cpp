@@ -751,6 +751,42 @@ TEST_CASE("limit: general power in a difference does not hang (LIMIT-NOHANG-1)",
             == exp(integer(-1)));
 }
 
+// LIMIT-SERIES-1: the asymptotic correction to a 1^∞ power, g(x)·((1+a/x)^x − eᵃ).
+// (1+a/x)^x = eᵃ·(1 − a²/(2x) + …), so x·((1+a/x)^x − eᵃ) → −a²·eᵃ/2. These hung:
+// the power-as-exp rewrite turns them into an ∞·0 the heuristic paths spin on. The
+// Gruntz leading-term step substitutes x = 1/u, lifts the power to exp(·log·),
+// factors the u-pole, series-expands the regular part, and reads the limit. The
+// rule is gated to a finite-nonzero-base power inside a sum, so x^(1/x) (base → ∞,
+// the LIMIT-NOHANG-1 form) is left untouched. Matches SymPy.
+TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto recip = [&](const Expr& a) { return pow(a, integer(-1)); };
+    const Expr onep = add(S::One(), recip(x));           // 1 + 1/x
+
+    // x·((1+1/x)^x − e) → −e/2.
+    REQUIRE(limit(mul(x, add(pow(onep, x), mul(S::NegativeOne(), S::E()))), x, oo)
+            == mul(rational(-1, 2), S::E()));
+    // ((1+1/x)^x − e)/(1/x) → −e/2 (same correction, written as a 0/0 ratio).
+    REQUIRE(limit(mul(add(pow(onep, x), mul(S::NegativeOne(), S::E())), recip(recip(x))),
+                  x, oo)
+            == mul(rational(-1, 2), S::E()));
+    // a = 2: x·((1+2/x)^x − e²) → −2·e².
+    const Expr onep2 = add(S::One(), mul(integer(2), recip(x)));
+    REQUIRE(limit(mul(x, add(pow(onep2, x),
+                             mul(S::NegativeOne(), pow(S::E(), integer(2))))),
+                  x, oo)
+            == mul(integer(-2), pow(S::E(), integer(2))));
+    // Gate guard: a base that diverges (x^(1/x)) is left to the no-hang path and
+    // must still return the honest nan, not spin in the series machinery.
+    REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
+                      add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+                ->type_id()
+            == TypeId::NaN);
+}
+
 // LIMIT-COMMON-LOG-1: a ratio of var-base/var-exponent powers, x^x/(x+1)^x and
 // (x+1)^x/x^x, previously hung. The power-as-exp/exp-combine path produces the
 // distributed exponent x·log(x+1) − x·log(x), an ∞−∞ the standard (var-free

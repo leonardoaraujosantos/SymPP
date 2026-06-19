@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <sympp/calculus/diff.hpp>
+#include <sympp/calculus/series.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/core/float.hpp>
@@ -2012,6 +2013,160 @@ struct Growth {
     return r;
 }
 
+// Gruntz leading-term via series. For an indeterminate form built from a variable
+// power inside a sum — g(x)·(f(x)^{h(x)} − c), the 1^∞ minus its value — substitute
+// x = ±1/u (so x → ±∞ becomes u → 0⁺), rewrite each u-dependent power to exp(·log·)
+// so series() can expand it, factor out the explicit u-power pole, expand the
+// regular part, recombine, and read the limit off the leading term. Resolves
+// x·((1+1/x)^x − e) → −e/2, which the power-as-exp + reciprocal paths spin on.
+[[nodiscard]] std::optional<Expr> try_series_limit(const Expr& expr,
+                                                   const Expr& var,
+                                                   const Expr& target,
+                                                   int depth) {
+    if (depth >= 8 || !is_infinity(target)) return std::nullopt;
+    // Gate to a variable power f(x)^{g(x)} sitting inside a sum (the f^g − c shape
+    // the other asymptotic paths leave hanging), AND whose base tends to a finite
+    // nonzero limit. The base condition is essential: x^(1/x) (base → ∞) becomes
+    // log(1/u) = −log u after x = 1/u, a singular log series cannot expand — that is
+    // the LIMIT-NOHANG-1 form, which must stay short-circuited. (1+1/x)^x has base
+    // → 1, giving the analytic log(1+u). Other forms are left untouched.
+    bool gated = false;
+    auto g = [&](auto&& self, const Expr& e, bool under_add) -> void {
+        if (gated) return;
+        if (under_add && e->type_id() == TypeId::Pow
+            && has(e->args()[0], var) && has(e->args()[1], var)) {
+            Expr lb = limit_impl(e->args()[0], var, target, depth + 1);
+            if (!is_nan(lb) && !is_infinity(lb) && !(lb == S::Zero())
+                && lb->type_id() != TypeId::ComplexInfinity) {
+                gated = true;
+            }
+            return;
+        }
+        const bool c = under_add || e->type_id() == TypeId::Add;
+        for (const auto& a : e->args()) self(self, a, c);
+    };
+    g(g, expr, false);
+    if (!gated) return std::nullopt;
+
+    const Expr sgn = target->type_id() == TypeId::Infinity ? S::One()
+                                                           : S::NegativeOne();
+    // A plain symbol (no positivity): with u marked positive the exp(g·log f)
+    // rewrite below canonicalizes straight back to f^g, defeating the series step.
+    Expr u = symbol("__series_u");
+    Expr eu = subs(expr, var, mul(sgn, pow(u, integer(-1))));  // x = ±1/u
+    // Rewrite any power with a u-dependent exponent to exp(exponent·log base): the
+    // series machinery cannot expand a raw f(u)^{g(u)}, only its exponential form.
+    ExprMap<Expr> rwmap;
+    auto rw = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Pow && !rwmap.count(e)
+            && has(e->args()[1], u)) {
+            rwmap.emplace(e, exp(mul(e->args()[1], log(e->args()[0]))));
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    rw(rw, eu);
+    Expr re = rwmap.empty() ? eu : xreplace(eu, rwmap);
+    // Factor the explicit u-power pole: re = u^p · rest. Pulling the pole out keeps
+    // series(rest) regular — it stalls on a raw (1/u)·(nested-exp) form.
+    Expr p = S::Zero();
+    std::vector<Expr> rest_factors;
+    if (re->type_id() == TypeId::Mul) {
+        for (const auto& f : re->args()) {
+            if (f == u) {
+                p = add(p, S::One());
+            } else if (f->type_id() == TypeId::Pow && f->args()[0] == u
+                       && is_number(f->args()[1])) {
+                p = add(p, f->args()[1]);
+            } else {
+                rest_factors.push_back(f);
+            }
+        }
+    } else {
+        rest_factors.push_back(re);
+    }
+    Expr rest = rest_factors.empty() ? Expr{S::One()} : mul(rest_factors);
+    // Low order: the nested-exp expansions return unevaluated at higher orders, and
+    // the constant term after the u^p shift needs only a few coefficients.
+    Expr s;
+    try {
+        s = series(rest, u, S::Zero(), static_cast<std::size_t>(3));
+    } catch (...) {
+        return std::nullopt;
+    }
+    // Unify the constant's representations: series emits the lifted base as exp(k)
+    // while the original carries e^k = E^k, and SymPP does not equate exp(2) with
+    // E². A stray exp(k) − E^k would otherwise survive as a spurious (nonzero)/u
+    // pole after the u^p shift and hang the limit. Rewrite every constant exp(c) → E^c.
+    {
+        ExprMap<Expr> em;
+        auto norm = [&](auto&& self, const Expr& e) -> void {
+            if (e->type_id() == TypeId::Function && !em.count(e)
+                && static_cast<const Function&>(*e).function_id()
+                       == FunctionId::Exp
+                && !has(e->args()[0], u)) {
+                em.emplace(e, pow(S::E(), e->args()[0]));
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        norm(norm, s);
+        if (!em.empty()) s = xreplace(s, em);
+    }
+    // Reject an incomplete expansion: a transcendental still carrying u means
+    // series gave up, and recombining would re-introduce the stall.
+    bool incomplete = false;
+    auto chk = [&](auto&& self, const Expr& e) -> void {
+        if (incomplete) return;
+        if (e->type_id() == TypeId::Function && has(e, u)) {
+            incomplete = true;
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    chk(chk, s);
+    if (incomplete) return std::nullopt;
+    Expr full = simplify(mul(pow(u, p), s));
+    Expr cand = limit_impl(full, u, S::Zero(), depth + 1);
+    // Accept only a finite value here (the f^g − c corrections this targets); leave
+    // divergent shapes to the growth paths. The value may be a symbolic constant
+    // such as −e/2, so test finiteness directly rather than via is_number.
+    if (has(cand, u) || is_nan(cand) || is_infinity(cand)
+        || cand->type_id() == TypeId::ComplexInfinity) {
+        return std::nullopt;
+    }
+    // Numeric guard: the leading term is the exact limit, but verify against the
+    // original at large |x| so a mis-extraction cannot pass.
+    Expr cvf = evalf(cand, 30);
+    if (cvf->type_id() != TypeId::Float) return std::nullopt;
+    double cvd = 0.0;
+    try {
+        cvd = std::stod(cvf->str());
+    } catch (...) {
+        return std::nullopt;
+    }
+    double prev = 1e300;
+    // Sample over a wide range: these corrections converge as ∼1/x, so the far
+    // point must be large for the residual to drop below tolerance, while a wrong
+    // value keeps an O(1) offset and fails the shrink test. High precision absorbs
+    // the catastrophic cancellation in f(x) − c at large x.
+    for (long xv : {300L, 3000L, 30000L}) {
+        // evalf directly — a simplify() here tries to expand a huge rational power
+        // like (501/500)^3000 exactly and stalls.
+        Expr at = evalf(subs(expr, var, mul(sgn, integer(xv))), 60);
+        if (at->type_id() != TypeId::Float) return std::nullopt;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        const double d = std::fabs(v - cvd);
+        if (!(d <= prev + 1e-9)) return std::nullopt;
+        prev = d;
+        if (xv == 30000L && !(d < 1e-2)) return std::nullopt;
+    }
+    return cand;
+}
+
 // Continuity of a power with a constant exponent: lim base^r = (lim base)^r when
 // the inner limit is determinate. Direct substitution computes the base
 // pointwise and a non-rational base (e.g. log(log x)/log x) substitutes to an
@@ -2848,6 +3003,10 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 return *v;
             }
             if (auto v = try_product_form(expr, var, target, depth)) return *v;
+            // Gruntz leading-term via series for an f(x)^g(x) − c difference, before
+            // the power-as-exp rewrite (which would otherwise spin on the resulting
+            // ∞·0): x·((1+1/x)^x − e) → −e/2.
+            if (auto v = try_series_limit(expr, var, target, depth)) return *v;
             // Gruntz: rewrite general powers f(x)^g(x) as exp(g·log f) and
             // re-take, so the exp/gamma growth machinery can resolve forms the
             // bare-power paths leave as nan — e.g. Γ(2n)/n^n → ∞.

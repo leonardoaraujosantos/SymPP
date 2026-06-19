@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-SERIES-1 — asymptotic correction of a 1^∞ power, x·((1+1/x)^x − e), hung
+- **Problem:** `limit(x·((1+1/x)^x − e), x, ∞)` (= `−e/2`) did not terminate, and likewise the `0/0` form
+  `((1+1/x)^x − e)/(1/x)` and the `a≠1` variants `x·((1+a/x)^x − eᵃ) → −a²eᵃ/2`. `(1+1/x)^x → e` and
+  `(1+1/x)^{x²}/eˣ → e^{−1/2}` already worked, but subtracting the limit and scaling by `x` needs the *next*
+  term of the asymptotic series `(1+1/x)^x = e·(1 − 1/(2x) + …)`, which the heuristic engine lacks: the
+  power-as-exp rewrite turns the form into an `∞·0` the reciprocal substitution spins on.
+- **Fix:** added `try_series_limit`, the Gruntz leading-term-by-series stage. It substitutes `x = ±1/u` (so
+  `x → ±∞` becomes `u → 0`), rewrites each `u`-dependent power `f^g → exp(g·log f)` (series cannot expand a
+  raw `f^g`), factors out the explicit `u`-power pole `re = u^p·rest` (series stalls on a `(1/u)·nested-exp`
+  Laurent form but expands the regular `rest` cleanly), series-expands `rest`, recombines `u^p·series`, and
+  reads the limit off the leading term — validated numerically against the original. Three subtleties were
+  needed: a *plain* substitution symbol (a positive one makes `exp(g·log f)` canonicalize straight back to
+  `f^g`); rewriting `exp(k) → E^k` in the series so the lifted base cancels the original `eᵏ` (SymPp does not
+  equate `exp(2)` with `E²`, leaving a spurious `(exp(2)−E²)/u` pole); and a wide, high-precision numeric
+  sample range (the `∼1/x` corrections need a far point to drop below tolerance). The rule is gated to a power
+  with a *finite nonzero base* inside a sum, so `x^(1/x)` (base → ∞ ⇒ singular `log(1/u)`) stays with the
+  no-hang path (`LIMIT-NOHANG-1`). Now `x·((1+1/x)^x − e) → −e/2`, `x·((1+2/x)^x − e²) → −2e²`. Regression:
+  `LIMIT-SERIES-1`. Matches SymPy.
+
 ### LIMIT-HYPERBOLIC-1 — sinh/cosh combinations at ±∞ gave nan / hung
 - **Problem:** combinations of hyperbolic functions whose closed forms hide an exponential cancellation were
   unresolved. `(sinh x + cosh x)/eˣ` and `sinh x/cosh x` returned `nan` (SymPy: `1`), `cosh x − sinh x`
