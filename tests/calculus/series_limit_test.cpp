@@ -722,6 +722,31 @@ TEST_CASE("limit: general power in a difference does not hang (LIMIT-NOHANG-1)",
             == exp(integer(-1)));
 }
 
+// LIMIT-COMMON-LOG-1: a ratio of var-base/var-exponent powers, x^x/(x+1)^x and
+// (x+1)^x/x^x, previously hung. The power-as-exp/exp-combine path produces the
+// distributed exponent x·log(x+1) − x·log(x), an ∞−∞ the standard (var-free
+// coefficient) log-combine cannot reduce, so the engine looped in the reciprocal
+// substitution. Combining the common var coefficient — c·log(p) − c·log(q) =
+// c·log(p/q) — gives x·log((x+1)/x) → 1, so the limits resolve to e^∓1.
+TEST_CASE("limit: ratio of var^var powers via common-log combine (LIMIT-COMMON-LOG-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // The combined-coefficient log limit underneath.
+    REQUIRE(limit(add(mul(x, log(add(x, integer(1)))),
+                      mul(S::NegativeOne(), mul(x, log(x)))),
+                  x, oo)
+            == S::One());                                    // x·log(x+1) − x·log x → 1
+    // The two ratios (previously hung): x^x/(x+1)^x → 1/e, (x+1)^x/x^x → e.
+    REQUIRE(limit(mul(pow(x, x), pow(pow(add(x, integer(1)), x), integer(-1))),
+                  x, oo)
+            == exp(integer(-1)));
+    REQUIRE(limit(mul(pow(add(x, integer(1)), x), pow(pow(x, x), integer(-1))),
+                  x, oo)
+            == S::E());
+}
+
 // LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
 // (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
 // because n^n is outside the growth hierarchy. The handler is restricted to a

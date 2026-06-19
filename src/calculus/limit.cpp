@@ -2027,6 +2027,68 @@ struct Growth {
 // exp(x)/x^x chain once the powers are on an exp footing. Only fires for a unique
 // strict dominator that itself diverges to a signed ∞, so genuinely cancelling
 // differences (x − x, √(x²+x) − x) are left to the conjugate/algebraic machinery.
+// Combine an ∞−∞ sum whose terms share a common (var-dependent) coefficient on
+// a log: c·log(p) − c·log(q) = c·log(p/q). The standard log-combine only handles
+// var-free coefficients, so a distributed exponent like x·log(x+1) − x·log(x)
+// (which the power-as-exp/exp-combine path produces for x^x/(x+1)^x) was left as
+// an unresolved ∞−∞ and sent the engine into the reciprocal-substitution loop.
+// Combined, it is x·log((x+1)/x) → 1, resolved by the existing 0·∞ machinery.
+[[nodiscard]] std::optional<Expr> try_common_log_combine(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& target,
+                                                         int depth) {
+    if (depth >= 10 || expr->type_id() != TypeId::Add
+        || expr->args().size() < 2) {
+        return std::nullopt;
+    }
+    // term = coeff · log(arg); returns nullopt if no single log factor.
+    auto split = [](const Expr& term) -> std::optional<std::pair<Expr, Expr>> {
+        std::vector<Expr> factors;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) factors.push_back(f);
+        } else {
+            factors.push_back(term);
+        }
+        Expr log_arg;
+        std::vector<Expr> rest;
+        for (const auto& f : factors) {
+            if (!log_arg && f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Log
+                && f->args().size() == 1) {
+                log_arg = f->args()[0];
+            } else {
+                rest.push_back(f);
+            }
+        }
+        if (!log_arg) return std::nullopt;
+        return std::make_pair(rest.empty() ? Expr{S::One()} : mul(rest), log_arg);
+    };
+    Expr ref_coeff;
+    std::vector<std::pair<Expr, int>> logs;  // (arg, ±1 relative to ref_coeff)
+    for (const auto& term : expr->args()) {
+        auto sp = split(term);
+        if (!sp) return std::nullopt;
+        Expr coeff = simplify(sp->first);
+        if (!has(coeff, var)) return std::nullopt;  // var-free → ordinary combine
+        if (!ref_coeff) {
+            ref_coeff = coeff;
+            logs.emplace_back(sp->second, 1);
+        } else if (coeff == ref_coeff) {
+            logs.emplace_back(sp->second, 1);
+        } else if (simplify(add(coeff, ref_coeff)) == S::Zero()) {
+            logs.emplace_back(sp->second, -1);
+        } else {
+            return std::nullopt;  // coefficients not equal up to sign
+        }
+    }
+    Expr prod = S::One();
+    for (const auto& [arg, sign] : logs) prod = mul(prod, pow(arg, integer(sign)));
+    Expr r = limit_impl(mul(ref_coeff, log(prod)), var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
 [[nodiscard]] std::optional<Expr> try_dominant_term_sum(const Expr& expr,
                                                         const Expr& var,
                                                         const Expr& target,
@@ -2411,6 +2473,11 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             }
             // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
             if (auto v = try_log_limit(expr, var, target, depth)) return *v;
+            // c·log(p) − c·log(q) with a var coefficient c → c·log(p/q); resolves
+            // the distributed exponent x·log(x+1) − x·log(x) (from x^x/(x+1)^x).
+            if (auto v = try_common_log_combine(expr, var, target, depth)) {
+                return *v;
+            }
             // (Sum linearity for the all-finite case is handled before direct
             // substitution above; a genuine ∞ − ∞ falls through to L'Hôpital on
             // the combined fraction.)

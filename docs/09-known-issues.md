@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-COMMON-LOG-1 — x^x/(x+1)^x and (x+1)^x/x^x hung the limit engine
+- **Problem:** `limit(x^x/(x+1)^x, x, ∞) = 1/e` and `limit((x+1)^x/x^x, x, ∞) = e` did not terminate. The
+  power-as-exp rewrite + exp-combine produce the **distributed** exponent `x·log(x+1) − x·log(x)`, an `∞−∞`
+  that the standard log-combine cannot reduce (its coefficients carry the variable `x`), so the exponent
+  stayed `nan`, exp-continuity failed, and the reciprocal substitution `x = 1/t` spun on the resulting `t→0`
+  form.
+- **Fix:** added `try_common_log_combine` for an `∞−∞` sum whose terms share a common variable coefficient on
+  a log: `c·log(p) − c·log(q) = c·log(p/q)`. This reduces `x·log(x+1) − x·log(x)` to `x·log((x+1)/x) → 1`
+  (resolved by the existing `0·∞` machinery), so exp-continuity yields `e` before the reciprocal substitution
+  is reached. Now `x·log(x+1) − x·log(x) → 1`, `x^x/(x+1)^x → e⁻¹`, `(x+1)^x/x^x → e` — all terminate with the
+  correct value. Only fires when every term is `c·log(g)` with a matching var coefficient (up to sign), so
+  other `∞−∞` sums are untouched. Regression: `LIMIT-COMMON-LOG-1`. Matches SymPy.
+
 ### LIMIT-NOHANG-1 — (x^(1/x) − 1)·x/log x hung the limit engine
 - **Problem:** `limit((x^(1/x) − 1)·x/log x, x, ∞)` (SymPy: `1`) did not terminate. Two paths drove the hang:
   the log-exp reduction took `log` of the vanishing `eᵍ − 1` factor (after `x^(1/x) ↦ exp(g)`), turning the
