@@ -1,7 +1,13 @@
 # incomplete-gamma Specification
 
 ## Purpose
-TBD - created by archiving change add-heavy-algorithm-engines. Update Purpose after archive.
+
+Provide the incomplete gamma functions `lowergamma`/`uppergamma` as real
+two-argument function classes with their closed forms and exact derivatives, wire
+them into integration, and — more broadly — guarantee that gamma-family special
+functions return correct derivatives (a closed form where one exists, an honest
+unevaluated `Derivative` where the direction is non-elementary), never a silent `0`.
+
 ## Requirements
 ### Requirement: lowergamma / uppergamma function classes
 
@@ -40,4 +46,24 @@ The integrator SHALL return incomplete-gamma closed forms for the
 #### Scenario: The Gamma-function integral
 - **WHEN** `∫₀^∞ xˢ⁻¹·e⁻ᶜˣ dx` is requested for a positive rate `c`
 - **THEN** the result is `Γ(s)/cˢ`
+
+### Requirement: Correct gamma-family parameter derivatives
+
+Differentiating a gamma-family special function SHALL return its elementary closed
+form where one exists, and an honest unevaluated `Derivative` for a non-elementary
+direction (one needing a Meijer-G or symbolic-order Hurwitz zeta SymPP does not
+represent) — never a silently-wrong `0`, which would drop the chain-rule term when
+the order/parameter depends on the differentiation variable.
+
+#### Scenario: Beta-function derivative closed form
+- **WHEN** `∂/∂a Β(a, b)` is taken
+- **THEN** the result is `Β(a, b)·(ψ(a) − ψ(a+b))` (symmetric in `b`)
+
+#### Scenario: Harmonic-number derivative closed form
+- **WHEN** `∂/∂x H(x)` is taken
+- **THEN** the result is `polygamma(1, x + 1)` (the trigamma; the Hurwitz form `ζ(2, x+1)`)
+
+#### Scenario: Non-elementary order/parameter derivative stays unevaluated
+- **WHEN** `∂/∂s γ(s, x)`, `∂/∂s Γ(s, x)`, `∂/∂n ψ⁽ⁿ⁾(x)` are taken
+- **THEN** each is an unevaluated `Derivative` of the function (not `0`)
 

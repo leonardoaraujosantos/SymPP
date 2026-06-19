@@ -498,6 +498,16 @@ std::optional<bool> Harmonic::ask(AssumptionKey k) const noexcept {
             return std::nullopt;
     }
 }
+// H(x) = ψ(x+1) + γ ⇒ H′(x) = ψ′(x+1) = polygamma(1, x+1) (= the trigamma; SymPy
+// writes the equal Hurwitz form ζ(2, x+1)). The generalized Hₙ⁽ᵐ⁾ derivative needs
+// a Hurwitz zeta with a symbolic order, which SymPP does not have, so it falls back
+// to the base unevaluated Derivative.
+Expr Harmonic::diff_arg(std::size_t i) const {
+    if (args_.size() == 1) {
+        return polygamma(S::One(), add(args_[0], S::One()));
+    }
+    return Function::diff_arg(i);
+}
 
 Expr harmonic(const Expr& arg) {
     if (arg->type_id() == TypeId::Integer) {
@@ -1206,6 +1216,15 @@ std::optional<bool> Beta::ask(AssumptionKey k) const noexcept {
     }
     return std::nullopt;
 }
+// ∂/∂a Β(a,b) = Β(a,b)·(ψ(a) − ψ(a+b)); by symmetry ∂/∂b = Β(a,b)·(ψ(b) − ψ(a+b)),
+// where ψ = digamma. Follows from Β = Γ(a)Γ(b)/Γ(a+b) and (log Γ)′ = ψ. The chain
+// rule in diff() supplies the argument's own derivative. Matches SymPy's fdiff.
+Expr Beta::diff_arg(std::size_t i) const {
+    const Expr sum = add(args_[0], args_[1]);
+    const Expr self = beta(args_[0], args_[1]);
+    return mul(self, add(digamma(args_[i]),
+                         mul(S::NegativeOne(), digamma(sum))));
+}
 
 Expr beta(const Expr& a, const Expr& b) {
     // Β(a,b) = Γ(a)·Γ(b)/Γ(a+b). Fold to the gamma ratio only when all three
@@ -1305,15 +1324,16 @@ std::optional<bool> LowerGamma::ask(AssumptionKey k) const noexcept {
     }
     return std::nullopt;
 }
-// ∂/∂x γ(s, x) = xˢ⁻¹·e⁻ˣ. The ∂/∂s direction is non-elementary (Meijer-G); as
-// with polygamma's order argument, return 0 so diff()'s chain rule (× s′ = 0 for
-// a constant s) leaves the usual case correct.
+// ∂/∂x γ(s, x) = xˢ⁻¹·e⁻ˣ. The ∂/∂s direction is non-elementary (Meijer-G), which
+// SymPP cannot represent, so it falls back to the base unevaluated Derivative
+// (like zeta, besselj, …) — never a silently-wrong 0, which would drop the term
+// when the order itself depends on the differentiation variable (∂/∂s γ(s, x)).
 Expr LowerGamma::diff_arg(std::size_t i) const {
     if (i == 1) {
         return mul(pow(args_[1], add(args_[0], S::NegativeOne())),
                    exp(mul(S::NegativeOne(), args_[1])));
     }
-    return S::Zero();
+    return Function::diff_arg(i);
 }
 
 Expr lowergamma(const Expr& s, const Expr& x) {
@@ -1342,14 +1362,15 @@ std::optional<bool> UpperGamma::ask(AssumptionKey k) const noexcept {
     }
     return std::nullopt;
 }
-// ∂/∂x Γ(s, x) = −xˢ⁻¹·e⁻ˣ; ∂/∂s is non-elementary → 0 (see LowerGamma).
+// ∂/∂x Γ(s, x) = −xˢ⁻¹·e⁻ˣ; ∂/∂s is non-elementary → base unevaluated Derivative
+// (see LowerGamma), not a silently-wrong 0.
 Expr UpperGamma::diff_arg(std::size_t i) const {
     if (i == 1) {
         return mul(S::NegativeOne(),
                    mul(pow(args_[1], add(args_[0], S::NegativeOne())),
                        exp(mul(S::NegativeOne(), args_[1]))));
     }
-    return S::Zero();
+    return Function::diff_arg(i);
 }
 
 Expr uppergamma(const Expr& s, const Expr& x) {
@@ -1438,9 +1459,13 @@ std::optional<bool> PolyGammaFn::ask(AssumptionKey k) const noexcept {
 // ∂/∂x polygamma(n, x) = polygamma(n+1, x). The ∂/∂n direction is not
 // elementary; diff()'s chain rule multiplies by n' (= 0 when n is constant),
 // so returning 0 there is harmless for the usual constant-order case.
+// ∂/∂x ψ⁽ⁿ⁾(x) = ψ⁽ⁿ⁺¹⁾(x). The ∂/∂n direction (derivative w.r.t. the order) is
+// non-elementary, so it falls back to the base unevaluated Derivative — never a
+// silently-wrong 0, which would drop the term when the order depends on the
+// differentiation variable.
 Expr PolyGammaFn::diff_arg(std::size_t i) const {
     if (i == 1) return polygamma(add(args_[0], S::One()), args_[1]);
-    return S::Zero();
+    return Function::diff_arg(i);
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {

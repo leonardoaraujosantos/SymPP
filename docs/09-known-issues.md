@@ -16,6 +16,267 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-HARMONIC-DIFF-1 — harmonic-number derivative was left unevaluated
+- **Problem:** `diff(harmonic(x), x)` returned an unevaluated `Derivative`, even though the derivative has a
+  closed form SymPP can represent.
+- **Fix:** added `Harmonic::diff_arg`. Since `H(x) = ψ(x+1) + γ`, `H′(x) = ψ′(x+1) = polygamma(1, x+1)` (the
+  trigamma). SymPy writes the equal Hurwitz form `ζ(2, x+1)`; the two are numerically identical (verified at
+  several points), and `polygamma(1, x+1)` is the form SymPP can express. Now `diff(harmonic(x), x) =
+  polygamma(1, x+1)` and `d/dx H(2x) = 2·polygamma(1, 2x+1)` (chain rule). The generalized two-argument `Hₙ⁽ᵐ⁾`
+  needs a symbolic-order Hurwitz zeta SymPP lacks, so it stays an honest unevaluated `Derivative`. Regression:
+  `FUNC-HARMONIC-DIFF-1`.
+
+### FUNC-BETA-DIFF-1 — beta-function derivative was left unevaluated; polygamma order derivative returned 0
+- **Problem:** `diff(beta(a, b), a)` returned an unevaluated `Derivative(beta(a, b), a)` even though the
+  derivative has an elementary closed form, and `diff(polygamma(m, x), m)` (derivative w.r.t. the *order*)
+  returned a silently-wrong `0` — the same wrong-0 pattern as `FUNC-INCGAMMA-DIFFS-1`, which drops the term when
+  the order depends on the differentiation variable.
+- **Fix:** (1) added `Beta::diff_arg` with the closed form `∂/∂a Β(a,b) = Β(a,b)·(ψ(a) − ψ(a+b))`, symmetric in
+  `b` (`ψ = digamma`), which follows from `Β = Γ(a)Γ(b)/Γ(a+b)` and `(log Γ)′ = ψ`. (2) `PolyGammaFn::diff_arg`
+  for the order slot now delegates to the base unevaluated `Derivative` instead of `0`. Now
+  `diff(beta(a, b), a) = (ψ(a) − ψ(a+b))·Β(a,b)`, `d/dx Β(x,x) = 2·(ψ(x) − ψ(2x))·Β(x,x)`, and
+  `diff(polygamma(m, x), m) = Derivative(polygamma(m, x), m)`, with `∂/∂x ψ⁽ⁿ⁾(x) = ψ⁽ⁿ⁺¹⁾(x)` unchanged.
+  Regressions: `FUNC-BETA-DIFF-1`, `FUNC-POLYGAMMA-DIFFS-1`. Matches SymPy.
+
+### FUNC-INCGAMMA-DIFFS-1 — d/ds of incomplete gamma returned a wrong 0
+- **Problem:** `diff(uppergamma(s, x), s)` and `diff(lowergamma(s, x), s)` (the derivative with respect to the
+  *order*) returned `0`. The ∂/∂s direction is non-elementary (a Meijer-G expression), but `diff_arg` for the
+  order slot returned `S::Zero()` — silently wrong: it drops the term whenever the order depends on the
+  differentiation variable (e.g. `∂/∂s γ(s, x)`, or the order contribution in `d/dx Γ(x, x)`).
+- **Fix:** the order-slot `diff_arg` now delegates to the base `Function::diff_arg`, which yields the honest
+  unevaluated `Derivative(f, s)` — the same fallback SymPP uses for other untabulated specials (zeta, besselj, …)
+  whose parameter derivatives it cannot express in closed form. Now `diff(uppergamma(s, x), s) =
+  Derivative(uppergamma(s, x), s)`, while the ∂/∂x derivative (`−xˢ⁻¹·e⁻ˣ`) and every constant-order case
+  (`d/dx Γ(2, x) = −x·e⁻ˣ`) are unchanged. SymPy returns the Meijer-G form, which SymPP does not represent, so the
+  unevaluated Derivative is the parity-consistent honest result. Regression: `FUNC-INCGAMMA-1` (extended).
+
+### LIMIT-EXPUNITDIFF-1 — product times a unit exponential difference returned nan
+- **Problem:** the Gruntz flagship `e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1` returned `nan`. The difference
+  `e^{1/x − e^{−x}} − e^{1/x}` vanishes (its two exponents differ by `−e^{−x} → 0`), so the product is `∞·0`; the
+  0·∞ path applied L'Hôpital, and the small-angle path's numeric guard rejected the correct answer because
+  `e^{−e^{−x}} − 1` underflows to exactly 0 at finite precision (catastrophic cancellation), so it could not be
+  verified.
+- **Fix:** added `try_exp_unit_difference`. A factor `c·(e^p − e^q)` with `p − q → 0` is asymptotically
+  `c·e^q·(p − q)` (since `e^t − 1 ~ t`), an *exact* algebraic equivalence needing no numeric check, so the product
+  is rebuilt with that substitution and re-taken. A bare constant term counts as `e^0`, so `e^u − 1` is the same
+  rule. The exponent gap is simplified before substitution so it collapses to a clean exponential the exp
+  machinery can recombine. Tried before the 0·∞ product path so L'Hôpital never mangles it. Now
+  `e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1`, `x·(e^{1/x} − 1) → 1`, `x²·(e^{1/x} − e^{2/x}) → −∞`, with the bare
+  exponential difference `e^{x+e^{−x}} − e^x → 1` unchanged. Regression: `LIMIT-EXPUNITDIFF-1`. Matches SymPy.
+
+### LIMIT-DOMTERM-RADICAL-1 — different-rate radical ∞−∞ took ~40 s
+- **Problem:** `log log x − √(log x·log log x) → −∞` (and the nested ratio `log x / exp(√(log x·log log x)) → 0`
+  whose log-exp reduction produces it) resolved correctly but took ~40 s. The ∞−∞ difference contains a radical,
+  so the conjugate-rationalization stage fired first; but the two terms have *different* growth rates
+  (`√(log x·log log x)` outgrows `log log x`), so conjugation does not cancel the leading term — it produces a
+  worse ∞−∞ that the engine re-expanded recursively (~99 000 `limit_impl` calls, ~40 000 of them L'Hôpital).
+- **Fix:** the Gruntz dominant-term rule (a ∞−∞ with a unique strictly dominant divergent term) is now tried
+  *before* the conjugate stage. A different-rate radical difference is a dominant-term case — the √ term dominates,
+  so the difference follows it to −∞ in milliseconds. The rule only fires for a *strict* dominator, so equal-rate
+  radical differences (`√(x²+x) − x`, ratio → −1; `√(x²+1) − √(x²−1)`) abstain and still resolve via the conjugate
+  path, unchanged. `LIMIT-LOG-EXP-REDUCTION-1` dropped from ~41 s to milliseconds. Regression:
+  `LIMIT-DOMTERM-RADICAL-1`. Matches SymPy.
+
+### LIMIT-SERIESMUL-1 — series core times a non-polynomial multiplier hung
+- **Problem:** the engine resolves the 1^∞ correction `x·((1+1/x)^x − e) → −e/2` (and the subleading
+  `x²·(… + e/(2x)) → 11e/24`), so it can extract the core's series, but multiplying that vanishing core by a
+  non-polynomial factor hung: `eˣ·((1+1/x)^x − e) → −∞`, `√x·(…) → 0`, and `log x·(…) → 0` all spun. The direct
+  series stage substitutes `x = 1/u` over the *whole* product, where `eˣ` becomes `exp(1/u)` (an essential
+  singularity, not a `u`-power pole) and `√x`/`log x` give a fractional/log pole — none of which `series()` can
+  expand.
+- **Fix:** added the Gruntz leading-term peel `try_series_times_multiplier`. The core has a leading monomial
+  `c₀·x^{−m}` (the engine already resolves `xᵐ·core` for an integer `m`), so `M·core ~ M·c₀·x^{−m}`, whose limit
+  the ordinary exp/poly machinery reads off. It runs before the direct series stage (whose `x = 1/u` would hang
+  on these multipliers) and defers the pure integer-power-monomial case to that stage, so it never recurses on
+  its own probes. Now `eˣ·((1+1/x)^x − e) → −∞`, `√x·(…) → 0`, `log x·(…) → 0`, with the pre-existing
+  `x²·(…) → −∞` unchanged. Regression: `LIMIT-SERIESMUL-1`. Matches SymPy.
+
+### LIMIT-TOWERPROD-1 — x^x/(x+1)^(x+1) and other tower products hung
+- **Problem:** a product of variable-exponent powers — `x^x·(x+1)^{−(x+1)}` — substitutes to the indeterminate
+  `∞·0`, and the `f(x)^g(x)` power stages (`try_unit_power_expansion` / `try_series_limit` / `try_power_as_exp`)
+  sent the engine into a non-terminating rewrite. The narrower `x^x/(x+1)^x` resolved, but the extra `(x+1)`
+  factor of `x^x/(x+1)^{x+1}` hung, as did its reciprocal.
+- **Fix:** the logarithm of a tower product is an ordinary sum of `g·log(b)` terms
+  (`x·log x − (x+1)·log(x+1) → −∞`), which the engine already resolves, so `lim e = exp(lim log e)` closes it.
+  `try_log_exp_reduction` performs exactly this reduction but was reached only after the looping stages; a tightly
+  gated early call (fires only when every var-dependent factor of a `Mul` is a variable-exponent power) hoists it
+  ahead of them. It is sound because `try_log_exp_reduction` certifies positivity before splitting the log, and
+  the gate keeps the broader log-exp path unchanged. Now `x^x/(x+1)^{x+1} → 0`, `(x+1)^{x+1}/x^x → ∞`, with the
+  pre-existing `x^x/(x+1)^x → 1/e`, `x^{2x}/(x²)^x → 1`, `(2x)^x/x^x → ∞` still resolving. Regression:
+  `LIMIT-TOWERPROD-1`. Matches SymPy.
+
+### LIMIT-ATAN-1 — subleading arctangent limits returned nan
+- **Problem:** the engine knew `atan(∞) = π/2` but not the *rate*, so once the leading term was cancelled off a
+  limit went indeterminate: `x²·(atan x − π/2 + 1/x) → 0`, `x³·(atan x − π/2 + 1/x) → 1/3`, the subleading
+  `x³·(acot x − 1/x) → −1/3`, and the expanded difference `x·atan(x) − π·x/2 → −1` (the factored
+  `x·(atan x − π/2)` happened to resolve, the distributed form did not) all returned `nan`.
+- **Fix:** added the arctangent asymptotic series (DLMF 4.24.3) to the special-function asymptotic rewrite,
+  `atan(g) ~ ±π/2 − 1/g + 1/(3g³) − 1/(5g⁵) + …` (the sign of the constant set by whether the argument diverges
+  to +∞ or −∞), with `acot(g) = π/2 − atan(g)`. This is the same uniform expansion that already powers the
+  erfc/Ei/ζ/digamma asymptotics, so every form — leading, subleading, and the expanded difference — resolves
+  through one rewrite. Now `x·(atan x − π/2) → −1`, `x³·(atan x − π/2 + 1/x) → 1/3`, `x·atan(x) − π·x/2 → −1`,
+  `x·acot(x) → 1`, `x³·(acot x − 1/x) → −1/3`. Regression: `LIMIT-ATAN-1`. Matches SymPy.
+
+### REIM-IMAG-1 — re/im of a purely imaginary argument were not refined
+- **Problem:** `re(x)` and `im(x)` folded only when the argument was known *real* (`re(x) → x`, `im(x) → 0`).
+  A purely imaginary argument — a symbol declared `imaginary`, or one under an `assuming` Q.imaginary scope —
+  was left unevaluated, where SymPy's `refine_re`/`refine_im` give `re(x) → 0` and `im(x) → −i·x`.
+- **Fix:** added the imaginary-case branch to both builders: when `is_imaginary(arg)` is true, `re(arg) → 0`
+  and `im(arg) → −i·arg` (since `x = i·b ⇒ im(x) = b = −i·(i·b)`). The fact is consulted through `ask`, so it
+  fires both for a symbol declared imaginary and for one carrying the fact only via a scoped `assuming` context
+  (retracted at scope exit). Now `re(x) → 0`, `im(x) → −I·x`, `re(2x) → 0`, `im(2x) → −2·I·x` under
+  Q.imaginary(x). Regression: `REIM-IMAG-1`. Matches SymPy.
+
+### LIMIT-LOGSUMDOM-1 — log of a non-exponential sum (log(log x + log log x)) hung
+- **Problem:** `log(log x + log log x) − log log x → 0`, `log(log x + log log x)/log log x → 1`, and the ratio
+  against a faster log all hung. The log-of-a-sum rewrite (`LIMIT-LOGEXPSUM-1`) only fired when the sum had an
+  *exponential* dominator; a sum whose dominant summand has logarithmic rate (`log x` dominating `log log x`) was
+  left untouched, and the bare `log(∞)` folded into a non-terminating form. (This was the open item noted under
+  `LIMIT-LOGEXPSUM-1`.)
+- **Fix:** added the logarithmic-rate companion `rewrite_log_sum_dominant` — the Gruntz leading-term of a log of
+  a sum. For `log(Σ tᵢ)` at +∞ with a unique dominant summand `t*` (every other `tⱼ/t* → 0`) that itself
+  diverges or vanishes, `log(Σ) = log(t*) + log(Σ/t*)` with `Σ/t* → 1`, so the residual log is bounded (→ 0). It
+  fires only after the exponential path abstains, is held to a shallow depth and one rewrite per pass, and bails
+  on a constant dominator (so `log(1 + a/x)` from the power-series machinery is untouched — no slowdown). The
+  residual quotient is closed by the dominant-denominator division. Now `log(log x + log log x) − log log x → 0`,
+  `log(log x + log log x)/log log x → 1`, `log(log x + log log x)/log(x + log x) → 0`, and the triple-nested
+  `log(log x + log log log x) − log log x → 0`. Regression: `LIMIT-LOGSUMDOM-1`. Matches SymPy.
+
+### LIMIT-LOGEXPSUM-1 — log of an exponential sum with polynomial terms hung in a ratio
+- **Problem:** `log(x + eˣ)/log(x + e²ˣ) → 1/2` (and the wider family of ratios of logs of exponential-dominated
+  sums that also carry polynomial terms) did not terminate. The log-of-an-exponential-sum rewrite identifies the
+  dominant exponent and rewrites `log(Σ) = e_dom + log(1 + residual·e^{−e_dom})`, but its exponent extractor
+  **bailed** on any non-exponential var factor, so a polynomial summand like the `x` in `x + eˣ` aborted the
+  rewrite. Even with the rewrite applied, the residual quotient `(x + log(1 + x·e⁻ˣ))/(2x + log(1 + x·e⁻²ˣ))`
+  looped: its bounded, non-oscillating `log(1 + …)` remainder is not exp-rational, so the dominant-ratio path
+  rejected it.
+- **Fix:** two coordinated changes in the limit engine. (1) The exponent extractor now treats a polynomial
+  var factor as a rate-0 (sub-exponential) coefficient — the `x` in `x·eˣ`, or a bare `xᵏ` term, ranks below any
+  positively-growing exponential — instead of bailing, so `log(poly + exp)` sums rewrite. (2) Two dominant-term
+  quotient rules resolve the residual: a numerator distribution `(Σ tᵢ)·F → Σ lim(tᵢ·F)` when every part
+  converges, and a dominant-denominator division `N/D` (D a sum with a unique divergent term Dt) → `lim(N/Dt) /
+  lim(D/Dt)`. Both are held to a shallow recursion depth and gated to log-carrying sums so they do not slow the
+  heavy power-series limits. Now `log(x+eˣ) − x → 0`, `log(eˣ+x)/x → 1`, `log(x+eˣ)/log(x+e²ˣ) → 1/2`,
+  `log(x²+e³ˣ)/log(x+eˣ) → 3`, `log(x³+5eˣ)/x → 1`. Regression: `LIMIT-LOGEXPSUM-1`. Matches SymPy.
+  (Still open: `log(log x + log log x) − log log x → 0`, a log of a *non-exponential* sum, needs the analogous
+  dominant-summand extraction for logarithmic-rate terms.)
+
+### LIMIT-EI-1 — exponential integral Ei(x) limits returned nan
+- **Problem:** `Ei` of a diverging argument had no asymptotic, so `x·e⁻ˣ·Ei(x) → 1`, `e⁻ˣ·Ei(x) → 0`,
+  `Ei(x)/(eˣ/x) → 1`, and the subleading `x·(x·e⁻ˣ·Ei(x) − 1) → 1` all returned `nan`.
+- **Fix:** extended the special-function asymptotic rewrite with the Poincaré asymptotic series (DLMF 6.12.2)
+  `Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + 4!/g⁴ + …)` for `g → +∞` (truncation error vanishes in the
+  limit). Now `x·e⁻ˣ·Ei(x) → 1`, `x·(x·e⁻ˣ·Ei(x) − 1) → 1`, `x²·(x·e⁻ˣ·Ei(x) − 1 − 1/x) → 2`,
+  `e⁻ˣ·Ei(x) → 0`, `Ei(x)/(eˣ/x) → 1`. The rewrite fires only with a single `Ei` node, so a ratio like
+  `Ei(x)/Ei(2x)` — whose two `e^g` factors leave an elementary but deeply-nested product the recursion churns
+  on — stays unevaluated (`nan`) rather than spinning. Regression: `LIMIT-EI-1`. Matches SymPy.
+
+### LIMIT-ZETA-1 — Riemann zeta ζ(x) at +∞ returned nan
+- **Problem:** `limit(ζ(x), x, ∞)` returned `nan` instead of `1`; `ζ(x) − 1` and `2ˣ·(ζ(x) − 1)` likewise
+  did not resolve. The engine had no asymptotic for the zeta function.
+- **Fix:** extended the special-function asymptotic rewrite with the zeta tail. The Dirichlet series
+  `ζ(s) = Σ_{k≥1} k⁻ˢ` has every term past `k = 1` vanishing as `s → +∞`, with leading correction `2⁻ˢ`
+  (the `k = 2` term dominating the geometric tail), so `ζ(g)` with `g → +∞` is rewritten `1 + 2⁻ᵍ`. Now
+  `ζ(x) → 1`, `ζ(x) − 1 → 0`, `ζ(2x) → 1`, and `2ˣ·(ζ(x) − 1) → 1` (the last is exact —
+  `2ˣ(ζ(x)−1) = 1 + (2/3)ˣ + … → 1` — though SymPy leaves it unevaluated). A constant argument is left
+  untouched. Regression: `LIMIT-ZETA-1`. Matches SymPy on the cases SymPy resolves.
+
+### LIMIT-ERFC-1 — complementary error function erfc(x) limits returned nan
+- **Problem:** `erfc`/`erf` of a diverging argument had no asymptotic expansion, so `x·erfc(x) → 0`,
+  `e^{x²}·erfc(x) → 0`, `x·e^{x²}·erfc(x) → 1/√π`, `x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π)`, and
+  `(1 − erf(x))/e^{−x²} → 0` all returned `nan`.
+- **Fix:** extended the special-function asymptotic rewrite with the Gaussian-tail expansion (DLMF 7.12.1)
+  `erfc(g) ~ e^{−g²}/(g√π)·(1 − 1/(2g²) + 3/(4g⁴) − 15/(8g⁶) + …)` for `g → +∞`, with `erf(g) = 1 − erfc(g)`.
+  The rewrite fires only when a single `erf`/`erfc` node is present: a ratio such as `erfc(x)/erfc(2x)`, whose
+  `e^{−g²}` factors do not cancel and which SymPy itself leaves unevaluated, stays `nan` rather than spinning on
+  an `e^{3x²}·(series ratio)` form. Now `x·erfc(x) → 0`, `e^{x²}·erfc(x) → 0`, `x·e^{x²}·erfc(x) → 1/√π`,
+  `x³·e^{x²}·erfc(x) − x²/√π → −1/(2√π)`, `(1 − erf(x))/e^{−x²} → 0`. Regression: `LIMIT-ERFC-1`. Matches SymPy.
+
+### LIMIT-POLYGAMMA-LOGGAMMA-1 — higher polygamma ψ⁽ᵐ⁾(n) and loggamma(n) limits hung
+- **Problem:** the higher polygammas `ψ⁽ᵐ⁾(n) = polygamma(m, n)` for `m ≥ 1` and the `loggamma` function had
+  no asymptotic expansion, so `n·ψ'(n) → 1`, `n³·ψ''(n) → −∞`, `loggamma(n)/(n·log n) → 1`, and
+  `loggamma(n+1) − loggamma(n) → ∞` all hung.
+- **Fix:** extended the special-function asymptotic rewrite (digamma `LIMIT-DIGAMMA-1`) with:
+  (1) `ψ⁽ᵐ⁾(g)` for `m ≥ 1` via DLMF 5.15.8,
+  `(−1)^{m−1}[(m−1)!·g⁻ᵐ + m!/2·g^{−m−1} + (m+1)!/12·g^{−m−2} − (m+3)!/720·g^{−m−4} + …]`; and
+  (2) `loggamma(g)` via log-Stirling, `(g−½)·log g − g + ½·log 2π + 1/(12g)`, with a positive-integer shift
+  `Γ(var+k) = (var+k−1)!` recast onto a var-clean log (so `loggamma(n+1)` expands in `log n`, not `log(n+1)`,
+  and the difference does not spin). Now `n·ψ'(n) → 1`, `n²·ψ'(n) → ∞`, `n²·(ψ'(n) − 1/n) → 1/2`,
+  `n³·ψ''(n) → −∞`, `ψ''(n)·n² → −1`, `loggamma(n)/(n·log n) → 1`, `loggamma(n+1) − loggamma(n) → ∞`.
+  Regression: `LIMIT-POLYGAMMA-LOGGAMMA-1`. Matches SymPy.
+
+### LIMIT-DIGAMMA-1 — digamma ψ(n)/log n and ψ(n) − log n hung
+- **Problem:** `limit(ψ(n)/log n, n, ∞) = 1` and `limit(ψ(n) − log n, n, ∞) = 0` did not terminate
+  (`ψ = digamma = polygamma(0,·)`). The engine knew `ψ(n) → ∞` but had no asymptotic expansion, so the
+  ratio/difference forms spun.
+- **Fix:** extended the special-function asymptotic rewrite (which already expands a harmonic number `H(g)`) to
+  `polygamma(0, g)` with `g → +∞`: `ψ(g) = log g − 1/(2g) − 1/(12g²) + 1/(120g⁴) − …` (consistent with the
+  harmonic expansion via `ψ(g) = H(g−1) − γ`). Now `ψ(n)/log n → 1`, `ψ(n) − log n → 0`,
+  `n·(ψ(n) − log n) → −1/2`, `n²·(ψ(n) − log n + 1/(2n)) → −1/12`, and `ψ(n+1) − ψ(n) → 0`. Regression:
+  `LIMIT-DIGAMMA-1`. Matches SymPy.
+
+### LIMIT-GAMMARATIO-SERIES-1 — gamma-ratio differences (Γ(n+1)/Γ(n+½) − √n) hung
+- **Problem:** `limit(Γ(n+1)/Γ(n+½) − √n, n, ∞) = 0`, `limit(√n·(Γ(n+1)/Γ(n+½) − √n), n, ∞) = 1/8`, and
+  `·n² → ∞` did not terminate. The leading gamma-ratio asymptotic gives `Γ(n+1)/Γ(n+½) ~ √n` (which resolves
+  the plain ratio), but that *leading* term cancels in the difference, so the limit needs the *subleading*
+  term — which the engine did not have.
+- **Fix:** added `try_gamma_ratio_series`, the Tricomi–Erdélyi two-term gamma asymptotic. Each slope-1 gamma is
+  replaced by `Γ(n+a) = Γ(n)·nᵃ·(1 + a(a−1)/(2n) + O(n⁻²))`; in a *balanced* ratio the common `Γ(n)` cancels,
+  leaving a pure-power form (no recombining `Γ` for `simplify` to re-fold), so `Γ(n+1)/Γ(n+½) = √n·(1 + 1/(8n))`
+  and the subleading `(1/8)n^(−1/2)` carries the difference. It is gated off any gamma under a non-integer or
+  variable power — `(n!)^(1/n)` needs the full Stirling growth, not this ratio expansion — and numerically
+  verified against the original. Now `Γ(n+1)/Γ(n+½) − √n → 0`, `√n·(…) → 1/8`, `n²·(…) → ∞`, and the plain
+  ratio and `(n!)^(1/n)` cases are unchanged. Regression: `LIMIT-GAMMARATIO-SERIES-1`. Matches SymPy.
+
+### LIMIT-LOGEXPAND-1 — same-rank log·polynomial differences (2n·log(2n) − n·log n) gave nan
+- **Problem:** `limit(2n·log(2n) − n·log n, n, ∞) = ∞` returned `nan`. The two terms have the *same* growth
+  rank (both `∼ n·log n`), so the strict dominant-term rule abstains (their ratio tends to `1/2`, not `0`), and
+  the matching-coefficient log-combine does not apply (the coefficients `2n` and `n` differ). The like terms
+  only collect once the inner logs are expanded.
+- **Fix:** added `rewrite_expand_logs`, which expands `log(c·x) = log c + log x` and `log(xᵏ) = k·log x`
+  subterms (each split factor certified positive at `+∞`, so the identity is exact in the asymptotic regime)
+  and re-takes the limit. `2n·log(2n) − n·log n` becomes `2n·log 2 + n·log n → ∞` (now also using
+  `LOG-SIGN-1` for `log 2 > 0`). Now `2n·log(2n) − n·log n → ∞`, `n·log(2n) − n·log n → ∞`,
+  `n·log(n²) − 2n·log n → 0`, `3n·log(2n) − 2n·log(3n) → ∞`, and — through the log-Stirling stage —
+  `log((2n)!) − n·log n → ∞`. Regression: `LIMIT-LOGEXPAND-1`. Matches SymPy.
+
+### LIMIT-MULTIRATE-GAMMA-1 — (2n)!/nⁿ and nⁿ/(2n)! hung
+- **Problem:** `limit((2n)!/nⁿ, n, ∞) = ∞` and `limit(nⁿ/(2n)!, n, ∞) = 0` did not terminate. The
+  Stirling-root stage fired (`nⁿ` is a var-radical) and rewrote `(2n)! = Γ(2n+1)` to its leading
+  `((2n+1)/e)^(2n+1)` — a super-power with base `2n+1` that does not factor against the competing `nⁿ` (base
+  `n`), so `limit_impl` spun on the mixed-base form. (`Γ(2n)/nⁿ` worked because `(2n)^(2n)` *does* factor to
+  `2^(2n)·n^(2n)`.)
+- **Fix:** skip the Stirling-root stage when a gamma/factorial argument grows faster than the variable
+  (slope ≥ 2 — `Γ(2n)`, `(2n)!`). Such expressions now reach the log-exp reduction `lim e = exp(lim log e)`,
+  whose `log e = log((2n)!) − n·log n` resolves via the log-Stirling + log-expansion stages (`LIMIT-LOGEXPAND-1`)
+  to `∞`, so `exp → ∞` (and `−∞ → 0` for the reciprocal). `Γ(2n)/nⁿ` keeps resolving — now through the same
+  log-exp path rather than the Stirling root. Now `(2n)!/nⁿ → ∞`, `nⁿ/(2n)! → 0`. Regression:
+  `LIMIT-SUPERPOW-1` (extended). Matches SymPy.
+
+### LOG-SIGN-1 — log of a constant had an unknown sign, so log(2)·n → nan
+- **Problem:** `is_positive(log 2)` returned *unknown*, so `limit(log(2)·n, n, ∞)` returned `nan` — the engine
+  could not fold `(positive const)·∞ → ∞` without the sign of the coefficient. By contrast `√2·n` and `π·n`
+  worked (those constants report `positive`). The same blocked `n·log(2n) − n·log n = n·log 2 → ∞` after the
+  log-combine.
+- **Fix:** `Log::ask` now derives the sign from the argument versus 1: `log(a) > 0 ⟺ a > 1`, `log(a) < 0 ⟺
+  0 < a < 1`, and `log(a) ≠ 0 ⟺ a ≠ 1` (for a real log, `a > 0`). Now `is_positive(log 2) = true`,
+  `is_negative(log(1/2)) = true`, `limit(log(2)·n) → ∞`, `limit(log(1/2)·n) → −∞`, and
+  `n·log(2n) − n·log n → ∞`. Regression: `LOG-SIGN-1`. Matches SymPy (`log(2).is_positive == True`).
+
+### LIMIT-SUPERPOW-DIFF-1 — n! − nⁿ and similar factorial/super-power differences hung
+- **Problem:** a difference of a factorial/gamma and a super-power `n^(c·n)` did not terminate:
+  `limit(n! − nⁿ, n, ∞) = −∞`, `limit(Γ(n+1) − nⁿ, n, ∞) = −∞`, `limit(nⁿ − n!, n, ∞) = ∞`, `limit(n! − eⁿ, n, ∞) = ∞`
+  all hung. The Stirling n-th-root stage (gated on `has_var_radical`, which `nⁿ` satisfies) fired on the *sum*
+  and rewrote `n! → (n/e)ⁿ`, turning the difference into another `∞−∞` Stirling form the substitution then
+  spun on, recursing to the depth cap.
+- **Fix:** skip the Stirling-root stage on a top-level `Add` — a difference of comparable divergent terms is a
+  dominant-term case, not a root/product case, so it now reaches `try_dominant_term_sum`, which picks the
+  dominant term (`nⁿ ≫ n!`) and returns its signed infinity. The Stirling product/root cases (all `Mul`/`Pow`
+  forms — `(n!)^(1/n)/n`, `n!/(nⁿe⁻ⁿ)`, …) are unaffected. Now `n! − nⁿ → −∞`, `Γ(n+1) − nⁿ → −∞`,
+  `nⁿ − n! → ∞`, `n! − eⁿ → ∞`, and the ratio `(n! − nⁿ)/nⁿ → −1`. Regression: `LIMIT-SUPERPOW-1` (extended).
+  Matches SymPy. (Still open: ratios against `Γ(2n)`/`(2n)!` such as `(2n)!/nⁿ`, a separate gamma(2n)-vs-
+  super-power growth comparison.)
+
 ### LIMIT-INVHYP-1 — asinh(x)/log x and acosh(x)/log x hung
 - **Problem:** `limit(asinh(x)/log x, x, ∞) = 1` and `acosh(x)/log x → 1` did not terminate. `asinh(x) =
   log(x + √(x²+1))` and `acosh(x) = log(x + √(x²−1))` both grow like `log(2x)`, but the exact log-of-a-radical

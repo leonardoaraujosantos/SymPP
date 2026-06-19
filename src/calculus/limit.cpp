@@ -75,6 +75,21 @@ struct NumDen { Expr num; Expr den; };
     return e->type_id() == TypeId::NaN;
 }
 
+// True if `e` contains a log(...) node anywhere — a cheap structural pre-filter
+// for the dominant-term quotient rules, whose target residuals (from the
+// log-of-a-sum rewrite) always carry a log; pure polynomial/exponential ratios
+// have dedicated handlers and must not pay for those rules' recursive probing.
+[[nodiscard]] bool has_log_node(const Expr& e) noexcept {
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).function_id() == FunctionId::Log) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_log_node(a)) return true;
+    }
+    return false;
+}
+
 // True if `e` contains sin/cos/tan of an argument that diverges to infinity —
 // the residue of substituting x = ∞ into an unresolved oscillation, e.g. sin(∞),
 // cos(∞) + 1, x·sin(∞). Such an expression has no determinate limit (it
@@ -894,6 +909,29 @@ struct NumDen { Expr num; Expr den; };
     return n;
 }
 
+// True if some gamma/factorial in e has an argument growing faster than var
+// (slope ≥ 2 — Γ(2n), (2n)!). The Stirling-root stage's leading (g/e)^g is then a
+// mixed-base super-power (base 2n+1 against a competing nⁿ) the engine spins on, so
+// such expressions are routed to the log-exp reduction instead.
+[[nodiscard]] bool has_multirate_gamma(const Expr& e, const Expr& var) {
+    if (e->type_id() == TypeId::Function) {
+        const auto id = static_cast<const Function&>(*e).function_id();
+        if ((id == FunctionId::Gamma || id == FunctionId::Factorial)
+            && e->args().size() == 1 && has(e->args()[0], var)) {
+            const Expr slope = simplify(diff(e->args()[0], var));
+            if (slope->type_id() == TypeId::Integer
+                && is_positive(add(slope, integer(-1)))
+                       == std::optional<bool>{true}) {
+                return true;
+            }
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_multirate_gamma(a, var)) return true;
+    }
+    return false;
+}
+
 // Asymptotic growth at +∞ obeys the strict hierarchy
 //   factorial/gamma  ≫  exponential  ≫  polynomial  ≫  logarithm.
 // classify_growth maps one multiplicative factor f^s (s = ±1 the side it sits
@@ -1362,6 +1400,111 @@ struct Growth {
                       depth + 1);
 }
 
+// Tricomi–Erdélyi asymptotic of a gamma ratio. Each slope-1 gamma is replaced by
+// its two-term expansion relative to Γ(var):
+//   Γ(var + a) = Γ(var)·varᵃ·(1 + a(a−1)/(2·var) + O(var⁻²)).
+// In a *balanced* ratio (the Γ(var) factors cancel) this leaves a pure-power form,
+// so a difference that cancels the leading term still resolves — Γ(n+1)/Γ(n+½) − √n
+// → 0, ·√n → 1/8, ·n² → ∞. The dropped Γ(var) makes an unbalanced product wrong, so
+// the candidate is accepted only after a numeric check against the original.
+[[nodiscard]] std::optional<Expr> try_gamma_ratio_series(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& target,
+                                                         int depth) {
+    if (depth >= 8 || target->type_id() != TypeId::Infinity
+        || count_gamma_factorial(expr) == 0) {
+        return std::nullopt;
+    }
+    const Expr work = normalize_factorial(expr);  // factorial → gamma
+    // The Γ(var)-dropping expansion is only valid in a balanced product of gammas
+    // raised to integer powers. Bail if any gamma sits under a non-integer or
+    // var-dependent power — e.g. (n!)^(1/n), which needs the full Stirling growth,
+    // not this ratio expansion.
+    bool nonint_gamma_power = false;
+    auto pcheck = [&](auto&& self, const Expr& e) -> void {
+        if (nonint_gamma_power) return;
+        if (e->type_id() == TypeId::Pow
+            && count_gamma_factorial(e->args()[0]) > 0
+            && (has(e->args()[1], var)
+                || e->args()[1]->type_id() != TypeId::Integer)) {
+            nonint_gamma_power = true;
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    pcheck(pcheck, work);
+    if (nonint_gamma_power) return std::nullopt;
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1) {
+                const Expr a = simplify(add(fn.args()[0],
+                                            mul(S::NegativeOne(), var)));
+                if (!has(a, var) && is_number(a)) {
+                    // varᵃ·(1 + a(a−1)/(2·var)), dropping the common Γ(var).
+                    const Expr c1 =
+                        mul(a, mul(add(a, S::NegativeOne()), rational(1, 2)));
+                    m.emplace(e, mul(pow(var, a),
+                                     add(S::One(),
+                                         mul(c1, pow(var, integer(-1))))));
+                }
+            }
+        }
+        for (const auto& arg : e->args()) self(self, arg);
+    };
+    scan(scan, work);
+    if (m.empty()) return std::nullopt;
+    Expr cand = limit_impl(simplify(xreplace(work, m)), var, target, depth + 1);
+    if (is_nan(cand) || has(cand, var)
+        || cand->type_id() == TypeId::ComplexInfinity
+        || count_gamma_factorial(cand) > 0) {
+        return std::nullopt;
+    }
+    // Numeric guard: the two-term form is only asymptotic and drops Γ(var) for an
+    // unbalanced product, so verify against the original at moderate n (gammas grow
+    // factorially — keep the samples small enough to evaluate).
+    const bool pinf = cand->type_id() == TypeId::Infinity;
+    const bool ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cvd = 0.0;
+    if (!pinf && !ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            cvd = std::stod(cvf->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    double prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
+    for (long g : {30L, 120L, 480L}) {
+        Expr at = evalf(simplify(subs(expr, var, integer(g))), 50);
+        if (at->type_id() != TypeId::Float) return std::nullopt;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        if (pinf) {
+            if (checks > 0 && !(v > prev_val)) return std::nullopt;
+            if (g == 480L && !(v > 1.0)) return std::nullopt;
+        } else if (ninf) {
+            if (checks > 0 && !(v < prev_val)) return std::nullopt;
+            if (g == 480L && !(v < -1.0)) return std::nullopt;
+        } else {
+            const double d = std::fabs(v - cvd);
+            if (!(d <= prev_diff + 1e-9)) return std::nullopt;
+            prev_diff = d;
+            if (g == 480L && !(d < 1e-2)) return std::nullopt;
+        }
+        prev_val = v;
+        ++checks;
+    }
+    return checks == 3 ? std::optional<Expr>{cand} : std::nullopt;
+}
+
 // A super-power var^(c·var) (c a nonzero rational) dominates the factorial/gamma
 // class: n^n ≫ n!. When the expression is exactly such a super-power times a
 // single factorial(var) / gamma(var+1) raised to ±1 (plus constants), the
@@ -1758,6 +1901,8 @@ struct Growth {
 // so the residual log has a finite limit. Rewrites the first such log(g) inside
 // `expr` and re-takes the limit. Resolves x − log(cosh x) → log 2,
 // log(2^x+3^x)/x → log 3, (2^x+3^x)^(1/x) → 3.
+[[nodiscard]] bool is_poly_in_var(const Expr& e, const Expr& var);
+
 [[nodiscard]] std::optional<Expr> try_log_exp_asymptotic(const Expr& expr,
                                                          const Expr& var,
                                                          const Expr& target,
@@ -1806,7 +1951,10 @@ struct Growth {
     Expr g_exp = expand(hyp.empty() ? g : xreplace(g, hyp));
 
     // The exponent e such that `term = const·exp(e)` (a^h ↦ e = h·log a; a bare
-    // constant ↦ e = 0). Bails on a non-exponential var factor (e.g. x·eˣ).
+    // constant ↦ e = 0). A polynomial var factor is sub-exponential, so it is
+    // absorbed as a rate-0 coefficient — the x in x·eˣ, or a bare xᵏ term, ranks
+    // below any positively-growing exponential. Bails on a non-polynomial,
+    // non-exponential var factor (e.g. a nested log or x^x).
     auto exp_exponent = [&](const Expr& term) -> std::optional<Expr> {
         if (!has(term, var)) return Expr{S::Zero()};
         std::vector<Expr> facs;
@@ -1831,6 +1979,8 @@ struct Growth {
                 if (found) return std::nullopt;
                 exponent = mul(f->args()[1], log(f->args()[0]));
                 found = true;
+            } else if (is_poly_in_var(f, var)) {
+                continue;  // sub-exponential coefficient — rate 0
             } else {
                 return std::nullopt;
             }
@@ -1890,6 +2040,77 @@ struct Growth {
     // e_dom/x + log(residual)/x for the per-term limits to resolve, rather than
     // staying an (∞)·(0) Mul.
     Expr expr2 = expand(xreplace(expr, repl));
+    Expr r = limit_impl(expr2, var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
+}
+
+// Gruntz leading-term of a log of a sum with no exponential dominator — the
+// logarithmic-rate companion to try_log_exp_asymptotic. For log(Σ tᵢ) at +∞ with
+// a unique dominant summand t* (every other tⱼ/t* → 0) that itself diverges or
+// vanishes, log(Σ) = log(t*) + log(Σ/t*), and Σ/t* → 1 so the residual log is
+// bounded (→ 0). This unfolds nested-log sums the exponential path skips:
+// log(log x + log log x) → log(log x) + log(1 + log log x/log x), so
+// log(log x + log log x) − log log x → 0 and the ratio /log log x → 1. Held to a
+// shallow depth and a single rewrite per pass; the residual quotient is resolved
+// by the dominant-denominator division. Only fires when the exponential path has
+// already abstained, so exp-dominated sums keep their dedicated (sharper) rewrite.
+[[nodiscard]] std::optional<Expr> rewrite_log_sum_dominant(const Expr& expr,
+                                                           const Expr& var,
+                                                           const Expr& target,
+                                                           int depth) {
+    if (depth >= 4 || target->type_id() != TypeId::Infinity) return std::nullopt;
+    auto is_log = [](const Expr& f) {
+        return f->type_id() == TypeId::Function
+               && static_cast<const Function&>(*f).function_id()
+                      == FunctionId::Log
+               && f->args().size() == 1;
+    };
+    // First log(g) with g a var-dependent sum.
+    Expr the_log;
+    auto find = [&](auto&& self, const Expr& e) -> void {
+        if (the_log) return;
+        if (is_log(e) && e->args()[0]->type_id() == TypeId::Add
+            && has(e->args()[0], var)) {
+            the_log = e;
+            return;
+        }
+        for (const auto& a : e->args()) {
+            if (the_log) return;
+            self(self, a);
+        }
+    };
+    find(find, expr);
+    if (!the_log) return std::nullopt;
+
+    const Expr& g = the_log->args()[0];
+    const auto& terms = g->args();
+    if (terms.size() < 2 || terms.size() > 6) return std::nullopt;
+    // Unique dominant summand: every other term divided by it tends to 0.
+    Expr dom;
+    for (const auto& ti : terms) {
+        if (!has(ti, var)) continue;
+        bool dominates = true;
+        for (const auto& tj : terms) {
+            if (tj.get() == ti.get()) continue;
+            Expr ratio = limit_impl(simplify(mul(tj, pow(ti, integer(-1)))),
+                                    var, target, depth + 1);
+            if (!(ratio == S::Zero())) { dominates = false; break; }
+        }
+        if (dominates) { dom = ti; break; }
+    }
+    if (!dom) return std::nullopt;
+    // Require the dominant term to diverge or vanish, so log(dom) is unbounded and
+    // the split makes progress (a constant dominator would just reproduce log(g)).
+    Expr dl = limit_impl(dom, var, target, depth + 1);
+    if (!is_infinity(dl) && !(dl == S::Zero())) return std::nullopt;
+
+    Expr residual = simplify(mul(g, pow(dom, integer(-1))));  // → 1
+    Expr new_log = add(log(dom), log(residual));
+    ExprMap<Expr> repl;
+    repl.emplace(the_log, new_log);
+    Expr expr2 = expand(xreplace(expr, repl));
+    if (expr2 == expr) return std::nullopt;
     Expr r = limit_impl(expr2, var, target, depth + 1);
     if (is_nan(r)) return std::nullopt;
     return r;
@@ -2201,6 +2422,74 @@ struct Growth {
     return std::nullopt;
 }
 
+// M·(c·e^p − c·e^q) with p − q → 0: a product carrying a difference of two
+// asymptotically-equal exponentials. e^p − e^q = e^q·(e^{p−q} − 1) ~ e^q·(p − q)
+// exactly (e^t − 1 = t·(1 + t/2 + …) ~ t at t → 0), so the factor is asymptotic to
+// c·e^q·(p − q) and the limit is lim of M with that substituted — no numeric guard,
+// which would underflow on the e^{−e^{−x}} − 1 cancellation. Resolves the Gruntz
+// flagship e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1 (a bare constant term counts as
+// e^0, so e^u − 1 is handled the same way). Complements try_exp_difference, which
+// only fires when the whole expression is the bare sum of exponentials.
+[[nodiscard]] std::optional<Expr> try_exp_unit_difference(const Expr& expr,
+                                                          const Expr& var,
+                                                          const Expr& target,
+                                                          int depth) {
+    if (depth >= 8 || !is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    // term = coeff · exp(p); a term with no exponential factor is coeff · exp(0).
+    auto split_exp = [&](const Expr& term) -> std::pair<Expr, Expr> {
+        std::vector<Expr> facs;
+        if (term->type_id() == TypeId::Mul) {
+            for (const auto& f : term->args()) facs.push_back(f);
+        } else {
+            facs.push_back(term);
+        }
+        Expr coeff = S::One(), p = S::Zero();
+        bool found = false;
+        for (const auto& f : facs) {
+            if (!found && f->type_id() == TypeId::Function
+                && static_cast<const Function&>(*f).function_id()
+                       == FunctionId::Exp
+                && f->args().size() == 1) {
+                p = f->args()[0];
+                found = true;
+            } else {
+                coeff = mul(coeff, f);
+            }
+        }
+        return {coeff, p};
+    };
+    const auto& factors = expr->args();
+    for (std::size_t i = 0; i < factors.size(); ++i) {
+        const Expr& f = factors[i];
+        if (f->type_id() != TypeId::Add || f->args().size() != 2) continue;
+        auto [c1, p1] = split_exp(f->args()[0]);
+        auto [c2, p2] = split_exp(f->args()[1]);
+        // The factor must be c·(e^{p1} − e^{p2}) with the exponent gap → 0, and at
+        // least one exponent var-dependent (else it is a constant difference).
+        if (!(simplify(add(c1, c2)) == S::Zero())) continue;
+        if (!has(p1, var) && !has(p2, var)) continue;
+        Expr gap = limit_impl(add(p1, mul(S::NegativeOne(), p2)), var, target,
+                              depth + 1);
+        if (!(gap == S::Zero())) continue;
+        // e^{p1} − e^{p2} ~ e^{p2}·(p1 − p2): rebuild the product with the factor
+        // replaced by its leading asymptotic and re-take. The gap is simplified so
+        // it collapses to a clean exponential (1/x − (1/x − e⁻ˣ) → e⁻ˣ) the exp
+        // machinery can recombine, rather than an opaque nested Add.
+        Expr leading = mul(mul(c1, exp(p2)),
+                           simplify(add(p1, mul(S::NegativeOne(), p2))));
+        std::vector<Expr> rest;
+        for (std::size_t j = 0; j < factors.size(); ++j) {
+            if (j != i) rest.push_back(factors[j]);
+        }
+        rest.push_back(leading);
+        Expr r = limit_impl(mul(std::move(rest)), var, target, depth + 1);
+        if (!is_nan(r)) return r;
+    }
+    return std::nullopt;
+}
+
 // Gruntz leading-term via series. For an indeterminate form built from a variable
 // power inside a sum — g(x)·(f(x)^{h(x)} − c), the 1^∞ minus its value — substitute
 // x = ±1/u (so x → ±∞ becomes u → 0⁺), rewrite each u-dependent power to exp(·log·)
@@ -2488,6 +2777,86 @@ struct Growth {
     return cand;
 }
 
+// A vanishing series core S (an f(x)^{g(x)} − c difference) times a multiplier M
+// the direct series substitution cannot handle: M = eˣ becomes exp(1/u) — an
+// essential singularity, not a u-power pole — and M = √x a fractional pole, both of
+// which defeat try_series_limit (which expands the *whole* product in u). The
+// Gruntz leading-term step factors them apart instead: S has a leading monomial
+// c₀·x^{−m} (try_series_limit already resolves xᵐ·S for an integer m), so
+// M·S ~ M·c₀·x^{−m}, whose limit the ordinary exp/poly machinery reads off —
+// eˣ·((1+1/x)ˣ − e) → −∞, √x·((1+1/x)ˣ − e) → 0. The pure-monomial multiplier case
+// (xᵏ, integer k) is left to try_series_limit, so this never recurses on itself.
+[[nodiscard]] std::optional<Expr> try_series_times_multiplier(const Expr& expr,
+                                                              const Expr& var,
+                                                              const Expr& target,
+                                                              int depth) {
+    if (depth >= 8 || !is_infinity(target) || expr->type_id() != TypeId::Mul) {
+        return std::nullopt;
+    }
+    // An Add factor carries a series core when it contains a variable power
+    // f(x)^{g(x)} whose base tends to a finite nonzero limit (the try_series_limit
+    // gate — the analytic 1^∞ shape, not the log-singular x^(1/x)).
+    auto has_series_power = [&](const Expr& add_term) -> bool {
+        bool ok = false;
+        auto scan = [&](auto&& self, const Expr& e) -> void {
+            if (ok) return;
+            if (e->type_id() == TypeId::Pow && has(e->args()[0], var)
+                && has(e->args()[1], var)) {
+                Expr lb = limit_impl(e->args()[0], var, target, depth + 1);
+                if (!is_nan(lb) && !is_infinity(lb) && !(lb == S::Zero())
+                    && lb->type_id() != TypeId::ComplexInfinity) {
+                    ok = true;
+                }
+                return;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        scan(scan, add_term);
+        return ok;
+    };
+    // A multiplier handled by try_series_limit directly (a constant or an
+    // integer power of var) — leave those alone so this stage cannot recurse on
+    // its own xᵐ·S probes.
+    auto plain_monomial = [&](const Expr& f) -> bool {
+        if (!has(f, var)) return true;
+        if (f == var) return true;
+        return f->type_id() == TypeId::Pow && f->args()[0] == var
+               && f->args()[1]->type_id() == TypeId::Integer;
+    };
+
+    Expr core;
+    std::vector<Expr> mult;
+    bool nontrivial_mult = false;
+    for (const auto& f : expr->args()) {
+        if (!core && f->type_id() == TypeId::Add && has_series_power(f)) {
+            core = f;
+        } else {
+            mult.push_back(f);
+            if (!plain_monomial(f)) nontrivial_mult = true;
+        }
+    }
+    if (!core || mult.empty() || !nontrivial_mult) return std::nullopt;
+    Expr M = mul(mult);
+    // The core must vanish (the leading-monomial peel below assumes m ≥ 1).
+    if (!(limit_impl(core, var, target, depth + 1) == S::Zero())) {
+        return std::nullopt;
+    }
+    // Leading monomial of the core: smallest integer m ≥ 1 with lim(xᵐ·core)
+    // finite nonzero, so core ~ c₀·x^{−m}.
+    for (long m = 1; m <= 6; ++m) {
+        Expr c0 = limit_impl(mul(pow(var, integer(m)), core), var, target,
+                             depth + 1);
+        if (is_nan(c0)) return std::nullopt;
+        if (c0 == S::Zero()) continue;       // core decays faster — try larger m
+        if (is_infinity(c0)) return std::nullopt;  // overshot (non-integer m)
+        Expr r = limit_impl(mul(M, mul(c0, pow(var, integer(-m)))), var, target,
+                            depth + 1);
+        if (is_nan(r)) return std::nullopt;
+        return r;
+    }
+    return std::nullopt;
+}
+
 // Continuity of a power with a constant exponent: lim base^r = (lim base)^r when
 // the inner limit is determinate. Direct substitution computes the base
 // pointwise and a non-rational base (e.g. log(log x)/log x) substitutes to an
@@ -2609,6 +2978,39 @@ struct Growth {
     Expr m = limit_impl(*le, var, target, depth + 1);
     if (is_nan(m)) return std::nullopt;
     return exp_of_limit(m);
+}
+
+// Expand log(c·x), log(xᵏ), … subterms (argument a positive product/power) into a
+// sum of logs and re-take, so an ∞−∞ of same-rank but differently-scaled log terms
+// combines: 2x·log(2x) − x·log x = 2x·log 2 + x·log x → ∞ once log(2x) splits.
+// (try_common_log_combine handles only matching coefficients — 2x vs x do not.)
+[[nodiscard]] std::optional<Expr> rewrite_expand_logs(const Expr& expr,
+                                                      const Expr& var,
+                                                      const Expr& target,
+                                                      int depth) {
+    if (depth >= 10 || target->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)
+            && static_cast<const Function&>(*e).function_id() == FunctionId::Log
+            && e->args().size() == 1) {
+            const Expr& arg = e->args()[0];
+            if ((arg->type_id() == TypeId::Mul || arg->type_id() == TypeId::Pow)
+                && has(arg, var)) {
+                if (auto le = expand_log_positive(arg, var, 0)) {
+                    if (!(*le == e)) m.emplace(e, *le);
+                }
+            }
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    scan(scan, expr);
+    if (m.empty()) return std::nullopt;
+    Expr r = limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
+    if (is_nan(r)) return std::nullopt;
+    return r;
 }
 
 // Gruntz dominant-term rule for an indeterminate ∞−∞ sum at ±∞: if one term
@@ -2851,6 +3253,23 @@ struct Growth {
     if (depth >= 10 || target->type_id() != TypeId::Infinity) {
         return std::nullopt;
     }
+    // Count erf/erfc occurrences once: the Gaussian-tail expansion is only applied
+    // when a single one is present, so a ratio erfc(x)/erfc(2x) — whose e^{−g²}
+    // factors do not cancel and which SymPy also leaves unevaluated — is not turned
+    // into a spinning e^{3x²}·(series ratio) form.
+    int erf_count = 0;
+    int ei_count = 0;
+    {
+        auto cnt = [&](auto&& self, const Expr& e) -> void {
+            if (e->type_id() == TypeId::Function) {
+                const auto id = static_cast<const Function&>(*e).function_id();
+                if (id == FunctionId::Erf || id == FunctionId::Erfc) ++erf_count;
+                if (id == FunctionId::Ei) ++ei_count;
+            }
+            for (const auto& a : e->args()) self(self, a);
+        };
+        cnt(cnt, expr);
+    }
     ExprMap<Expr> m;
     auto scan = [&](auto&& self, const Expr& e) -> void {
         if (e->type_id() == TypeId::Function) {
@@ -2864,6 +3283,171 @@ struct Growth {
                         e, add({log(g), S::EulerGamma(),
                                 mul(rational(1, 2), pow(g, integer(-1))),
                                 mul(rational(-1, 12), pow(g, integer(-2)))}));
+                }
+            }
+            // Digamma ψ(g) = polygamma(0, g), g → +∞: log g − 1/(2g) − 1/(12g²) +
+            // 1/(120g⁴) − …. (Consistent with H(g) above via ψ(g) = H(g−1) − γ.)
+            if (fn.function_id() == FunctionId::PolyGamma
+                && fn.args().size() == 2 && fn.args()[0] == S::Zero()
+                && !m.count(e)) {
+                const Expr& g = fn.args()[1];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(
+                        e, add({log(g),
+                                mul(rational(-1, 2), pow(g, integer(-1))),
+                                mul(rational(-1, 12), pow(g, integer(-2))),
+                                mul(rational(1, 120), pow(g, integer(-4)))}));
+                }
+            }
+            // Higher polygamma ψ⁽ᵐ⁾(g), m ≥ 1, g → +∞ (DLMF 5.15.8):
+            //   ψ⁽ᵐ⁾(g) ~ (−1)^{m−1}[(m−1)!·g⁻ᵐ + m!/2·g^{−m−1}
+            //              + (m+1)!/12·g^{−m−2} − (m+3)!/720·g^{−m−4} + …].
+            if (fn.function_id() == FunctionId::PolyGamma
+                && fn.args().size() == 2
+                && fn.args()[0]->type_id() == TypeId::Integer && !m.count(e)) {
+                const auto& ord = static_cast<const Integer&>(*fn.args()[0]);
+                if (ord.fits_long() && ord.to_long() >= 1) {
+                    const long mo = ord.to_long();
+                    const Expr& g = fn.args()[1];
+                    if (has(g, var)
+                        && limit_impl(g, var, target, depth + 1)
+                               == S::Infinity()) {
+                        const Expr sign =
+                            (mo % 2 == 1) ? Expr{S::One()} : Expr{S::NegativeOne()};
+                        m.emplace(
+                            e,
+                            mul(sign,
+                                add({mul(factorial(integer(mo - 1)),
+                                         pow(g, integer(-mo))),
+                                     mul(mul(factorial(integer(mo)),
+                                             rational(1, 2)),
+                                         pow(g, integer(-mo - 1))),
+                                     mul(mul(factorial(integer(mo + 1)),
+                                             rational(1, 12)),
+                                         pow(g, integer(-mo - 2))),
+                                     mul(mul(factorial(integer(mo + 3)),
+                                             rational(-1, 720)),
+                                         pow(g, integer(-mo - 4)))})));
+                    }
+                }
+            }
+            // log Γ(g) = loggamma(g), g → +∞ (log-Stirling):
+            //   (g−½)·log g − g + ½·log 2π + 1/(12g) − ….
+            // A positive-integer shift Γ(var+k) = (var+k−1)! is recast onto z = g−1
+            // so its log argument stays var-clean (loggamma(n+1) ⇒ log n, not
+            // log(n+1)) — otherwise loggamma(n+1) − loggamma(n) spins on log(n+1).
+            if (fn.function_id() == FunctionId::LogGamma
+                && fn.args().size() == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    // Direct log Γ(z) form has the −½ coefficient on log z; the
+                    // factorial recast log((var+k−1)!) carries +½.
+                    Expr z = g, coeff = rational(-1, 2);
+                    const Expr s = simplify(add(g, mul(S::NegativeOne(), var)));
+                    if (s->type_id() == TypeId::Integer
+                        && is_positive(s) == std::optional<bool>{true}) {
+                        z = simplify(add(g, S::NegativeOne()));
+                        coeff = rational(1, 2);
+                    }
+                    m.emplace(
+                        e,
+                        add({mul(add(z, coeff), log(z)),
+                             mul(S::NegativeOne(), z),
+                             mul(rational(1, 2), log(mul(integer(2), S::Pi()))),
+                             mul(rational(1, 12), pow(z, integer(-1)))}));
+                }
+            }
+            // erfc(g) / erf(g), g → +∞ (DLMF 7.12.1): the complementary error
+            // function decays as a Gaussian times a 1/g² series,
+            //   erfc(g) ~ e^{−g²}/(g·√π)·(1 − 1/(2g²) + 3/(4g⁴) − 15/(8g⁶) + …),
+            // and erf(g) = 1 − erfc(g). This gives the rate the bare erf(∞)=1,
+            // erfc(∞)=0 values lack — x·e^{x²}·erfc(x) → 1/√π, etc.
+            if ((fn.function_id() == FunctionId::Erf
+                 || fn.function_id() == FunctionId::Erfc)
+                && fn.args().size() == 1 && erf_count == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    const Expr erfc_asy = mul(
+                        mul(exp(mul(S::NegativeOne(), pow(g, integer(2)))),
+                            pow(mul(g, pow(S::Pi(), rational(1, 2))),
+                                integer(-1))),
+                        add({S::One(),
+                             mul(rational(-1, 2), pow(g, integer(-2))),
+                             mul(rational(3, 4), pow(g, integer(-4))),
+                             mul(rational(-15, 8), pow(g, integer(-6)))}));
+                    m.emplace(e, fn.function_id() == FunctionId::Erfc
+                                     ? erfc_asy
+                                     : add(S::One(), mul(S::NegativeOne(),
+                                                         erfc_asy)));
+                }
+            }
+            // ζ(g), g → +∞: the Dirichlet series ζ(s) = Σ_{k≥1} k⁻ˢ has every
+            // term past the first vanishing, so ζ(g) → 1 with leading correction
+            // 2⁻ᵍ (the k=2 term dominates the geometric tail). Replacing ζ(g) by
+            // 1 + 2⁻ᵍ gives the rate the bare ζ(∞)=1 value lacks: ζ(x) − 1 → 0,
+            // 2ˣ·(ζ(x) − 1) → 1.
+            if (fn.function_id() == FunctionId::Zeta && fn.args().size() == 1
+                && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(e, add(S::One(),
+                                     pow(integer(2), mul(S::NegativeOne(), g))));
+                }
+            }
+            // Ei(g), g → +∞ (DLMF 6.12.2): the exponential integral grows like
+            //   Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + 4!/g⁴ + …),
+            // an asymptotic series whose truncation error vanishes in the limit.
+            // This gives the rate the engine otherwise lacks: x·e⁻ˣ·Ei(x) → 1,
+            // x·(x·e⁻ˣ·Ei(x) − 1) → 1, etc. Fires only with a single Ei node, so a
+            // ratio Ei(x)/Ei(2x) — whose two e^g factors leave an elementary but
+            // deeply-nested product the recursion churns on — stays unevaluated
+            // rather than spinning.
+            if (fn.function_id() == FunctionId::Ei && fn.args().size() == 1
+                && ei_count == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(e, mul(mul(exp(g), pow(g, integer(-1))),
+                                     add({S::One(),
+                                          pow(g, integer(-1)),
+                                          mul(integer(2), pow(g, integer(-2))),
+                                          mul(integer(6), pow(g, integer(-3))),
+                                          mul(integer(24), pow(g, integer(-4)))})));
+                }
+            }
+            // atan(g)/acot(g), g → ±∞ (DLMF 4.24.3): the arctangent approaches
+            // ±π/2 with an odd 1/g tail,
+            //   atan(g) ~ ±π/2 − 1/g + 1/(3g³) − 1/(5g⁵) + …   (+ for g → +∞),
+            //   acot(g) = π/2 − atan(g) ~ 1/g − 1/(3g³) + 1/(5g⁵) − ….
+            // The bare atan(∞)=π/2 / acot(∞)=0 values lack this rate, so a leading
+            // term cancelled off — x²·(atan(x) − π/2 + 1/x) → 0, x³·(…) → 1/3 —
+            // and the expanded difference x·atan(x) − π·x/2 → −1 were left as nan.
+            if ((fn.function_id() == FunctionId::Atan
+                 || fn.function_id() == FunctionId::Acot)
+                && fn.args().size() == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)) {
+                    const Expr gl = limit_impl(g, var, target, depth + 1);
+                    const bool pos = gl->type_id() == TypeId::Infinity;
+                    const bool neg = gl->type_id() == TypeId::NegativeInfinity;
+                    if (pos || neg) {
+                        const Expr tail =
+                            add({mul(S::NegativeOne(), pow(g, integer(-1))),
+                                 mul(rational(1, 3), pow(g, integer(-3))),
+                                 mul(rational(-1, 5), pow(g, integer(-5)))});
+                        const Expr half_pi = mul(rational(1, 2), S::Pi());
+                        const Expr atan_asy =
+                            add(pos ? half_pi : mul(S::NegativeOne(), half_pi),
+                                tail);
+                        m.emplace(e, fn.function_id() == FunctionId::Atan
+                                         ? atan_asy
+                                         : add(half_pi, mul(S::NegativeOne(),
+                                                            atan_asy)));
+                    }
                 }
             }
         }
@@ -3212,6 +3796,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // Gauss multiplication splits it into k slope-1 gammas plus a
         // constant-base exponential (e.g. Γ(2x+1)/Γ(x+1)²/4ˣ → 0, Γ(3x)/Γ(x)³ → ∞).
         if (auto r = try_gamma_multiplication(expr, var, target, depth)) return *r;
+        // Tricomi–Erdélyi two-term gamma asymptotic — resolves a difference whose
+        // leading gamma-ratio term cancels: Γ(n+1)/Γ(n+½) − √n → 0, ·n² → ∞.
+        if (auto r = try_gamma_ratio_series(expr, var, target, depth)) return *r;
     }
 
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.
@@ -3220,9 +3807,14 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     }
 
     // n-th roots of factorial/gamma via Stirling (numerically guarded):
-    // (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e.
+    // (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e. Skipped on a top-level
+    // sum: the Stirling rewrite of a difference of comparable divergent terms
+    // (n! − nⁿ) just yields another ∞−∞ form the substitution spins on — that is a
+    // dominant-term case, handled below.
     if (depth < 10 && target == S::Infinity()
-        && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)) {
+        && count_gamma_factorial(expr) > 0 && has_var_radical(expr, var)
+        && expr->type_id() != TypeId::Add
+        && !has_multirate_gamma(expr, var)) {
         if (auto r = try_stirling_limit(expr, var, target, depth)) return *r;
     }
 
@@ -3267,6 +3859,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
     // it. The handler bails fast unless such a log is present.
     if (depth < 12) {
         if (auto v = try_log_exp_asymptotic(expr, var, target, depth)) return *v;
+        // No exponential dominator: peel the dominant summand of a nested-log sum
+        // (log(log x + log log x) − log log x → 0).
+        if (auto v = rewrite_log_sum_dominant(expr, var, target, depth)) return *v;
     }
 
     // Linearity over a sum, attempted before direct substitution: when every
@@ -3328,6 +3923,82 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         }
     }
 
+    // Distribute a single summed factor over the rest of a product — (Σ tᵢ)·F —
+    // when every distributed term tᵢ·F has a determinate finite limit. The limit
+    // is then their sum (linearity is valid since each part converges). This
+    // resolves a quotient (Σ tᵢ)/D whose dominant term D · F → finite but whose
+    // remainder is a bounded, non-oscillating transcendental the exp-rational
+    // dominant-ratio path rejects — e.g. (x + log(1 + x·e⁻ˣ))/x → 1, the residual
+    // form the log-of-a-sum rewrite produces. Bails the moment a part diverges, so
+    // genuinely cancelling ∞ − ∞ quotients are left to the dominant-term machinery.
+    // Held to a shallow depth and to log-carrying sums (via the per-block guards
+    // below): the residuals surface near the top, and probing every deep series
+    // intermediate would multiply the cost of the heavy power-series limits.
+    if (depth < 4 && expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> add_factors;
+        std::vector<Expr> other_factors;
+        for (const auto& f : expr->args()) {
+            (f->type_id() == TypeId::Add ? add_factors : other_factors)
+                .push_back(f);
+        }
+        if (add_factors.size() == 1 && !other_factors.empty()
+            && has_log_node(add_factors[0])) {
+            Expr rest = mul(std::move(other_factors));
+            std::vector<Expr> term_limits;
+            bool all_finite = true;
+            for (const auto& t : add_factors[0]->args()) {
+                Expr tl = limit_impl(simplify(mul(t, rest)), var, target,
+                                     depth + 1);
+                if (is_nan(tl) || is_infinity(tl)) {
+                    all_finite = false;
+                    break;
+                }
+                term_limits.push_back(std::move(tl));
+            }
+            if (all_finite) return simplify(add(std::move(term_limits)));
+        }
+    }
+
+    // Quotient N/D whose denominator is a sum with a unique dominant divergent
+    // term Dt: divide N and D through by Dt so each side converges, then the limit
+    // is lim(N/Dt) / lim(D/Dt). The dedicated dominant-ratio path requires an
+    // exp-rational form, so a denominator carrying a bounded, non-oscillating
+    // remainder — 2x + log(1 + x·e⁻²ˣ) — slips past it and the engine loops.
+    // Resolves x/(2x + log(1 + x·e⁻²ˣ)) → 1/2, the quotient-of-logs the
+    // log-of-a-sum rewrite produces. Bails unless dividing yields finite/finite.
+    if (depth < 4 && is_infinity(target) && expr->type_id() == TypeId::Mul
+        && has_log_node(expr)) {
+        NumDen nd = split_after_together(expr);
+        if (nd.den->type_id() == TypeId::Add && has(nd.num, var)
+            && has_log_node(nd.den)) {
+            const auto& dterms = nd.den->args();
+            Expr dominant;
+            for (const auto& ti : dterms) {
+                if (!has(ti, var)) continue;
+                bool dom = true;
+                for (const auto& tj : dterms) {
+                    if (tj.get() == ti.get()) continue;
+                    Expr ratio = limit_impl(simplify(mul(tj, pow(ti, integer(-1)))),
+                                            var, target, depth + 1);
+                    if (!(ratio == S::Zero())) { dom = false; break; }
+                }
+                if (dom) { dominant = ti; break; }
+            }
+            if (dominant
+                && is_infinity(limit_impl(dominant, var, target, depth + 1))) {
+                Expr inv = pow(dominant, integer(-1));
+                Expr lnum = limit_impl(simplify(mul(nd.num, inv)), var, target,
+                                       depth + 1);
+                Expr lden = limit_impl(simplify(mul(nd.den, inv)), var, target,
+                                       depth + 1);
+                if (!is_nan(lnum) && !is_nan(lden) && !is_infinity(lnum)
+                    && !is_infinity(lden) && !(lden == S::Zero())) {
+                    return simplify(mul(lnum, pow(lden, integer(-1))));
+                }
+            }
+        }
+    }
+
     Expr direct = simplify(subs(expr, var, target));
 
     // A finite-target pole surfaces as zoo; resolve its sign when both sides
@@ -3358,6 +4029,17 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 } catch (const std::exception&) {
                     // not a polynomial in var — fall through to other methods
                 }
+                // Gruntz dominant-term rule: a ∞−∞ sum with a unique strictly
+                // dominant divergent term (e.g. x − x·log x → −∞). Tried before the
+                // conjugate, because a *different-rate* radical difference —
+                // log log x − √(log x·log log x) → −∞ — is a dominant-term case, not
+                // a conjugate one: rationalizing it yields a worse ∞−∞ that recurses
+                // for tens of seconds. The rule only fires for a strict dominator, so
+                // equal-rate radicals (√(x²+x) − x, ratio → −1) still abstain and
+                // fall through to the conjugate path below unchanged.
+                if (auto v = try_dominant_term_sum(expr, var, target, depth)) {
+                    return *v;
+                }
                 // ∞ − ∞ with a radical: rationalize via the conjugate.
                 if (auto v = try_conjugate_difference(expr, var, target, depth)) {
                     return *v;
@@ -3367,10 +4049,31 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 if (auto v = try_algebraic_inf(expr, var, target)) {
                     return *v;
                 }
-                // Gruntz dominant-term rule: a ∞−∞ sum with a unique strictly
-                // dominant divergent term (e.g. x − x·log x → −∞).
-                if (auto v = try_dominant_term_sum(expr, var, target, depth)) {
-                    return *v;
+            }
+            // A product of variable-exponent powers — a "tower product" like
+            // x^x·(x+1)^{−(x+1)} — substitutes to the indeterminate ∞·0 and sends
+            // the f(x)^g(x) power stages below into a non-terminating rewrite. Its
+            // logarithm is an ordinary sum of g·log(b) terms, so resolve it up front
+            // by lim e = exp(lim log e) (the same reduction the late log-exp path
+            // would apply, hoisted past the loopers). Gated tightly to the
+            // all-powers shape so the broader log-exp path is unchanged; sound
+            // because try_log_exp_reduction certifies positivity before splitting.
+            if (is_infinity(target) && expr->type_id() == TypeId::Mul) {
+                int tower_factors = 0;
+                bool only_powers = true;
+                for (const auto& f : expr->args()) {
+                    if (!has(f, var)) continue;
+                    if (f->type_id() == TypeId::Pow && has(f->args()[1], var)) {
+                        ++tower_factors;
+                    } else {
+                        only_powers = false;
+                        break;
+                    }
+                }
+                if (only_powers && tower_factors >= 2) {
+                    if (auto v = try_log_exp_reduction(expr, var, target, depth)) {
+                        return *v;
+                    }
                 }
             }
             // Logarithms: log(g) → log(lim g), and combine a ∞ − ∞ between logs.
@@ -3380,6 +4083,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             if (auto v = try_common_log_combine(expr, var, target, depth)) {
                 return *v;
             }
+            // Expand log(c·x), log(xᵏ) subterms so same-rank, differently-scaled log
+            // terms combine: 2x·log(2x) − x·log x → ∞.
+            if (auto v = rewrite_expand_logs(expr, var, target, depth)) return *v;
             // Rational form of divergent terms P/Q: divide through by Q's dominant
             // term so the quotient is finite/finite — (2ˣ+1)/(2ˣ−1) → 1,
             // (2ˣ+3ˣ)/3ˣ → 1 — which L'Hôpital loops on and folding mis-reads as 0.
@@ -3414,6 +4120,13 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // (exp(x²)·exp(−2x), exp(x²)/exp(x)²) into one exp(Σ) and re-take —
             // try_exponential_product below only combines a shared monomial.
             if (auto v = try_exp_combine(expr, var, target, depth)) return *v;
+            // A product carrying a difference of asymptotically-equal exponentials,
+            // M·(e^p − e^q) with p − q → 0 ~ M·e^q·(p − q): resolved before the 0·∞
+            // product path below mangles it in L'Hôpital. The Gruntz flagship
+            // e^x·(e^{1/x − e⁻ˣ} − e^{1/x}) → −1.
+            if (auto v = try_exp_unit_difference(expr, var, target, depth)) {
+                return *v;
+            }
             // Merge a product of constant-base exponentials (2^x/3^x,
             // exp(x)/exp(2x)) into one exp(rate) before the generic product path,
             // which would otherwise see ∞·0 and stall in L'Hôpital → nan.
@@ -3433,6 +4146,14 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
             // Gruntz leading-term via series for an f(x)^g(x) − c difference, before
             // the power-as-exp rewrite (which would otherwise spin on the resulting
             // ∞·0): x·((1+1/x)^x − e) → −e/2.
+            // A series core times a multiplier the direct substitution can't expand
+            // (eˣ → exp(1/u), √x/log x → fractional/log pole): peel the core's
+            // leading monomial and re-take — eˣ·((1+1/x)ˣ − e) → −∞, √x·(…) → 0.
+            // Tried before try_series_limit, whose x = 1/u substitution would hang on
+            // those multipliers; the pure-monomial case it owns is deferred to it.
+            if (auto v = try_series_times_multiplier(expr, var, target, depth)) {
+                return *v;
+            }
             if (auto v = try_series_limit(expr, var, target, depth)) return *v;
             // Gruntz: rewrite general powers f(x)^g(x) as exp(g·log f) and
             // re-take, so the exp/gamma growth machinery can resolve forms the

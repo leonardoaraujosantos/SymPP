@@ -64,7 +64,7 @@ Critical path forward: parallelizable.
 - Critical-path diagram: §[Critical path](#critical-path)
 - Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
 
-**Test surface to maintain**: 1534 cases / 5373 assertions (670
+**Test surface to maintain**: 1554 cases / 5488 assertions (672
 oracle-validated against SymPy 1.13+). Run:
 
 ```bash
@@ -80,7 +80,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 ## Status snapshot
 
 ```
-1534 tests / 5373 assertions  all passing (670 oracle-validated vs SymPy)
+1554 tests / 5488 assertions  all passing (672 oracle-validated vs SymPy)
 14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
@@ -551,8 +551,8 @@ the same scope-discipline as Phases 0–13.
 ## Summary
 
 ```
-Where we are:        14/15 phases shipped, Phase 16 partial; 1534 tests
-                     (670 oracle-validated against SymPy 1.14, all passing).
+Where we are:        14/15 phases shipped, Phase 16 partial; 1554 tests
+                     (672 oracle-validated against SymPy 1.14, all passing).
 Cat A shipped:       Fu trig rules, transcendental solveset (_invert),
                      variation of parameters, Jordan + matrix exp,
                      hyperexpand subset.

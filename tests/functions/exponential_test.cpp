@@ -97,6 +97,21 @@ TEST_CASE("log: positive and symbolic args unaffected", "[3c][log][regression]")
     REQUIRE(log(x)->str() == "log(x)");
 }
 
+// LOG-SIGN-1: the sign of log follows from its argument vs 1 — log(a) > 0 ⟺ a > 1,
+// log(a) < 0 ⟺ 0 < a < 1. Without this, log(2) had an unknown sign, so
+// limit(log(2)·n, n, ∞) returned nan (it could not fold (positive const)·∞ → ∞).
+TEST_CASE("log: sign from argument vs 1 (LOG-SIGN-1)", "[3c][log][regression]") {
+    // a > 1 ⟹ log(a) > 0.
+    REQUIRE(is_positive(log(integer(2))) == std::optional<bool>{true});
+    REQUIRE(is_positive(log(integer(3))) == std::optional<bool>{true});
+    REQUIRE(is_negative(log(integer(2))) == std::optional<bool>{false});
+    // 0 < a < 1 ⟹ log(a) < 0.
+    REQUIRE(is_negative(log(rational(1, 2))) == std::optional<bool>{true});
+    REQUIRE(is_positive(log(rational(1, 2))) == std::optional<bool>{false});
+    // nonzero away from 1.
+    REQUIRE(is_nonzero(log(integer(2))) == std::optional<bool>{true});
+}
+
 TEST_CASE("exp: stays unevaluated on a generic symbol", "[3c][exp]") {
     auto x = symbol("x");
     auto e = exp(x);

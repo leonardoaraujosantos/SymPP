@@ -24,8 +24,8 @@ and structural test.
 
 ## Status
 
-14 of 15 phases shipped (Phase 16 partial). 1534 tests / 5373
-assertions, 670 oracle-validated against SymPy 1.14, all passing.
+14 of 15 phases shipped (Phase 16 partial). 1554 tests / 5488
+assertions, 672 oracle-validated against SymPy 1.14, all passing.
 See [Roadmap](04-roadmap.md) for the
 shipped/deferred breakdown per phase and the path to full SymPy
 parity (Phases 17-24 cover modules originally listed as anti-scope:

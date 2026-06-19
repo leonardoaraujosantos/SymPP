@@ -1,7 +1,12 @@
 # assuming-context Specification
 
 ## Purpose
-TBD - created by archiving change add-heavy-algorithm-engines. Update Purpose after archive.
+
+Provide a thread-local, scoped `assuming(...)` context that asserts relational facts
+about existing symbols for a region of code, consulted by the central `ask`, so the
+facts propagate through `Add`/`Mul`/`Pow` and unlock assumption-aware `refine`,
+retracting cleanly at scope exit.
+
 ## Requirements
 ### Requirement: Scoped assumption context
 
@@ -34,4 +39,8 @@ assumption context.
 - **WHEN** `refine(|x·y|)` is requested
 - **THEN** it is `x·y` under `x>0 ∧ y>0`, `x·|y|` under `x>0` alone, and unchanged
   with no sign facts
+
+#### Scenario: Real and imaginary parts under a reality/imaginary scope
+- **WHEN** `re(x)` and `im(x)` are taken under an `imaginary` scope (and a `real` scope)
+- **THEN** under `imaginary` they give `0` and `−i·x`; under `real` they give `x` and `0`
 

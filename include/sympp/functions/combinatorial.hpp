@@ -70,6 +70,7 @@ public:
     [[nodiscard]] std::string_view name() const noexcept override { return "beta"; }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 // Incomplete gamma functions. lowergamma(s,x) = ∫₀ˣ tˢ⁻¹e⁻ᵗ dt, uppergamma(s,x)
@@ -259,6 +260,7 @@ public:
     }
     [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
     [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
 };
 
 // factorial2(n): the double factorial n!! = n(n−2)(n−4)…. Evaluates for an
