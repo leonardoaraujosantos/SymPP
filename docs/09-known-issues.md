@@ -25,8 +25,10 @@ truth and links the issue number.
   `H(g) ~ log g + γ + 1/(2g) − 1/(12g²)`. Four terms cover the usual limits — `H(n) → ∞`, `H(n)/log n → 1`,
   `H(n) − log n → γ`, `n·(H(n) − log n − γ) → 1/2` — and the divergence gate leaves a finite-argument
   harmonic (`H(5) = 137/60`) untouched. Regression: `LIMIT-HARMONIC-1`. Matches SymPy.
-- **Note:** `H(2n) − H(n) → log 2` still returns `nan` — the `log(2n) − log(n)` difference is not combined
-  when buried in a sum with vanishing `1/n` terms; a separate log-difference-in-sums limitation.
+- **Follow-up (done):** `H(2n) − H(n) → log 2` now resolves. The substituted form is **expanded** before the
+  re-take, so the undistributed `−1·(log n + γ + …)` flattens — otherwise the `γ` did not cancel and the
+  `log(2n) − log(n)` sat behind a product, sending the engine down a non-terminating path (the limit hung).
+  Expanded, it is a flat sum the log-combine / vanishing-tail rules resolve, also eliminating that hang.
 
 ### BINOM-GEN-1 — generalized binomial C(n,k) for non-integer/negative n left unevaluated
 - **Problem:** `binomial(1/2, 3)`, `binomial(-1, 2)`, `binomial(7/2, 2)` stayed unevaluated. The factory only

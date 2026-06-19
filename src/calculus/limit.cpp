@@ -2062,7 +2062,12 @@ struct Growth {
     };
     scan(scan, expr);
     if (m.empty()) return std::nullopt;
-    return limit_impl(xreplace(expr, m), var, target, depth + 1);
+    // Expand the substituted form so a difference of harmonics flattens — without
+    // it, H(2n) − H(n) leaves an undistributed −1·(log n + γ + …), where the γ does
+    // not cancel and the log(2n) − log(n) sits behind a product, sending the limit
+    // engine down a non-terminating path. Expanded, it is a flat sum the
+    // log-combine / vanishing-tail rules resolve (H(2n) − H(n) → log 2).
+    return limit_impl(expand(xreplace(expr, m)), var, target, depth + 1);
 }
 
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,

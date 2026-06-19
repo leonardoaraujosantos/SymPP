@@ -2699,6 +2699,15 @@ TEST_CASE("limit: harmonic number asymptotics (LIMIT-HARMONIC-1)",
                                mul(S::NegativeOne(), S::EulerGamma())))),
                 n, oo))
             == S::Half());
+    // A difference of harmonics flattens after the substitution is expanded:
+    // H(2n) − H(n) → log 2 (the asymptotic logs combine, the 1/n tails vanish).
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(
+        simplify(limit(add(harmonic(mul(integer(2), n)),
+                           mul(S::NegativeOne(), harmonic(n))),
+                       n, oo))
+            ->str(),
+        "log(2)"));
     // A finite-argument harmonic is untouched (no spurious asymptotic).
     REQUIRE(harmonic(integer(5)) == rational(137, 60));
 }
