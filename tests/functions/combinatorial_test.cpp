@@ -715,6 +715,39 @@ TEST_CASE("beta: symbolic args stay unevaluated", "[3i][beta][parser]") {
     REQUIRE(beta(a, b)->str() == "beta(a, b)");
 }
 
+// FUNC-BETA-DIFF-1: the beta function derivative closed form,
+// ∂/∂a Β(a,b) = Β(a,b)·(ψ(a) − ψ(a+b)), ∂/∂b symmetric (ψ = digamma). Previously
+// the base class left it as an unevaluated Derivative. Matches SymPy's fdiff.
+TEST_CASE("beta: derivative closed form via digamma (FUNC-BETA-DIFF-1)",
+          "[3i][beta][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a");
+    auto b = symbol("b");
+    auto x = symbol("x");
+
+    REQUIRE(oracle.equivalent(
+        diff(beta(a, b), a)->str(),
+        "(polygamma(0, a) - polygamma(0, a + b))*beta(a, b)"));
+    REQUIRE(oracle.equivalent(
+        diff(beta(a, b), b)->str(),
+        "(polygamma(0, b) - polygamma(0, a + b))*beta(a, b)"));
+    // Chain rule across both slots: d/dx Β(x,x) = 2·(ψ(x) − ψ(2x))·Β(x,x).
+    REQUIRE(oracle.equivalent(
+        diff(beta(x, x), x)->str(),
+        "2*(polygamma(0, x) - polygamma(0, 2*x))*beta(x, x)"));
+}
+
+// FUNC-POLYGAMMA-DIFFS-1: ∂/∂x ψ⁽ⁿ⁾(x) = ψ⁽ⁿ⁺¹⁾(x); the ∂/∂n direction (w.r.t. the
+// order) is non-elementary and must stay an unevaluated Derivative, never a
+// silently-wrong 0 (which dropped the term when the order depended on the variable).
+TEST_CASE("polygamma: order derivative stays unevaluated (FUNC-POLYGAMMA-DIFFS-1)",
+          "[3i][polygamma][regression]") {
+    auto x = symbol("x");
+    auto m = symbol("m");
+    REQUIRE(diff(polygamma(m, x), m) == derivative(polygamma(m, x), m));
+    REQUIRE(diff(polygamma(m, x), x) == polygamma(add(m, integer(1)), x));
+}
+
 // FUNC-INCGAMMA-1: lowergamma/uppergamma as real function classes — the
 // positive-integer first argument collapses to the closed elementary form, the
 // derivatives are exact, and symbolic orders stay unevaluated and round-trip.

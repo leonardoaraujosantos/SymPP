@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-BETA-DIFF-1 — beta-function derivative was left unevaluated; polygamma order derivative returned 0
+- **Problem:** `diff(beta(a, b), a)` returned an unevaluated `Derivative(beta(a, b), a)` even though the
+  derivative has an elementary closed form, and `diff(polygamma(m, x), m)` (derivative w.r.t. the *order*)
+  returned a silently-wrong `0` — the same wrong-0 pattern as `FUNC-INCGAMMA-DIFFS-1`, which drops the term when
+  the order depends on the differentiation variable.
+- **Fix:** (1) added `Beta::diff_arg` with the closed form `∂/∂a Β(a,b) = Β(a,b)·(ψ(a) − ψ(a+b))`, symmetric in
+  `b` (`ψ = digamma`), which follows from `Β = Γ(a)Γ(b)/Γ(a+b)` and `(log Γ)′ = ψ`. (2) `PolyGammaFn::diff_arg`
+  for the order slot now delegates to the base unevaluated `Derivative` instead of `0`. Now
+  `diff(beta(a, b), a) = (ψ(a) − ψ(a+b))·Β(a,b)`, `d/dx Β(x,x) = 2·(ψ(x) − ψ(2x))·Β(x,x)`, and
+  `diff(polygamma(m, x), m) = Derivative(polygamma(m, x), m)`, with `∂/∂x ψ⁽ⁿ⁾(x) = ψ⁽ⁿ⁺¹⁾(x)` unchanged.
+  Regressions: `FUNC-BETA-DIFF-1`, `FUNC-POLYGAMMA-DIFFS-1`. Matches SymPy.
+
 ### FUNC-INCGAMMA-DIFFS-1 — d/ds of incomplete gamma returned a wrong 0
 - **Problem:** `diff(uppergamma(s, x), s)` and `diff(lowergamma(s, x), s)` (the derivative with respect to the
   *order*) returned `0`. The ∂/∂s direction is non-elementary (a Meijer-G expression), but `diff_arg` for the

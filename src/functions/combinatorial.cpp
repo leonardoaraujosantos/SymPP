@@ -1206,6 +1206,15 @@ std::optional<bool> Beta::ask(AssumptionKey k) const noexcept {
     }
     return std::nullopt;
 }
+// ∂/∂a Β(a,b) = Β(a,b)·(ψ(a) − ψ(a+b)); by symmetry ∂/∂b = Β(a,b)·(ψ(b) − ψ(a+b)),
+// where ψ = digamma. Follows from Β = Γ(a)Γ(b)/Γ(a+b) and (log Γ)′ = ψ. The chain
+// rule in diff() supplies the argument's own derivative. Matches SymPy's fdiff.
+Expr Beta::diff_arg(std::size_t i) const {
+    const Expr sum = add(args_[0], args_[1]);
+    const Expr self = beta(args_[0], args_[1]);
+    return mul(self, add(digamma(args_[i]),
+                         mul(S::NegativeOne(), digamma(sum))));
+}
 
 Expr beta(const Expr& a, const Expr& b) {
     // Β(a,b) = Γ(a)·Γ(b)/Γ(a+b). Fold to the gamma ratio only when all three
@@ -1440,9 +1449,13 @@ std::optional<bool> PolyGammaFn::ask(AssumptionKey k) const noexcept {
 // ∂/∂x polygamma(n, x) = polygamma(n+1, x). The ∂/∂n direction is not
 // elementary; diff()'s chain rule multiplies by n' (= 0 when n is constant),
 // so returning 0 there is harmless for the usual constant-order case.
+// ∂/∂x ψ⁽ⁿ⁾(x) = ψ⁽ⁿ⁺¹⁾(x). The ∂/∂n direction (derivative w.r.t. the order) is
+// non-elementary, so it falls back to the base unevaluated Derivative — never a
+// silently-wrong 0, which would drop the term when the order depends on the
+// differentiation variable.
 Expr PolyGammaFn::diff_arg(std::size_t i) const {
     if (i == 1) return polygamma(add(args_[0], S::One()), args_[1]);
-    return S::Zero();
+    return Function::diff_arg(i);
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
