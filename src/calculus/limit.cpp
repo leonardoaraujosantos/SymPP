@@ -808,6 +808,78 @@ struct NumDen { Expr num; Expr den; };
     return xreplace(e, m);
 }
 
+// Rewrite hyperbolic functions of a var-dependent argument to their exponential
+// definitions, so combinations the closed forms hide — sinh u + cosh u = eᵘ,
+// cosh u − sinh u = e⁻ᵘ, sinh u/cosh u = tanh u → 1 — collapse to elementary
+// exponentials the asymptotic machinery already resolves. Used only at ±∞, where
+// this is the right canonicalization (eᵘ vs e⁻ᵘ separate cleanly by growth).
+[[nodiscard]] Expr rewrite_hyperbolic_exp(const Expr& e, const Expr& var,
+                                          const Expr& target, int depth) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            // Only rewrite a hyperbolic whose argument itself diverges: there the
+            // eᵘ / e⁻ᵘ split is the right asymptotics. For a vanishing argument
+            // (e.g. tanh(e⁻ˣ), arg → 0) the leading-term/small-angle rule applies,
+            // and the exponential form would defeat it.
+            if (fn.args().size() == 1 && has(fn.args()[0], var)
+                && is_infinity(
+                    limit_impl(fn.args()[0], var, target, depth + 1))) {
+                const Expr& u = fn.args()[0];
+                const Expr eu = exp(u);
+                const Expr enu = exp(mul(S::NegativeOne(), u));
+                const Expr sum = add(eu, enu);                       // eᵘ + e⁻ᵘ
+                const Expr diff = add(eu, mul(S::NegativeOne(), enu));  // eᵘ − e⁻ᵘ
+                switch (fn.function_id()) {
+                    case FunctionId::Sinh:
+                        m.emplace(x, mul(rational(1, 2), diff)); break;
+                    case FunctionId::Cosh:
+                        m.emplace(x, mul(rational(1, 2), sum)); break;
+                    case FunctionId::Tanh:
+                        m.emplace(x, mul(diff, pow(sum, S::NegativeOne())));
+                        break;
+                    case FunctionId::Coth:
+                        m.emplace(x, mul(sum, pow(diff, S::NegativeOne())));
+                        break;
+                    case FunctionId::Sech:
+                        m.emplace(x, mul(integer(2),
+                                         pow(sum, S::NegativeOne())));
+                        break;
+                    case FunctionId::Csch:
+                        m.emplace(x, mul(integer(2),
+                                         pow(diff, S::NegativeOne())));
+                        break;
+                    default: break;
+                }
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    if (m.empty()) return e;
+    return xreplace(e, m);
+}
+
+// Flatten (eᵃ)ⁿ → eⁿᵃ everywhere. After a hyperbolic ratio is rewritten and the
+// denominator expanded to a single e⁻ᵘ, its reciprocal is (e⁻ᵘ)⁻¹, which the limit
+// engine otherwise reads as 0⁻¹ = zoo rather than eᵘ.
+[[nodiscard]] Expr flatten_exp_powers(const Expr& e) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Pow && !m.count(x)
+            && x->args()[0]->type_id() == TypeId::Function
+            && static_cast<const Function&>(*x->args()[0]).function_id()
+                   == FunctionId::Exp) {
+            m.emplace(x, exp(mul(x->args()[1], x->args()[0]->args()[0])));
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    if (m.empty()) return e;
+    return xreplace(e, m);
+}
+
 // Number of gamma/factorial applications anywhere in e.
 [[nodiscard]] int count_gamma_factorial(const Expr& e) {
     int n = 0;
@@ -2500,12 +2572,29 @@ struct Growth {
 
 Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 int depth) {
+    // Canonicalize (eᵃ)ⁿ → eⁿᵃ up front: otherwise a reciprocal of a vanishing
+    // exponential, (e⁻ˣ)⁻¹, substitutes to 0⁻¹ = zoo instead of resolving to eˣ.
+    if (depth < 14) {
+        Expr fe = flatten_exp_powers(expr);
+        if (!(fe == expr)) return limit_impl(fe, var, target, depth + 1);
+    }
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
     // rewrite them as sin/cos ratios (cot x → cos x/sin x, …) and retry, so
     // forms like x·cot(x) resolve via L'Hôpital instead of returning nan.
     if (depth < 12) {
         Expr rw = rewrite_reciprocal_trig(expr);
         if (!(rw == expr)) return limit_impl(rw, var, target, depth + 1);
+    }
+    // Hyperbolic functions at ±∞ → exponential form, so sinh/cosh combinations
+    // (sinh u + cosh u → eᵘ, sinh u/cosh u → 1) resolve via the exp machinery.
+    // Expand so the eᵘ terms cancel where they should — cosh u − sinh u collapses
+    // to e⁻ᵘ. The (eᵃ)ⁿ flattening at the top of limit_impl then turns the
+    // reciprocal of a single-exponential denominator into a clean eⁿᵃ.
+    if (depth < 12 && is_infinity(target)) {
+        Expr rw = rewrite_hyperbolic_exp(expr, var, target, depth);
+        if (!(rw == expr)) {
+            return limit_impl(expand(rw), var, target, depth + 1);
+        }
     }
     // Harmonic numbers H(g), g → +∞, expand to log g + γ + 1/(2g) − …; opaque
     // otherwise (H(n)/log n → 0 wrong, H(n) → nan).

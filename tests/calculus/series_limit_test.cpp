@@ -2858,6 +2858,41 @@ TEST_CASE("limit: small-angle substitution and the Gruntz oscillation (LIMIT-SMA
     REQUIRE(limit(mul(x, sin(x)), x, oo)->type_id() == TypeId::NaN);
 }
 
+// LIMIT-HYPERBOLIC-1: combinations of sinh/cosh/tanh/coth at ±∞, where the closed
+// forms hide an exponential cancellation. Rewriting each hyperbolic of a diverging
+// argument to its eᵘ definition exposes it: sinh u + cosh u = eᵘ, cosh u − sinh u =
+// e⁻ᵘ, sinh u/cosh u = tanh u → 1. Previously (sinh+cosh)/eˣ and sinh/cosh returned
+// nan, and (cosh+sinh)/(cosh−sinh) hung. The (eᵃ)ⁿ → eⁿᵃ canonicalization keeps the
+// reciprocal of a single-exponential denominator from collapsing to 0⁻¹ = zoo. The
+// rewrite is gated to diverging arguments so the small-angle rule still owns the
+// vanishing-argument forms (eˣ·tanh(e⁻ˣ) → 1). Matches SymPy.
+TEST_CASE("limit: hyperbolic combinations via exponential form (LIMIT-HYPERBOLIC-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr sh = sinh(x), ch = cosh(x);
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // sinh x + cosh x = eˣ, so (sinh x + cosh x)/eˣ → 1.
+    REQUIRE(limit(over(add(sh, ch), exp(x)), x, oo) == S::One());
+    // sinh x/cosh x = tanh x → 1.
+    REQUIRE(limit(over(sh, ch), x, oo) == S::One());
+    // cosh x − sinh x = e⁻ˣ → 0.
+    REQUIRE(limit(add(ch, mul(S::NegativeOne(), sh)), x, oo) == S::Zero());
+    // (cosh x + sinh x)/(cosh x − sinh x) = e²ˣ → ∞ (previously hung, then zoo).
+    REQUIRE(limit(over(add(ch, sh), add(ch, mul(S::NegativeOne(), sh))), x, oo)
+            == oo);
+    // cosh x/eˣ → 1/2, and x·(coth x − 1) → 0.
+    REQUIRE(limit(over(ch, exp(x)), x, oo) == S::Half());
+    REQUIRE(limit(mul(x, add(coth(x), S::NegativeOne())), x, oo) == S::Zero());
+    // Gate guard: a vanishing argument is left to the small-angle rule, not the
+    // exponential rewrite — eˣ·tanh(e⁻ˣ) → 1 still resolves.
+    REQUIRE(limit(mul(exp(x), tanh(exp(mul(S::NegativeOne(), x)))), x, oo)
+            == S::One());
+}
+
 // LIMIT-HARMONIC-1: a harmonic number H(n) with a diverging argument expands to
 // its asymptotic log n + γ + 1/(2n) − 1/(12n²). H(n) was opaque to the limit
 // machinery — H(n)/log n returned a wrong 0 and H(n) returned nan.

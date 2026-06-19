@@ -16,6 +16,22 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-HYPERBOLIC-1 — sinh/cosh combinations at ±∞ gave nan / hung
+- **Problem:** combinations of hyperbolic functions whose closed forms hide an exponential cancellation were
+  unresolved. `(sinh x + cosh x)/eˣ` and `sinh x/cosh x` returned `nan` (SymPy: `1`), `cosh x − sinh x`
+  returned `nan` (SymPy: `0`), and `(cosh x + sinh x)/(cosh x − sinh x)` hung. The closed forms (`tanh x → 1`,
+  `cosh x/eˣ → ½`) worked, but the engine never expanded `sinh`/`cosh` to expose the `eᵘ` cancellations.
+- **Fix:** added `rewrite_hyperbolic_exp`, which rewrites every hyperbolic of a *diverging* argument to its
+  exponential definition (`sinh u = (eᵘ−e⁻ᵘ)/2`, …) and re-takes the (expanded) limit, so `sinh u + cosh u`
+  collapses to `eᵘ`, `cosh u − sinh u` to `e⁻ᵘ`, and the ratios to constant-base-exponential fractions the
+  existing machinery resolves. Two supporting pieces: the rewrite is gated to arguments that tend to ±∞ so the
+  leading-term/small-angle rule still owns vanishing-argument forms (`eˣ·tanh(e⁻ˣ) → 1`); and a global
+  `(eᵃ)ⁿ → eⁿᵃ` canonicalization at the top of `limit_impl` stops the reciprocal of a single-exponential
+  denominator from substituting to `0⁻¹ = zoo` (which was the residual wrong answer on the `(c+s)/(c−s)` case,
+  and a latent general bug: `limit(eˣ·(e⁻ˣ)⁻¹) = zoo`). Now `(sinh+cosh)/eˣ → 1`, `sinh/cosh → 1`,
+  `cosh−sinh → 0`, `(cosh+sinh)/(cosh−sinh) → ∞`, `x·(coth x − 1) → 0`. Regression: `LIMIT-HYPERBOLIC-1`.
+  Matches SymPy.
+
 ### LIMIT-LOGGAMMA-1 — log of a factorial/gamma at +∞ gave nan / wrong 0 / hung
 - **Problem:** limits of `log(n!)` and `log Γ(n)` were unresolved. `log(n!)/n` returned a **wrong 0**
   (SymPy: `∞`), `log(n!)/(n·log n)` and `log(n!) − n·log n` returned `nan` (SymPy: `1` and `−∞`), and
