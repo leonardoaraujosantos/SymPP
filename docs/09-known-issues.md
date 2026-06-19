@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-DOMTERM-RADICAL-1 — different-rate radical ∞−∞ took ~40 s
+- **Problem:** `log log x − √(log x·log log x) → −∞` (and the nested ratio `log x / exp(√(log x·log log x)) → 0`
+  whose log-exp reduction produces it) resolved correctly but took ~40 s. The ∞−∞ difference contains a radical,
+  so the conjugate-rationalization stage fired first; but the two terms have *different* growth rates
+  (`√(log x·log log x)` outgrows `log log x`), so conjugation does not cancel the leading term — it produces a
+  worse ∞−∞ that the engine re-expanded recursively (~99 000 `limit_impl` calls, ~40 000 of them L'Hôpital).
+- **Fix:** the Gruntz dominant-term rule (a ∞−∞ with a unique strictly dominant divergent term) is now tried
+  *before* the conjugate stage. A different-rate radical difference is a dominant-term case — the √ term dominates,
+  so the difference follows it to −∞ in milliseconds. The rule only fires for a *strict* dominator, so equal-rate
+  radical differences (`√(x²+x) − x`, ratio → −1; `√(x²+1) − √(x²−1)`) abstain and still resolve via the conjugate
+  path, unchanged. `LIMIT-LOG-EXP-REDUCTION-1` dropped from ~41 s to milliseconds. Regression:
+  `LIMIT-DOMTERM-RADICAL-1`. Matches SymPy.
+
 ### LIMIT-SERIESMUL-1 — series core times a non-polynomial multiplier hung
 - **Problem:** the engine resolves the 1^∞ correction `x·((1+1/x)^x − e) → −e/2` (and the subleading
   `x²·(… + e/(2x)) → 11e/24`), so it can extract the core's series, but multiplying that vanishing core by a

@@ -3667,3 +3667,35 @@ TEST_CASE("limit: log-exp reduction of nested transcendentals (LIMIT-LOG-EXP-RED
             == S::Zero());
     REQUIRE(limit(mul(exp(x), pow(pow(x, integer(3)), integer(-1))), x, oo) == oo);
 }
+
+// LIMIT-DOMTERM-RADICAL-1: a ∞−∞ difference of *different-rate* radical terms is a
+// dominant-term case, not a conjugate one. log log x − √(log x·log log x) → −∞:
+// the √ term outgrows log log x (their ratio → ∞), so the difference follows the √
+// term. Rationalizing it via the conjugate (the equal-rate trick for √(x²+x) − x)
+// instead yields a worse ∞−∞ that recursed for >60 s — so the dominant-term rule
+// is now tried first. This is the inner reduction of log x / exp(√(log x·log log x))
+// → 0 (LIMIT-LOG-EXP-REDUCTION-1), which dropped from ~41 s to milliseconds.
+// Equal-rate radical differences still resolve via the conjugate. Matches SymPy.
+TEST_CASE("limit: different-rate radical difference via dominant term (LIMIT-DOMTERM-RADICAL-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr sqln = sqrt(mul(log(x), log(log(x))));  // √(log x · log log x)
+
+    // The different-rate difference (previously >60 s) → −∞, and its negative → ∞.
+    REQUIRE(limit(add(log(log(x)), mul(S::NegativeOne(), sqln)), x, oo)
+            == S::NegativeInfinity());
+    REQUIRE(limit(add(sqln, mul(S::NegativeOne(), log(log(x)))), x, oo) == oo);
+    // Equal-rate radical differences are unchanged (still the conjugate path):
+    // √(x²+x) − x → 1/2, √(x²+1) − √(x²−1) → 0.
+    REQUIRE(limit(add(pow(add(pow(x, integer(2)), x), rational(1, 2)),
+                      mul(S::NegativeOne(), x)),
+                  x, oo)
+            == rational(1, 2));
+    REQUIRE(limit(add(pow(add(pow(x, integer(2)), S::One()), rational(1, 2)),
+                      mul(S::NegativeOne(),
+                          pow(add(pow(x, integer(2)), S::NegativeOne()),
+                              rational(1, 2)))),
+                  x, oo)
+            == S::Zero());
+}

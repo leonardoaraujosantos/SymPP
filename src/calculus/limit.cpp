@@ -3961,6 +3961,17 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 } catch (const std::exception&) {
                     // not a polynomial in var — fall through to other methods
                 }
+                // Gruntz dominant-term rule: a ∞−∞ sum with a unique strictly
+                // dominant divergent term (e.g. x − x·log x → −∞). Tried before the
+                // conjugate, because a *different-rate* radical difference —
+                // log log x − √(log x·log log x) → −∞ — is a dominant-term case, not
+                // a conjugate one: rationalizing it yields a worse ∞−∞ that recurses
+                // for tens of seconds. The rule only fires for a strict dominator, so
+                // equal-rate radicals (√(x²+x) − x, ratio → −1) still abstain and
+                // fall through to the conjugate path below unchanged.
+                if (auto v = try_dominant_term_sum(expr, var, target, depth)) {
+                    return *v;
+                }
                 // ∞ − ∞ with a radical: rationalize via the conjugate.
                 if (auto v = try_conjugate_difference(expr, var, target, depth)) {
                     return *v;
@@ -3968,11 +3979,6 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                 // Algebraic ∞−∞ / 0·∞ via the leading asymptotic term — resolves the
                 // radical ratios the conjugate produces and L'Hôpital abandons.
                 if (auto v = try_algebraic_inf(expr, var, target)) {
-                    return *v;
-                }
-                // Gruntz dominant-term rule: a ∞−∞ sum with a unique strictly
-                // dominant divergent term (e.g. x − x·log x → −∞).
-                if (auto v = try_dominant_term_sum(expr, var, target, depth)) {
                     return *v;
                 }
             }
