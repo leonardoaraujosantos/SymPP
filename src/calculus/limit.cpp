@@ -3271,6 +3271,37 @@ struct Growth {
                                           mul(integer(24), pow(g, integer(-4)))})));
                 }
             }
+            // atan(g)/acot(g), g → ±∞ (DLMF 4.24.3): the arctangent approaches
+            // ±π/2 with an odd 1/g tail,
+            //   atan(g) ~ ±π/2 − 1/g + 1/(3g³) − 1/(5g⁵) + …   (+ for g → +∞),
+            //   acot(g) = π/2 − atan(g) ~ 1/g − 1/(3g³) + 1/(5g⁵) − ….
+            // The bare atan(∞)=π/2 / acot(∞)=0 values lack this rate, so a leading
+            // term cancelled off — x²·(atan(x) − π/2 + 1/x) → 0, x³·(…) → 1/3 —
+            // and the expanded difference x·atan(x) − π·x/2 → −1 were left as nan.
+            if ((fn.function_id() == FunctionId::Atan
+                 || fn.function_id() == FunctionId::Acot)
+                && fn.args().size() == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)) {
+                    const Expr gl = limit_impl(g, var, target, depth + 1);
+                    const bool pos = gl->type_id() == TypeId::Infinity;
+                    const bool neg = gl->type_id() == TypeId::NegativeInfinity;
+                    if (pos || neg) {
+                        const Expr tail =
+                            add({mul(S::NegativeOne(), pow(g, integer(-1))),
+                                 mul(rational(1, 3), pow(g, integer(-3))),
+                                 mul(rational(-1, 5), pow(g, integer(-5)))});
+                        const Expr half_pi = mul(rational(1, 2), S::Pi());
+                        const Expr atan_asy =
+                            add(pos ? half_pi : mul(S::NegativeOne(), half_pi),
+                                tail);
+                        m.emplace(e, fn.function_id() == FunctionId::Atan
+                                         ? atan_asy
+                                         : add(half_pi, mul(S::NegativeOne(),
+                                                            atan_asy)));
+                    }
+                }
+            }
         }
         for (const auto& a : e->args()) self(self, a);
     };

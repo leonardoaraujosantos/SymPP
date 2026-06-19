@@ -3369,6 +3369,48 @@ TEST_CASE("limit: exponential integral Ei asymptotics (LIMIT-EI-1)",
             == S::One());
 }
 
+// LIMIT-ATAN-1: the arctangent (and arccotangent) of a diverging argument approach
+// ±π/2 / 0 with an odd 1/g tail (DLMF 4.24.3): atan(g) ~ ±π/2 − 1/g + 1/(3g³) − …,
+// acot(g) ~ 1/g − 1/(3g³) + …. The bare atan(∞)=π/2 value lacks this rate, so a
+// subleading limit (x²·(atan x − π/2 + 1/x) → 0, x³·(…) → 1/3) and the expanded
+// difference x·atan(x) − π·x/2 → −1 were left as nan. Matches SymPy.
+TEST_CASE("limit: arctangent/arccotangent asymptotics at ±∞ (LIMIT-ATAN-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr ninf = S::NegativeInfinity();
+    const Expr hpi = mul(rational(1, 2), S::Pi());
+
+    // Leading −1/x: x·(atan x − π/2) → −1, x·(π/2 − atan x) → 1.
+    REQUIRE(limit(mul(x, add({atan(x), mul(S::NegativeOne(), hpi)})), x, oo)
+            == S::NegativeOne());
+    REQUIRE(limit(mul(x, add({hpi, mul(S::NegativeOne(), atan(x))})), x, oo)
+            == S::One());
+    // The expanded difference form (not factored through π/2): → −1.
+    REQUIRE(limit(add({mul(atan(x), x), mul(rational(-1, 2), mul(S::Pi(), x))}),
+                  x, oo)
+            == S::NegativeOne());
+    // Subleading 1/(3x³): x²·(atan x − π/2 + 1/x) → 0, x³·(…) → 1/3.
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add({atan(x), mul(S::NegativeOne(), hpi),
+                           pow(x, integer(-1))})),
+                  x, oo)
+            == S::Zero());
+    REQUIRE(limit(mul(pow(x, integer(3)),
+                      add({atan(x), mul(S::NegativeOne(), hpi),
+                           pow(x, integer(-1))})),
+                  x, oo)
+            == rational(1, 3));
+    // Arccotangent: x·acot(x) → 1, and the subleading x³·(acot x − 1/x) → −1/3.
+    REQUIRE(limit(mul(x, acot(x)), x, oo) == S::One());
+    REQUIRE(limit(mul(pow(x, integer(3)),
+                      add({acot(x), mul(S::NegativeOne(), pow(x, integer(-1)))})),
+                  x, oo)
+            == rational(-1, 3));
+    // The argument may diverge to −∞ within a limit: x·(atan x + π/2) → −1 at −∞.
+    REQUIRE(limit(mul(x, add({atan(x), hpi})), x, ninf) == S::NegativeOne());
+}
+
 // LIMIT-ZETA-1: the Riemann zeta function ζ(g) with a diverging argument tends to 1.
 // ζ(s) = Σ_{k≥1} k⁻ˢ has every term past k=1 vanishing as s → +∞, with leading
 // correction 2⁻ˢ, so ζ(g) is rewritten 1 + 2⁻ᵍ. Previously ζ(x) returned nan. Now

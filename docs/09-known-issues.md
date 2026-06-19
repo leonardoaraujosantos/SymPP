@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ATAN-1 — subleading arctangent limits returned nan
+- **Problem:** the engine knew `atan(∞) = π/2` but not the *rate*, so once the leading term was cancelled off a
+  limit went indeterminate: `x²·(atan x − π/2 + 1/x) → 0`, `x³·(atan x − π/2 + 1/x) → 1/3`, the subleading
+  `x³·(acot x − 1/x) → −1/3`, and the expanded difference `x·atan(x) − π·x/2 → −1` (the factored
+  `x·(atan x − π/2)` happened to resolve, the distributed form did not) all returned `nan`.
+- **Fix:** added the arctangent asymptotic series (DLMF 4.24.3) to the special-function asymptotic rewrite,
+  `atan(g) ~ ±π/2 − 1/g + 1/(3g³) − 1/(5g⁵) + …` (the sign of the constant set by whether the argument diverges
+  to +∞ or −∞), with `acot(g) = π/2 − atan(g)`. This is the same uniform expansion that already powers the
+  erfc/Ei/ζ/digamma asymptotics, so every form — leading, subleading, and the expanded difference — resolves
+  through one rewrite. Now `x·(atan x − π/2) → −1`, `x³·(atan x − π/2 + 1/x) → 1/3`, `x·atan(x) − π·x/2 → −1`,
+  `x·acot(x) → 1`, `x³·(acot x − 1/x) → −1/3`. Regression: `LIMIT-ATAN-1`. Matches SymPy.
+
 ### REIM-IMAG-1 — re/im of a purely imaginary argument were not refined
 - **Problem:** `re(x)` and `im(x)` folded only when the argument was known *real* (`re(x) → x`, `im(x) → 0`).
   A purely imaginary argument — a symbol declared `imaginary`, or one under an `assuming` Q.imaginary scope —
