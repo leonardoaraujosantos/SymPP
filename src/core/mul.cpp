@@ -27,6 +27,48 @@ namespace sympp {
 
 namespace {
 
+// True if two of the factors are consecutive integers — they share the same
+// non-constant part and their integer offsets differ by 1 (n and n+1, or 2n and
+// 2n+1). One of two consecutive integers is even, so their product is even. The
+// caller establishes that every factor is an integer first.
+[[nodiscard]] bool has_consecutive_int_factors(
+        const std::vector<Expr>& args) noexcept {
+    // Decompose each factor into (rest, offset) with factor = rest + offset.
+    std::vector<std::pair<Expr, long>> parts;
+    parts.reserve(args.size());
+    for (const auto& f : args) {
+        if (f->type_id() == TypeId::Add) {
+            std::vector<Expr> rest;
+            long off = 0;
+            bool got = false;
+            bool ok = true;
+            for (const auto& t : f->args()) {
+                if (!got && t->type_id() == TypeId::Integer
+                    && static_cast<const Integer&>(*t).fits_long()) {
+                    off = static_cast<const Integer&>(*t).to_long();
+                    got = true;
+                } else {
+                    rest.push_back(t);
+                }
+            }
+            if (!ok || rest.empty()) continue;
+            Expr r = rest.size() == 1 ? rest[0] : add(rest);
+            parts.emplace_back(std::move(r), off);
+        } else {
+            parts.emplace_back(f, 0L);
+        }
+    }
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        for (std::size_t j = i + 1; j < parts.size(); ++j) {
+            if (parts[i].first == parts[j].first) {
+                const long d = parts[i].second - parts[j].second;
+                if (d == 1 || d == -1) return true;
+            }
+        }
+    }
+    return false;
+}
+
 void flatten_into(const Expr& e, std::vector<Expr>& out) {
     if (e && e->type_id() == TypeId::Mul) {
         for (const auto& a : e->args()) {
@@ -102,11 +144,11 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             bool all_classified = true;
             bool all_nonzero = true;
             for (const auto& f : args_) {
-                if (f->ask(AssumptionKey::Zero) == true) return false;
-                if (f->ask(AssumptionKey::Nonzero) != true) all_nonzero = false;
-                if (f->ask(AssumptionKey::Imaginary) == true) {
+                if (direct_ask(f, AssumptionKey::Zero) == true) return false;
+                if (direct_ask(f, AssumptionKey::Nonzero) != true) all_nonzero = false;
+                if (direct_ask(f, AssumptionKey::Imaginary) == true) {
                     ++imag;
-                } else if (f->ask(AssumptionKey::Real) != true) {
+                } else if (direct_ask(f, AssumptionKey::Real) != true) {
                     all_classified = false;
                     break;
                 }
@@ -124,8 +166,8 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
                 std::size_t imag = 0;
                 bool ok = true;
                 for (const auto& f : args_) {
-                    if (f->ask(AssumptionKey::Imaginary) == true) ++imag;
-                    else if (f->ask(AssumptionKey::Real) != true) { ok = false; break; }
+                    if (direct_ask(f, AssumptionKey::Imaginary) == true) ++imag;
+                    else if (direct_ask(f, AssumptionKey::Real) != true) { ok = false; break; }
                 }
                 if (ok && imag % 2 == 0) return true;
             }
@@ -165,10 +207,10 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             // unknown) count as a known-positive factor.
             int neg = 0;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Positive) == std::optional<bool>{true}) {
+                if (direct_ask(a, AssumptionKey::Positive) == std::optional<bool>{true}) {
                     continue;
                 }
-                if (a->ask(AssumptionKey::Negative) == std::optional<bool>{true}) {
+                if (direct_ask(a, AssumptionKey::Negative) == std::optional<bool>{true}) {
                     ++neg;
                     continue;
                 }
@@ -193,9 +235,9 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             int neg_dir = 0;
             for (const auto& a : args_) {
                 const bool ge0 =
-                    a->ask(AssumptionKey::Nonnegative) == std::optional<bool>{true};
+                    direct_ask(a, AssumptionKey::Nonnegative) == std::optional<bool>{true};
                 const bool le0 =
-                    a->ask(AssumptionKey::Nonpositive) == std::optional<bool>{true};
+                    direct_ask(a, AssumptionKey::Nonpositive) == std::optional<bool>{true};
                 if (ge0 && le0) return true;  // factor is 0 → product is 0
                 if (ge0) continue;
                 if (le0) { ++neg_dir; continue; }
@@ -215,6 +257,8 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
                 return std::nullopt;
             }
             if (any_arg_has(args_, AssumptionKey::Even, true)) return true;
+            // Two consecutive integer factors ⇒ one is even ⇒ product even.
+            if (has_consecutive_int_factors(args_)) return true;
             if (all_args_have(args_, AssumptionKey::Odd, true)) return false;
             return std::nullopt;
         case AssumptionKey::Odd:
@@ -223,6 +267,31 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
             }
             if (all_args_have(args_, AssumptionKey::Odd, true)) return true;
             if (any_arg_has(args_, AssumptionKey::Even, true)) return false;
+            // Two consecutive integer factors force an even product, hence not odd.
+            if (has_consecutive_int_factors(args_)) return false;
+            return std::nullopt;
+        case AssumptionKey::Prime:
+        case AssumptionKey::Composite:
+            // Primality / compositeness of a symbolic product isn't decided
+            // structurally.
+            return std::nullopt;
+        case AssumptionKey::Algebraic:
+            // Algebraic numbers are closed under multiplication.
+            if (all_args_have(args_, AssumptionKey::Algebraic, true)) return true;
+            // Nonzero algebraics times exactly one transcendental ⇒ transcendental.
+            if (detail::product_forces_transcendental(args_)) return false;
+            return std::nullopt;
+        case AssumptionKey::Transcendental:
+            if (detail::product_forces_transcendental(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::Irrational:
+            // A nonzero rational product times exactly one irrational factor is
+            // irrational (2·π, √2/2, 3·√2).
+            if (detail::product_forces_irrational(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::ExtendedReal:
+        case AssumptionKey::Infinite:
+            // Left to the generic derivation layer.
             return std::nullopt;
     }
     return std::nullopt;

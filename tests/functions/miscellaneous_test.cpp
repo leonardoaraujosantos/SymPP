@@ -271,6 +271,20 @@ TEST_CASE("sign: numeric reductions", "[3d][sign]") {
     REQUIRE(sign(rational(-1, 2)) == integer(-1));
 }
 
+// SIGN-IDEMPOTENT-1: sign is idempotent, sign(sign(z)) = sign(z), since sign(z)
+// already lies in {−1, 0, 1} (real) or on the unit circle (complex). Matches SymPy.
+TEST_CASE("sign: idempotent sign(sign(x)) = sign(x) (SIGN-IDEMPOTENT-1)",
+          "[3d][sign][regression]") {
+    auto x = symbol("x");
+    REQUIRE(sign(sign(x)) == sign(x));
+    REQUIRE(sign(sign(sign(x))) == sign(x));
+    REQUIRE(sign(sign(x + integer(1))) == sign(x + integer(1)));
+    // The argument's own reductions still apply through the outer sign.
+    REQUIRE(sign(sign(integer(-3))) == integer(-1));
+    // A non-sign argument is unaffected.
+    REQUIRE(sign(abs(x))->type_id() == TypeId::Function);  // sign(|x|) stays
+}
+
 TEST_CASE("sign: positive symbol → 1", "[3d][sign][assumptions]") {
     auto x = symbol("x", AssumptionMask{}.set_positive(true));
     REQUIRE(sign(x) == integer(1));

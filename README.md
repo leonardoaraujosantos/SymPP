@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1426%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1534%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1426 tests / 4408 assertions  all passing
-628 cases (2365 assertions) oracle-validated against SymPy
+1534 tests / 5373 assertions  all passing
+670 cases (2711 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
 
@@ -195,6 +195,23 @@ simplify(sqrt(pow(p, integer(2))));  // → p          (nonneg base)
 simplify(sqrt(pow(x, integer(2))));  // → sqrt(x**2)  (generic — Abs, not x)
 ```
 
+**Scoped `assuming` context.** Beyond construction-time facts, a thread-local
+`assuming(...)` RAII scope asserts a relational fact about an *existing* symbol for
+a region of code — SymPy's `with assuming(Q.positive(x)): …`. The central `ask`
+consults the active scopes, so the fact propagates through `Add`/`Mul`/`Pow` and
+unlocks `refine`; it retracts at scope exit (and adds no overhead when no scope is
+active).
+
+```cpp
+auto x = symbol("x");                                   // no built-in assumptions
+{
+    assuming pos(x, AssumptionMask{}.set_positive(true));
+    is_positive(mul(x, x));        // → true  (propagates through Mul)
+    refine(sqrt(pow(x, integer(2))));  // → x   (√(x²) = |x| = x for x > 0)
+    refine(abs(x));                    // → x
+}                                       // fact retracted here
+```
+
 **Declarable predicates** (via `AssumptionMask::set_*`): `real`, `positive`,
 `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`, `finite`, `integer`,
 `rational`, `even`, `odd`, `complex`, `imaginary`. They are closed under the
@@ -222,20 +239,33 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
   `simplify`/`integrate`/`refine`. At SymPy parity on the common predicates —
   see [Assumptions](#assumptions).
 - **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
-  factorial/gamma/erf/heaviside/dirac_delta plus `Hyper` and
-  `MeijerG` (proper Function classes with auto-eval) and the rest of
-  the elementary + special + combinatorial canon.
+  factorial/gamma/erf/heaviside/dirac_delta plus `lowergamma`/`uppergamma`
+  (incomplete gamma, with positive-integer and half-integer erf/erfc closed
+  forms), `Hyper` and `MeijerG` (proper Function classes with auto-eval) and the
+  rest of the elementary + special + combinatorial canon.
 - **Calculus** — `diff` (with an unevaluated `Derivative` node for
   undefined/untabulated functions — never a silent `0`), `integrate`
   (table + trig + reciprocal-trig/hyperbolic + parts + arctan/asin/asinh +
   rational incl. improper/linear-denominator + heurisch + Weierstrass
-  half-angle; definite integrals evaluate boundaries as limits, so
-  `∫₀^∞ xⁿe^(-x) = n!`), `series`, `limit` with L'Hôpital (finite points,
-  signed `±∞` at even poles, polynomial and 0·∞ exponential dominance at ±∞;
-  `1^∞` / `0·∞` / `∞/∞` forms; size-bounded so it never hangs),
-  `summation` (p-series → ζ, telescoping, geometric/arithmetic-geometric,
-  irreducible-quadratic `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`),
-  Padé, Euler-Lagrange, asymptotes.
+  half-angle + incomplete-gamma forms `∫xˢ⁻¹e⁻ˣ = γ(s,x)`, `∫₀^∞ xˢ⁻¹e⁻ᶜˣ = Γ(s)/cˢ`;
+  definite integrals evaluate boundaries as limits, so `∫₀^∞ xⁿe^(-x) = n!`),
+  `series`, **`limit` with a Gruntz-style leading-term engine** (L'Hôpital +
+  composable asymptotic stages: power-as-exp, dominant-term `∞−∞`, power
+  continuity, log-exp reduction for nested transcendentals, numerically-verified
+  small-angle/Maclaurin-head for `0·∞` analytic forms, harmonic-number and
+  log-Stirling (`log(n!)/(n·log n)→1`) asymptotics, a gamma-ratio asymptotic with
+  Legendre/Gauss multiplication, exponential rates, unbalanced gamma powers and
+  combined-denominator flattening, the full Stirling prefactor for cancelling
+  products (`n!/(nⁿe⁻ⁿ)→∞`), constant-base-exponential rationals
+  (`(2ˣ+3ˣ)/3ˣ→1`), hyperbolic→exp rewriting (`(sinh x+cosh x)/eˣ→1`),
+  inverse-hyperbolic two-term asymptotics (`asinh x/log x→1`), an MRV rewrite for
+  exponential differences (Gruntz's flagship `e^{x+e⁻ˣ}−eˣ→1`), and a
+  leading-term-by-series stage for `1^∞` corrections at `±∞` and finite points
+  (`x·((1+1/x)ˣ−e)→−e/2`, `(xˣ−1)/(x·log x)→1`) — resolves `Γ(2n)/nⁿ`,
+  `eˣ·(sin(1/x+e⁻ˣ)−sin(1/x))→1`; size-bounded so it never hangs),
+  `summation` (p-series → ζ, exponential/geometric series, telescoping,
+  geometric/arithmetic-geometric, irreducible-quadratic
+  `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`), Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
   bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
   Cardano cubic, Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
@@ -289,7 +319,7 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
   `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy (1.13+) via a long-lived Python
-  subprocess; 628 oracle-validated test cases. New `hyperexpand` op
+  subprocess; 670 oracle-validated test cases. New `hyperexpand` op
   cross-validates SymPP's hypergeometric rewrites against SymPy's
   reference implementation.
 
@@ -305,6 +335,8 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
 - [docs/07-coding-standards.md](docs/07-coding-standards.md)
 - [docs/08-tutorial.md](docs/08-tutorial.md) — **worked examples**
 - [docs/09-known-issues.md](docs/09-known-issues.md) — SymPy-parity bug log
+- [openspec/](openspec/) — spec-driven change specs (see
+  `openspec/changes/` and `openspec/specs/`; `openspec list`)
 
 ## Build
 

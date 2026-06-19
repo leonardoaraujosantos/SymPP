@@ -116,6 +116,22 @@ std::optional<bool> Integer::ask(AssumptionKey k) const noexcept {
             return mpz_even_p(value_.get_mpz_t()) != 0;
         case AssumptionKey::Odd:
             return mpz_odd_p(value_.get_mpz_t()) != 0;
+        case AssumptionKey::Prime:
+            // A prime is ≥ 2; mpz_probab_prime_p is deterministic for the small
+            // values that arise in symbolic work (return 0 = composite, ≥1 = prime).
+            if (value_ < 2) return false;
+            return mpz_probab_prime_p(value_.get_mpz_t(), 25) != 0;
+        case AssumptionKey::Composite:
+            // Composite = integer > 1 that is not prime (so ≥ 4, since 2 and 3
+            // are prime). Values ≤ 3 — including 1, 0 and negatives — are not
+            // composite. Matches SymPy's is_composite.
+            if (value_ < 4) return false;
+            return mpz_probab_prime_p(value_.get_mpz_t(), 25) == 0;
+        case AssumptionKey::Irrational: return false;  // every integer is rational
+        case AssumptionKey::Algebraic: return true;     // ℤ ⊂ algebraic numbers
+        case AssumptionKey::Transcendental: return false;
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return false;
     }
     return std::nullopt;
 }

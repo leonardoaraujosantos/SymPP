@@ -485,3 +485,38 @@ TEST_CASE("cot/sec/csc at integer / half-integer multiples of pi (ASSUME-10)",
     REQUIRE(cot(half) == S::Zero());
     REQUIRE(csc(half) == pow(S::NegativeOne(), n));
 }
+
+// INVTRIG-COMPOSE-1: inverse-of-direct composition with a concrete real argument
+// folds back into the principal range — asin(sin a), acos(cos a), atan(tan a).
+// Previously these stayed unevaluated. Matches SymPy: asin(sin 3) = π−3,
+// acos(cos 4) = 2π−4, atan(tan 2) = 2−π; symbolic/in-range arguments unaffected.
+TEST_CASE("trig: inverse-of-direct principal-range folding (INVTRIG-COMPOSE-1)",
+          "[3b][trig][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto pi = S::Pi();
+    auto S_ = [&](long n) { return integer(n); };
+
+    // In principal range → the argument itself.
+    REQUIRE(asin(sin(S_(1))) == integer(1));
+    REQUIRE(asin(sin(integer(-1))) == integer(-1));
+    REQUIRE(acos(cos(S_(2))) == integer(2));
+    REQUIRE(atan(tan(S_(1))) == integer(1));
+    // Out of range → reflected/shifted to the principal branch.
+    REQUIRE(oracle.equivalent(asin(sin(S_(3)))->str(), "pi - 3"));
+    REQUIRE(oracle.equivalent(asin(sin(S_(5)))->str(), "5 - 2*pi"));
+    REQUIRE(oracle.equivalent(acos(cos(S_(4)))->str(), "2*pi - 4"));
+    REQUIRE(oracle.equivalent(acos(cos(integer(-1)))->str(), "1"));
+    REQUIRE(oracle.equivalent(atan(tan(S_(2)))->str(), "2 - pi"));
+    REQUIRE(oracle.equivalent(atan(tan(integer(-1)))->str(), "-1"));
+    // Rational-π arguments fold exactly.
+    REQUIRE(asin(sin(pi / integer(3))) == pi / integer(3));
+    REQUIRE(acos(cos(pi / integer(4))) == pi / integer(4));
+    REQUIRE(atan(tan(pi / integer(6))) == pi / integer(6));
+
+    // Unaffected: a symbolic argument stays unevaluated; the other-order
+    // composition and ordinary inverse values are unchanged.
+    REQUIRE(asin(sin(x))->str() == "asin(sin(x))");
+    REQUIRE(sin(asin(x)) == x);
+    REQUIRE(oracle.equivalent(asin(rational(1, 2))->str(), "pi/6"));
+}

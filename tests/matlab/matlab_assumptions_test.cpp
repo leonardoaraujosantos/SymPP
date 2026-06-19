@@ -97,6 +97,95 @@ TEST_CASE("matlab::refresh on unregistered symbol returns input unchanged",
 
 TEST_CASE("matlab::assume rejects unsupported property",
           "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xherm");
+    REQUIRE_THROWS_AS(matlab::assume(x, "hermitian"), std::runtime_error);
+}
+
+TEST_CASE("matlab::assume supports the prime property",
+          "[15m][matlab][assumptions]") {
     auto x = matlab::sym("xprime");
-    REQUIRE_THROWS_AS(matlab::assume(x, "prime"), std::runtime_error);
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "prime");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "prime"));
+    REQUIRE(is_prime(x) == true);
+    REQUIRE(is_integer(x) == true);   // prime ⇒ integer, positive
+    REQUIRE(is_positive(x) == true);
+    matlab::clearAssumptions(x);
+}
+
+TEST_CASE("matlab::assume supports the composite property",
+          "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xcomp");
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "composite");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "composite"));
+    REQUIRE(is_composite(x) == true);
+    REQUIRE(is_integer(x) == true);   // composite ⇒ integer, positive, ¬prime
+    REQUIRE(is_positive(x) == true);
+    REQUIRE(is_prime(x) == false);
+    matlab::clearAssumptions(x);
+}
+
+TEST_CASE("matlab::assume supports the irrational property",
+          "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xirr");
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "irrational");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(contains(props, "irrational"));
+    REQUIRE(is_irrational(x) == true);
+    REQUIRE(is_real(x) == true);       // irrational ⇒ real ∧ ¬rational
+    REQUIRE(is_rational(x) == false);
+    REQUIRE(is_integer(x) == false);
+    matlab::clearAssumptions(x);
+}
+
+TEST_CASE("matlab::assume supports extended_real / infinite",
+          "[15m][matlab][assumptions]") {
+    auto e = matlab::sym("xext");
+    matlab::clearAssumptions(e);
+    matlab::assume(e, "extended_real");
+    e = matlab::refresh(e);
+    REQUIRE(contains(matlab::assumptions(e), "extended_real"));
+    REQUIRE(is_extended_real(e) == true);
+    REQUIRE(is_imaginary(e) == false);   // extended_real ⇒ ¬imaginary
+    matlab::clearAssumptions(e);
+
+    auto f = matlab::sym("xinf");
+    matlab::clearAssumptions(f);
+    matlab::assume(f, "infinite");
+    f = matlab::refresh(f);
+    REQUIRE(contains(matlab::assumptions(f), "infinite"));
+    REQUIRE(is_infinite(f) == true);
+    REQUIRE(is_finite(f) == false);      // infinite ⟺ ¬finite
+    REQUIRE(is_real(f) == false);
+    matlab::clearAssumptions(f);
+}
+
+TEST_CASE("matlab::assume supports algebraic / transcendental",
+          "[15m][matlab][assumptions]") {
+    auto a = matlab::sym("xalg");
+    matlab::clearAssumptions(a);
+    matlab::assume(a, "algebraic");
+    a = matlab::refresh(a);
+    REQUIRE(contains(matlab::assumptions(a), "algebraic"));
+    REQUIRE(is_algebraic(a) == true);
+    REQUIRE(is_complex(a) == true);    // algebraic ⇒ complex, finite
+    REQUIRE(is_transcendental(a) == false);
+    matlab::clearAssumptions(a);
+
+    auto t = matlab::sym("xtrans");
+    matlab::clearAssumptions(t);
+    matlab::assume(t, "transcendental");
+    t = matlab::refresh(t);
+    REQUIRE(contains(matlab::assumptions(t), "transcendental"));
+    REQUIRE(is_transcendental(t) == true);
+    REQUIRE(is_algebraic(t) == false);  // transcendental ⇒ ¬algebraic, ¬rational
+    REQUIRE(is_rational(t) == false);
+    matlab::clearAssumptions(t);
 }

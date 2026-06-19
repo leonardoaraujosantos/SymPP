@@ -21,6 +21,7 @@
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
+#include <sympp/core/assumption_context.hpp>
 #include <sympp/core/number_symbol.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/piecewise.hpp>

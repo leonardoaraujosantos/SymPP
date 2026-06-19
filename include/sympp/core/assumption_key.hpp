@@ -40,6 +40,30 @@ enum class AssumptionKey : std::uint8_t {
     Complex,       // a finite complex number (real ⇒ complex, imaginary ⇒ complex)
     Imaginary,     // a nonzero real multiple of i (implies complex, ¬real, finite;
                    // 0 is NOT imaginary — it is real)
+
+    // Number theory (integers only).
+    Prime,         // a prime ≥ 2 (implies integer, positive; NOT odd — 2 is prime
+                   // and even). ¬integer ⇒ ¬prime.
+    Composite,     // a composite ≥ 4: integer > 1 that is not prime (implies
+                   // integer, positive, ¬prime; NOT a parity). ¬integer ⇒
+                   // ¬composite. Mutually exclusive with Prime; 1 is neither.
+    Irrational,    // a real number that is not rational (implies real, finite,
+                   // nonzero, ¬integer). irrational ⟺ real ∧ ¬rational; a
+                   // rational or non-real value is not irrational.
+    Algebraic,     // a root of a nonzero polynomial with rational coefficients
+                   // (implies complex, finite). rational ⇒ algebraic. Does NOT
+                   // imply real (i is algebraic). Mutually exclusive with
+                   // Transcendental.
+    Transcendental,// a complex number that is not algebraic (implies complex,
+                   // finite, ¬algebraic, ¬rational). transcendental ⟺ complex ∧
+                   // ¬algebraic; a real transcendental is irrational.
+
+    // Extended real line / boundedness.
+    ExtendedReal,  // a point of ℝ ∪ {−∞, +∞} (implies ¬imaginary). real ⇒
+                   // extended_real, but NOT conversely (±∞ are extended-real,
+                   // not real). Does not imply finite or complex.
+    Infinite,      // an infinite quantity (±∞, zoo). infinite ⟺ ¬finite; implies
+                   // ¬real, ¬complex, ¬zero.
 };
 
 }  // namespace sympp

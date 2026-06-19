@@ -16,6 +16,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/miscellaneous.hpp>
@@ -2464,6 +2465,212 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
             == rational(1, 3));
 }
 
+// INT-POLYPROD-1: a product or power of polynomials — x³·(1−x)², x²·(1−x) — was
+// returned unevaluated (no handler expands a product of polynomial factors), so
+// the definite integral garbled. integrate() now expands such a product into a
+// sum and integrates term-wise as a last resort. Matches SymPy.
+TEST_CASE("integrate: products of polynomials (INT-POLYPROD-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+    auto one = integer(1);
+
+    // Indefinite: x³·(1−x)² now integrates instead of returning the marker; its
+    // derivative recovers the (expanded) integrand.
+    {
+        auto F = integrate(pow(x, integer(3)) * pow(one - x, integer(2)), x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);
+        REQUIRE(simplify(diff(F, x)
+                         - (pow(x, integer(3)) * pow(one - x, integer(2))))
+                == S::Zero());
+    }
+
+    // Definite Beta-like integrals: ∫₀¹ x³(1−x)² = ∫₀¹ x²(1−x)³ = 1/60.
+    REQUIRE(integrate(pow(x, integer(3)) * pow(one - x, integer(2)), x,
+                      S::Zero(), one)
+            == rational(1, 60));
+    REQUIRE(integrate(pow(x, integer(2)) * pow(one - x, integer(3)), x,
+                      S::Zero(), one)
+            == rational(1, 60));
+    // ∫₀¹ x²(1−x) = 1/12, ∫₀¹ x(x+1)(x+2) = 9/4, ∫₀¹ (2x−1)³ = 0.
+    REQUIRE(integrate(pow(x, integer(2)) * (one - x), x, S::Zero(), one)
+            == rational(1, 12));
+    REQUIRE(integrate(x * (x + one) * (x + integer(2)), x, S::Zero(), one)
+            == rational(9, 4));
+    REQUIRE(integrate(pow(integer(2) * x - one, integer(3)), x, S::Zero(), one)
+            == S::Zero());
+
+    // By-parts and rational integrands are unaffected by the expand fallback.
+    REQUIRE(integrate(x * sin(x), x) == sin(x) - x * cos(x));
+    REQUIRE(integrate(pow(x * x + one, integer(-1)), x) == atan(x));
+}
+
+// INT-DIRICHLET-1 / INT-CLEANMARKER-1: ∫₀^∞ (1−cos x)/x² = π/2 (a Dirichlet
+// integral). Its antiderivative Si(x) + cos(x)/x − 1/x is in a factored form
+// −1·(−Si(x) − cos(x)/x) − 1/x whose c·(sum) limit folded to a wrong 0; with the
+// constant-factor pull-out in the limit engine it resolves. Separately, a
+// genuinely unintegrable definite integral now returns a clean unevaluated
+// Integral instead of garbled −Integral(nan,a)+Integral(…,b). Matches SymPy.
+TEST_CASE("integrate: Dirichlet (1-cos x)/x² and clean markers (INT-DIRICHLET-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+
+    // ∫₀^∞ (1−cos x)/x² = π/2.
+    REQUIRE(oracle.equivalent(
+        integrate((integer(1) - cos(x)) * pow(x, integer(-2)), x, S::Zero(), oo)
+            ->str(),
+        "pi/2"));
+
+    // A definite integral with no closed form returns a clean unevaluated
+    // Integral marker — not garbage with embedded nan. (x/(e^x+1) was the old
+    // example here, but it is now evaluated in closed form by the Bose–Einstein /
+    // Fermi–Dirac rule, see INT-BOSE-EINSTEIN-1; x/(x+e^x) stays non-elementary.)
+    auto uneval =
+        integrate(x * pow(x + exp(x), integer(-1)), x, S::Zero(), oo);
+    REQUIRE(uneval->str().find("nan") == std::string::npos);
+    REQUIRE(uneval->str().rfind("Integral(", 0) == 0);
+
+    // Previously-working improper integrals are unchanged.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, S::Zero(),
+                  oo)
+            ->str(),
+        "pi/2"));
+}
+
+// INT-PARAMSIGN-1: parametric improper integrals ∫₀^∞ f(x; a) where the
+// boundary limit depends on the sign of a symbolic coefficient. With a declared
+// positive, exp(-a·x)→0 at +∞ and the closed forms resolve (1/a, 1/a², …). With
+// a *generic* a the boundary limit cannot decide the sign, so Newton-Leibniz
+// previously leaked garbage like (−exp(a·−oo)+1)/a — a raw ±oo buried inside
+// exp/Si. integrate() now detects an infinity stranded below the root and falls
+// back to a clean unevaluated Integral, matching SymPy (which returns a
+// Piecewise gated on sign(a); the unevaluated form is its "otherwise" branch).
+TEST_CASE("integrate: parametric improper integrals by parameter sign (INT-PARAMSIGN-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto ap = symbol("a", AssumptionMask{}.set_positive(true));
+    auto ag = symbol("a");  // sign unknown
+    auto oo = S::Infinity();
+    auto z = S::Zero();
+    auto negax = [&](const Expr& a) { return mul(mul(S::NegativeOne(), a), x); };
+
+    // Positive a: closed forms resolve and contain no stray infinity.
+    REQUIRE(simplify(integrate(exp(negax(ap)), x, z, oo))
+            == pow(ap, integer(-1)));
+    REQUIRE(simplify(integrate(x * exp(negax(ap)), x, z, oo))
+            == pow(ap, integer(-2)));
+    REQUIRE(simplify(integrate(pow(x, integer(2)) * exp(negax(ap)), x, z, oo))
+            == integer(2) * pow(ap, integer(-3)));
+
+    // Generic a: clean unevaluated marker, never garbage with an embedded oo.
+    for (const Expr& f : {exp(negax(ag)), x * exp(negax(ag)),
+                          sin(mul(ag, x)) * pow(x, integer(-1))}) {
+        auto r = integrate(f, x, z, oo);
+        REQUIRE(r->str().rfind("Integral(", 0) == 0);
+        // The only infinity is the bound "oo"; no stray "-oo" leaked from a
+        // boundary substitution like exp(a·-oo).
+        REQUIRE(r->str().find("-oo") == std::string::npos);
+    }
+}
+
+// INT-GAUSSFOURIER-1: the Fourier integral of a real Gaussian. The integrand
+// exp(-a x²)·cos(b x) has no elementary antiderivative, so Newton-Leibniz
+// garbled it; the closed form is ∫_{-∞}^{∞} = √(π/a)·exp(-b²/(4a)), half that
+// over [0,∞), and the sine version is 0 over the symmetric line. Matches SymPy
+// (which actually crashes on the sine case — SymPP returns the correct 0).
+TEST_CASE("integrate: Gaussian Fourier integrals (INT-GAUSSFOURIER-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto noo = S::NegativeInfinity();
+    auto gauss = [&](const Expr& a) { return exp(mul(a, pow(x, integer(2)))); };
+
+    // ∫_{-∞}^{∞} exp(-x²)·cos(x) = √π·exp(-1/4).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(x), x, noo, oo)->str(),
+        "sqrt(pi)*exp(-1/4)"));
+    // Half line: ½·√π·exp(-1/4).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(x), x, S::Zero(), oo)->str(),
+        "sqrt(pi)*exp(-1/4)/2"));
+    // Scaled: ∫_{-∞}^{∞} exp(-2x²)·cos(3x) = √(π/2)·exp(-9/8).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-2)) * cos(integer(3) * x), x, noo, oo)->str(),
+        "sqrt(2)*sqrt(pi)*exp(-Rational(9,8))/2"));
+    // ∫_{-∞}^{∞} exp(-x²)·cos(2x) = √π·exp(-1).
+    REQUIRE(oracle.equivalent(
+        integrate(gauss(integer(-1)) * cos(integer(2) * x), x, noo, oo)->str(),
+        "sqrt(pi)*exp(-1)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(5) * gauss(integer(-1)) * cos(x), x, noo, oo)->str(),
+        "5*sqrt(pi)*exp(-1/4)"));
+    // Odd integrand over the symmetric line integrates to 0.
+    REQUIRE(integrate(gauss(integer(-1)) * sin(x), x, noo, oo) == S::Zero());
+    // The pure Gaussian (no trig factor) is unaffected.
+    REQUIRE(oracle.equivalent(integrate(gauss(integer(-1)), x, noo, oo)->str(),
+                              "sqrt(pi)"));
+}
+
+// INT-POLY-EXP-TRIG-1: ∫₀^∞ xⁿ·e^(−ax)·sin/cos(bx) — the antiderivative
+// (poly × exp × trig) was correct, but the upper-bound limit returned nan
+// because the engine could not see that a bounded oscillation times a decaying
+// envelope vanishes (x·cos x·e^(−x) → 0). With that limit rule in place these
+// close. Matches SymPy.
+TEST_CASE("integrate: polynomial × decaying exp × trig (INT-POLY-EXP-TRIG-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto edecay = exp(mul(S::NegativeOne(), x));        // e^(−x)
+    auto edecay2 = exp(mul(integer(-2), x));            // e^(−2x)
+
+    // ∫₀^∞ x·e^(−x)·sin x = 1/2, x²·e^(−x)·sin x = 1/2, x·e^(−x)·cos x = 0.
+    REQUIRE(integrate(x * edecay * sin(x), x, S::Zero(), oo) == rational(1, 2));
+    REQUIRE(integrate(pow(x, integer(2)) * edecay * sin(x), x, S::Zero(), oo)
+            == rational(1, 2));
+    REQUIRE(integrate(x * edecay * cos(x), x, S::Zero(), oo) == S::Zero());
+    // Scaled exponent / frequency: ∫₀^∞ x·e^(−2x)·sin(3x) = 12/169.
+    REQUIRE(integrate(x * edecay2 * sin(integer(3) * x), x, S::Zero(), oo)
+            == rational(12, 169));
+    // The n = 0 cases (no polynomial factor) are unchanged.
+    REQUIRE(integrate(edecay * sin(x), x, S::Zero(), oo) == rational(1, 2));
+}
+
+// INT-SINSQ-1: ∫₀^∞ sin²(bx)/x² = π|b|/2 (a Dirichlet-family integral). The
+// antiderivative is correct but factored — −½·(−2·Si(2x) − cos(2x)/x) − 1/(2x) —
+// which hid the bounded Si inside a product so the boundary limits folded to
+// wrong values. Expanding the antiderivative before Newton–Leibniz lets the
+// per-term limit rules resolve each piece. Matches SymPy.
+TEST_CASE("integrate: sin²(bx)/x² over [0, oo) (INT-SINSQ-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+
+    // ∫₀^∞ sin²x/x² = π/2.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, S::Zero(),
+                  oo)
+            ->str(),
+        "pi/2"));
+    // ∫₀^∞ sin²(2x)/x² = π.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(integer(2) * x), integer(2)) * pow(x, integer(-2)), x,
+                  S::Zero(), oo)
+            ->str(),
+        "pi"));
+    // A finite-bound version still evaluates (regression guard on the expand
+    // retry): ∫₁² sin²x/x² matches SymPy.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(sin(x), integer(2)) * pow(x, integer(-2)), x, integer(1),
+                  integer(2))
+            ->str(),
+        "Si(4) - Si(2) + cos(4)/4 - cos(2)/2 + Rational(1,4)"));
+}
+
 // INT-DEF-2: improper integrals whose antiderivative carries log and atan terms
 // that individually diverge at ∞ but combine to a finite limit. The upper-bound
 // evaluation (a limit at ∞) now resolves the ∞ − ∞ between logs and the
@@ -2925,4 +3132,320 @@ TEST_CASE("integrate: trig products with mixed arguments (INT-TRIGPROD-1)",
             REQUIRE(resp.raw.at("result").get<bool>());
         }
     }
+}
+
+// INT-LOGPOW-BOUNDARY-1: ∫₀¹ (log x)ⁿ — the antiderivative x·(log x)ⁿ − … is
+// known, but the lower boundary value needs lim_{x→0} x·(log x)ⁿ = 0, a 0·∞ form
+// that is finite only from the RIGHT (the left side is complex). The boundary
+// evaluation used a two-sided limit and got nan; it now approaches each bound
+// from inside the interval (lower from the right, upper from the left). Matches
+// SymPy: ∫₀¹ (log x)² = 2, (log x)³ = −6, (log x)⁴ = 24.
+TEST_CASE("integrate: log-power definite integrals via one-sided boundaries (INT-LOGPOW-BOUNDARY-1)",
+          "[7][integrate][definite][regression]") {
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto one = S::One();
+    auto L = [&](const Expr& e) { return log(e); };
+
+    REQUIRE(integrate(pow(L(x), integer(2)), x, zero, one) == integer(2));
+    REQUIRE(integrate(pow(L(x), integer(3)), x, zero, one) == integer(-6));
+    REQUIRE(integrate(pow(L(x), integer(4)), x, zero, one) == integer(24));
+    // With a polynomial weight: ∫₀¹ x·(log x)² = 1/4, ∫₀¹ √x·log x = −4/9.
+    REQUIRE(integrate(x * pow(L(x), integer(2)), x, zero, one)
+            == rational(1, 4));
+    REQUIRE(integrate(pow(x, rational(1, 2)) * L(x), x, zero, one)
+            == rational(-4, 9));
+    // ∫₀¹ log x = −1 (the n = 1 case kept working) is unchanged.
+    REQUIRE(integrate(L(x), x, zero, one) == S::NegativeOne());
+    // A non-singular boundary is unaffected: ∫₀¹ x² = 1/3.
+    REQUIRE(integrate(pow(x, integer(2)), x, zero, one) == rational(1, 3));
+}
+
+// INT-BOSE-EINSTEIN-1: ∫₀^∞ x^p/(e^{cx}∓1) dx in closed form. Bose–Einstein
+// (e^{cx}−1): Γ(p+1)·ζ(p+1)/c^{p+1} (Debye / Stefan–Boltzmann). Fermi–Dirac
+// (e^{cx}+1): × (1−2^{−p}) (Dirichlet eta). The antiderivative is non-elementary,
+// so SymPP previously returned an unevaluated marker (as SymPy still does). The
+// closed forms were verified numerically against SymPy quadrature to 1e-9; the
+// symbolic equalities below (π²/6, π⁴/15, …) are confirmed via the oracle.
+TEST_CASE("integrate: Bose-Einstein / Fermi-Dirac integrals (INT-BOSE-EINSTEIN-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto kernel = [&](const Expr& c, int s) {
+        return pow(exp(c * x) + integer(s), integer(-1));
+    };
+
+    // Bose–Einstein, c = 1: Γ(p+1)ζ(p+1).
+    REQUIRE(oracle.equivalent(
+        integrate(x * kernel(S::One(), -1), x, zero, oo)->str(), "pi**2/6"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "pi**4/15"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "2*zeta(3)"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(5)) * kernel(S::One(), -1), x, zero, oo)->str(),
+        "8*pi**6/63"));
+    // Scaled rate c = 2: Γ(3)ζ(3)/2³ = ζ(3)/4.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * kernel(integer(2), -1), x, zero, oo)
+            ->str(),
+        "zeta(3)/4"));
+
+    // Fermi–Dirac (e^{x}+1): × (1 − 2^{−p}).
+    REQUIRE(oracle.equivalent(
+        integrate(x * kernel(S::One(), 1), x, zero, oo)->str(), "pi**2/12"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * kernel(S::One(), 1), x, zero, oo)->str(),
+        "7*pi**4/120"));
+
+    // Guards: a finite upper bound or a non-monomial numerator must NOT fire.
+    REQUIRE(integrate(x * kernel(S::One(), -1), x, zero, S::One())
+                ->str()
+                .rfind("Integral(", 0) == 0);
+    // Plain Γ integral (no kernel) is unaffected: ∫₀^∞ x²e^{−x} = 2.
+    REQUIRE(integrate(pow(x, integer(2)) * exp(mul(S::NegativeOne(), x)), x,
+                      zero, oo)
+            == integer(2));
+}
+
+// INT-GAMMA-LOG-1: ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}, the
+// s-derivative of the Γ-integral. Non-elementary antiderivative, so SymPP
+// previously returned nan. ψ = digamma evaluates at integer p, giving closed
+// forms in EulerGamma. Matches SymPy: ∫₀^∞ e^{−x} log x = −γ, x³ variant = 11−6γ.
+TEST_CASE("integrate: gamma-log integrals ∫x^p e^{-cx} log x (INT-GAMMA-LOG-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto E = [&](const Expr& c) { return exp(mul(c, x)); };  // e^{c·x}
+
+    // ∫₀^∞ e^{−x} log x = −γ.
+    REQUIRE(oracle.equivalent(
+        integrate(E(S::NegativeOne()) * log(x), x, zero, oo)->str(),
+        "-EulerGamma"));
+    // ∫₀^∞ x·e^{−x} log x = 1 − γ.
+    REQUIRE(oracle.equivalent(
+        integrate(x * E(S::NegativeOne()) * log(x), x, zero, oo)->str(),
+        "1 - EulerGamma"));
+    // ∫₀^∞ x³·e^{−x} log x = 11 − 6γ.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * E(S::NegativeOne()) * log(x), x, zero, oo)
+            ->str(),
+        "11 - 6*EulerGamma"));
+    // Scaled rate c = 2: ∫₀^∞ e^{−2x} log x = −γ/2 − log(2)/2.
+    REQUIRE(oracle.equivalent(
+        integrate(E(integer(-2)) * log(x), x, zero, oo)->str(),
+        "-EulerGamma/2 - log(2)/2"));
+
+    // Guards: no log factor (plain Γ-integral) and a finite bound must NOT fire.
+    REQUIRE(integrate(pow(x, integer(3)) * E(S::NegativeOne()), x, zero, oo)
+            == integer(6));
+    REQUIRE(integrate(x * E(S::NegativeOne()), x, zero, oo) == integer(1));
+}
+
+// INT-LOG-QUADRATIC-1: ∫₀^∞ log(x)/(x²+A) dx = π·log(A)/(4√A) for a positive
+// constant A (equivalently π·log(a)/(2a) with A = a²). Non-elementary
+// antiderivative, so SymPP returned an unevaluated marker. Gives the classic
+// ∫₀^∞ log(x)/(x²+1) = 0 and ∫₀^∞ log(x)/(x²+4) = π·log(4)/8. Matches SymPy.
+TEST_CASE("integrate: ∫log(x)/(x²+A) over [0,∞) (INT-LOG-QUADRATIC-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto denom = [&](const Expr& A) {
+        return pow(pow(x, integer(2)) + A, integer(-1));
+    };
+
+    REQUIRE(integrate(log(x) * denom(S::One()), x, zero, oo) == S::Zero());
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(4)), x, zero, oo)->str(),
+        "pi*log(4)/8"));
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(9)), x, zero, oo)->str(),
+        "pi*log(9)/12"));
+    REQUIRE(oracle.equivalent(
+        integrate(log(x) * denom(integer(2)), x, zero, oo)->str(),
+        "pi*log(2)/(4*sqrt(2))"));
+    // A constant multiplier carries through; log(1)·anything is still 0.
+    REQUIRE(integrate(integer(3) * log(x) * denom(S::One()), x, zero, oo)
+            == S::Zero());
+
+    // Guards: no log factor (plain arctangent integral) and a finite bound.
+    REQUIRE(oracle.equivalent(integrate(denom(S::One()), x, zero, oo)->str(),
+                              "pi/2"));
+    REQUIRE(integrate(log(x) * denom(S::One()), x, zero, S::One())
+                ->str()
+                .rfind("Integral(", 0) == 0);
+}
+
+// INT-CALLBUDGET-1: a non-elementary integrand whose partial-fraction × by-parts
+// expansion branches without terminating — log(x)/(x²−1) splits into log(x)/(x±1)
+// pieces that by-parts ping-pongs between log(x)/(x−a) and log(x−a)/x forever.
+// The depth guard bounds linear recursion but not this exponential blow-up, so
+// the call used to hang. A per-top-level call-count budget now bounds total work
+// and bails to a clean unevaluated marker. Legitimate integrals (well under the
+// budget) are unaffected — checked here alongside.
+TEST_CASE("integrate: call-budget backstop on branching non-elementary integrands (INT-CALLBUDGET-1)",
+          "[7][integrate][regression]") {
+    auto x = symbol("x");
+
+    // Used to hang; now returns a clean unevaluated Integral marker, terminating.
+    auto r = integrate(log(x) * pow(pow(x, integer(2)) - integer(1),
+                                    integer(-1)),
+                       x);
+    REQUIRE(r->str().rfind("Integral(", 0) == 0);
+
+    // The backstop must not affect ordinary closed-form integrals.
+    REQUIRE(integrate(pow(x, integer(3)) * exp(x), x)->str().find("Integral")
+            == std::string::npos);
+    REQUIRE(integrate(pow(pow(x, integer(4)) - integer(1), integer(-1)), x)
+                ->str()
+                .find("Integral") == std::string::npos);
+    REQUIRE(integrate(pow(x, integer(2)) * atan(x), x)->str().find("Integral")
+            == std::string::npos);
+}
+
+// INT-CSCH-1: ∫₀^∞ x^p/sinh(cx) = 2·Γ(p+1)·(1−2^{−(p+1)})·ζ(p+1)/c^{p+1} for
+// p>0, c>0 (from 1/sinh = 2Σe^{−(2k+1)cx} and the odd-denominator zeta). Gives
+// ∫₀^∞ x/sinh x = π²/4, x³/sinh x = π⁴/8, x²/sinh x = 7ζ(3)/2. Non-elementary
+// antiderivative; verified numerically against SymPy quadrature.
+TEST_CASE("integrate: ∫x^p/sinh(cx) over [0,oo) (INT-CSCH-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto csch = [&](const Expr& c) {
+        return pow(sinh(c * x), integer(-1));
+    };
+
+    REQUIRE(oracle.equivalent(integrate(x * csch(S::One()), x, zero, oo)->str(),
+                              "pi**2/4"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(3)) * csch(S::One()), x, zero, oo)->str(),
+        "pi**4/8"));
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, integer(2)) * csch(S::One()), x, zero, oo)->str(),
+        "7*zeta(3)/2"));
+    // Scaled rate c = 2: π²/16.
+    REQUIRE(oracle.equivalent(integrate(x * csch(integer(2)), x, zero, oo)->str(),
+                              "pi**2/16"));
+    // Constant multiplier carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(2) * x * csch(S::One()), x, zero, oo)->str(),
+        "pi**2/2"));
+
+    // Guards: cosh kernel (a different closed form) and the e^x−1 Bose kernel are
+    // left to their own rules; the latter still evaluates.
+    REQUIRE(integrate(x * pow(cosh(x), integer(-1)), x, zero, oo)
+                ->str()
+                .rfind("Integral(", 0) == 0);
+    REQUIRE(oracle.equivalent(
+        integrate(x * pow(exp(x) - integer(1), integer(-1)), x, zero, oo)->str(),
+        "pi**2/6"));
+}
+
+// INT-LOG1PX2-1: ∫₀^∞ log(1+c·x²)/x² dx = π·√c for a positive constant c (by
+// differentiating under the integral). The constant inside the log must be 1 so
+// the integrand ~ c at 0 (convergent). Non-elementary antiderivative, so SymPP
+// returned a marker. Gives ∫₀^∞ log(1+x²)/x² = π, log(1+4x²)/x² = 2π. Matches SymPy.
+TEST_CASE("integrate: ∫log(1+cx²)/x² over [0,oo) (INT-LOG1PX2-1)",
+          "[7][integrate][definite][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto logterm = [&](const Expr& c) {
+        return log(integer(1) + c * pow(x, integer(2)));
+    };
+    auto invx2 = pow(x, integer(-2));
+
+    REQUIRE(oracle.equivalent(integrate(logterm(S::One()) * invx2, x, zero, oo)
+                                  ->str(),
+                              "pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(4)) * invx2, x, zero, oo)->str(), "2*pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(9)) * invx2, x, zero, oo)->str(), "3*pi"));
+    REQUIRE(oracle.equivalent(
+        integrate(logterm(integer(2)) * invx2, x, zero, oo)->str(),
+        "sqrt(2)*pi"));
+    // Leading constant carries through.
+    REQUIRE(oracle.equivalent(
+        integrate(integer(3) * logterm(S::One()) * invx2, x, zero, oo)->str(),
+        "3*pi"));
+
+    // Guard: a non-unit constant inside the log diverges at 0, so the rule must
+    // not fire — left as an unevaluated marker.
+    REQUIRE(integrate(log(integer(2) + pow(x, integer(2))) * invx2, x, zero, oo)
+                ->str()
+                .rfind("Integral(", 0) == 0);
+}
+
+// INT-INCGAMMA-1: ∫ xᵖ·e⁻ˣ dx = γ(p+1, x) for a symbolic exponent (the lower
+// incomplete gamma is the antiderivative). Integer powers keep the elementary
+// by-parts result; the definite [0,a] form folds to γ(s, a).
+TEST_CASE("integrate: ∫x^(s-1)·e^{-x} = lowergamma(s, x) (INT-INCGAMMA-1)",
+          "[7][integrate][incompletegamma][oracle][regression]") {
+    auto x = symbol("x");
+    auto s = symbol("s");
+    auto a = symbol("a");
+    auto emx = exp(mul(S::NegativeOne(), x));
+
+    // Indefinite: symbolic exponent → lower incomplete gamma.
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * emx, x)
+            == lowergamma(s, x));
+    REQUIRE(integrate(pow(x, s) * emx, x) == lowergamma(add(s, integer(1)), x));
+    // Constant coefficient factors through.
+    REQUIRE(integrate(integer(3) * pow(x, a) * emx, x)
+            == mul(integer(3), lowergamma(add(a, integer(1)), x)));
+
+    // The antiderivative differentiates back to the integrand.
+    Expr F = integrate(pow(x, add(s, integer(-1))) * emx, x);
+    REQUIRE(simplify(diff(F, x))
+            == simplify(pow(x, add(s, integer(-1))) * emx));
+
+    // Definite [0, a] folds to γ(s, a) (γ(s, 0) = 0).
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * emx, x, S::Zero(), a)
+            == lowergamma(s, a));
+
+    // No regression: a non-negative integer power stays elementary (no gamma).
+    Expr elem = integrate(pow(x, integer(2)) * emx, x);
+    REQUIRE(elem->str().find("lowergamma") == std::string::npos);
+    REQUIRE(simplify(diff(elem, x)) == simplify(pow(x, integer(2)) * emx));
+}
+
+// INT-GAMMA-1: the Gamma-function integral ∫₀^∞ x^(s-1)·e^(-c·x) = Γ(s)/c^s.
+// SymPy keeps γ(s,∞) symbolic, so this needs a dedicated definite rule rather
+// than Newton–Leibniz on the incomplete-gamma antiderivative.
+TEST_CASE("integrate: ∫₀^∞ x^(s-1)·e^{-cx} = Γ(s)/c^s (INT-GAMMA-1)",
+          "[7][integrate][definite][incompletegamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto s = symbol("s", AssumptionMask{}.set_positive(true));
+    auto zero = S::Zero();
+    auto oo = S::Infinity();
+    auto ecx = [&](long c) { return exp(mul(integer(-c), x)); };
+
+    // Symbolic order → Γ(s); the Gamma integral proper.
+    REQUIRE(integrate(pow(x, add(s, integer(-1))) * ecx(1), x, zero, oo)
+            == gamma(s));
+    // General positive rate c: Γ(s)/c^s.
+    REQUIRE(oracle.equivalent(
+        integrate(pow(x, add(s, integer(-1))) * ecx(2), x, zero, oo)->str(),
+        "2**(-s)*gamma(s)"));
+    // Leading constant factors through.
+    REQUIRE(integrate(integer(5) * pow(x, add(s, integer(-1))) * ecx(1), x, zero,
+                      oo)
+            == mul(integer(5), gamma(s)));
+    // Numeric powers: Γ(3)=2, Γ(4)/2^4 = 3/8.
+    REQUIRE(integrate(pow(x, integer(2)) * ecx(1), x, zero, oo) == integer(2));
+    REQUIRE(integrate(pow(x, integer(3)) * ecx(2), x, zero, oo)
+            == rational(3, 8));
 }

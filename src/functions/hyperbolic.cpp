@@ -1,6 +1,7 @@
 #include <sympp/functions/hyperbolic.hpp>
 
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -121,6 +122,40 @@ namespace {
     }
 }
 
+// sinh and tanh are odd and strictly increasing on ℝ, so they preserve the
+// argument's sign: f(x) > 0 ⇔ x > 0, f(x) = 0 ⇔ x = 0. Real/Finite carry over as
+// before; the sign queries delegate to the argument (a positive argument is
+// already real, so no extra reality check is needed there).
+[[nodiscard]] std::optional<bool> ask_odd_real_sign(const Expr& arg,
+                                                    AssumptionKey k) noexcept {
+    switch (k) {
+        case AssumptionKey::Positive:
+            if (is_positive(arg) == true) return true;
+            if (is_real(arg) == true
+                && (is_negative(arg) == true || is_zero(arg) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            if (is_negative(arg) == true) return true;
+            if (is_real(arg) == true
+                && (is_positive(arg) == true || is_zero(arg) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Zero:
+            if (is_zero(arg) == true) return true;
+            if (is_real(arg) == true && is_nonzero(arg) == true) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (is_real(arg) == true && is_nonzero(arg) == true) return true;
+            if (is_zero(arg) == true) return false;
+            return std::nullopt;
+        default:
+            return ask_real_finite_for_real_arg(arg, k);
+    }
+}
+
 // True if `e` still contains a bare application of inverse function `id` (the
 // underlying factory left it unevaluated, possibly under a leading −1). Drives
 // the acoth/asech/acsch factories — fold to the computed value when the inner
@@ -148,7 +183,7 @@ Sinh::Sinh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 }
 Expr Sinh::rebuild(std::vector<Expr> new_args) const { return sinh(new_args[0]); }
 std::optional<bool> Sinh::ask(AssumptionKey k) const noexcept {
-    return ask_real_finite_for_real_arg(args_[0], k);
+    return ask_odd_real_sign(args_[0], k);
 }
 
 // ----- Cosh ------------------------------------------------------------------
@@ -187,7 +222,7 @@ Tanh::Tanh(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
 }
 Expr Tanh::rebuild(std::vector<Expr> new_args) const { return tanh(new_args[0]); }
 std::optional<bool> Tanh::ask(AssumptionKey k) const noexcept {
-    return ask_real_finite_for_real_arg(args_[0], k);
+    return ask_odd_real_sign(args_[0], k);
 }
 
 // ----- Coth / Sech / Csch ----------------------------------------------------
@@ -427,6 +462,33 @@ Expr csch(const Expr& arg) {
     return make<Csch>(arg);
 }
 
+// Inverse-of-direct hyperbolic composition with a concrete real argument:
+// asinh(sinh a) = a and atanh(tanh a) = a (sinh/tanh are injective on ℝ, the
+// inverse covers the whole range), and acosh(cosh a) = |a| (cosh is even).
+// Symbolic / non-real arguments are left unevaluated, matching SymPy (which
+// folds only concrete reals).
+[[nodiscard]] std::optional<Expr> inverse_of_direct_hyp(FunctionId inv,
+                                                        FunctionId direct,
+                                                        const Expr& arg) {
+    if (arg->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*arg);
+    if (fn.function_id() != direct || fn.args().size() != 1) return std::nullopt;
+    const Expr& a = fn.args()[0];
+    if (is_real(a) == std::optional<bool>{false}) return std::nullopt;
+    Expr af = evalf(a, 40);
+    if (af->type_id() != TypeId::Float) return std::nullopt;
+    if (inv == FunctionId::Acosh) {
+        double av = 0.0;
+        try {
+            av = std::stod(af->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        return av >= 0.0 ? a : mul(S::NegativeOne(), a);  // |a|
+    }
+    return a;  // asinh(sinh a), atanh(tanh a)
+}
+
 Expr asinh(const Expr& arg) {
     if (arg == S::Zero()) return S::Zero();
     // asinh(±oo) = ±oo.
@@ -435,12 +497,18 @@ Expr asinh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_asinh, arg);
     }
+    if (auto v = inverse_of_direct_hyp(FunctionId::Asinh, FunctionId::Sinh, arg)) {
+        return *v;
+    }
     // asinh(I·y) = I·asin(y) (inverse of sinh(I·y) = I·sin(y)). asinh(I) = I·π/2.
     if (auto y = extract_i_factor(arg); y.has_value()) {
         return mul(S::I(), asin(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
-        return mul(S::NegativeOne(), make<Asinh>(*pos));
+        // Recurse through the factory (not make<Asinh>) so a composition like
+        // asinh(sinh(−3)) = −asinh(sinh 3) still folds to −3. `pos` is the
+        // stripped positive part, so this re-entry cannot loop on the sign.
+        return mul(S::NegativeOne(), asinh(*pos));
     }
     return make<Asinh>(arg);
 }
@@ -454,6 +522,9 @@ Expr acosh(const Expr& arg) {
     }
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_acosh, arg);
+    }
+    if (auto v = inverse_of_direct_hyp(FunctionId::Acosh, FunctionId::Cosh, arg)) {
+        return *v;
     }
     // acosh(x) = i·acos(x) for a real x ∈ [−1, 1]: acosh(0)=iπ/2, acosh(½)=iπ/3,
     // acosh(−1)=iπ. Gated on acos(x) actually reducing to a closed form — for a
@@ -479,12 +550,17 @@ Expr atanh(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return unary_evalf(mpfr_atanh, arg);
     }
+    if (auto v = inverse_of_direct_hyp(FunctionId::Atanh, FunctionId::Tanh, arg)) {
+        return *v;
+    }
     // atanh(I·y) = I·atan(y) (inverse of tanh(I·y) = I·tan(y)). atanh(I) = I·π/4.
     if (auto y = extract_i_factor(arg); y.has_value()) {
         return mul(S::I(), atan(*y));
     }
     if (auto pos = strip_neg(arg); pos.has_value()) {
-        return mul(S::NegativeOne(), make<Atanh>(*pos));
+        // Recurse through the factory so atanh(tanh(−1)) folds to −1; `pos` is
+        // already the positive part, so this cannot loop on the sign.
+        return mul(S::NegativeOne(), atanh(*pos));
     }
     return make<Atanh>(arg);
 }

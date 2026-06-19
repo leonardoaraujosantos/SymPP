@@ -16,6 +16,13 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Finite: return finite;
         case AssumptionKey::Even: return even;
         case AssumptionKey::Odd: return odd;
+        case AssumptionKey::Prime: return prime;
+        case AssumptionKey::Composite: return composite;
+        case AssumptionKey::Irrational: return irrational;
+        case AssumptionKey::Algebraic: return algebraic;
+        case AssumptionKey::Transcendental: return transcendental;
+        case AssumptionKey::ExtendedReal: return extended_real;
+        case AssumptionKey::Infinite: return infinite;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -64,6 +71,13 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Finite: finite = value; break;
         case AssumptionKey::Even: even = value; break;
         case AssumptionKey::Odd: odd = value; break;
+        case AssumptionKey::Prime: prime = value; break;
+        case AssumptionKey::Composite: composite = value; break;
+        case AssumptionKey::Irrational: irrational = value; break;
+        case AssumptionKey::Algebraic: algebraic = value; break;
+        case AssumptionKey::Transcendental: transcendental = value; break;
+        case AssumptionKey::ExtendedReal: extended_real = value; break;
+        case AssumptionKey::Infinite: infinite = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -84,7 +98,8 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
 bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
-           && !complex_ && !imaginary;
+           && !complex_ && !imaginary && !prime && !composite && !irrational
+           && !algebraic && !transcendental && !extended_real && !infinite;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -109,6 +124,13 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(odd));
     mix(encode(complex_));
     mix(encode(imaginary));
+    mix(encode(prime));
+    mix(encode(composite));
+    mix(encode(irrational));
+    mix(encode(algebraic));
+    mix(encode(transcendental));
+    mix(encode(extended_real));
+    mix(encode(infinite));
     return h;
 }
 
@@ -190,10 +212,29 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (m.even == false && !m.odd) m.odd = true;
             if (m.odd == false && !m.even) m.even = true;
         }
-        // ¬integer => ¬even, ¬odd
+        // ¬integer => ¬even, ¬odd, ¬prime, ¬composite
         if (m.integer == false) {
             if (!m.even) m.even = false;
             if (!m.odd) m.odd = false;
+            if (!m.prime) m.prime = false;
+            if (!m.composite) m.composite = false;
+        }
+        // prime => integer, positive (≥ 2), ¬composite. The positive/integer
+        // closures above then cascade to real, finite, nonzero, nonnegative,
+        // rational. Note a prime is NOT necessarily odd (2 is prime and even),
+        // so no parity rule.
+        if (m.prime == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.positive) m.positive = true;
+            if (!m.composite) m.composite = false;
+        }
+        // composite => integer, positive (≥ 4), ¬prime. Same cascade as prime;
+        // again no parity rule (4 is even, 9 is odd). Mutually exclusive with
+        // prime; the integer value 1 is neither prime nor composite.
+        if (m.composite == true) {
+            if (!m.integer) m.integer = true;
+            if (!m.positive) m.positive = true;
+            if (!m.prime) m.prime = false;
         }
         // integer => rational => real
         if (m.integer == true) {
@@ -219,6 +260,44 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.integer) m.integer = false;
             if (!m.zero) m.zero = false;
         }
+        // irrational ⟺ real ∧ ¬rational. Forward: irrational => real, ¬rational,
+        // finite (the ¬rational rule above then gives ¬integer/¬zero, hence
+        // nonzero; real gives complex/¬imaginary). Reverse / exclusions: a known
+        // real non-rational is irrational; a rational or non-real value is not.
+        if (m.irrational == true) {
+            if (!m.real) m.real = true;
+            if (!m.rational) m.rational = false;
+            if (!m.finite) m.finite = true;
+        }
+        if (m.rational == true && !m.irrational) m.irrational = false;
+        if (m.real == false && !m.irrational) m.irrational = false;
+        if (m.real == true && m.rational == false && !m.irrational) {
+            m.irrational = true;
+        }
+        // algebraic / transcendental — complex-domain predicates. rational ⇒
+        // algebraic; algebraic ⇒ complex, finite, ¬transcendental; transcendental
+        // ⇒ complex, finite, ¬algebraic, ¬rational (so ¬integer/¬zero via the
+        // rational rule, and irrational once real is known). Within ℂ the two
+        // partition: complex ∧ ¬algebraic ⇒ transcendental, and complex ∧
+        // ¬transcendental ⇒ algebraic. Neither implies real (i is algebraic).
+        if (m.rational == true && !m.algebraic) m.algebraic = true;
+        if (m.algebraic == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.finite) m.finite = true;
+            if (!m.transcendental) m.transcendental = false;
+        }
+        if (m.transcendental == true) {
+            if (!m.complex_) m.complex_ = true;
+            if (!m.finite) m.finite = true;
+            if (!m.algebraic) m.algebraic = false;
+            if (!m.rational) m.rational = false;
+        }
+        if (m.complex_ == true && m.algebraic == false && !m.transcendental) {
+            m.transcendental = true;
+        }
+        if (m.complex_ == true && m.transcendental == false && !m.algebraic) {
+            m.algebraic = true;
+        }
         // imaginary (a nonzero real multiple of i) => complex, ¬real, finite,
         // nonzero, and (since ¬real) ¬rational/¬integer/¬sign/¬parity.
         if (m.imaginary == true) {
@@ -242,10 +321,31 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
             if (!m.finite) m.finite = true;
             if (!m.imaginary) m.imaginary = false;
         }
+        // complex => finite. AssumptionKey::Complex denotes a *finite* complex
+        // number (see the enum docs), matching SymPy's is_complex ⇒ is_finite;
+        // the unbounded ∞ atoms answer Complex=false directly.
+        if (m.complex_ == true && !m.finite) m.finite = true;
         // zero => ¬imaginary (0 is real).
         if (m.zero == true) {
             if (!m.imaginary) m.imaginary = false;
         }
+        // extended_real: a point of ℝ ∪ {±∞}. real ⇒ extended_real; a nonzero
+        // pure imaginary is off the real line. extended_real does NOT imply real,
+        // finite or complex (±∞ are extended-real but neither), but it does
+        // exclude imaginary.
+        if (m.real == true && !m.extended_real) m.extended_real = true;
+        if (m.imaginary == true && !m.extended_real) m.extended_real = false;
+        if (m.extended_real == true && !m.imaginary) m.imaginary = false;
+        // infinite ⟺ ¬finite. An infinite quantity is not a finite real/complex
+        // number and is nonzero (zero is finite).
+        if (m.infinite == true) {
+            if (!m.finite) m.finite = false;
+            if (!m.real) m.real = false;
+            if (!m.complex_) m.complex_ = false;
+            if (!m.zero) m.zero = false;
+        }
+        if (m.finite == true && !m.infinite) m.infinite = false;
+        if (m.finite == false && !m.infinite) m.infinite = true;
     }
     return m;
 }

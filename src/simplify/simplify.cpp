@@ -49,6 +49,32 @@ namespace {
     return n;
 }
 
+[[nodiscard]] bool contains_function_id(const Expr& e, FunctionId id);
+
+// Does `e` contain a complex exponential exp(g) with the imaginary unit in g?
+// The signature of an Euler-form expression (exp(i·θ) alongside trig) that may
+// cancel once rewritten onto a common exponential basis.
+[[nodiscard]] bool has_imaginary_exp(const Expr& e) {
+    if (!e) return false;
+    if (e->type_id() == TypeId::Function) {
+        const auto& fn = static_cast<const Function&>(*e);
+        if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+            bool found = false;
+            auto scan = [&](auto&& self, const Expr& x) -> void {
+                if (found || !x) return;
+                if (x->type_id() == TypeId::ImaginaryUnit) { found = true; return; }
+                for (const auto& a : x->args()) self(self, a);
+            };
+            scan(scan, fn.args()[0]);
+            if (found) return true;
+        }
+    }
+    for (const auto& a : e->args()) {
+        if (has_imaginary_exp(a)) return true;
+    }
+    return false;
+}
+
 // Does `e` contain a √ (a Pow with exponent 1/2) anywhere?
 [[nodiscard]] bool contains_sqrt(const Expr& e) {
     if (e->type_id() == TypeId::Pow && e->args()[1] == S::Half()) return true;
@@ -165,6 +191,7 @@ namespace {
 [[nodiscard]] Expr exp_log_sum(const Expr& e);
 [[nodiscard]] Expr radical_coeff(const Expr& e);
 [[nodiscard]] Expr log_ratio(const Expr& e);
+[[nodiscard]] Expr log_sum(const Expr& e);
 [[nodiscard]] Expr sign_abs_mul(const Expr& e);
 [[nodiscard]] Expr abs_mul_combine(const Expr& e);
 [[nodiscard]] Expr change_of_base_pow(const Expr& e);
@@ -186,6 +213,7 @@ Expr simplify(const Expr& e) {
     current = abs_mul_combine(current);
     current = powsimp(current);
     current = log_ratio(current);
+    current = log_sum(current);
     current = combine_exp(current);
     current = exp_to_hyp_add(current);
     current = exp_log_sum(current);
@@ -228,6 +256,39 @@ Expr simplify(const Expr& e) {
         }
     }
 
+    // 5b. Trig multiple-angle cancellation. Expanding compound angles
+    //     (sin(3x) = 3 sin x − 4 sin³x, cos(2x) = 1 − 2 sin²x, …) and re-applying
+    //     trigsimp can collapse an expression to a much smaller form, e.g.
+    //     sin(3x) − 3 sin x + 4 sin³x → 0. Adopt only when strictly simpler so a
+    //     lone sin(3x), which expand_trig would inflate, is left untouched.
+    try {
+        Expr te =
+            re_canonicalize(trigsimp(expand(expand_trig(current))));
+        if (node_count(te) < node_count(current)) {
+            current = te;
+        }
+    } catch (const std::exception&) {
+        // expand_trig / trigsimp rejected the form; keep the pipeline result.
+    }
+
+    // 5c. Complex-exponential (Euler) cancellation. Rewriting trig onto the
+    //     e^{iθ} basis lets a complex exponential cancel against its trig
+    //     expansion — exp(i·x) − cos x − i·sin x → 0, exp(i·x) + exp(−i·x) −
+    //     2 cos x → 0. Gated on a complex exponential being present (so ordinary
+    //     real expressions skip the work) and adopted only when strictly simpler,
+    //     so a lone exp(i·x) or sin x + cos x, whose exponential form is larger,
+    //     is left untouched.
+    if (has_imaginary_exp(current)) {
+        try {
+            Expr ex = re_canonicalize(expand(rewrite(current, "exp")));
+            if (node_count(ex) < node_count(current)) {
+                current = ex;
+            }
+        } catch (const std::exception&) {
+            // rewrite/expand rejected the form; keep the pipeline result.
+        }
+    }
+
     // 6. Global anti-bloat guard. simplify() must never return something
     //    structurally larger than its (canonical) input — SymPy's simplify
     //    makes the same guarantee via a complexity measure. The pattern
@@ -242,7 +303,13 @@ Expr simplify(const Expr& e) {
             has_surd_denominator(canon) && !has_surd_denominator(current);
         const bool removed_cx =
             has_complex_denominator(canon) && !has_complex_denominator(current);
-        if (!removed_surd && !removed_cx) {
+        // Replacing a special function with an elementary form (e.g. the gamma
+        // reflection Γ(z)Γ(1−z) → π/sin(πz), giving Γ(1/3)Γ(2/3) → 2√3·π/3) is a
+        // genuine simplification even when its node count is slightly higher.
+        const bool removed_gamma =
+            contains_function_id(canon, FunctionId::Gamma)
+            && !contains_function_id(current, FunctionId::Gamma);
+        if (!removed_surd && !removed_cx && !removed_gamma) {
             // Pulling a perfect-power factor out of a radical (√(4a²) → 2√(a²)) is a
             // simplification even when it raises the node count, so apply it after
             // the anti-bloat guard rather than inside the pipeline (where the guard
@@ -452,6 +519,102 @@ namespace {
     return mul(std::move(rest));
 }
 
+// Combine a sum of numeric logarithms: Σ cᵢ·log(qᵢ) → log(∏ qᵢ^cᵢ) for positive
+// rational qᵢ and integer cᵢ, collapsing to 0 when the product is 1.
+// log(2)+log(3)−log(6) → 0, log(2)+log(3) → log(6), log(4)−2·log(2) → 0. Only
+// numeric (positive rational) arguments are combined — symbolic log(x)+log(y)
+// needs assumptions and is left alone (matching SymPy's simplify).
+[[nodiscard]] Expr log_sum_node(const Expr& e) {
+    if (e->type_id() != TypeId::Add) return e;
+    // Decompose a term into (c, q) with the term equal to c·log(q): c a nonzero
+    // integer, q a positive rational. Returns false otherwise.
+    auto as_int_log = [](const Expr& term, long& c, mpq_class& q) -> bool {
+        Expr logf = term;
+        Expr coeff = S::One();
+        if (term->type_id() == TypeId::Mul) {
+            Expr lg;
+            std::vector<Expr> others;
+            for (const auto& f : term->args()) {
+                if (f->type_id() == TypeId::Function
+                    && static_cast<const Function&>(*f).function_id()
+                           == FunctionId::Log
+                    && f->args().size() == 1) {
+                    if (lg) return false;  // two logs in one term
+                    lg = f;
+                } else {
+                    others.push_back(f);
+                }
+            }
+            if (!lg) return false;
+            logf = lg;
+            coeff = others.empty() ? Expr{S::One()} : mul(std::move(others));
+        }
+        if (coeff->type_id() != TypeId::Integer) return false;
+        const auto& cz = static_cast<const Integer&>(*coeff);
+        if (!cz.fits_long()) return false;
+        c = cz.to_long();
+        // Only combine genuinely small numeric logs. Large coefficients arise
+        // from the limit engine's numeric sampling (e.g. −10¹²·log(1000001/
+        // 1000000)); raising the base to such a power would explode and crash
+        // GMP. A cap of 64 covers every meaningful symbolic combination.
+        if (c == 0 || c > 64 || c < -64) return false;
+        if (logf->type_id() != TypeId::Function) return false;
+        const auto& fn = static_cast<const Function&>(*logf);
+        if (fn.function_id() != FunctionId::Log || fn.args().size() != 1) {
+            return false;
+        }
+        const Expr& a = fn.args()[0];
+        if (a->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*a).value();
+            if (sgn(z) <= 0) return false;
+            q = mpq_class(z);
+        } else if (a->type_id() == TypeId::Rational) {
+            q = static_cast<const Rational&>(*a).value();
+            if (sgn(q) <= 0) return false;
+        } else {
+            return false;
+        }
+        // Keep the base small too, so base^|c| (|c| ≤ 64) stays bounded.
+        if (mpz_sizeinbase(q.get_num().get_mpz_t(), 2) > 128
+            || mpz_sizeinbase(q.get_den().get_mpz_t(), 2) > 128) {
+            return false;
+        }
+        return true;
+    };
+    mpq_class prod(1);
+    int log_count = 0;
+    std::vector<Expr> rest;
+    for (const auto& term : e->args()) {
+        long c = 0;
+        mpq_class q;
+        if (as_int_log(term, c, q)) {
+            const mpz_class n = q.get_num();
+            const mpz_class d = q.get_den();
+            const auto ac = static_cast<unsigned long>(c < 0 ? -c : c);
+            mpz_class np, dp;
+            mpz_pow_ui(np.get_mpz_t(), n.get_mpz_t(), ac);
+            mpz_pow_ui(dp.get_mpz_t(), d.get_mpz_t(), ac);
+            mpq_class factor = (c > 0) ? mpq_class(np, dp) : mpq_class(dp, np);
+            factor.canonicalize();
+            prod *= factor;
+            ++log_count;
+        } else {
+            rest.push_back(term);
+        }
+    }
+    if (log_count < 2) return e;  // nothing to combine
+    prod.canonicalize();
+    Expr combined;
+    if (prod == 1) {
+        combined = S::Zero();
+    } else {
+        // rational(num, den) yields an Integer when den == 1.
+        combined = log(rational(prod.get_num(), prod.get_den()));
+    }
+    rest.push_back(std::move(combined));
+    return rest.size() == 1 ? rest[0] : add(std::move(rest));
+}
+
 // exp(… + c·log(p) + …) → p^c · exp(rest) for positive p (any addend that is a
 // log of a positive base, optionally scaled by a constant, is pulled out as a
 // power). Mirrors SymPy's expand/simplify of exp over a log-bearing sum.
@@ -524,6 +687,28 @@ namespace {
             && is_real(fn.args()[0]) == true) {
             return pow(fn.args()[0], q);
         }
+    }
+
+    // (∏ bᵢ^pᵢ)^q = ∏ bᵢ^(pᵢ·q) when every base bᵢ ≥ 0. The pipeline's expand
+    // distributes a power over a product (e.g. (2x)ᵐ → 2ᵐ·xᵐ), so the inner node
+    // is often a Mul of nonnegative-base powers rather than a single Pow; without
+    // this, ((m/e)ᵐ)^(1/m) = (mᵐ·e^(−m))^(1/m) would not denest to m/e.
+    if (inner->type_id() == TypeId::Mul) {
+        std::vector<Expr> out;
+        out.reserve(inner->args().size());
+        for (const auto& f : inner->args()) {
+            Expr fb = f;
+            Expr fp = S::One();
+            if (f->type_id() == TypeId::Pow) {
+                fb = f->args()[0];
+                fp = f->args()[1];
+            }
+            if (is_nonnegative(fb) != std::optional<bool>{true}) {
+                return e;  // a factor whose base may be negative — unsafe
+            }
+            out.push_back(pow(fb, mul(fp, q)));
+        }
+        return mul(std::move(out));
     }
 
     if (inner->type_id() != TypeId::Pow) return e;
@@ -712,6 +897,7 @@ Expr radical_coeff(const Expr& e) {
 }
 
 Expr log_ratio(const Expr& e) { return apply_recursive(e, log_ratio_node); }
+Expr log_sum(const Expr& e) { return apply_recursive(e, log_sum_node); }
 
 // sign(u)·|u| = u (the polar decomposition: sign(u) = u/|u| for u ≠ 0, and both
 // sides vanish at u = 0). Cancels a matching Sign/Abs factor pair in a Mul,

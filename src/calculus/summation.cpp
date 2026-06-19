@@ -313,12 +313,41 @@ namespace {
     return q_terms.empty() ? Expr{S::Zero()} : add(std::move(q_terms));
 }
 
+// Rewrite Γ(var + c) → factorial(var + c − 1) for an integer offset c, so the
+// gamma spelling of the exponential series (Σ xᵏ/Γ(k+1)) is recognized exactly
+// like its factorial form (Σ xᵏ/k!). Other gammas (half-integer shifts, a
+// doubled rate Γ(2k)) are left untouched.
+[[nodiscard]] Expr gamma_to_factorial(const Expr& e, const Expr& var) {
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& x) -> void {
+        if (x->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*x);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1
+                && !m.count(x)) {
+                Expr c = simplify(add(fn.args()[0], mul(S::NegativeOne(), var)));
+                if (!has(c, var) && c->type_id() == TypeId::Integer) {
+                    m.emplace(x,
+                              factorial(add(var, add(c, S::NegativeOne()))));
+                }
+            }
+        }
+        for (const auto& a : x->args()) self(self, a);
+    };
+    scan(scan, e);
+    return m.empty() ? e : xreplace(e, m);
+}
+
 [[nodiscard]] std::optional<Expr> sum_exponential_series(
     const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
     if (hi->type_id() != TypeId::Infinity) return std::nullopt;
     if (lo->type_id() != TypeId::Integer) return std::nullopt;
     const auto& loz = static_cast<const Integer&>(*lo);
     if (loz.is_negative() || !loz.fits_long()) return std::nullopt;
+
+    // Normalize a Γ(k+1) denominator to k! so both spellings take one code path.
+    if (Expr ng = gamma_to_factorial(expr, var); !(ng == expr)) {
+        return sum_exponential_series(ng, var, lo, hi);
+    }
 
     std::vector<Expr> factors;
     if (expr->type_id() == TypeId::Mul) {
@@ -450,10 +479,15 @@ namespace {
         factors.push_back(expr);
     }
     bool have_binom = false;
+    bool linear_k = false;       // a single bare `var` factor: Σ k·C(n,k)·rᵏ
     Expr ratio = S::One();       // ∏ base^a from the geometric factors
     Expr prefactor = S::One();   // ∏ base^b
     Expr coeff = S::One();
     for (const auto& f : factors) {
+        if (!linear_k && f == var) {  // the k in k·C(n,k)·rᵏ
+            linear_k = true;
+            continue;
+        }
         if (!have_binom && f->type_id() == TypeId::Function) {
             const auto& fn = static_cast<const Function&>(*f);
             if (fn.function_id() == FunctionId::Binomial
@@ -487,9 +521,56 @@ namespace {
     }
     if (!have_binom) return std::nullopt;
     Expr base_sum = simplify(integer(1) + ratio);
+    if (linear_k) {
+        // Differentiating Σ C(n,k)·rᵏ = (1+r)ⁿ in r and multiplying by r gives
+        //   Σ k·C(n,k)·rᵏ = n·r·(1+r)^(n−1).
+        // The alternating r = −1 base would leave the ambiguous 0^(n−1) for
+        // symbolic n (SymPy returns a Piecewise), so bail there.
+        if (base_sum == S::Zero()) return std::nullopt;
+        Expr power = pow(base_sum, simplify(hi - integer(1)));
+        return simplify(mul({coeff, prefactor, hi, ratio, power}));
+    }
     // (1 + r)ⁿ, with (1−1)ⁿ = 0 for the alternating sum (n ≥ 1).
     Expr power = (base_sum == S::Zero()) ? Expr{S::Zero()} : pow(base_sum, hi);
     return simplify(mul(mul(coeff, prefactor), power));
+}
+
+// Σ_{k=0}^n C(n,k)² = C(2n, n), the central-binomial / Vandermonde identity,
+// where n is exactly the binomial's first argument. A constant prefactor is
+// carried through. Returns const·C(2n, n).
+[[nodiscard]] std::optional<Expr> sum_binomial_square(const Expr& expr,
+                                                      const Expr& var,
+                                                      const Expr& lo,
+                                                      const Expr& hi) {
+    if (!(lo == S::Zero())) return std::nullopt;
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr coeff = S::One();
+    bool have_square = false;
+    for (const auto& f : factors) {
+        if (!have_square && f->type_id() == TypeId::Pow
+            && f->args()[1] == integer(2)
+            && f->args()[0]->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f->args()[0]);
+            if (fn.function_id() == FunctionId::Binomial
+                && fn.args().size() == 2 && fn.args()[1] == var
+                && fn.args()[0] == hi) {
+                have_square = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+            continue;
+        }
+        return std::nullopt;  // a var factor that isn't the squared binomial
+    }
+    if (!have_square) return std::nullopt;
+    return simplify(mul(coeff, binomial(mul(integer(2), hi), hi)));
 }
 
 // Σ_{k=lo}^{hi} c·P(k)/(k+m)! for a polynomial P of degree ≥ 1 and integer m ≥ 0 —
@@ -877,6 +958,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Binomial theorem Σ_{k=0}^n C(n,k)·rᵏ = (1+r)ⁿ.
     if (auto bt = sum_binomial_theorem(expr, var, lo, hi)) return *bt;
 
+    // Central-binomial identity Σ_{k=0}^n C(n,k)² = C(2n, n).
+    if (auto bs = sum_binomial_square(expr, var, lo, hi)) return *bs;
+
     // Even/odd-index exponential series Σ z^(2k+b)/(2k+b)! → cosh/sinh/cos/sin.
     if (auto r = sum_cosh_sinh_series(expr, var, lo, hi)) return *r;
 
@@ -1004,6 +1088,28 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 Expr s_lo = sum_to_n(lo - integer(1));
                 return simplify(s_hi - s_lo);
             }
+        }
+    }
+
+    // Σ 1/kᵖ over a finite (or symbolic) range is a generalized harmonic number:
+    //   Σ_{k=lo}^{hi} k^(−p) = H_hi^(p) − H_(lo−1)^(p),  p ≥ 1.
+    // The 1-argument harmonic(n) = H_n^(1) is used for p = 1 to match SymPy's
+    // Sum(1/k) = harmonic(n). Requires lo ≥ 1 so k = 0 never enters the range
+    // (the formula would otherwise emit a bogus value at the 1/0 pole). The
+    // divergent hi → ∞ case is handled by the p-series / ζ blocks below, so this
+    // only fires for a non-infinite upper bound.
+    if (hi->type_id() != TypeId::Infinity
+        && is_positive(lo) == std::optional<bool>{true}
+        && expr->type_id() == TypeId::Pow && expr->args()[0] == var
+        && expr->args()[1]->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*expr->args()[1]);
+        if (z.is_negative() && z.fits_long()) {
+            const long p = -z.to_long();  // summand is 1/kᵖ, p ≥ 1
+            auto gen_harmonic = [&](const Expr& n) -> Expr {
+                return p == 1 ? harmonic(n) : harmonic(n, integer(p));
+            };
+            return simplify(gen_harmonic(hi)
+                            - gen_harmonic(lo - integer(1)));
         }
     }
 
@@ -1178,9 +1284,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Catalan's constant. Higher s have no elementary closed form (SymPy returns a
     // polylog), so only s ∈ {1, 2} are recognized. A (−1)^(a·k+b) factor with odd
     // a is (−1)^k up to the sign (−1)^b; a leading constant multiplies through.
-    if (lo == S::Zero() && hi->type_id() == TypeId::Infinity) {
+    if ((lo == S::Zero() || lo == S::One())
+        && hi->type_id() == TypeId::Infinity) {
         Expr sign_exp;
         long s = 0;
+        long base_d = 0;  // the constant in the affine base 2·var + base_d
         bool have_sign = false;
         bool have_base = false;
         Expr coeff = S::One();
@@ -1200,7 +1308,9 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             } else if (f->type_id() == TypeId::Pow
                        && f->args()[1]->type_id() == TypeId::Integer
                        && has(f->args()[0], var)) {
-                // base must be the odd-denominator affine 2·var + 1.
+                // base must be an odd-denominator affine 2·var ± 1 (the +1 form
+                // starts the run of denominators 1,3,5,… at var=0, the −1 form at
+                // var=1 — both the same Leibniz/β series after reindexing).
                 const auto& ze = static_cast<const Integer&>(*f->args()[1]);
                 if (have_base || !ze.fits_long() || ze.to_long() >= 0) {
                     ok = false;
@@ -1208,9 +1318,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 }
                 try {
                     Poly pb(expand(f->args()[0]), var);
-                    if (pb.degree() == 1 && pb.coeffs()[0] == S::One()
-                        && pb.coeffs()[1] == integer(2)) {
+                    if (pb.degree() == 1 && pb.coeffs()[1] == integer(2)
+                        && (pb.coeffs()[0] == S::One()
+                            || pb.coeffs()[0] == S::NegativeOne())) {
                         s = -ze.to_long();
+                        base_d = (pb.coeffs()[0] == S::One()) ? 1 : -1;
                         have_base = true;
                     } else {
                         ok = false;
@@ -1227,7 +1339,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                 break;
             }
         }
-        if (ok && have_sign && have_base && (s == 1 || s == 2)) {
+        // The index origin must put the denominator run at 1,3,5,…: the +1 base
+        // sums from 0, the −1 base from 1.
+        const bool index_ok = (base_d == 1 && lo == S::Zero())
+                              || (base_d == -1 && lo == S::One());
+        if (ok && have_sign && have_base && index_ok && (s == 1 || s == 2)) {
             try {
                 Poly pe(expand(sign_exp), var);
                 if (pe.degree() == 1
@@ -1237,8 +1353,12 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                                        .to_long();
                     const long b = static_cast<const Integer&>(*pe.coeffs()[0])
                                        .to_long();
+                    // Reindexing the −1 base (var → var+1) shifts the sign
+                    // exponent's constant by a.
+                    const long b_eff = b + (base_d == -1 ? a : 0);
                     if (a % 2 != 0) {
-                        Expr sign_b = (b % 2 == 0) ? S::One() : S::NegativeOne();
+                        Expr sign_b =
+                            (b_eff % 2 == 0) ? S::One() : S::NegativeOne();
                         Expr val = (s == 1)
                                        ? Expr{S::Pi() / integer(4)}
                                        : S::Catalan();
@@ -1268,8 +1388,34 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
             if (!has(c, var)) {  // exponent is linear in var
                 Expr d = simplify(exponent - c * var);
                 if (!has(d, var)) {
-                    Expr ratio = pow(base, c);
+                    Expr ratio = simplify(pow(base, c));
                     Expr prefactor = pow(base, d);
+                    if (hi->type_id() == TypeId::Infinity) {
+                        // |ratio| < 1 (⇔ |ratio|−1 < 0): converges, ratio^(hi+1)→0,
+                        // so Σ_{k=lo}^∞ A·ratio^k = A·ratio^lo/(1−ratio). Holds for a
+                        // negative ratio too (e.g. Σ(−½)^k = 2/3), which the naive
+                        // ratio^∞ substitution turned into nan.
+                        const Expr mag = simplify(abs(ratio) + S::NegativeOne());
+                        if (is_negative(mag) == std::optional<bool>{true}) {
+                            return simplify(prefactor * pow(ratio, lo)
+                                            * pow(integer(1) - ratio, integer(-1)));
+                        }
+                        // |ratio| > 1: diverges. A positive ratio with positive
+                        // terms → +∞ (or −∞); an oscillating |ratio|≥1 (negative
+                        // ratio) or a symbolic ratio whose magnitude is unknown is
+                        // left as an unevaluated Sum rather than ratio^∞ noise.
+                        if (is_positive(mag) == std::optional<bool>{true}
+                            && is_positive(ratio) == std::optional<bool>{true}) {
+                            Expr pf = simplify(prefactor);
+                            if (is_positive(pf) == std::optional<bool>{true}) {
+                                return S::Infinity();
+                            }
+                            if (is_negative(pf) == std::optional<bool>{true}) {
+                                return S::NegativeInfinity();
+                            }
+                        }
+                        return sum_marker(expr, var, lo, hi);
+                    }
                     // A * (ratio^lo - ratio^(hi+1)) / (1 - ratio)
                     Expr num = pow(ratio, lo) - pow(ratio, hi + integer(1));
                     Expr den = integer(1) - ratio;

@@ -7,6 +7,7 @@ add_library(SymPP::sympp ALIAS sympp)
 target_sources(sympp
     PRIVATE
         core/add.cpp
+        core/assumption_context.cpp
         core/assumption_mask.cpp
         core/basic.cpp
         core/boolean.cpp
@@ -73,6 +74,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/version.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/add.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/api.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_context.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_key.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/assumption_mask.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/core/basic.hpp

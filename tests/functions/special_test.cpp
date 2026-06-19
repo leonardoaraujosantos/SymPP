@@ -295,6 +295,30 @@ TEST_CASE("polylog: special values", "[3h][polylog][oracle]") {
     REQUIRE(polylog(integer(1), z)->type_id() == TypeId::Function);  // not folded
 }
 
+// POLYLOG-NEGORDER-1: non-positive integer orders have a rational closed form.
+// SymPy auto-evaluates only Li_0(z) = z/(1−z) and Li_{−1}(z) = z/(1−z)² (orders
+// ≤ −2 stay unevaluated without expand_func); SymPP now matches.
+TEST_CASE("polylog: order 0 and -1 rational closed forms (POLYLOG-NEGORDER-1)",
+          "[3h][polylog][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+
+    REQUIRE(oracle.equivalent(polylog(S::Zero(), z)->str(), "z/(1 - z)"));
+    REQUIRE(oracle.equivalent(polylog(S::NegativeOne(), z)->str(),
+                              "z/(1 - z)**2"));
+    // Numeric: Li_0(1/3) = 1/2, Li_{−1}(1/2) = 2.
+    REQUIRE(polylog(S::Zero(), rational(1, 3)) == rational(1, 2));
+    REQUIRE(polylog(S::NegativeOne(), rational(1, 2)) == integer(2));
+
+    // Precedence: the z = 0 and z = 1 rules still win (Li_0(1) = ζ(0) = −1/2,
+    // Li_{−1}(1) = ζ(−1) = −1/12), and orders not in {0, −1} stay symbolic.
+    REQUIRE(polylog(S::Zero(), S::Zero()) == S::Zero());
+    REQUIRE(polylog(S::Zero(), S::One()) == rational(-1, 2));
+    REQUIRE(polylog(S::NegativeOne(), S::One()) == rational(-1, 12));
+    REQUIRE(polylog(integer(-2), z)->type_id() == TypeId::Function);
+    REQUIRE(polylog(integer(3), z)->type_id() == TypeId::Function);
+}
+
 TEST_CASE("polylog: z-derivative and round-trip", "[3h][polylog][oracle][parser]") {
     auto& oracle = Oracle::instance();
     auto s = symbol("s");

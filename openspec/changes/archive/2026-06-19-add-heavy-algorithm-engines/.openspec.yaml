@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-06-19
+goal: Close SymPy parity gaps on the research-grade engines that the heuristic
+  code abandoned

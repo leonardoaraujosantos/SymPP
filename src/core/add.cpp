@@ -113,13 +113,13 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
             bool any_imag = false;
             bool any_real_nonzero = false;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Zero) == true) continue;
-                if (a->ask(AssumptionKey::Imaginary) == true) {
+                if (direct_ask(a, AssumptionKey::Zero) == true) continue;
+                if (direct_ask(a, AssumptionKey::Imaginary) == true) {
                     any_imag = true;
                 } else {
                     all_imag = false;
-                    if (a->ask(AssumptionKey::Real) == true
-                        && a->ask(AssumptionKey::Nonzero) == true) {
+                    if (direct_ask(a, AssumptionKey::Real) == true
+                        && direct_ask(a, AssumptionKey::Nonzero) == true) {
                         any_real_nonzero = true;
                     }
                 }
@@ -175,13 +175,36 @@ std::optional<bool> Add::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Odd: {
             int odd_terms = 0;
             for (const auto& a : args_) {
-                if (a->ask(AssumptionKey::Even) == true) continue;
-                if (a->ask(AssumptionKey::Odd) == true) { ++odd_terms; continue; }
+                if (direct_ask(a, AssumptionKey::Even) == true) continue;
+                if (direct_ask(a, AssumptionKey::Odd) == true) { ++odd_terms; continue; }
                 return std::nullopt;  // a term of unknown parity
             }
             const bool sum_even = (odd_terms % 2) == 0;
             return (k == AssumptionKey::Even) ? sum_even : !sum_even;
         }
+        case AssumptionKey::Prime:
+        case AssumptionKey::Composite:
+            // Primality / compositeness of a symbolic sum isn't decided
+            // structurally.
+            return std::nullopt;
+        case AssumptionKey::Algebraic:
+            // Algebraic numbers are closed under addition.
+            if (all_args_have(args_, AssumptionKey::Algebraic, true)) return true;
+            // Algebraics plus exactly one transcendental term ⇒ transcendental.
+            if (detail::sum_forces_transcendental(args_)) return false;
+            return std::nullopt;
+        case AssumptionKey::Transcendental:
+            if (detail::sum_forces_transcendental(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::Irrational:
+            // A rational sum plus exactly one irrational term is irrational
+            // (π + 1, √2 − 3).
+            if (detail::sum_forces_irrational(args_)) return true;
+            return std::nullopt;
+        case AssumptionKey::ExtendedReal:
+        case AssumptionKey::Infinite:
+            // Left to the generic derivation layer.
+            return std::nullopt;
     }
     return std::nullopt;
 }

@@ -113,6 +113,10 @@ std::optional<bool> Exp::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Positive:
             if (is_real(a) == true) return true;
             return std::nullopt;
+        case AssumptionKey::Zero:
+            // exp(z) is never zero for any finite z; a surviving Exp node has a
+            // finite argument (exp(−∞) folds to 0 in the factory). Matches SymPy.
+            return false;
         case AssumptionKey::Nonzero:
             if (is_real(a) == true) return true;
             return std::nullopt;

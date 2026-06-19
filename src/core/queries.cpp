@@ -4,6 +4,7 @@
 
 #include <gmpxx.h>
 
+#include <sympp/core/assumption_context.hpp>
 #include <sympp/core/assumption_key.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/integer.hpp>
@@ -14,12 +15,21 @@ namespace sympp {
 namespace {
 
 // Convenience: ask the underlying node directly (no implication-chasing) so
-// we don't loop through this very function while computing derivations.
+// we don't loop through this very function while computing derivations. An
+// active `assuming` scope takes precedence, so a scoped fact (e.g. x > 0)
+// overrides the symbol's own mask and feeds the implication chain below.
 [[nodiscard]] inline std::optional<bool> direct(const Expr& e, AssumptionKey k) noexcept {
+    if (assumption_context_active()) {
+        if (auto v = assumption_context_get(e, k); v.has_value()) return v;
+    }
     return e ? e->ask(k) : std::nullopt;
 }
 
 }  // namespace
+
+std::optional<bool> direct_ask(const Expr& e, AssumptionKey k) noexcept {
+    return direct(e, k);
+}
 
 std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
     if (!e) return std::nullopt;
@@ -38,18 +48,24 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Even) == true) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;
+            if (direct(e, AssumptionKey::Prime) == true) return true;
+            if (direct(e, AssumptionKey::Composite) == true) return true;
+            if (direct(e, AssumptionKey::Irrational) == true) return true;
             // A (nonzero) imaginary value is not real.
             if (direct(e, AssumptionKey::Imaginary) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Rational: {
             if (direct(e, AssumptionKey::Integer) == true) return true;
+            if (direct(e, AssumptionKey::Irrational) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Integer: {
-            // even / odd ⇒ integer
+            // even / odd / prime / composite ⇒ integer
             if (direct(e, AssumptionKey::Even) == true) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;
+            if (direct(e, AssumptionKey::Prime) == true) return true;
+            if (direct(e, AssumptionKey::Composite) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Nonzero: {
@@ -57,6 +73,54 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Negative) == true) return true;
             if (direct(e, AssumptionKey::Zero) == false) return true;
             if (direct(e, AssumptionKey::Odd) == true) return true;  // odd ⇒ ≠ 0
+            if (direct(e, AssumptionKey::Prime) == true) return true;  // prime ≥ 2
+            if (direct(e, AssumptionKey::Composite) == true) return true;  // ≥ 4
+            return std::nullopt;
+        }
+        case AssumptionKey::Prime: {
+            // A non-integer is never prime; a composite is not prime; otherwise
+            // primality is a direct fact.
+            if (direct(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Composite) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Composite: {
+            // A non-integer is never composite; a prime is not composite.
+            if (direct(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Prime) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Irrational: {
+            // irrational ⟺ real ∧ ¬rational. A rational or non-real value is not
+            // irrational; a known real non-rational is irrational.
+            if (direct(e, AssumptionKey::Rational) == true) return false;
+            if (direct(e, AssumptionKey::Real) == false) return false;
+            if (direct(e, AssumptionKey::Real) == true
+                && direct(e, AssumptionKey::Rational) == false) {
+                return true;
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Algebraic: {
+            // rational ⇒ algebraic; transcendental ⇒ ¬algebraic; within ℂ a
+            // non-transcendental value is algebraic.
+            if (direct(e, AssumptionKey::Rational) == true) return true;
+            if (direct(e, AssumptionKey::Transcendental) == true) return false;
+            if (direct(e, AssumptionKey::Complex) == true
+                && direct(e, AssumptionKey::Transcendental) == false) {
+                return true;
+            }
+            return std::nullopt;
+        }
+        case AssumptionKey::Transcendental: {
+            // transcendental ⟺ complex ∧ ¬algebraic. A rational / algebraic value
+            // is not transcendental.
+            if (direct(e, AssumptionKey::Algebraic) == true) return false;
+            if (direct(e, AssumptionKey::Rational) == true) return false;
+            if (direct(e, AssumptionKey::Complex) == true
+                && direct(e, AssumptionKey::Algebraic) == false) {
+                return true;
+            }
             return std::nullopt;
         }
         case AssumptionKey::Nonnegative: {
@@ -72,8 +136,21 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Finite: {
-            // No simple universal implications here; numeric / structural
-            // overrides handle the definite cases.
+            // infinite ⟺ ¬finite; otherwise numeric / structural overrides
+            // handle the definite cases.
+            if (direct(e, AssumptionKey::Infinite) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedReal: {
+            // real ⇒ extended_real; a nonzero pure imaginary is off the line.
+            if (direct(e, AssumptionKey::Real) == true) return true;
+            if (direct(e, AssumptionKey::Imaginary) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Infinite: {
+            // infinite ⟺ ¬finite.
+            if (direct(e, AssumptionKey::Finite) == true) return false;
+            if (direct(e, AssumptionKey::Finite) == false) return true;
             return std::nullopt;
         }
         case AssumptionKey::Complex: {
@@ -83,6 +160,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Imaginary) == true) return true;
             if (direct(e, AssumptionKey::Integer) == true) return true;
             if (direct(e, AssumptionKey::Rational) == true) return true;
+            if (direct(e, AssumptionKey::Algebraic) == true) return true;
+            if (direct(e, AssumptionKey::Transcendental) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Imaginary: {

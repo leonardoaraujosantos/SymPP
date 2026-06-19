@@ -64,7 +64,7 @@ Critical path forward: parallelizable.
 - Critical-path diagram: §[Critical path](#critical-path)
 - Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
 
-**Test surface to maintain**: 1426 cases / 4408 assertions (628
+**Test surface to maintain**: 1534 cases / 5373 assertions (670
 oracle-validated against SymPy 1.13+). Run:
 
 ```bash
@@ -80,7 +80,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 ## Status snapshot
 
 ```
-1426 tests / 4408 assertions  all passing (628 oracle-validated vs SymPy)
+1534 tests / 5373 assertions  all passing (670 oracle-validated vs SymPy)
 14 of 15 phases shipped (Phase 14 dropped — see below)
 ```
 
@@ -422,7 +422,7 @@ parity deltas, not bug fixes.
 | 4  | Full polynomial domain tower (ℤ_p, ℚ_alg, ℂ)        | 2 wk | Low |
 | 5  | Fu trig rule table (subset)                          | ✅ shipped — Pythagorean / double-angle / cos²−sin² / 2sin·cos collapses + `expand_trig` + `fu` orchestrator (TR8 product-to-sum, half-angle still deferred) |
 | 5  | hyperexpand + hypergeometric function infrastructure | partial ✅ — `Hyper` and `MeijerG` proper Function classes, variadic factories with auto-eval (`₀F₀ → exp`, `₁F₀ → (1−z)^(−a)`, parameter cancellation), `hyperexpand` rewrites `₁F₁(1; 2; z)` and `₂F₁(1, 1; 2; z)`, integrated into `simplify` chain. Full Slater-theorem expansion + Meijer-G evaluation still deferred-deep. |
-| 6  | Full Gruntz limit algorithm                          | 2 wk | High — partial: signed `±∞` at even poles, polynomial `∞−∞`, and 0·∞ exponential-vs-polynomial dominance ship; mixed exp/log `∞−∞` (`√(x²+x)−x`, `eˣ−x`) still need asymptotic-series / `x=1/t` machinery |
+| 6  | Full Gruntz limit algorithm                          | 1 wk | High — **largely shipped** as composable leading-term stages (see the archived `add-heavy-algorithm-engines` and `openspec/specs/gruntz-limits/`): power-as-exp, dominant-term `∞−∞`, power continuity, log-exp reduction for nested transcendentals (`log x/exp(√(log x·log log x))→0`), numerically-verified small-angle/Maclaurin-head for `0·∞` analytic forms (`eˣ·(sin(1/x+e⁻ˣ)−sin(1/x))→1`), harmonic-number and log-Stirling (`log(n!)/(n·log n)→1`) asymptotics, radical conjugate differences (`√(x²+x)−x`, `√(x+√x)−√x`), a gamma-ratio asymptotic with Legendre/Gauss multiplication, exponential rates, unbalanced gamma powers and combined-denominator flattening (`Γ(2n)/nⁿ`, `Γ(2x)/Γ(x)²`, `Γ(n+½)/(√n·Γ(n))`), the full Stirling prefactor for cancelling products (`n!/(nⁿe⁻ⁿ)→∞`), constant-base-exponential rationals (`(2ˣ+3ˣ)/3ˣ→1`), hyperbolic→exp and inverse-hyperbolic asymptotics (`(sinh x+cosh x)/eˣ→1`, `asinh x/log x→1`), an MRV rewrite for exponential differences (Gruntz's flagship `e^{x+e⁻ˣ}−eˣ→1`), and a leading-term-by-series stage for `1^∞` corrections at `±∞` and finite points (`x·((1+1/x)ˣ−e)→−e/2`, `(xˣ−1)/(x·log x)→1`). Remaining: a true mrv-set rewrite for the few cases the numeric check cannot certify (e.g. the `0·∞` divergent-exp×unit subclass `eˣ·(e^{1/x}−1)`), and full asymptotic-series depth. |
 | 7  | Full Risch transcendental integration                | 4 wk | Medium |
 | 7  | Meijer G-function integration method                 | 3 wk | High (with hyperexpand) |
 | 9  | Symbolic SVD                                         | 2 wk | Medium |
@@ -551,8 +551,8 @@ the same scope-discipline as Phases 0–13.
 ## Summary
 
 ```
-Where we are:        14/15 phases shipped, Phase 16 partial; 1426 tests
-                     (628 oracle-validated against SymPy 1.14, all passing).
+Where we are:        14/15 phases shipped, Phase 16 partial; 1534 tests
+                     (670 oracle-validated against SymPy 1.14, all passing).
 Cat A shipped:       Fu trig rules, transcendental solveset (_invert),
                      variation of parameters, Jordan + matrix exp,
                      hyperexpand subset.

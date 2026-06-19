@@ -277,8 +277,11 @@ Expr dsolve_linear_first_order(const Expr& eq, const Expr& y, const Expr& yp,
                                 const Expr& x) {
     auto rhs = isolate_yp(eq, yp);
     if (!rhs) return function_symbol("Dsolve")(eq, y, x);
-    // Express *rhs as -p(x) * y + q(x). Build a polynomial in y.
-    Poly poly_in_y(simplify(*rhs), y);
+    // Express *rhs as -p(x) * y + q(x). Build a polynomial in y. Expand first so a
+    // variable-coefficient form like (x² − y)/x = (−y + x²)·x⁻¹ distributes into
+    // −y·x⁻¹ + x; without it Poly treats the whole product as a degree-0 term
+    // whose coefficient still contains y, and the equation is misclassified.
+    Poly poly_in_y(expand(simplify(*rhs)), y);
     if (poly_in_y.degree() > 1) return function_symbol("Dsolve")(eq, y, x);
     Expr q = poly_in_y.coeffs()[0];                    // constant w.r.t. y
     Expr neg_p = poly_in_y.degree() == 1

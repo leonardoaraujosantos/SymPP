@@ -33,6 +33,8 @@ std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Positive:
         case AssumptionKey::Nonnegative:
         case AssumptionKey::Nonzero:
+        case AssumptionKey::ExtendedReal:  // +∞ lies on the extended real line
+        case AssumptionKey::Infinite:
             return true;
         case AssumptionKey::Finite:
         case AssumptionKey::Real:
@@ -43,6 +45,11 @@ std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Zero:
         case AssumptionKey::Even:
         case AssumptionKey::Odd:
+        case AssumptionKey::Prime:
+        case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // infinities are not real numbers
+        case AssumptionKey::Algebraic:   // nor finite complex numbers
+        case AssumptionKey::Transcendental:
             return false;
     }
     return std::nullopt;
@@ -57,6 +64,8 @@ std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Negative:
         case AssumptionKey::Nonpositive:
         case AssumptionKey::Nonzero:
+        case AssumptionKey::ExtendedReal:  // −∞ lies on the extended real line
+        case AssumptionKey::Infinite:
             return true;
         case AssumptionKey::Finite:
         case AssumptionKey::Real:
@@ -67,6 +76,11 @@ std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Zero:
         case AssumptionKey::Even:
         case AssumptionKey::Odd:
+        case AssumptionKey::Prime:
+        case AssumptionKey::Composite:
+        case AssumptionKey::Irrational:  // infinities are not real numbers
+        case AssumptionKey::Algebraic:   // nor finite complex numbers
+        case AssumptionKey::Transcendental:
             return false;
     }
     return std::nullopt;
@@ -80,6 +94,7 @@ std::optional<bool> ComplexInfinity::ask(AssumptionKey k) const noexcept {
             return false;  // not a finite complex number
 
         case AssumptionKey::Nonzero:
+        case AssumptionKey::Infinite:  // zoo is an infinity...
             return true;
         case AssumptionKey::Finite:
         case AssumptionKey::Real:
@@ -92,6 +107,12 @@ std::optional<bool> ComplexInfinity::ask(AssumptionKey k) const noexcept {
         case AssumptionKey::Zero:
         case AssumptionKey::Even:
         case AssumptionKey::Odd:
+        case AssumptionKey::Prime:
+        case AssumptionKey::Composite:
+        case AssumptionKey::ExtendedReal:  // ...but not on the real line
+        case AssumptionKey::Irrational:  // infinities are not real numbers
+        case AssumptionKey::Algebraic:   // nor finite complex numbers
+        case AssumptionKey::Transcendental:
             return false;
     }
     return std::nullopt;

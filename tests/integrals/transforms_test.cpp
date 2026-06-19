@@ -323,6 +323,61 @@ TEST_CASE("fourier: exp(-a·t²) → sqrt(π/a)·exp(-ω²/4a)",
     REQUIRE(resp.raw.at("result").get<bool>());
 }
 
+// COSINE-GAUSS-1: the cosine transform of a Gaussian, ∫₀^∞ exp(-a·t²)·cos(ωt) dt
+// = ½·√(π/a)·exp(-ω²/(4a)). The pattern rules covered exp(-a·t), and the
+// transform now falls back to the integral definition (with ω real), where the
+// Gaussian-cosine rule resolves it. The sine transform of a Gaussian (a
+// non-elementary erfi/Dawson value) is correctly left unevaluated.
+TEST_CASE("cosine_transform: Gaussian via integral fallback (COSINE-GAUSS-1)",
+          "[8][cosine_transform][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto w = symbol("w");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+    auto gauss = exp(mul(S::NegativeOne(), mul(a, pow(t, integer(2)))));
+
+    // ∫₀^∞ exp(-a t²)·cos(ωt) dt = √π·exp(-ω²/(4a))/(2√a).
+    REQUIRE(oracle.equivalent(cosine_transform(gauss, t, w)->str(),
+                              "sqrt(pi)*exp(-w**2/(4*a))/(2*sqrt(a))"));
+    // The exp(-a t) pattern is unchanged.
+    REQUIRE(oracle.equivalent(
+        cosine_transform(exp(mul(mul(S::NegativeOne(), a), t)), t, w)->str(),
+        "a/(a**2 + w**2)"));
+    // The sine transform of a Gaussian has no elementary form — left unevaluated.
+    REQUIRE(sine_transform(gauss, t, w)->str().rfind("SineTransform", 0) == 0);
+}
+
+// FOURIER-LORENTZ-1: the Fourier transform of the Lorentzian exp(-a·|t|) is
+// 2a/(a²+ω²) in this engine's convention F(ω) = ∫ f(t)·e^(-iωt) dt (the same one
+// the Gaussian above uses). Previously left as an unevaluated FourierTransform
+// marker. Verified against the closed form (SymPy uses a 2π-scaled convention,
+// so the numeric form differs but the symbolic closed form here is exact).
+TEST_CASE("fourier: exp(-a·|t|) → 2a/(a²+ω²) (FOURIER-LORENTZ-1)",
+          "[8][fourier][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto w = symbol("w");
+    auto a = symbol("a", AssumptionMask{}.set_positive(true));
+
+    // exp(-a·|t|) → 2a/(a² + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(mul(S::NegativeOne(), a), abs(t))), t, w)
+            ->str(),
+        "2*a/(a**2 + w**2)"));
+    // exp(-|t|) → 2/(1 + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(S::NegativeOne(), abs(t))), t, w)->str(),
+        "2/(1 + w**2)"));
+    // exp(-2|t|) → 4/(4 + ω²).
+    REQUIRE(oracle.equivalent(
+        fourier_transform(exp(mul(integer(-2), abs(t))), t, w)->str(),
+        "4/(4 + w**2)"));
+    // exp(+|t|) diverges — left unevaluated, not a bogus value.
+    REQUIRE(fourier_transform(exp(abs(t)), t, w)->str().rfind("FourierTransform",
+                                                              0)
+            == 0);
+}
+
 TEST_CASE("inverse_fourier: roundtrip on δ(t) ∘ exp(-a·t²) gives back original up to constant",
           "[8][inverse_fourier]") {
     auto t = symbol("t");
@@ -431,4 +486,43 @@ TEST_CASE("cosine_transform: exp(-3t) → 3/(9 + ω²)",
     auto e = exp(mul({S::NegativeOne(), integer(3), t}));
     auto F = cosine_transform(e, t, w);
     REQUIRE(oracle.equivalent(F->str(), "3/(9 + w**2)"));
+}
+
+// LAPLACE-TRIGSQ-1: Laplace transforms of trig squares / products, via
+// power-reduction to single-frequency form (cos²t → ½+½cos2t, etc.) before the
+// linear rules apply. Previously these were left as unevaluated LaplaceTransform
+// markers. Matches SymPy.
+TEST_CASE("laplace: trig squares and products (LAPLACE-TRIGSQ-1)",
+          "[8][laplace_transform][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto t = symbol("t");
+    auto s = symbol("s");
+
+    // cos²t → (s²+2)/(s(s²+4)), sin²t → 2/(s(s²+4)).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(cos(t), integer(2)), t, s)->str(),
+        "(s**2 + 2)/(s*(s**2 + 4))"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(sin(t), integer(2)), t, s)->str(),
+        "2/(s*(s**2 + 4))"));
+    // sin t·cos t → 1/(s²+4).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(sin(t) * cos(t), t, s)->str(), "1/(s**2 + 4)"));
+    // Scaled frequency: cos²(2t) → (s²+8)/(s(s²+16)).
+    REQUIRE(oracle.equivalent(
+        laplace_transform(pow(cos(integer(2) * t), integer(2)), t, s)->str(),
+        "(s**2 + 8)/(s*(s**2 + 16))"));
+    // Polynomial / exponential weights linearize the square in place.
+    REQUIRE(oracle.equivalent(
+        laplace_transform(t * pow(cos(t), integer(2)), t, s)->str(),
+        "(s**4 + 2*s**2 + 8)/(s**2*(s**2 + 4)**2)"));
+    REQUIRE(oracle.equivalent(
+        laplace_transform(exp(mul(S::NegativeOne(), t)) * pow(sin(t), integer(2)),
+                          t, s)
+            ->str(),
+        "2/((s + 1)*((s + 1)**2 + 4))"));
+
+    // A plain sin t is unaffected.
+    REQUIRE(oracle.equivalent(laplace_transform(sin(t), t, s)->str(),
+                              "1/(s**2 + 1)"));
 }

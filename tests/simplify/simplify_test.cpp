@@ -1319,6 +1319,34 @@ TEST_CASE("gammasimp: gamma(x)*gamma(1-x) → pi/sin(pi*x)",
     REQUIRE(oracle.equivalent(gammasimp(e4)->str(), "n"));
 }
 
+// GAMMA-REFL-2 — simplify() (not just gammasimp) keeps the reflection result for
+// numeric rational arguments. gamma(1/3)*gamma(2/3) → 2√3·π/3 is elementary but
+// has a slightly higher node count, so simplify's anti-bloat guard used to revert
+// it to the gamma product. Replacing a gamma with an elementary form is now an
+// allowed exception to the guard. Matches SymPy.
+TEST_CASE("simplify: gamma reflection at rational arguments (GAMMA-REFL-2)",
+          "[8][simplify][gammasimp][reflection][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto g = [](const Expr& a) { return gamma(a); };
+
+    auto r13 = simplify(g(rational(1, 3)) * g(rational(2, 3)));
+    REQUIRE(oracle.equivalent(r13->str(), "2*sqrt(3)*pi/3"));
+    REQUIRE(r13->str().find("gamma") == std::string::npos);  // not reverted
+
+    REQUIRE(oracle.equivalent(
+        simplify(g(rational(1, 4)) * g(rational(3, 4)))->str(), "sqrt(2)*pi"));
+    REQUIRE(oracle.equivalent(
+        simplify(g(rational(1, 6)) * g(rational(5, 6)))->str(), "2*pi"));
+
+    // Non-reflection gamma forms are untouched: a single gamma and a product
+    // whose arguments do not sum to 1.
+    REQUIRE(simplify(g(rational(1, 3))) == g(rational(1, 3)));
+    REQUIRE(simplify(g(rational(1, 3)) * g(rational(1, 3)))
+            == pow(g(rational(1, 3)), integer(2)));
+    // Evaluated gamma values are unaffected.
+    REQUIRE(simplify(g(integer(5))) == integer(24));
+}
+
 #include <sympp/core/float.hpp>
 
 // ----- cse -------------------------------------------------------------------
@@ -1507,4 +1535,128 @@ TEST_CASE("simplify: change-of-base exponential (CHANGE-OF-BASE-1)",
     REQUIRE(oracle.equivalent(
         simplify(pow(integer(2), mul(log(x), log(integer(2)))))->str(),
         "2**(log(2)*log(x))"));
+}
+
+// SIMP-POWDENEST-1: (∏ bᵢ^pᵢ)^q denests to ∏ bᵢ^(pᵢ·q) when every base bᵢ is
+// nonnegative — needed because the pipeline's expand distributes a power over a
+// product, leaving the outer power applied to a Mul of nonnegative-base powers.
+// ((2m)ᵐ)^(1/m) → 2m, ((m/e)ᵐ)^(1/m) → m/e. A factor whose base may be negative
+// is left alone (((x·y)²)^(1/2) is not denested to x·y). Matches SymPy.
+TEST_CASE("simplify: powdenest of a product of nonnegative powers (SIMP-POWDENEST-1)",
+          "[10][simplify]") {
+    auto m = symbol("m", AssumptionMask{}.set_positive(true));
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto q = symbol("q", AssumptionMask{}.set_positive(true));
+    auto x = symbol("x");  // generic
+    auto y = symbol("y");
+    auto invm = pow(m, integer(-1));
+
+    // ((2m)^m)^(1/m) = 2m, ((m/e)^m)^(1/m) = m/e.
+    REQUIRE(simplify(pow(pow(integer(2) * m, m), invm)) == integer(2) * m);
+    REQUIRE(simplify(pow(pow(m * exp(integer(-1)), m), invm))
+            == m * exp(integer(-1)));
+    // ((3p)^2)^(1/2) = 3p; (p·q^2)^3 = p^3·q^6.
+    REQUIRE(simplify(pow(pow(integer(3) * p, integer(2)), rational(1, 2)))
+            == integer(3) * p);
+    REQUIRE(simplify(pow(p * pow(q, integer(2)), integer(3)))
+            == pow(p, integer(3)) * pow(q, integer(6)));
+
+    // Safety: a possibly-negative base is not denested.
+    REQUIRE(simplify(pow(pow(x * y, integer(2)), rational(1, 2)))
+            != x * y);
+    REQUIRE(simplify(pow(pow(x, integer(2)), rational(1, 2))) != x);
+}
+
+// SIMP-TRIGEXPAND-1: a multiple-angle trig expression that cancels collapses to
+// a smaller form when compound angles are expanded — sin(3x) − 3·sin x +
+// 4·sin³x → 0, cos(3x) − 4·cos³x + 3·cos x → 0. simplify expands and re-applies
+// trigsimp, adopting the result only when strictly simpler, so a lone sin(3x)
+// (which expansion would inflate) is left unchanged. Matches SymPy.
+TEST_CASE("simplify: multiple-angle trig cancellation (SIMP-TRIGEXPAND-1)",
+          "[10][simplify]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+
+    // Triple-angle identities collapse to 0.
+    REQUIRE(simplify(sin(integer(3) * x) - integer(3) * sin(x)
+                     + integer(4) * pow(sin(x), integer(3)))
+            == S::Zero());
+    REQUIRE(simplify(cos(integer(3) * x) - integer(4) * pow(cos(x), integer(3))
+                     + integer(3) * cos(x))
+            == S::Zero());
+    // Double-angle and angle-addition identities.
+    REQUIRE(simplify(sin(integer(2) * x) - integer(2) * sin(x) * cos(x))
+            == S::Zero());
+    REQUIRE(simplify(sin(x + y) - sin(x) * cos(y) - cos(x) * sin(y))
+            == S::Zero());
+
+    // Non-cancelling compound angles are left unchanged (no inflation).
+    REQUIRE(simplify(sin(integer(3) * x)) == sin(integer(3) * x));
+    REQUIRE(simplify(cos(integer(2) * x)) == cos(integer(2) * x));
+    // Pythagorean identity and a non-trig form are unaffected.
+    REQUIRE(simplify(pow(sin(x), integer(2)) + pow(cos(x), integer(2)))
+            == S::One());
+    REQUIRE(simplify(pow(x, integer(2)) + integer(1))
+            == pow(x, integer(2)) + integer(1));
+}
+
+// SIMP-LOGSUM-1: a sum of numeric logarithms combines into a single
+// log(product), collapsing to 0 when the product is 1: log(2)+log(3)−log(6) = 0,
+// log(2)+log(3) = log(6), log(4)−2·log(2) = 0. Symbolic logs (log(x)+log(y)) and
+// a lone log term are left alone. Matches SymPy's simplify.
+TEST_CASE("simplify: sum of numeric logarithms (SIMP-LOGSUM-1)",
+          "[10][simplify][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto L = [](long n) { return log(integer(n)); };
+
+    // Cancelling sums collapse to 0.
+    REQUIRE(simplify(L(2) + L(3) - L(6)) == S::Zero());
+    REQUIRE(simplify(L(4) - integer(2) * L(2)) == S::Zero());
+    REQUIRE(simplify(integer(3) * L(2) - L(8)) == S::Zero());
+    REQUIRE(simplify(log(rational(1, 2)) + L(2)) == S::Zero());
+
+    // Non-cancelling sums fold into a single log(product / quotient).
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3))->str(), "log(6)"));
+    REQUIRE(oracle.equivalent(simplify(L(6) - L(2))->str(), "log(3)"));
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3) + L(5))->str(), "log(30)"));
+    REQUIRE(oracle.equivalent(simplify(integer(2) * L(3) + L(2))->str(),
+                              "log(18)"));
+    // A non-log addend is preserved.
+    REQUIRE(oracle.equivalent(simplify(L(2) + L(3) + x)->str(), "x + log(6)"));
+
+    // Symbolic logs and a lone numeric log are left unchanged.
+    REQUIRE(oracle.equivalent(simplify(log(x) + log(y))->str(),
+                              "log(x) + log(y)"));
+    REQUIRE(oracle.equivalent(simplify(L(2) + x)->str(), "x + log(2)"));
+}
+
+// SIMP-EULER-1: a complex exponential cancels against its trigonometric
+// expansion via Euler's formula e^{iθ} = cos θ + i·sin θ. simplify() now rewrites
+// trig onto the e^{iθ} basis and adopts the result only when it is strictly
+// smaller, collapsing exp(i·x) − cos x − i·sin x → 0. A lone exp(i·x) or a real
+// trig/exp expression (whose exponential form is larger) is untouched. Matches
+// SymPy.
+TEST_CASE("simplify: Euler-formula complex-exponential cancellation (SIMP-EULER-1)",
+          "[8][simplify][regression]") {
+    auto x = symbol("x");
+    auto I = S::I();
+
+    REQUIRE(simplify(exp(I * x) - cos(x) - I * sin(x)) == S::Zero());
+    REQUIRE(simplify(cos(x) + I * sin(x) - exp(I * x)) == S::Zero());
+    REQUIRE(simplify(exp(I * x) + exp(mul(S::NegativeOne(), I * x))
+                     - integer(2) * cos(x))
+            == S::Zero());
+    REQUIRE(simplify(exp(integer(2) * I * x) - cos(integer(2) * x)
+                     - I * sin(integer(2) * x))
+            == S::Zero());
+
+    // Non-cancelling forms are unchanged: a lone complex exponential, a real
+    // trig sum, and a real exponential sum.
+    REQUIRE(simplify(exp(I * x)) == exp(I * x));
+    REQUIRE(simplify(pow(cos(x), integer(2)) + pow(sin(x), integer(2)))
+            == S::One());
+    REQUIRE(simplify(exp(x) + exp(mul(S::NegativeOne(), x)))
+            == integer(2) * cosh(x));
 }

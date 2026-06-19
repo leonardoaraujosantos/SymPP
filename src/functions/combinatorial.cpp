@@ -1068,6 +1068,25 @@ Expr binomial(const Expr& n, const Expr& k) {
             return make<Integer>(std::move(r));
         }
     }
+    // Generalized binomial for a numeric upper index n (negative integer or
+    // rational) and a non-negative integer k: C(n,k) = ∏_{i=0}^{k-1}(n−i) / k!.
+    // Gives C(−1,2)=1, C(7/2,2)=35/8, C(1/2,3)=1/16, matching SymPy. (The
+    // non-negative-integer/integer case is handled exactly above; a symbolic
+    // upper index stays symbolic, as SymPy does for C(n,2).)
+    if (is_number(n) && k->type_id() == TypeId::Integer) {
+        const auto& zk = static_cast<const Integer&>(*k);
+        if (!zk.is_negative() && zk.fits_long() && zk.to_long() <= 10'000) {
+            const long kv = zk.to_long();
+            Expr num = S::One();
+            for (long i = 0; i < kv; ++i) {
+                num = mul(num, add(n, integer(-i)));
+            }
+            mpz_class kfac;
+            mpz_fac_ui(kfac.get_mpz_t(), static_cast<unsigned long>(kv));
+            // The Mul factory folds the numeric product into a single rational.
+            return mul(num, pow(make<Integer>(std::move(kfac)), integer(-1)));
+        }
+    }
     // binomial(n, 0) = 1
     if (k == S::Zero()) return S::One();
     // binomial(n, 1) = n  (valid for any n)
@@ -1202,6 +1221,150 @@ Expr beta(const Expr& a, const Expr& b) {
 }
 
 // ============================================================================
+// Incomplete gamma: lowergamma(s, x), uppergamma(s, x)
+// ============================================================================
+
+namespace {
+// Closed form of the upper incomplete gamma for a positive integer first
+// argument n ≥ 1: Γ(n, x) = (n−1)!·e⁻ˣ·Σ_{k=0}^{n−1} xᵏ/k!. Used by both
+// factories; the caller guarantees n ≥ 1 and handles x = 0 separately (the
+// series term x⁰ would otherwise hit 0⁰ for a literal zero argument).
+[[nodiscard]] Expr upper_gamma_closed(long n, const Expr& x) {
+    std::vector<Expr> terms;
+    terms.reserve(static_cast<std::size_t>(n));
+    mpz_class kfac = 1;  // k!
+    for (long k = 0; k < n; ++k) {
+        if (k > 0) kfac *= k;
+        terms.push_back(mul(pow(x, integer(k)), rational(mpz_class(1), kfac)));
+    }
+    mpz_class nm1fac;
+    mpz_fac_ui(nm1fac.get_mpz_t(), static_cast<unsigned long>(n - 1));
+    Expr series = mul(exp(mul(S::NegativeOne(), x)), add(std::move(terms)));
+    return mul(make<Integer>(std::move(nm1fac)), std::move(series));
+}
+
+// True when s is a positive integer that fits a long and is small enough that
+// the (n−1)-term series stays cheap.
+[[nodiscard]] std::optional<long> small_positive_int(const Expr& s) {
+    if (s->type_id() != TypeId::Integer) return std::nullopt;
+    const auto& z = static_cast<const Integer&>(*s);
+    if (!z.is_positive() || !z.fits_long()) return std::nullopt;
+    long n = z.to_long();
+    if (n > 1000) return std::nullopt;
+    return n;
+}
+
+// Closed form of the incomplete gamma at a half-integer order s = (2k+1)/2,
+// expressed through erf/erfc. From the base values
+//   Γ(1/2, x) = √π·erfc(√x),   γ(1/2, x) = √π·erf(√x)
+// the recurrence V(s+1) = s·V(s) ± x^s·e^{-x} (+ for the upper Γ, − for the lower
+// γ) walks to any half-integer order, up or down. Returns nullopt for a
+// non-half-integer order or one too far from 1/2 (bounded so the expression stays
+// finite). Mirrors SymPy's erf-based half-integer forms.
+[[nodiscard]] std::optional<Expr> half_integer_incgamma(const Expr& s,
+                                                        const Expr& x,
+                                                        bool upper) {
+    if (s->type_id() != TypeId::Rational) return std::nullopt;
+    const auto& q = static_cast<const Rational&>(*s);
+    if (q.denominator() != 2) return std::nullopt;
+    const mpz_class& num = q.numerator();  // odd
+    if (num < -201 || num > 201) return std::nullopt;
+    const mpz_class kz = (num - 1) / 2;  // s = (2k+1)/2
+    const long k = kz.get_si();
+    const Expr sgn = upper ? S::One() : S::NegativeOne();
+    const Expr emx = exp(mul(S::NegativeOne(), x));
+    Expr V = mul(sqrt(S::Pi()), upper ? erfc(sqrt(x)) : erf(sqrt(x)));  // V(1/2)
+    mpq_class sc(1, 2);
+    for (long i = 0; i < k; ++i) {  // climb: V(sc+1) = sc·V(sc) + sgn·x^sc·e^{-x}
+        Expr scE = rational(sc.get_num(), sc.get_den());
+        V = add(mul(scE, V), mul(sgn, mul(pow(x, scE), emx)));
+        sc += 1;
+    }
+    for (long i = 0; i < -k; ++i) {  // descend: V(sc−1) = (V(sc) − sgn·x^{sc−1}·e^{-x})/(sc−1)
+        mpq_class sm1 = sc - 1;
+        Expr sm1E = rational(sm1.get_num(), sm1.get_den());
+        V = mul(add(V, mul(S::NegativeOne(), mul(sgn, mul(pow(x, sm1E), emx)))),
+                pow(sm1E, S::NegativeOne()));
+        sc = sm1;
+    }
+    return V;
+}
+}  // namespace
+
+LowerGamma::LowerGamma(Expr s, Expr x)
+    : Function(std::vector<Expr>{std::move(s), std::move(x)}) {
+    compute_hash(FunctionId::LowerGamma);
+}
+Expr LowerGamma::rebuild(std::vector<Expr> new_args) const {
+    return lowergamma(new_args[0], new_args[1]);
+}
+std::optional<bool> LowerGamma::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true
+        && is_real(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+// ∂/∂x γ(s, x) = xˢ⁻¹·e⁻ˣ. The ∂/∂s direction is non-elementary (Meijer-G); as
+// with polygamma's order argument, return 0 so diff()'s chain rule (× s′ = 0 for
+// a constant s) leaves the usual case correct.
+Expr LowerGamma::diff_arg(std::size_t i) const {
+    if (i == 1) {
+        return mul(pow(args_[1], add(args_[0], S::NegativeOne())),
+                   exp(mul(S::NegativeOne(), args_[1])));
+    }
+    return S::Zero();
+}
+
+Expr lowergamma(const Expr& s, const Expr& x) {
+    // γ(s, 0) = 0 for any order (SymPy folds this unconditionally).
+    if (x == S::Zero()) return S::Zero();
+    if (auto n = small_positive_int(s)) {
+        // γ(s, x) = Γ(s) − Γ(s, x). Built directly (not via the uppergamma
+        // factory) so the x = +∞ form folds to nan like SymPy, rather than Γ(s).
+        return add(gamma(s), mul(S::NegativeOne(), upper_gamma_closed(*n, x)));
+    }
+    if (auto h = half_integer_incgamma(s, x, /*upper=*/false)) return *h;
+    return make<LowerGamma>(s, x);
+}
+
+UpperGamma::UpperGamma(Expr s, Expr x)
+    : Function(std::vector<Expr>{std::move(s), std::move(x)}) {
+    compute_hash(FunctionId::UpperGamma);
+}
+Expr UpperGamma::rebuild(std::vector<Expr> new_args) const {
+    return uppergamma(new_args[0], new_args[1]);
+}
+std::optional<bool> UpperGamma::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true
+        && is_real(args_[1]) == true) {
+        return true;
+    }
+    return std::nullopt;
+}
+// ∂/∂x Γ(s, x) = −xˢ⁻¹·e⁻ˣ; ∂/∂s is non-elementary → 0 (see LowerGamma).
+Expr UpperGamma::diff_arg(std::size_t i) const {
+    if (i == 1) {
+        return mul(S::NegativeOne(),
+                   mul(pow(args_[1], add(args_[0], S::NegativeOne())),
+                       exp(mul(S::NegativeOne(), args_[1]))));
+    }
+    return S::Zero();
+}
+
+Expr uppergamma(const Expr& s, const Expr& x) {
+    // Γ(s, +∞) = 0 (the tail integral vanishes).
+    if (x->type_id() == TypeId::Infinity) return S::Zero();
+    if (auto n = small_positive_int(s)) {
+        // Γ(s, 0) = Γ(s) = (n−1)!.
+        if (x == S::Zero()) return gamma(s);
+        return upper_gamma_closed(*n, x);
+    }
+    if (auto h = half_integer_incgamma(s, x, /*upper=*/true)) return *h;
+    return make<UpperGamma>(s, x);
+}
+
+// ============================================================================
 // LogGamma
 // ============================================================================
 
@@ -1281,6 +1444,13 @@ Expr PolyGammaFn::diff_arg(std::size_t i) const {
 }
 
 Expr polygamma(const Expr& n, const Expr& x) {
+    // At +∞: ψ(x) = polygamma(0, x) → +∞ (ψ ~ log x), and every higher
+    // derivative ψ⁽ⁿ⁾(x) → 0 for n ≥ 1 (they decay like x^{-n}). Matches SymPy.
+    if (x->type_id() == TypeId::Infinity && n->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*n).is_negative()) {
+        return static_cast<const Integer&>(*n).is_zero() ? S::Infinity()
+                                                         : S::Zero();
+    }
     // Pole at the nonpositive integers: ψ⁽ⁿ⁾(x) → zoo for x ∈ {0, −1, −2, …} and a
     // non-negative integer order n (the underlying Γ pole). digamma(0)/digamma(−k)
     // inherit this via polygamma(0, ·). Matches SymPy.
@@ -1290,17 +1460,58 @@ Expr polygamma(const Expr& n, const Expr& x) {
         && !static_cast<const Integer&>(*n).is_negative()) {
         return S::ComplexInfinity();
     }
-    // Special values at x = 1 for a non-negative integer order:
-    //   ψ⁽⁰⁾(1) = −γ,   ψ⁽ⁿ⁾(1) = (−1)^(n+1) · n! · ζ(n+1)   (n ≥ 1).
-    if (x == S::One() && n->type_id() == TypeId::Integer) {
-        const auto& z = static_cast<const Integer&>(*n);
-        if (n == S::Zero()) {
-            return mul(S::NegativeOne(), S::EulerGamma());
+    // Closed forms at a positive integer or positive half-integer argument, for a
+    // non-negative integer order n. Start from the base values at b ∈ {1, 1/2}
+    //   ψ⁽⁰⁾(1)   = −γ,                 ψ⁽ⁿ⁾(1)   = (−1)^(n+1)·n!·ζ(n+1),
+    //   ψ⁽⁰⁾(1/2) = −γ − 2·log 2,       ψ⁽ⁿ⁾(1/2) = (−1)^(n+1)·n!·(2^(n+1)−1)·ζ(n+1)
+    // and walk up with the recurrence ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1):
+    //   ψ⁽ⁿ⁾(b+j) = ψ⁽ⁿ⁾(b) + Σ_{i=0}^{j−1} (−1)ⁿ·n!/(b+i)^(n+1).
+    // So ψ(m) = −γ + H_{m−1}, ψ(m+1/2) = −γ − 2 log 2 + 2·Σ 1/(2k−1), etc.
+    if (n->type_id() == TypeId::Integer
+        && !static_cast<const Integer&>(*n).is_negative()) {
+        // Resolve x to a base b and a non-negative integer step count j (x = b+j).
+        Expr base;
+        long j = -1;
+        if (x->type_id() == TypeId::Integer) {
+            const auto& xi = static_cast<const Integer&>(*x);
+            if (xi.is_positive() && xi.fits_long()) {
+                base = S::One();
+                j = xi.to_long() - 1;
+            }
+        } else if (x->type_id() == TypeId::Rational) {
+            const auto& xr = static_cast<const Rational&>(*x);
+            if (xr.denominator() == 2 && xr.numerator() > 0) {
+                base = rational(1, 2);
+                mpz_class jz = (xr.numerator() - 1) / 2;
+                j = jz.get_si();
+            }
         }
-        if (z.is_positive()) {
+        if (j >= 0) {
+            const bool half = !(base == S::One());
             Expr np1 = add(n, S::One());
-            // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
-            return mul(pow(S::NegativeOne(), np1), mul(factorial(n), zeta(np1)));
+            Expr base_val;
+            if (n == S::Zero()) {
+                base_val = half ? add(mul(S::NegativeOne(), S::EulerGamma()),
+                                      mul(integer(-2), log(integer(2))))
+                                : mul(S::NegativeOne(), S::EulerGamma());
+            } else {
+                // (−1)^(n+1) folds to ±1 via the parity rule in the pow factory.
+                Expr v = mul(pow(S::NegativeOne(), np1),
+                             mul(factorial(n), zeta(np1)));
+                if (half) {
+                    v = mul(v, add(pow(integer(2), np1), S::NegativeOne()));
+                }
+                base_val = v;
+            }
+            std::vector<Expr> terms;
+            terms.push_back(base_val);
+            for (long i = 0; i < j; ++i) {
+                Expr y = add(base, integer(i));
+                terms.push_back(mul(pow(S::NegativeOne(), n),
+                                    mul(factorial(n),
+                                        pow(y, mul(S::NegativeOne(), np1)))));
+            }
+            return add(std::move(terms));
         }
     }
     return make<PolyGammaFn>(n, x);

@@ -203,6 +203,8 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"FallingFactorial", &falling_factorial},
         {"polylog", &polylog},
         {"polygamma", &polygamma},
+        {"lowergamma", &lowergamma},
+        {"uppergamma", &uppergamma},
         {"harmonic", static_cast<TwoArgFn>(&harmonic)},  // generalized Hₙ⁽ᵐ⁾
         {"divisor_sigma", static_cast<TwoArgFn>(&divisor_sigma)},  // σ_k(n)
     };

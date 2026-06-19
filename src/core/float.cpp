@@ -238,6 +238,16 @@ std::optional<bool> Float::ask(AssumptionKey k) const noexcept {
         // Floats aren't integers in the assumption sense (see Integer above).
         case AssumptionKey::Even: return std::nullopt;
         case AssumptionKey::Odd: return std::nullopt;
+        case AssumptionKey::Prime: return std::nullopt;
+        case AssumptionKey::Composite: return std::nullopt;
+        // A Float carries no rational/irrational status (mpmath/SymPy parity).
+        case AssumptionKey::Irrational: return std::nullopt;
+        case AssumptionKey::Algebraic: return std::nullopt;
+        case AssumptionKey::Transcendental: return std::nullopt;
+        // A Float is real-valued (a point of the extended real line); it is
+        // infinite exactly when it holds an mpfr infinity.
+        case AssumptionKey::ExtendedReal: return true;
+        case AssumptionKey::Infinite: return !finite;
     }
     return std::nullopt;
 }

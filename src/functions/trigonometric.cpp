@@ -1,7 +1,9 @@
 #include <sympp/functions/trigonometric.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -834,20 +836,51 @@ Atan::Atan(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
     compute_hash(FunctionId::Atan);
 }
 Expr Atan::rebuild(std::vector<Expr> new_args) const { return atan(new_args[0]); }
-std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
-    const auto& a = args_[0];
+
+namespace {
+// atan is odd and strictly increasing on ℝ, always real and finite (bounded in
+// (−π/2, π/2)), so it preserves the argument's sign: atan(x) > 0 ⇔ x > 0,
+// atan(x) = 0 ⇔ x = 0.
+[[nodiscard]] std::optional<bool> ask_atan(const Expr& a,
+                                           AssumptionKey k) noexcept {
     switch (k) {
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return std::nullopt;  // derived by the generic ask() layer
-
         case AssumptionKey::Real:
         case AssumptionKey::Finite:
             if (is_real(a) == true) return true;
             return std::nullopt;
+        case AssumptionKey::Positive:
+            if (is_positive(a) == true) return true;
+            if (is_real(a) == true
+                && (is_negative(a) == true || is_zero(a) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Negative:
+            if (is_negative(a) == true) return true;
+            if (is_real(a) == true
+                && (is_positive(a) == true || is_zero(a) == true)) {
+                return false;
+            }
+            return std::nullopt;
+        case AssumptionKey::Zero:
+            if (is_zero(a) == true) return true;
+            if (is_real(a) == true && is_nonzero(a) == true) return false;
+            return std::nullopt;
+        case AssumptionKey::Nonzero:
+            if (is_real(a) == true && is_nonzero(a) == true) return true;
+            if (is_zero(a) == true) return false;
+            return std::nullopt;
         default:
             return std::nullopt;
     }
+}
+}  // namespace
+
+std::optional<bool> Atan::ask(AssumptionKey k) const noexcept {
+    return ask_atan(args_[0], k);
 }
 
 // ----- Inverse reciprocal trio: acot / asec / acsc ---------------------------
@@ -983,9 +1016,56 @@ namespace {
 
 }  // namespace
 
+// Inverse-of-direct trig composition with a concrete real argument. For
+// arg = sin(a) / cos(a) / tan(a) with a a real number, return the principal-range
+// value of asin(sin a) / acos(cos a) / atan(tan a) — a folded into [−π/2, π/2] /
+// [0, π] / (−π/2, π/2). Symbolic or non-real arguments are left unevaluated,
+// matching SymPy. Triangle-wave identities (k = round(a/π), m = round(a/(2π))):
+//   atan(tan a) = a − k·π,   asin(sin a) = (−1)^k·(a − k·π),   acos(cos a) = |a − 2m·π|.
+[[nodiscard]] std::optional<Expr> inverse_of_direct(FunctionId inv,
+                                                    FunctionId direct,
+                                                    const Expr& arg) {
+    if (arg->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*arg);
+    if (fn.function_id() != direct || fn.args().size() != 1) return std::nullopt;
+    const Expr& a = fn.args()[0];
+    if (is_real(a) == std::optional<bool>{false}) return std::nullopt;
+    Expr af = evalf(a, 40);
+    if (af->type_id() != TypeId::Float) return std::nullopt;
+    double av = 0.0;
+    try {
+        av = std::stod(af->str());
+    } catch (...) {
+        return std::nullopt;
+    }
+    const double pi = 3.14159265358979323846;
+    // a − n·π and n·π − a as flat Adds (numeric terms fold in the Add factory).
+    auto a_minus = [&](long n) { return add(a, mul(integer(-n), S::Pi())); };
+    auto minus_a = [&](long n) {
+        return add(mul(S::NegativeOne(), a), mul(integer(n), S::Pi()));
+    };
+    if (inv == FunctionId::Atan) {
+        const long k = std::llround(av / pi);
+        return a_minus(k);
+    }
+    if (inv == FunctionId::Asin) {
+        const long k = std::llround(av / pi);
+        return (k % 2 == 0) ? a_minus(k) : minus_a(k);
+    }
+    if (inv == FunctionId::Acos) {
+        const long m = std::llround(av / (2.0 * pi));
+        const double bv = av - 2.0 * static_cast<double>(m) * pi;  // a − 2mπ ∈ [−π,π]
+        return bv >= 0.0 ? a_minus(2 * m) : minus_a(2 * m);
+    }
+    return std::nullopt;
+}
+
 Expr asin(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_asin, arg);
+    }
+    if (auto v = inverse_of_direct(FunctionId::Asin, FunctionId::Sin, arg)) {
+        return *v;
     }
     // asin(I·y) = I·asinh(y) (inverse of sin(I·y) = I·sinh(y)).
     if (auto y = extract_i_factor(arg); y.has_value()) {
@@ -1003,6 +1083,9 @@ Expr asin(const Expr& arg) {
 Expr acos(const Expr& arg) {
     if (arg->type_id() == TypeId::Float) {
         return inv_trig_evalf(mpfr_acos, arg);
+    }
+    if (auto v = inverse_of_direct(FunctionId::Acos, FunctionId::Cos, arg)) {
+        return *v;
     }
     // acos(x) = π/2 − asin(x), but only adopt it when asin produced an exact
     // angle (otherwise keep acos(x) unevaluated, as SymPy does).
@@ -1032,6 +1115,9 @@ Expr atan(const Expr& arg) {
         return mul(S::NegativeOne(), atan(*pos));
     }
     if (auto v = atan_special(arg); v.has_value()) return *v;
+    if (auto v = inverse_of_direct(FunctionId::Atan, FunctionId::Tan, arg)) {
+        return *v;
+    }
     return make<Atan>(arg);
 }
 

@@ -313,6 +313,14 @@ Expr sign(const Expr& arg) {
         return S::One();
     }
 
+    // Idempotent: sign(sign(z)) = sign(z). sign(z) is already in {−1, 0, 1} for
+    // real z (and a unit complex for complex z), whose sign is itself.
+    if (arg->type_id() == TypeId::Function
+        && static_cast<const Function&>(*arg).function_id()
+               == FunctionId::Sign) {
+        return arg;
+    }
+
     if (is_zero(arg) == true) return S::Zero();
     if (is_positive(arg) == true) return S::One();
     if (is_negative(arg) == true) return S::NegativeOne();

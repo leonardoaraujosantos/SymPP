@@ -47,6 +47,24 @@ namespace {
 // polynomial Σ f⁽ᵏ⁾(x0)/k!·(x−x0)ᵏ, or nullopt if a coefficient is non-finite
 // (a pole or an unresolved indeterminate), in which case the caller may try a
 // Laurent expansion instead.
+[[nodiscard]] int node_count(const Expr& e) noexcept {
+    int n = 0;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        ++n;
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
+
+// Above this derivative size, the removable-singularity limit is abandoned. The
+// high-order derivatives of a composite like log(sin x / x) balloon (the 5th has
+// ~350 nodes) and their limit can take ~100 s only to return nan; bailing here
+// hands the expression to the composition / Laurent paths, which resolve it
+// directly and quickly. Legitimate removable cases (sin x / x and friends) keep
+// small derivatives and stay well under the cap.
+constexpr int kTaylorLimitNodeCap = 128;
+
 [[nodiscard]] std::optional<Expr> taylor_series(const Expr& expr,
                                                 const Expr& var, const Expr& x0,
                                                 std::size_t n) {
@@ -58,7 +76,11 @@ namespace {
         Expr value_at_x0 = subs(current_deriv, var, x0);
         if (is_non_finite(value_at_x0)) {
             // A removable singularity (0/0 like sin(x)/x) has a finite limit;
-            // a genuine singularity (log, 1/x) does not.
+            // a genuine singularity (log, 1/x) does not. A ballooning composite
+            // derivative is handed off rather than timed out (see the cap).
+            if (node_count(current_deriv) > kTaylorLimitNodeCap) {
+                return std::nullopt;
+            }
             value_at_x0 = limit(current_deriv, var, x0);
             if (is_non_finite(value_at_x0)) return std::nullopt;
         }
@@ -127,7 +149,8 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_laurent_series(const Expr& expr,
                                                      const Expr& var,
                                                      const Expr& x0,
-                                                     std::size_t n) {
+                                                     std::size_t n,
+                                                     bool only_if_pole = false) {
     if (!(x0 == S::Zero())) return std::nullopt;  // implemented at 0 only
     Expr e = rewrite_reciprocal_trig(expr);
 
@@ -175,6 +198,9 @@ namespace {
     const long vN = valuation(a);
     const long vD = valuation(b);
     if (vD < 0) return std::nullopt;            // denominator ≡ 0
+    // When asked only to pre-empt poles, defer an analytic ratio (denominator
+    // non-vanishing at 0) to the Taylor path, which keeps its existing form.
+    if (only_if_pole && vD == 0) return std::nullopt;
     if (vN < 0) return Expr{S::Zero()};         // numerator ≡ 0
     const long lead = vN - vD;                  // leading exponent of result
     const long L = static_cast<long>(n) - lead;  // terms for exponents lead..n−1
@@ -280,6 +306,14 @@ namespace {
 
 Expr series(const Expr& expr, const Expr& var, const Expr& x0, std::size_t n) {
     if (n == 0) return S::Zero();
+    // A ratio whose denominator vanishes at x0 (removable singularity or pole)
+    // is expanded by Laurent division first: the Taylor path would otherwise
+    // compute n derivative coefficients each via a hard 0/0 limit and can hang
+    // (e.g. x/(exp(x)−1), x/sin(x), x²/(1−cos x)). Laurent expands numerator and
+    // denominator separately, so no division-induced indeterminate ever arises.
+    if (auto l = try_laurent_series(expr, var, x0, n, /*only_if_pole=*/true)) {
+        return *l;
+    }
     // Analytic functions expand as an ordinary Taylor polynomial.
     if (auto t = taylor_series(expr, var, x0, n)) return *t;
     // A composite f(g) whose direct Taylor derivatives hit hard limits — e.g.

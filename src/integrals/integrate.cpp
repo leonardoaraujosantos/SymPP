@@ -29,6 +29,7 @@
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/expand.hpp>
 #include <sympp/simplify/simplify.hpp>
+#include <sympp/functions/combinatorial.hpp>  // gamma
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/hyperbolic.hpp>
@@ -92,6 +93,10 @@ as_affine(const Expr& e, const Expr& var) {
 }  // namespace
 Expr integrate(const Expr& expr, const Expr& var);
 namespace {
+
+// Forward decls of the Integral-marker helpers (defined below integrate()).
+[[nodiscard]] bool is_integral_marker(const Expr& e);
+[[nodiscard]] bool contains_integral_marker(const Expr& e);
 
 // Try the elementary table on a single term. Returns std::nullopt if the
 // term is outside the table.
@@ -517,15 +522,74 @@ namespace {
 constexpr int kMaxIntegrateDepth = 64;
 thread_local int g_integrate_depth = 0;
 
+// Total-work budget per top-level integrate() call. The depth guard alone bounds
+// *linear* recursion (the cyclic ∫eˣ·sin x reappears at depth, not width), but
+// partial-fraction × by-parts branching is *exponential*: a non-elementary
+// integrand like log(x)/(x²−4) splits into pieces that each split again, and the
+// by-parts ping-pong between log(x)/(x−a) and log(x−a)/x never terminates, so the
+// cumulative call count explodes long before depth 64 — it hangs rather than
+// overflows. Capping the total number of integrate() invocations bounds the work
+// whatever the branch shape; on exhaustion we bail to the unevaluated marker. The
+// cap is ~6× the high-water mark observed across the whole test suite (159), so it
+// never trips a legitimately solvable integral.
+constexpr int kMaxIntegrateCalls = 1000;
+thread_local int g_integrate_calls = 0;
+
 struct IntegrateDepthGuard {
     IntegrateDepthGuard() { ++g_integrate_depth; }
     ~IntegrateDepthGuard() { --g_integrate_depth; }
 };
 
+// ∫ x^p·e^{-x} dx = γ(p+1, x) (lower incomplete gamma), for a *symbolic*
+// exponent p. The non-elementary antiderivative of x^p·e^{-x} is exactly the
+// lower incomplete gamma; SymPy returns the same. Restricted to a non-numeric p
+// so a non-negative integer power keeps the elementary by-parts result (no
+// regression) and the singular orders (p a non-positive integer → γ(0,·)) are
+// avoided. A constant intercept b in the exponent (e^{-x+b}) and any var-free
+// coefficient factor out.
+[[nodiscard]] std::optional<Expr> try_powexp_lowergamma(const Expr& expr,
+                                                        const Expr& var) {
+    if (expr->type_id() != TypeId::Mul) return std::nullopt;
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::optional<Expr> p_exp;      // p in x^p
+    std::optional<Expr> intercept;  // b in exp(-x + b)
+    std::vector<Expr> coeff;
+    for (const auto& f : expr->args()) {
+        if (!p_exp && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && !depends_on(f->args()[1], var) && !is_num(f->args()[1])) {
+            p_exp = f->args()[1];
+            continue;
+        }
+        if (!intercept && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Exp && fn.args().size() == 1) {
+                if (auto aff = as_affine(fn.args()[0], var);
+                    aff && aff->first == S::NegativeOne()) {
+                    intercept = aff->second;  // b
+                    continue;
+                }
+            }
+        }
+        if (depends_on(f, var)) return std::nullopt;  // foreign var factor
+        coeff.push_back(f);
+    }
+    if (!p_exp || !intercept) return std::nullopt;
+    Expr result = lowergamma(add(*p_exp, S::One()), var);
+    if (!(*intercept == S::Zero())) result = mul(exp(*intercept), result);
+    if (!coeff.empty()) result = mul(mul(std::move(coeff)), result);
+    return result;
+}
+
 Expr integrate(const Expr& expr, const Expr& var) {
     if (!expr || !var) return S::Zero();
 
-    if (g_integrate_depth >= kMaxIntegrateDepth) {
+    if (g_integrate_depth == 0) g_integrate_calls = 0;  // reset at the top level
+    if (g_integrate_depth >= kMaxIntegrateDepth
+        || ++g_integrate_calls > kMaxIntegrateCalls) {
         return function_symbol("Integral")(expr, var);
     }
     IntegrateDepthGuard depth_guard;
@@ -639,6 +703,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
     if (auto r = try_gaussian(expr, var); r.has_value()) {
         return *r;
     }
+    if (auto r = try_powexp_lowergamma(expr, var); r.has_value()) {
+        return *r;
+    }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {
         return *r;
     }
@@ -647,6 +714,18 @@ Expr integrate(const Expr& expr, const Expr& var) {
     }
     if (auto r = try_weierstrass(expr, var); r.has_value()) {
         return *r;
+    }
+
+    // Last resort before giving up: expand a product or power that distributes
+    // into a sum (x³·(1−x)² → x³ − 2x⁴ + x⁵, x²·(1−x) → x² − x³) and integrate
+    // term-wise via linearity. Guarded to only recurse when expansion actually
+    // produced a different Add, so already-expanded input can't loop.
+    if (expr->type_id() == TypeId::Mul || expr->type_id() == TypeId::Pow) {
+        Expr ex = expand(expr);
+        if (!(ex == expr) && ex->type_id() == TypeId::Add) {
+            Expr r = integrate(ex, var);
+            if (!contains_integral_marker(r)) return r;
+        }
     }
 
     // Outside the closed-form table — return an unevaluated marker. Use an
@@ -672,6 +751,21 @@ namespace {
     if (is_integral_marker(e)) return true;
     for (const auto& a : e->args()) {
         if (contains_integral_marker(a)) return true;
+    }
+    return false;
+}
+
+// True if `e` contains an infinity node buried below the top level — e.g.
+// exp(a·-oo), Si(a·oo), atan(sinh(a·oo)). Newton–Leibniz produces such noise
+// when a boundary limit cannot resolve a symbolic parameter's sign: the
+// substitution leaks a raw ±oo that no rule folds away. A legitimate result is
+// either finite (no infinity anywhere) or exactly ±oo/zoo at the top, so any
+// infinity strictly below the root marks the evaluation as garbage.
+[[nodiscard]] bool has_buried_infinity(const Expr& e, bool at_top) {
+    if (!e) return false;
+    if (!at_top && is_infinity(e)) return true;
+    for (const auto& a : e->args()) {
+        if (has_buried_infinity(a, false)) return true;
     }
     return false;
 }
@@ -3532,6 +3626,84 @@ std::optional<Expr> try_gaussian(const Expr& expr, const Expr& var) {
     return std::nullopt;
 }
 
+// Fourier integral of a real Gaussian over the full or half line:
+//   ∫_{−∞}^{∞} exp(−a·x²)·cos(b·x) dx = √(π/a)·exp(−b²/(4a))   (a > 0, b real)
+//   ∫_{−∞}^{∞} exp(−a·x²)·sin(b·x) dx = 0                       (odd integrand)
+//   ∫_{0}^{∞}  exp(−a·x²)·cos(b·x) dx = ½·√(π/a)·exp(−b²/(4a))
+// The integrand has no elementary antiderivative, so the Newton–Leibniz path
+// produces garbage; detect the closed form directly. Requires a pure even
+// Gaussian exp(c·x²) with c a provably-negative leading coefficient and a trig
+// factor cos/sin(b·x) linear in x with a real coefficient. A constant prefactor
+// is carried through. The half-line sine (a Dawson/erfi value) is left to the
+// general machinery.
+[[nodiscard]] std::optional<Expr> try_gaussian_fourier(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& lower,
+                                                       const Expr& upper) {
+    if (upper->type_id() != TypeId::Infinity) return std::nullopt;
+    bool full;
+    if (lower->type_id() == TypeId::NegativeInfinity) {
+        full = true;
+    } else if (lower == S::Zero()) {
+        full = false;
+    } else {
+        return std::nullopt;
+    }
+
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr coeff = S::One();
+    Expr gauss_a;  // a = −c₂ > 0
+    Expr trig_b;   // b in cos/sin(b·x)
+    bool have_gauss = false, have_trig = false, is_sin = false;
+    for (const auto& f : factors) {
+        if (!has(f, var)) { coeff = mul(coeff, f); continue; }
+        if (f->type_id() != TypeId::Function) return std::nullopt;
+        const auto& fn = static_cast<const Function&>(*f);
+        const FunctionId id = fn.function_id();
+        if (id == FunctionId::Exp && fn.args().size() == 1 && !have_gauss) {
+            Poly p(expand(fn.args()[0]), var);
+            if (p.degree() == 2 && p.coeffs()[0] == S::Zero()
+                && p.coeffs()[1] == S::Zero()
+                && is_negative(p.coeffs()[2]) == std::optional<bool>{true}) {
+                gauss_a = simplify(mul(S::NegativeOne(), p.coeffs()[2]));
+                have_gauss = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        if ((id == FunctionId::Cos || id == FunctionId::Sin)
+            && fn.args().size() == 1 && !have_trig) {
+            Poly p(expand(fn.args()[0]), var);
+            if (p.degree() == 1 && p.coeffs()[0] == S::Zero()
+                && is_real(p.coeffs()[1]) == std::optional<bool>{true}) {
+                trig_b = p.coeffs()[1];
+                is_sin = (id == FunctionId::Sin);
+                have_trig = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        return std::nullopt;  // an unexpected var-dependent factor
+    }
+    if (!have_gauss || !have_trig) return std::nullopt;
+
+    // Odd integrand over the symmetric line integrates to 0; the half-line sine
+    // is not elementary here.
+    if (is_sin) return full ? std::optional<Expr>{S::Zero()} : std::nullopt;
+
+    Expr value = mul(sqrt(S::Pi() / gauss_a),
+                     exp(mul(S::NegativeOne(),
+                             pow(trig_b, integer(2)) / (integer(4) * gauss_a))));
+    Expr result = mul(coeff, value);
+    if (!full) result = result / integer(2);
+    return simplify(result);
+}
+
 std::optional<Expr> try_expint_integral(const Expr& expr, const Expr& var) {
     if (expr->type_id() != TypeId::Mul) return std::nullopt;
     Expr func;                    // the sin/cos/exp factor
@@ -3782,10 +3954,470 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(add(std::move(pieces)));
 }
 
+// ∫₀^∞ x^p / (e^{c·x} ∓ 1) dx in closed form. For the Bose–Einstein kernel
+// (denominator e^{cx} − 1) the value is Γ(p+1)·ζ(p+1)/c^{p+1} (the Debye /
+// Stefan–Boltzmann integral); for the Fermi–Dirac kernel (e^{cx} + 1) it is
+// Γ(p+1)·(1 − 2^{−p})·ζ(p+1)/c^{p+1}, using the Dirichlet eta η(s) =
+// (1 − 2^{1−s})·ζ(s). Requires a monomial x^p with p > 0 (so the integral
+// converges at 0 and ζ(p+1) sits below its pole), an exponent c·x with c a
+// positive constant, and bounds [0, ∞). The antiderivative is non-elementary,
+// so Newton–Leibniz would otherwise return an unevaluated marker. (SymPy leaves
+// these unevaluated; the closed form is a standard result, verified numerically.)
+[[nodiscard]] std::optional<Expr> try_bose_einstein(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& lower,
+                                                    const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr c;                  // exponent rate
+    int sign = 0;            // −1 Bose (e^{cx}−1), +1 Fermi (e^{cx}+1)
+    bool found = false;
+    Expr coeff = S::One();   // constant multiplier
+    Expr p = S::Zero();      // total power of var in the monomial
+    for (const auto& f : factors) {
+        // Kernel factor: Pow(Add(exp(c·var), ±1), −1).
+        if (!found && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Add
+            && f->args()[0]->args().size() == 2) {
+            const Expr& base = f->args()[0];
+            Expr expterm, constterm;
+            for (const auto& t : base->args()) {
+                if (t->type_id() == TypeId::Function
+                    && static_cast<const Function&>(*t).function_id()
+                           == FunctionId::Exp) {
+                    expterm = t;
+                } else {
+                    constterm = t;
+                }
+            }
+            if (expterm
+                && (constterm == S::One() || constterm == S::NegativeOne())) {
+                Expr g = static_cast<const Function&>(*expterm).args()[0];
+                Expr cc = simplify(mul(g, pow(var, S::NegativeOne())));
+                if (!has(cc, var)
+                    && is_positive(cc) == std::optional<bool>{true}) {
+                    c = cc;
+                    sign = (constterm == S::NegativeOne()) ? -1 : 1;
+                    found = true;
+                    continue;
+                }
+            }
+        }
+        // Otherwise this factor belongs to the coeff·x^p monomial.
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;  // monomial part is not coeff·x^p
+        }
+    }
+    if (!found) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps) || is_positive(ps) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, gamma(s), zeta(s),
+                      pow(c, mul(S::NegativeOne(), s))});
+    if (sign > 0) {  // Fermi: × (1 − 2^{−p})
+        value = mul(value,
+                    add(S::One(),
+                        mul(S::NegativeOne(),
+                            pow(integer(2), mul(S::NegativeOne(), ps)))));
+    }
+    return simplify(value);
+}
+
+// ∫₀^∞ x^p · e^{−c·x} · log(x) dx = Γ(p+1)·(ψ(p+1) − log c)/c^{p+1}, the
+// derivative of the Γ-integral ∫₀^∞ x^{s−1} e^{−cx} dx = Γ(s)/c^s with respect to
+// s. Requires a single log(x) factor, an exp(−c·x) with c a positive constant, a
+// monomial coeff·x^p with p > −1 (convergent at 0), and bounds [0, ∞). The
+// antiderivative is non-elementary, so Newton–Leibniz leaves nan. ψ = digamma
+// evaluates at integer / half-integer p (see SPECVAL-2), giving e.g.
+// ∫₀^∞ e^{−x} log x = −γ, ∫₀^∞ x³ e^{−x} log x = 11 − 6γ. Matches SymPy.
+[[nodiscard]] std::optional<Expr> try_gamma_log_integral(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& lower,
+                                                         const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr logx = log(var);
+    bool has_log = false, has_exp = false;
+    Expr c, coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        if (!has_log && f == logx) {
+            has_log = true;
+            continue;
+        }
+        if (!has_exp && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Exp
+            && f->args().size() == 1) {
+            Expr g = static_cast<const Function&>(*f).args()[0];
+            Expr rate = simplify(mul(g, pow(var, S::NegativeOne())));  // = −c
+            if (!has(rate, var)
+                && is_negative(rate) == std::optional<bool>{true}) {
+                c = simplify(mul(S::NegativeOne(), rate));
+                has_exp = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_exp) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps)
+        || is_positive(add(ps, S::One())) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > −1 for convergence at 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, gamma(s),
+                      add(polygamma(S::Zero(), s),
+                          mul(S::NegativeOne(), log(c))),
+                      pow(c, mul(S::NegativeOne(), s))});
+    return simplify(value);
+}
+
+// The Gamma-function integral ∫₀^∞ x^(s−1)·e^(−c·x) dx = Γ(s)/c^s for c > 0 and
+// Re(s) > 0 (s = p+1). Unlike the indefinite x^p·e^(−x) → γ(p+1, x) rule, the
+// upper bound is +∞: SymPy reaches Γ(s) through a Meijer-G definite path and
+// deliberately keeps γ(s, ∞) symbolic, so Newton–Leibniz on the antiderivative
+// cannot recover it. Handles a symbolic exponent (the headline Γ(s) case) as
+// well as a numeric one; a numeric p must satisfy p > −1 for convergence at 0.
+[[nodiscard]] std::optional<Expr> try_gamma_integral(const Expr& expr,
+                                                     const Expr& var,
+                                                     const Expr& lower,
+                                                     const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    bool has_exp = false;
+    Expr c, coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        if (!has_exp && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Exp
+            && f->args().size() == 1) {
+            Expr g = static_cast<const Function&>(*f).args()[0];
+            Expr rate = simplify(mul(g, pow(var, S::NegativeOne())));  // = −c
+            if (!has(rate, var)
+                && is_negative(rate) == std::optional<bool>{true}) {
+                c = simplify(mul(S::NegativeOne(), rate));
+                has_exp = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && !has(f->args()[1], var)) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_exp) return std::nullopt;
+    Expr ps = simplify(p);
+    // A numeric power needs p > −1 to converge at 0; a symbolic order is taken on
+    // trust (matching SymPy's Γ(s) for a positive symbol).
+    if (is_num(ps)
+        && is_positive(add(ps, S::One())) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr s = add(ps, S::One());
+    return simplify(mul({coeff, gamma(s), pow(c, mul(S::NegativeOne(), s))}));
+}
+
+// ∫₀^∞ log(x)/(x² + A) dx = π·log(A)/(4·√A) for a positive constant A (a known
+// result, equivalently π·log(a)/(2a) with A = a²). Gives ∫₀^∞ log(x)/(x²+1) = 0,
+// ∫₀^∞ log(x)/(x²+4) = π·log(4)/8. The antiderivative is non-elementary, so
+// Newton–Leibniz leaves an unevaluated marker. Matches SymPy (for a concrete A).
+[[nodiscard]] std::optional<Expr> try_log_over_quadratic(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& lower,
+                                                         const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr logx = log(var);
+    const Expr xsq = pow(var, integer(2));
+    bool has_log = false, has_denom = false;
+    Expr A, coeff = S::One();
+    for (const auto& f : factors) {
+        if (!has_log && f == logx) {
+            has_log = true;
+            continue;
+        }
+        // Denominator (x² + A)^(-1) with A a constant free of var.
+        if (!has_denom && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = f->args()[0];
+            bool found_xsq = false;
+            std::vector<Expr> consts;
+            bool ok = true;
+            for (const auto& t : base->args()) {
+                if (!found_xsq && t == xsq) {
+                    found_xsq = true;
+                } else if (!has(t, var)) {
+                    consts.push_back(t);
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok && found_xsq && !consts.empty()) {
+                A = add(std::move(consts));
+                has_denom = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_denom
+        || is_positive(A) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr sqrtA = pow(A, rational(1, 2));
+    Expr value = mul({coeff, S::Pi(), log(A),
+                      pow(mul(integer(4), sqrtA), S::NegativeOne())});
+    return simplify(value);
+}
+
+// ∫₀^∞ x^p / sinh(c·x) dx = 2·Γ(p+1)·(1 − 2^{−(p+1)})·ζ(p+1) / c^{p+1} for p > 0,
+// c > 0. From 1/sinh(cx) = 2·Σ_{k≥0} e^{−(2k+1)cx} and term-wise Γ-integration, the
+// odd-denominator zeta Σ 1/(2k+1)^s = (1 − 2^{−s})ζ(s). Gives ∫₀^∞ x/sinh x = π²/4,
+// ∫₀^∞ x³/sinh x = π⁴/8, ∫₀^∞ x²/sinh x = 7ζ(3)/2. Non-elementary antiderivative,
+// so Newton–Leibniz leaves an unevaluated marker. (SymPy leaves these unevaluated;
+// the closed form is verified numerically.)
+[[nodiscard]] std::optional<Expr> try_sinh_integral(const Expr& expr,
+                                                    const Expr& var,
+                                                    const Expr& lower,
+                                                    const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr c;
+    bool found = false;
+    Expr coeff = S::One(), p = S::Zero();
+    for (const auto& f : factors) {
+        // Kernel factor: sinh(c·var)^{-1}.
+        if (!found && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()
+            && f->args()[0]->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f->args()[0]).function_id()
+                   == FunctionId::Sinh
+            && f->args()[0]->args().size() == 1) {
+            Expr g = f->args()[0]->args()[0];
+            Expr cc = simplify(mul(g, pow(var, S::NegativeOne())));
+            if (!has(cc, var)
+                && is_positive(cc) == std::optional<bool>{true}) {
+                c = cc;
+                found = true;
+                continue;
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else if (f == var) {
+            p = add(p, S::One());
+        } else if (f->type_id() == TypeId::Pow && f->args()[0] == var
+                   && is_num(f->args()[1])) {
+            p = add(p, f->args()[1]);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!found) return std::nullopt;
+    Expr ps = simplify(p);
+    if (!is_num(ps) || is_positive(ps) != std::optional<bool>{true}) {
+        return std::nullopt;  // need p > 0 for convergence at 0
+    }
+    Expr s = add(ps, S::One());
+    Expr value = mul({coeff, integer(2), gamma(s),
+                      add(S::One(), mul(S::NegativeOne(),
+                                        pow(integer(2),
+                                            mul(S::NegativeOne(), s)))),
+                      zeta(s), pow(c, mul(S::NegativeOne(), s))});
+    return simplify(value);
+}
+
+// ∫₀^∞ log(1 + c·x²)/x² dx = π·√c for a positive constant c (by differentiating
+// under the integral in c). The constant term inside the log must be 1 so the
+// integrand ~ c at 0 (convergent); a non-unit constant would leave log(a)/x²,
+// divergent at 0. Gives ∫₀^∞ log(1+x²)/x² = π, ∫₀^∞ log(1+4x²)/x² = 2π. The
+// antiderivative is non-elementary, so Newton–Leibniz leaves a marker. Matches
+// SymPy.
+[[nodiscard]] std::optional<Expr> try_log1px2_integral(const Expr& expr,
+                                                       const Expr& var,
+                                                       const Expr& lower,
+                                                       const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    const Expr xsq = pow(var, integer(2));
+    bool has_log = false, has_denom = false;
+    Expr c, coeff = S::One();
+    for (const auto& f : factors) {
+        // log(1 + c·x²): an Add whose terms are the constant 1 and c·x².
+        if (!has_log && f->type_id() == TypeId::Function
+            && static_cast<const Function&>(*f).function_id() == FunctionId::Log
+            && f->args().size() == 1
+            && f->args()[0]->type_id() == TypeId::Add) {
+            const Expr& base = f->args()[0];
+            bool has_one = false, has_xsq = false;
+            Expr cc = S::One();
+            bool ok = true;
+            for (const auto& t : base->args()) {
+                if (!has_one && t == S::One()) {
+                    has_one = true;
+                } else if (t == xsq) {
+                    has_xsq = true;  // coefficient 1
+                } else if (t->type_id() == TypeId::Mul) {
+                    // const·x²: collect the constant factors, require one x².
+                    std::vector<Expr> consts;
+                    bool found_xsq = false;
+                    for (const auto& g : t->args()) {
+                        if (!found_xsq && g == xsq) {
+                            found_xsq = true;
+                        } else if (!has(g, var)) {
+                            consts.push_back(g);
+                        } else {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if (!ok || !found_xsq) { ok = false; break; }
+                    has_xsq = true;
+                    cc = consts.empty() ? Expr{S::One()} : mul(std::move(consts));
+                } else {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok && has_one && has_xsq) {
+                c = cc;
+                has_log = true;
+                continue;
+            }
+        }
+        // 1/x² denominator.
+        if (!has_denom && f->type_id() == TypeId::Pow && f->args()[0] == var
+            && f->args()[1] == integer(-2)) {
+            has_denom = true;
+            continue;
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!has_log || !has_denom
+        || is_positive(c) != std::optional<bool>{true}) {
+        return std::nullopt;
+    }
+    Expr value = mul({coeff, S::Pi(), pow(c, rational(1, 2))});
+    return simplify(value);
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
               const Expr& lower, const Expr& upper) {
+    // Fourier integral of a real Gaussian (no elementary antiderivative — the
+    // Newton–Leibniz path below would otherwise garble it).
+    if (auto r = try_gaussian_fourier(expr, var, lower, upper)) return *r;
+    // Bose–Einstein / Fermi–Dirac ∫₀^∞ x^p/(e^{cx}∓1) = Γ(p+1)ζ(p+1)/c^{p+1}
+    // (× (1−2^{−p}) for the +1 kernel). Non-elementary antiderivative.
+    if (auto r = try_bose_einstein(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^p·e^{−cx}·log x = Γ(p+1)(ψ(p+1) − log c)/c^{p+1}. Non-elementary.
+    if (auto r = try_gamma_log_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^(s−1)·e^{−cx} = Γ(s)/c^s (the Gamma-function integral). SymPy keeps
+    // γ(s,∞) symbolic, so this dedicated rule is needed to recover Γ(s).
+    if (auto r = try_gamma_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ log(x)/(x²+A) = π·log(A)/(4√A) for A > 0. Non-elementary.
+    if (auto r = try_log_over_quadratic(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ x^p/sinh(cx) = 2Γ(p+1)(1−2^{−(p+1)})ζ(p+1)/c^{p+1}. Non-elementary.
+    if (auto r = try_sinh_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ log(1+c·x²)/x² = π·√c for c > 0. Non-elementary antiderivative.
+    if (auto r = try_log1px2_integral(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is
@@ -3801,20 +4433,70 @@ Expr integrate(const Expr& expr, const Expr& var,
     find_marker(find_marker, antider);
     if (antider_has_marker) {
         if (auto r = try_abs_definite(expr, var, lower, upper)) return *r;
+        // The antiderivative is unevaluated, so Newton–Leibniz cannot give a
+        // meaningful value — it would leak the marker or, worse, let simplify
+        // fold an Integral(0, b) term into a bogus 0. Return a clean unevaluated
+        // definite integral instead.
+        return function_symbol("Integral")(
+            std::vector<Expr>{expr, var, lower, upper});
     }
     // Newton-Leibniz with limit-aware boundary evaluation: at an infinite bound
     // (or when direct substitution lands on the unevaluated nan / an infinity —
     // e.g. ∞·0 from -(x+1)·e^(-x) at +∞) take the limit of the antiderivative
     // rather than substituting the bound literally.
-    auto eval_at = [&](const Expr& bound) -> Expr {
-        if (is_infinity(bound)) return limit(antider, var, bound);
-        Expr v = subs(antider, var, bound);
+    // `side` is the approach direction from inside the integration interval:
+    // +1 at the lower bound (x → a⁺), −1 at the upper bound (x → b⁻). The
+    // integrand is defined on the open interval, so a boundary value that direct
+    // substitution leaves indeterminate is the *one-sided* limit from within —
+    // e.g. ∫₀¹ (log x)² where x·(log x)² → 0 only as x → 0⁺ (the left side is
+    // complex, so a two-sided limit is nan). Falls back to the two-sided limit.
+    auto eval_at = [&var](const Expr& F, const Expr& bound, int side) -> Expr {
+        if (is_infinity(bound)) return limit(F, var, bound);
+        Expr v = subs(F, var, bound);
         if (v->type_id() == TypeId::NaN || is_infinity(v)) {
-            return limit(antider, var, bound);
+            Expr one = limit(F, var, bound, side);
+            if (one->type_id() != TypeId::NaN
+                && one->type_id() != TypeId::ComplexInfinity) {
+                return one;
+            }
+            return limit(F, var, bound);
         }
         return v;
     };
-    return eval_at(upper) - eval_at(lower);
+    Expr result =
+        simplify(eval_at(antider, upper, -1) - eval_at(antider, lower, +1));
+    // Retry on an expanded antiderivative when the boundary evaluation fails to
+    // resolve. A factored form like −½·(−2·Si(2x) − cos(2x)/x) − 1/(2x) hides a
+    // bounded special function inside a product, where the limit machinery folds
+    // the whole thing to a wrong value; the flattened Si(2x) + cos(2x)/(2x) −
+    // 1/(2x) lets the per-term limit rules resolve each piece. Closes ∫₀^∞
+    // sin²x/x² = π/2.
+    if (result->type_id() == TypeId::NaN || is_infinity(result)
+        || contains_integral_marker(result)
+        || has_buried_infinity(result, true)) {
+        Expr flat = expand(antider);
+        if (!(flat == antider)) {
+            Expr retried =
+                simplify(eval_at(flat, upper, -1) - eval_at(flat, lower, +1));
+            if (retried->type_id() != TypeId::NaN && !is_infinity(retried)
+                && !contains_integral_marker(retried)
+                && !has_buried_infinity(retried, true)) {
+                return retried;
+            }
+        }
+    }
+    // If the boundary evaluation still leaked an Integral marker, left a buried
+    // infinity, or came out as an indeterminate nan (e.g. a parametric integrand
+    // whose convergence depends on a sign — exp(−a·x) over [0,∞) with a of
+    // unknown sign), fall back to a clean unevaluated definite integral rather
+    // than emitting that noise. (A genuine divergence surfaces as a bare ±∞,
+    // handled by the is_infinity guard, and is returned as-is.)
+    if (contains_integral_marker(result) || result->type_id() == TypeId::NaN
+        || (!is_infinity(result) && has_buried_infinity(result, true))) {
+        return function_symbol("Integral")(
+            std::vector<Expr>{expr, var, lower, upper});
+    }
+    return result;
 }
 
 std::optional<Expr> manualintegrate(const Expr& expr, const Expr& var) {

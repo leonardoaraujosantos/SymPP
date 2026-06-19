@@ -17,7 +17,10 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/calculus/diff.hpp>
+#include <cmath>
+
 #include <sympp/functions/combinatorial.hpp>
+#include <sympp/simplify/simplify.hpp>
 #include <sympp/parsing/parser.hpp>
 
 #include "oracle/oracle.hpp"
@@ -94,6 +97,26 @@ TEST_CASE("binomial(n, 1) = n", "[3i][binomial][regression]") {
     REQUIRE(binomial(n, S::One()) == n);
     REQUIRE(binomial(integer(5), S::One()) == integer(5));
     // binomial(n, 2) is not a special identity — must stay symbolic.
+    REQUIRE(binomial(n, integer(2))->type_id() == TypeId::Function);
+}
+
+// BINOM-GEN-1: the generalized binomial C(n,k) = ∏_{i=0}^{k-1}(n−i)/k! for a
+// numeric upper index n (negative integer or rational) and a non-negative
+// integer k. The non-negative-integer case is exact (mpz), a symbolic upper
+// index stays symbolic. Matches SymPy.
+TEST_CASE("binomial: generalized for rational/negative upper index (BINOM-GEN-1)",
+          "[3i][binomial][regression]") {
+    auto n = symbol("n");
+    REQUIRE(binomial(rational(1, 2), integer(3)) == rational(1, 16));
+    REQUIRE(binomial(rational(7, 2), integer(2)) == rational(35, 8));
+    REQUIRE(binomial(rational(-1, 2), integer(4)) == rational(35, 128));
+    REQUIRE(binomial(integer(-1), integer(2)) == integer(1));
+    REQUIRE(binomial(integer(-3), integer(3)) == integer(-10));
+    // k = 0 / k = 1 degenerate correctly for a numeric upper index.
+    REQUIRE(binomial(rational(1, 2), integer(0)) == S::One());
+    REQUIRE(binomial(rational(1, 2), integer(1)) == rational(1, 2));
+    // Non-negative integer pairs stay exact; a symbolic upper index stays symbolic.
+    REQUIRE(binomial(integer(6), integer(2)) == integer(15));
     REQUIRE(binomial(n, integer(2))->type_id() == TypeId::Function);
 }
 
@@ -174,6 +197,42 @@ TEST_CASE("polygamma: special values at x = 1 (SPECVAL-1)",
     REQUIRE(polygamma(integer(1), symbol("x"))->str() == "polygamma(1, x)");
 }
 
+// SPECVAL-2: polygamma closed forms at any positive integer or half-integer
+// argument, via the recurrence ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1) from the
+// base values at 1 and 1/2. Previously only x = 1 was evaluated. Integer / digamma
+// cases are oracle-checked against SymPy; the half-integer order-≥1 cases (which
+// SymPy leaves unevaluated) are confirmed by the oracle's numeric .equals(0).
+TEST_CASE("polygamma/digamma: integer and half-integer values (SPECVAL-2)",
+          "[3i][polygamma][digamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto P = [](long n, const Expr& x) { return polygamma(integer(n), x); };
+    auto half = [](long num) { return rational(num, 2); };
+
+    // digamma (order 0) at integers: ψ(m) = −γ + H_{m−1}.
+    REQUIRE(oracle.equivalent(digamma(integer(2))->str(), "1 - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(3))->str(), "3/2 - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(integer(7))->str(),
+                              "49/20 - EulerGamma"));
+    // digamma at half-integers: ψ(1/2) = −γ − 2 log 2, ψ(m+1/2) adds 2·Σ 1/(2k−1).
+    REQUIRE(oracle.equivalent(digamma(half(1))->str(),
+                              "-2*log(2) - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(half(3))->str(),
+                              "2 - 2*log(2) - EulerGamma"));
+    REQUIRE(oracle.equivalent(digamma(half(5))->str(),
+                              "8/3 - 2*log(2) - EulerGamma"));
+    // Trigamma / higher order at integers.
+    REQUIRE(oracle.equivalent(P(1, integer(2))->str(), "pi**2/6 - 1"));
+    REQUIRE(oracle.equivalent(P(2, integer(2))->str(), "2 - 2*zeta(3)"));
+    // Half-integer, order ≥ 1 (SymPy leaves these unevaluated; values exact).
+    REQUIRE(oracle.equivalent(P(1, half(1))->str(), "pi**2/2"));
+    REQUIRE(oracle.equivalent(P(1, half(3))->str(), "pi**2/2 - 4"));
+    REQUIRE(oracle.equivalent(P(2, half(1))->str(), "-14*zeta(3)"));
+
+    // Generic and pole arguments are untouched.
+    REQUIRE(P(0, symbol("y"))->str() == "polygamma(0, y)");
+    REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
+}
+
 // POLYGAMMA-POLE-1: ψ⁽ⁿ⁾(x) = zoo at the nonpositive integers x ∈ {0, −1, −2, …}
 // for any non-negative integer order n (the Γ pole); digamma inherits it via
 // polygamma(0, ·). Matches SymPy.
@@ -185,10 +244,23 @@ TEST_CASE("polygamma/digamma: pole at nonpositive integers (POLYGAMMA-POLE-1)",
     REQUIRE(polygamma(integer(2), integer(-3)) == S::ComplexInfinity());
     REQUIRE(digamma(integer(0)) == S::ComplexInfinity());
     REQUIRE(digamma(integer(-5)) == S::ComplexInfinity());
-    // No over-reach: positive integers, half-integers, and symbols stay symbolic.
-    REQUIRE(polygamma(integer(0), integer(2))->type_id() == TypeId::Function);
-    REQUIRE(polygamma(integer(0), rational(1, 2))->type_id() == TypeId::Function);
+    // No over-reach: the pole rule must not fire for positive arguments. Positive
+    // integers and half-integers now evaluate to finite closed forms (SPECVAL-2),
+    // not zoo; a symbol stays symbolic.
+    REQUIRE_FALSE(polygamma(integer(0), integer(2)) == S::ComplexInfinity());
+    REQUIRE_FALSE(polygamma(integer(0), rational(1, 2))
+                  == S::ComplexInfinity());
     REQUIRE(polygamma(integer(0), symbol("x"))->type_id() == TypeId::Function);
+}
+
+// POLYGAMMA-INF-1: ψ(x) → +∞ but every higher ψ⁽ⁿ⁾(x) → 0 as x → +∞.
+TEST_CASE("polygamma/digamma: values at +infinity (POLYGAMMA-INF-1)",
+          "[3i][polygamma][digamma][regression]") {
+    REQUIRE(digamma(S::Infinity()) == S::Infinity());
+    REQUIRE(polygamma(integer(0), S::Infinity()) == S::Infinity());
+    REQUIRE(polygamma(integer(1), S::Infinity()) == S::Zero());
+    REQUIRE(polygamma(integer(2), S::Infinity()) == S::Zero());
+    REQUIRE(polygamma(integer(5), S::Infinity()) == S::Zero());
 }
 
 // ----- loggamma --------------------------------------------------------------
@@ -640,4 +712,87 @@ TEST_CASE("beta: symbolic args stay unevaluated", "[3i][beta][parser]") {
     REQUIRE(beta(a, b)->type_id() == TypeId::Function);
     REQUIRE(parsing::parse("beta(a, b)") == beta(a, b));
     REQUIRE(beta(a, b)->str() == "beta(a, b)");
+}
+
+// FUNC-INCGAMMA-1: lowergamma/uppergamma as real function classes — the
+// positive-integer first argument collapses to the closed elementary form, the
+// derivatives are exact, and symbolic orders stay unevaluated and round-trip.
+TEST_CASE("incomplete gamma: closed forms, derivatives, round-trip (FUNC-INCGAMMA-1)",
+          "[3i][incompletegamma][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto s = symbol("s");
+
+    // Closed forms for a positive-integer order (match SymPy).
+    REQUIRE(oracle.equivalent(uppergamma(integer(1), x)->str(), "exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(integer(1), x)->str(), "1 - exp(-x)"));
+    REQUIRE(oracle.equivalent(uppergamma(integer(2), x)->str(), "(x + 1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(integer(2), x)->str(),
+                              "1 - (x + 1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(uppergamma(integer(3), x)->str(),
+                              "2*(x**2/2 + x + 1)*exp(-x)"));
+
+    // γ(s,x) + Γ(s,x) = Γ(s); here Γ(3) = 2.
+    REQUIRE(simplify(add(uppergamma(integer(3), x), lowergamma(integer(3), x)))
+            == integer(2));
+
+    // Special points.
+    REQUIRE(uppergamma(integer(2), integer(0)) == integer(1));  // Γ(2,0)=Γ(2)
+    REQUIRE(lowergamma(integer(2), integer(0)) == S::Zero());   // γ(s,0)=0
+    REQUIRE(uppergamma(integer(3), S::Infinity()) == S::Zero());  // Γ(s,∞)=0
+
+    // Derivatives: d/dx γ(s,x)= xˢ⁻¹e⁻ˣ, d/dx Γ(s,x)= −xˢ⁻¹e⁻ˣ.
+    REQUIRE(oracle.equivalent(diff(lowergamma(s, x), x)->str(),
+                              "x**(s-1)*exp(-x)"));
+    REQUIRE(oracle.equivalent(diff(uppergamma(s, x), x)->str(),
+                              "-x**(s-1)*exp(-x)"));
+
+    // Symbolic order stays unevaluated and round-trips through the parser.
+    REQUIRE(uppergamma(s, x)->type_id() == TypeId::Function);
+    REQUIRE(lowergamma(s, x)->type_id() == TypeId::Function);
+    REQUIRE(parsing::parse("uppergamma(s, x)") == uppergamma(s, x));
+    REQUIRE(parsing::parse("lowergamma(s, x)") == lowergamma(s, x));
+    REQUIRE(uppergamma(s, x)->str() == "uppergamma(s, x)");
+
+    // Real for real order and argument.
+    auto sr = symbol("sr", AssumptionMask{}.set_real(true));
+    auto xr = symbol("xr", AssumptionMask{}.set_real(true));
+    REQUIRE(is_real(uppergamma(sr, xr)) == true);
+    REQUIRE(is_real(lowergamma(sr, xr)) == true);
+}
+
+// FUNC-INCGAMMA-HALF-1: half-integer orders reduce to erf/erfc closed forms via
+// the recurrence V(s+1) = s·V(s) ± x^s·e^{-x}, up and down from the base
+// Γ(1/2,x)=√π·erfc(√x), γ(1/2,x)=√π·erf(√x). Matches SymPy.
+TEST_CASE("incomplete gamma: half-integer erf/erfc forms (FUNC-INCGAMMA-HALF-1)",
+          "[3i][incompletegamma][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+
+    // Base order 1/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(1, 2), x)->str(),
+                              "sqrt(pi)*erfc(sqrt(x))"));
+    REQUIRE(oracle.equivalent(lowergamma(rational(1, 2), x)->str(),
+                              "sqrt(pi)*erf(sqrt(x))"));
+    // Climb: 3/2 and 5/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(3, 2), x)->str(),
+                              "sqrt(pi)*erfc(sqrt(x))/2 + sqrt(x)*exp(-x)"));
+    REQUIRE(oracle.equivalent(lowergamma(rational(3, 2), x)->str(),
+                              "sqrt(pi)*erf(sqrt(x))/2 - sqrt(x)*exp(-x)"));
+    REQUIRE(oracle.equivalent(
+        uppergamma(rational(5, 2), x)->str(),
+        "3*sqrt(pi)*erfc(sqrt(x))/4 + x**(3/2)*exp(-x) + 3*sqrt(x)*exp(-x)/2"));
+    // Descend: −1/2.
+    REQUIRE(oracle.equivalent(uppergamma(rational(-1, 2), x)->str(),
+                              "-2*sqrt(pi)*erfc(sqrt(x)) + 2*exp(-x)/sqrt(x)"));
+
+    // γ + Γ = Γ(s); Γ(3/2) = √π/2. (SymPy's simplify won't fold erf+erfc=1, so
+    // verify the identity numerically at a sample point instead.)
+    Expr sum = add(uppergamma(rational(3, 2), x), lowergamma(rational(3, 2), x));
+    Expr diff = subs(sum, x, integer(2)) - gamma(rational(3, 2));
+    REQUIRE(std::fabs(std::stod(evalf(diff, 30)->str())) < 1e-15);
+
+    // Γ(1/2, 0) = Γ(1/2) = √π.
+    REQUIRE(oracle.equivalent(uppergamma(rational(1, 2), integer(0))->str(),
+                              "sqrt(pi)"));
 }

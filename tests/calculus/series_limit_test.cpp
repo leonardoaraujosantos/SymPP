@@ -16,6 +16,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/functions/special.hpp>  // sinint (Si), cosint (Ci)
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/simplify/simplify.hpp>
 
@@ -79,6 +80,46 @@ TEST_CASE("series: singular and removable points (SERIES-SINGULAR-1)",
                               "1 + x + x**2/2 + x**3/6"));
 }
 
+// SERIES-LAURENT-FIRST-1: a ratio N(x)/D(x) whose transcendental denominator
+// vanishes at 0 while the numerator also vanishes (a removable singularity) —
+// x/(exp(x)−1) (Bernoulli generating function), x/sin(x), x²/(1−cos x). The
+// Taylor path is tried first and, finding a finite 0/0 limit at k=0, proceeds to
+// compute every coefficient as a hard derivative-limit; for messy exp/trig
+// denominators those limits exploded and the call HUNG. series() now routes a
+// ratio with a vanishing denominator through Laurent division first (numerator
+// and denominator are expanded separately, so no division-induced indeterminate
+// arises). A pole (denominator vanishes, numerator does not) yields the Laurent
+// series; an analytic ratio (denominator non-vanishing) still uses Taylor.
+// Verified against SymPy.
+TEST_CASE("series: vanishing-denominator ratios via Laurent first (SERIES-LAURENT-FIRST-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, integer(-1)); };
+
+    // x/(exp(x)−1) = Σ Bₙ xⁿ/n! — used to hang.
+    REQUIRE(oracle.equivalent(
+        series(x * inv(exp(x) - integer(1)), x, zero, 6)->str(),
+        "1 - x/2 + x**2/12 - x**4/720"));
+    // x/sin(x) — used to hang.
+    REQUIRE(oracle.equivalent(series(x * inv(sin(x)), x, zero, 6)->str(),
+                              "1 + x**2/6 + 7*x**4/360"));
+    // x²/(1−cos x) → 2 + x²/6 + x⁴/120 — used to hang.
+    REQUIRE(oracle.equivalent(
+        series(pow(x, integer(2)) * inv(integer(1) - cos(x)), x, zero, 6)->str(),
+        "2 + x**2/6 + x**4/120"));
+    // x/sinh(x) — hyperbolic analogue.
+    REQUIRE(oracle.equivalent(series(x * inv(sinh(x)), x, zero, 6)->str(),
+                              "1 - x**2/6 + 7*x**4/360"));
+    // A genuine pole still yields the Laurent series (numerator does not vanish).
+    REQUIRE(oracle.equivalent(series(inv(exp(x) - integer(1)), x, zero, 4)->str(),
+                              "1/x - 1/2 + x/12 - x**3/720"));
+    // An analytic ratio (denominator non-vanishing at 0) is unchanged.
+    REQUIRE(oracle.equivalent(series(inv(integer(1) + x), x, zero, 5)->str(),
+                              "1 - x + x**2 - x**3 + x**4"));
+}
+
 // SERIES-COMPOSE-1: a composite f(g(x)) whose inner g is finite-but-non-simple at
 // 0 (e.g. g = sin(x)/x with its 1/x factor). Differentiating f(g) directly leaves
 // each Taylor coefficient as a hard 0/0 limit that returns nan, so log(sin x / x)
@@ -120,6 +161,33 @@ TEST_CASE("series: composition of f(g(x)) with a removable inner (SERIES-COMPOSE
     // Single-function composites that already worked are unchanged.
     REQUIRE(oracle.equivalent(series(log(cos(x)), x, zero, 6)->str(),
                               "-x**2/2 - x**4/12"));
+}
+
+// SERIES-TAYLOR-CAP-1: high orders of a removable composite — log(sin x/x),
+// log(tan x/x) at order 7–8 — used to time out (the 5th derivative of the
+// log-composite balloons and its limit took ~100 s, only to return nan). The
+// Taylor path now caps the derivative size on the limit branch and hands these
+// to the composition path, which resolves them directly. This test reaching its
+// assertions at all is the performance regression guard; the values match SymPy.
+TEST_CASE("series: high-order removable composites resolve quickly (SERIES-TAYLOR-CAP-1)",
+          "[6][series][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto zero = S::Zero();
+    auto inv = [&](const Expr& e) { return pow(e, S::NegativeOne()); };
+
+    // log(sin x/x) to order 8: −x²/6 − x⁴/180 − x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(sin(x) * inv(x)), x, zero, 8)->str(),
+        "-x**2/6 - x**4/180 - x**6/2835"));
+    // log(tan x/x) to order 7: x²/3 + 7x⁴/90 + 62x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(tan(x) * inv(x)), x, zero, 7)->str(),
+        "x**2/3 + 7*x**4/90 + 62*x**6/2835"));
+    // log(sinh x/x) to order 8: x²/6 − x⁴/180 + x⁶/2835.
+    REQUIRE(oracle.equivalent(
+        series(log(sinh(x) * inv(x)), x, zero, 8)->str(),
+        "x**2/6 - x**4/180 + x**6/2835"));
 }
 
 // SERIES-LAURENT-1: functions with a pole at 0 (cot, csc, coth, csch, 1/sin,
@@ -588,6 +656,356 @@ TEST_CASE("limit: nonzero radical differences at infinity (LIMIT-RADICAL-INF-1)"
     REQUIRE(limit(cbrt(x3 + x2) - cbrt(x3 - x2), x, oo) == rational(2, 3));
     REQUIRE(limit(cbrt(integer(8) * x3 + x2) - integer(2) * x, x, oo)
             == rational(1, 12));
+    // LIMIT-NESTED-RADICAL: a nested radical leaves a residual radical in the
+    // conjugate numerator (√(x+√x) − √x ⇒ num = √x), but the rationalised ratio is
+    // still a determinate lower-order form. √(x+√x) − √x → 1/2,
+    // √(x+2√x) − √x → 1. Previously nan. Matches SymPy.
+    REQUIRE(limit(sq(x + sq(x)) - sq(x), x, oo) == rational(1, 2));
+    REQUIRE(limit(sq(x + integer(2) * sq(x)) - sq(x), x, oo) == S::One());
+}
+
+// LIMIT-STIRLING-1: n-th roots of factorial/gamma via Stirling's asymptotic
+// n! ~ (n/e)ⁿ. (n!)^(1/n)/n → 1/e, (n!)^(1/n) → ∞, n/(n!)^(1/n) → e,
+// (n!/nⁿ)^(1/n) → 1/e. The handler recasts over a positive variable (so the
+// powdenest rules apply), substitutes the Stirling form, and accepts the result
+// only after a numeric check against the original at large n. Matches SymPy.
+TEST_CASE("limit: n-th root of factorial via Stirling (LIMIT-STIRLING-1)",
+          "[6][limit][infinity]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr inv_e = exp(integer(-1));
+    auto root = [&](const Expr& b) { return pow(b, pow(n, integer(-1))); };
+
+    // (n!)^(1/n)/n → 1/e.
+    REQUIRE(simplify(limit(root(factorial(n)) * pow(n, integer(-1)), n, oo))
+            == inv_e);
+    // (n!)^(1/n) → ∞.
+    REQUIRE(limit(root(factorial(n)), n, oo) == oo);
+    // n/(n!)^(1/n) → e.
+    REQUIRE(simplify(limit(n * pow(root(factorial(n)), integer(-1)), n, oo))
+            == exp(integer(1)));
+    // (n!/nⁿ)^(1/n) → 1/e.
+    REQUIRE(simplify(limit(root(factorial(n) * pow(pow(n, n), integer(-1))), n,
+                           oo))
+            == inv_e);
+    // gamma(n+1) = n! behaves identically.
+    REQUIRE(simplify(limit(root(gamma(n + integer(1))) * pow(n, integer(-1)), n,
+                           oo))
+            == inv_e);
+    // (n!)^(1/n)/√n → ∞ (the slow sqrt(n)/e growth the numeric guard tolerates).
+    REQUIRE(limit(root(factorial(n)) * pow(n, rational(-1, 2)), n, oo) == oo);
+}
+
+// LIMIT-STIRLING-PRODUCT-1: a factorial/gamma multiplied by elementary factors that
+// cancel its leading (n/e)ⁿ growth, so the limit is carried by the √(2π)·n^(±1/2)
+// Stirling *prefactor* the bare (n/e)ⁿ form drops. n!/(nⁿ·e⁻ⁿ) = n!·n⁻ⁿ·eⁿ ~ √(2πn)
+// previously hung (the leading rewrite gave the false candidate 1, which the numeric
+// guard rejected, and the expression then spun in the power-as-exp/reciprocal paths).
+// try_stirling_limit now falls back to the full leading Stirling form
+// √(2π)·n^(n±1/2)·e⁻ⁿ when the bare form's candidate fails. Matches SymPy.
+TEST_CASE("limit: Stirling prefactor carries the limit (LIMIT-STIRLING-PRODUCT-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    auto npow = [&](const Expr& e) { return pow(n, e); };  // nᵉ
+
+    // n!/(nⁿ·e⁻ⁿ) = n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞ (previously hung).
+    REQUIRE(limit(factorial(n) * npow(mul(S::NegativeOne(), n)) * exp(n), n, oo)
+            == oo);
+    // n!·eⁿ·n^(−n−1/2) ~ √(2π) → √2·√π, a finite Stirling limit.
+    REQUIRE(limit(factorial(n) * exp(n) * npow(add(mul(S::NegativeOne(), n),
+                                                   rational(-1, 2))),
+                  n, oo)
+            == mul(pow(integer(2), rational(1, 2)),
+                   pow(S::Pi(), rational(1, 2))));
+    // (n!)²·n^(−2n)·e^(2n) ~ 2πn → ∞.
+    REQUIRE(limit(pow(factorial(n), integer(2))
+                      * npow(mul(integer(-2), n)) * exp(mul(integer(2), n)),
+                  n, oo)
+            == oo);
+}
+
+// LIMIT-NOHANG-1: a general power inside a difference, (x^(1/x) − 1)·x/log x, sent
+// the engine into a non-terminating path — the log-exp reduction took log of the
+// vanishing eᵍ−1 factor, and the reciprocal substitution x = 1/t produced an
+// equally hard t→0 form (x^(1/x) ↦ exp(−t·log t)). Both were short-circuited so the
+// limit terminated. It now resolves to the correct value 1: x^(1/x) − 1 = exp(t) − 1
+// ~ t with t = log(x)/x → 0, so (x^(1/x) − 1)·x/log x → 1 (the unit-power expansion).
+TEST_CASE("limit: general power in a difference does not hang (LIMIT-NOHANG-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    // Completes (does not hang) and matches SymPy: → 1.
+    Expr r = limit(mul(mul(x, pow(log(x), integer(-1))),
+                       add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                   x, oo);
+    REQUIRE(r == S::One());
+    // Guard non-regression: a standalone general power still resolves via the
+    // reciprocal substitution.
+    REQUIRE(simplify(limit(pow(gamma(n + integer(1)), pow(n, integer(-1)))
+                               * pow(n, integer(-1)),
+                           n, oo))
+            == exp(integer(-1)));
+}
+
+// LIMIT-UNIT-POWER-1: a power f(x)^g(x) → 1 inside a difference, where the exponent
+// t = g·log f → 0. The base tends to 0 or ∞ (x^x at 0, x^(1/x) at ∞), so the series
+// stage cannot expand the exponent (it has a log singularity). Instead exp(t) − 1 =
+// t + t²/2 + … is used directly, with the leading t carrying the limit: f^g − 1 ~
+// g·log f. Previously these hung or returned nan. Matches SymPy.
+TEST_CASE("limit: unit-tending power difference via exp(t)−1 ~ t (LIMIT-UNIT-POWER-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+    const Expr xinvx = pow(x, pow(x, integer(-1)));      // x^(1/x)
+    const Expr xx = pow(x, x);                           // x^x
+
+    // (x^(1/x) − 1)/(log x/x) → 1 at +∞.
+    REQUIRE(limit(over(add(xinvx, S::NegativeOne()), over(log(x), x)), x, oo)
+            == S::One());
+    // (x^(1/x) − 1)·x/log x → 1 (the same correction, multiplicative form).
+    REQUIRE(limit(mul(add(xinvx, S::NegativeOne()), over(x, log(x))), x, oo)
+            == S::One());
+    // (x^x − 1)/(x·log x) → 1 at x → 0 (base → 0).
+    REQUIRE(limit(over(add(xx, S::NegativeOne()), mul(x, log(x))), x, S::Zero())
+            == S::One());
+    // Non-regression: a unit power times a *divergent exponential* (e^x·(e^{1/x}−1),
+    // a 0·∞ MRV case) must not hang here — the expansion would leave an
+    // undistributed ∞−∞; it is left to other paths (honest nan), not spun on.
+    REQUIRE(limit(mul(exp(x), add(exp(pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+                ->type_id()
+            == TypeId::NaN);
+}
+
+// LIMIT-INVHYP-1: inverse-hyperbolic asymptotics at +∞. asinh(x) = log(x + √(x²+1))
+// and acosh(x) = log(x + √(x²−1)) both ~ log(2x), so asinh(x)/log x → 1. The exact
+// log-of-a-radical form hangs the engine (the radical balloons under L'Hôpital), so
+// the leading log(2x) is substituted and the re-take numerically verified — over a
+// wide span, since the ∼1/log x convergence is slow. Matches SymPy.
+TEST_CASE("limit: inverse-hyperbolic asymptotics (LIMIT-INVHYP-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // asinh(x)/log x → 1, acosh(x)/log x → 1.
+    REQUIRE(limit(mul(asinh(x), pow(log(x), integer(-1))), x, oo) == S::One());
+    REQUIRE(limit(mul(acosh(x), pow(log(x), integer(-1))), x, oo) == S::One());
+    // asinh(x²)/log x → 2 (the argument's growth carries through the log).
+    REQUIRE(limit(mul(asinh(pow(x, integer(2))), pow(log(x), integer(-1))), x, oo)
+            == integer(2));
+    // asinh(x) − log(2x) → 0.
+    REQUIRE(limit(add(asinh(x), mul(S::NegativeOne(), log(mul(integer(2), x)))),
+                  x, oo)
+            == S::Zero());
+    // asinh itself is unchanged: → ∞, and asinh(x)/x → 0.
+    REQUIRE(limit(asinh(x), x, oo) == oo);
+    REQUIRE(limit(mul(asinh(x), pow(x, integer(-1))), x, oo) == S::Zero());
+    // Second-order term: asinh(x) = log(2x) + 1/(4x²) + …, acosh(x) = log(2x) −
+    // 1/(4x²) + …, so the leading log(2x) cancels and the next term carries the
+    // limit: x²·(asinh(x) − log(2x)) → 1/4 and (acosh(x) − asinh(x))·x² → −1/2.
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(asinh(x), mul(S::NegativeOne(),
+                                        log(mul(integer(2), x))))),
+                  x, oo)
+            == rational(1, 4));
+    REQUIRE(limit(mul(add(acosh(x), mul(S::NegativeOne(), asinh(x))),
+                      pow(x, integer(2))),
+                  x, oo)
+            == rational(-1, 2));
+}
+
+// LIMIT-EXP-DIFF-1: Gruntz's flagship example — a difference of asymptotically-equal
+// exponentials, e^{x+e⁻ˣ} − e^x. The exponents differ by e⁻ˣ → 0, so factoring the
+// common e^x gives e^x·(e^{e⁻ˣ} − 1) → 1 (exp(e⁻ˣ) − 1 ~ e⁻ˣ). The factoring is an
+// exact identity. Previously these returned nan. Matches SymPy.
+TEST_CASE("limit: difference of asymptotically-equal exponentials (LIMIT-EXP-DIFF-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr emx = exp(mul(S::NegativeOne(), x));      // e^{-x}
+
+    // e^{x+e⁻ˣ} − e^x → 1, and the negation → −1.
+    REQUIRE(limit(add(exp(add(x, emx)), mul(S::NegativeOne(), exp(x))), x, oo)
+            == S::One());
+    REQUIRE(limit(add(exp(x), mul(S::NegativeOne(), exp(add(x, emx)))), x, oo)
+            == S::NegativeOne());
+    // Coefficient carries through: e^{x+2e⁻ˣ} − e^x → 2.
+    REQUIRE(limit(add(exp(add(x, mul(integer(2), emx))),
+                      mul(S::NegativeOne(), exp(x))),
+                  x, oo)
+            == integer(2));
+    // A faster-vanishing gap: e^{x+e⁻²ˣ} − e^x ~ e⁻ˣ → 0.
+    REQUIRE(limit(add(exp(add(x, exp(mul(integer(-2), x)))),
+                      mul(S::NegativeOne(), exp(x))),
+                  x, oo)
+            == S::Zero());
+}
+
+// LIMIT-SERIES-1: the asymptotic correction to a 1^∞ power, g(x)·((1+a/x)^x − eᵃ).
+// (1+a/x)^x = eᵃ·(1 − a²/(2x) + …), so x·((1+a/x)^x − eᵃ) → −a²·eᵃ/2. These hung:
+// the power-as-exp rewrite turns them into an ∞·0 the heuristic paths spin on. The
+// Gruntz leading-term step substitutes x = 1/u, lifts the power to exp(·log·),
+// factors the u-pole, series-expands the regular part, and reads the limit. The
+// rule is gated to a finite-nonzero-base power inside a sum, so x^(1/x) (base → ∞,
+// the LIMIT-NOHANG-1 form) is left untouched. Matches SymPy.
+TEST_CASE("limit: Gruntz series correction of (1+a/x)^x − eᵃ (LIMIT-SERIES-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto recip = [&](const Expr& a) { return pow(a, integer(-1)); };
+    const Expr onep = add(S::One(), recip(x));           // 1 + 1/x
+
+    // x·((1+1/x)^x − e) → −e/2.
+    REQUIRE(limit(mul(x, add(pow(onep, x), mul(S::NegativeOne(), S::E()))), x, oo)
+            == mul(rational(-1, 2), S::E()));
+    // ((1+1/x)^x − e)/(1/x) → −e/2 (same correction, written as a 0/0 ratio).
+    REQUIRE(limit(mul(add(pow(onep, x), mul(S::NegativeOne(), S::E())), recip(recip(x))),
+                  x, oo)
+            == mul(rational(-1, 2), S::E()));
+    // a = 2: x·((1+2/x)^x − e²) → −2·e².
+    const Expr onep2 = add(S::One(), mul(integer(2), recip(x)));
+    REQUIRE(limit(mul(x, add(pow(onep2, x),
+                             mul(S::NegativeOne(), pow(S::E(), integer(2))))),
+                  x, oo)
+            == mul(integer(-2), pow(S::E(), integer(2))));
+    // Transcendental base: cos(1/x)^x = 1 − 1/(2x) + …, so x·(cos(1/x)^x − 1) →
+    // −1/2. The exponent is pre-expanded to a polynomial before exp(·), since
+    // series stalls on exp(log(cos u)/u).
+    REQUIRE(limit(mul(x, add(pow(cos(recip(x)), x), S::NegativeOne())), x, oo)
+            == rational(-1, 2));
+    // A divergent leading term: x²·(cos(1/x)^x − 1) ~ −x/2 → −∞ (read straight off
+    // the series leading term, one-sided as u → 0⁺).
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(pow(cos(recip(x)), x), S::NegativeOne())),
+                  x, oo)
+            == S::NegativeInfinity());
+    // Shifted exponent: x·((1+1/x)^(x+1) − e) → e/2.
+    REQUIRE(limit(mul(x, add(pow(onep, add(x, S::One())),
+                             mul(S::NegativeOne(), S::E()))),
+                  x, oo)
+            == mul(rational(1, 2), S::E()));
+    // Gate guard: a base that diverges (x^(1/x)) is left out of the series stage
+    // (its exponent has a log singularity) — the unit-power expansion resolves it
+    // instead, to the correct 1, without spinning. See LIMIT-UNIT-POWER-1.
+    REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
+                      add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+            == S::One());
+    // Finite point: the same 1^∞ correction appears at x → 0.
+    // ((1+x)^(1/x) − e)/x → −e/2.
+    const Expr onex = add(S::One(), x);                  // 1 + x
+    REQUIRE(limit(mul(add(pow(onex, recip(x)), mul(S::NegativeOne(), S::E())),
+                      recip(x)),
+                  x, S::Zero())
+            == mul(rational(-1, 2), S::E()));
+    // The order-2 correction: ((1+x)^(1/x) − e + e·x/2)/x² → 11e/24.
+    REQUIRE(limit(mul(add({pow(onex, recip(x)), mul(S::NegativeOne(), S::E()),
+                           mul(rational(1, 2), mul(S::E(), x))}),
+                      pow(x, integer(-2))),
+                  x, S::Zero())
+            == mul(rational(11, 24), S::E()));
+}
+
+// LIMIT-COMMON-LOG-1: a ratio of var-base/var-exponent powers, x^x/(x+1)^x and
+// (x+1)^x/x^x, previously hung. The power-as-exp/exp-combine path produces the
+// distributed exponent x·log(x+1) − x·log(x), an ∞−∞ the standard (var-free
+// coefficient) log-combine cannot reduce, so the engine looped in the reciprocal
+// substitution. Combining the common var coefficient — c·log(p) − c·log(q) =
+// c·log(p/q) — gives x·log((x+1)/x) → 1, so the limits resolve to e^∓1.
+TEST_CASE("limit: ratio of var^var powers via common-log combine (LIMIT-COMMON-LOG-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // The combined-coefficient log limit underneath.
+    REQUIRE(limit(add(mul(x, log(add(x, integer(1)))),
+                      mul(S::NegativeOne(), mul(x, log(x)))),
+                  x, oo)
+            == S::One());                                    // x·log(x+1) − x·log x → 1
+    // The two ratios (previously hung): x^x/(x+1)^x → 1/e, (x+1)^x/x^x → e.
+    REQUIRE(limit(mul(pow(x, x), pow(pow(add(x, integer(1)), x), integer(-1))),
+                  x, oo)
+            == exp(integer(-1)));
+    REQUIRE(limit(mul(pow(add(x, integer(1)), x), pow(pow(x, x), integer(-1))),
+                  x, oo)
+            == S::E());
+}
+
+// LIMIT-CONST-BASE-RATIO-1: rational functions of constant-base exponentials cˣ.
+// The engine resolved the eˣ analogues (eˣ has a Function node L'Hôpital handles)
+// but stalled on 2ˣ=Pow(2,x): L'Hôpital loops on the cancelling cᵏˣ/cᵏˣ ratio, and
+// the 0·∞ product (2ˣ+3ˣ)·3⁻ˣ was *mis-resolved to 0* by per-factor folding.
+// try_dominant_ratio divides through by the denominator's dominant term — finite/
+// finite — and distributes a sum × vanishing factor, so all resolve. Matches SymPy.
+TEST_CASE("limit: rational of constant-base exponentials (LIMIT-CONST-BASE-RATIO-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto P = [&](int b) { return pow(integer(b), x); };       // bˣ
+    auto ratio = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // (2ˣ+1)/(2ˣ−1) → 1: rational in a single base.
+    REQUIRE(limit(ratio(add(P(2), integer(1)), add(P(2), S::NegativeOne())), x, oo)
+            == S::One());
+    // (2ˣ+3ˣ)/3ˣ → 1: previously the WRONG answer 0 (0·∞ folded to 0).
+    REQUIRE(limit(ratio(add(P(2), P(3)), P(3)), x, oo) == S::One());
+    // (3ˣ−2ˣ)/(3ˣ+2ˣ) → 1 and (2ˣ−3ˣ)/(2ˣ+3ˣ) → −1: dominant base wins.
+    REQUIRE(limit(ratio(add(P(3), mul(S::NegativeOne(), P(2))),
+                        add(P(3), P(2))),
+                  x, oo)
+            == S::One());
+    REQUIRE(limit(ratio(add(P(2), mul(S::NegativeOne(), P(3))),
+                        add(P(2), P(3))),
+                  x, oo)
+            == S::NegativeOne());
+    // 2ˣ/(2ˣ+x) → 1: exponential dominates the polynomial term.
+    REQUIRE(limit(ratio(P(2), add(P(2), x)), x, oo) == S::One());
+    // A general power in the same shape must not hang (the divide/distribute is
+    // gated to constant-base-exponential rationals); it resolves to 1 via the
+    // unit-power expansion.
+    REQUIRE(limit(mul(mul(x, pow(log(x), integer(-1))),
+                      add(pow(x, pow(x, integer(-1))), S::NegativeOne())),
+                  x, oo)
+            == S::One());
+}
+
+// LIMIT-SUPERPOW-1: a super-power n^(c·n) dominates the factorial/gamma class
+// (n^n ≫ n!), so n!/n^n → 0 and n^n/n! → ∞. These previously returned nan
+// because n^n is outside the growth hierarchy. The handler is restricted to a
+// lone factorial of the matching variable, so gamma(2n) (which outgrows n^n) is
+// left unevaluated rather than given a wrong answer. Matches SymPy.
+TEST_CASE("limit: super-power vs factorial (LIMIT-SUPERPOW-1)",
+          "[6][limit][infinity]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    auto nton = [&](const Expr& e) { return pow(n, e); };  // n^e
+
+    // n!/n^n → 0, n^n/n! → ∞.
+    REQUIRE(limit(factorial(n) * nton(mul(S::NegativeOne(), n)), n, oo)
+            == S::Zero());
+    REQUIRE(limit(nton(n) * pow(factorial(n), integer(-1)), n, oo) == oo);
+    // gamma(n+1) = n! behaves the same.
+    REQUIRE(limit(gamma(n + integer(1)) * nton(mul(S::NegativeOne(), n)), n, oo)
+            == S::Zero());
+    REQUIRE(limit(nton(n) * pow(gamma(n + integer(1)), integer(-1)), n, oo)
+            == oo);
+    // A constant prefactor and a larger super-power are handled.
+    REQUIRE(limit(integer(2) * factorial(n) * nton(mul(S::NegativeOne(), n)), n,
+                  oo)
+            == S::Zero());
+    REQUIRE(limit(nton(integer(2) * n) * pow(factorial(n), integer(-1)), n, oo)
+            == oo);
+    // gamma(2n) outgrows n^n, so the ratio diverges to ∞. The Gruntz power-as-exp
+    // rewrite (n^n → exp(n·log n)) lets the gamma-growth machinery resolve it.
+    REQUIRE(limit(gamma(integer(2) * n) * nton(mul(S::NegativeOne(), n)), n, oo)
+            == oo);
 }
 
 // LIMIT-RECIP-INF-1: asymptotic-expansion limits at +∞ with a transcendental
@@ -791,6 +1209,105 @@ TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
     auto n = symbol("n");
     auto s = summation(pow(k, integer(2)), k, integer(1), n);
     REQUIRE(oracle.equivalent(s->str(), "n*(n+1)*(2*n+1)/6"));
+}
+
+// SUM-BINOM-K-1: Σ_{k=0}^n k·C(n,k)·rᵏ = n·r·(1+r)^(n−1), the r-derivative of the
+// binomial theorem Σ C(n,k)·rᵏ = (1+r)ⁿ. Gives Σ k·C(n,k) = n·2^(n−1). Previously
+// returned unevaluated. Matches SymPy (and closes the geometric-weighted form
+// k·C(n,k)·2ᵏ that SymPy leaves as a Sum).
+TEST_CASE("summation: Σ k·C(n,k)·rᵏ binomial identity (SUM-BINOM-K-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    // Σ k·C(n,k) = n·2^(n−1).
+    REQUIRE(oracle.equivalent(
+        summation(k * binomial(n, k), k, integer(0), n)->str(),
+        "n*2**(n-1)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * k * binomial(n, k), k, integer(0), n)->str(),
+        "3*n*2**(n-1)"));
+    // Geometric weight: Σ k·C(n,k)·2ᵏ = 2·n·3^(n−1) (verified numerically).
+    REQUIRE(oracle.equivalent(
+        summation(k * binomial(n, k) * pow(integer(2), k), k, integer(0), n)
+            ->str(),
+        "2*n*3**(n-1)"));
+    // The plain binomial theorem is unchanged.
+    REQUIRE(oracle.equivalent(
+        summation(binomial(n, k), k, integer(0), n)->str(), "2**n"));
+}
+
+// SUM-BINOM-SQ-1: the central-binomial identity Σ_{k=0}^n C(n,k)² = C(2n,n).
+// Previously returned unevaluated. Matches SymPy.
+TEST_CASE("summation: Σ C(n,k)² = C(2n,n) (SUM-BINOM-SQ-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    REQUIRE(oracle.equivalent(
+        summation(pow(binomial(n, k), integer(2)), k, integer(0), n)->str(),
+        "binomial(2*n, n)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * pow(binomial(n, k), integer(2)), k, integer(0),
+                  n)
+            ->str(),
+        "3*binomial(2*n, n)"));
+    // Concrete upper bound folds to an integer: Σ_{k=0}^5 C(5,k)² = 252.
+    REQUIRE(summation(pow(binomial(integer(5), k), integer(2)), k, integer(0),
+                      integer(5))
+            == integer(252));
+    // A mismatched upper bound (≠ the binomial's n) is left unevaluated.
+    REQUIRE(summation(pow(binomial(n, k), integer(2)), k, integer(0),
+                      integer(4))
+                ->str()
+            != "binomial(2*n, n)");
+}
+
+// SUM-HARMONIC-1: Σ 1/kᵖ over a finite/symbolic range is a generalized harmonic
+// number H_hi^(p) − H_(lo−1)^(p) (the 1-argument harmonic(n) for p = 1). These
+// were previously returned unevaluated. Matches SymPy's Sum(1/k**p).doit().
+TEST_CASE("summation: Σ 1/kᵖ → generalized harmonic (SUM-HARMONIC-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+
+    // Σ 1/k = harmonic(n); from 2..n = harmonic(n) − 1.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-1)), k, integer(1), n)->str(), "harmonic(n)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-1)), k, integer(2), n)->str(),
+        "harmonic(n) - 1"));
+
+    // Σ 1/k² = harmonic(n, 2); Σ 1/k³ = harmonic(n, 3).
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), n)->str(),
+        "harmonic(n, 2)"));
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-3)), k, integer(1), n)->str(),
+        "harmonic(n, 3)"));
+
+    // Offset lower bound: Σ_{3}^{n} 1/k² = harmonic(n,2) − 5/4.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(3), n)->str(),
+        "harmonic(n, 2) - Rational(5,4)"));
+
+    // Concrete ranges fold to exact rationals.
+    REQUIRE(summation(pow(k, integer(-1)), k, integer(1), integer(5))
+            == rational(137, 60));
+    REQUIRE(summation(pow(k, integer(-2)), k, integer(1), integer(4))
+            == rational(205, 144));
+
+    // The convergent p-series and the integer power sums are unaffected.
+    REQUIRE(oracle.equivalent(
+        summation(pow(k, integer(-2)), k, integer(1), S::Infinity())->str(),
+        "pi**2/6"));
+    REQUIRE(oracle.equivalent(
+        summation(k, k, integer(1), n)->str(), "n*(n+1)/2"));
 }
 
 TEST_CASE("summation: Σ k³ from 1 to n → (n(n+1)/2)²",
@@ -1209,6 +1726,36 @@ TEST_CASE("summation: infinite polynomial × geometric, |r| < 1 (SUM-POLYGEOM-IN
                 .find("Sum(") != std::string::npos);
 }
 
+// SUM-GEOM-INF-1: the plain infinite geometric series Σ_{k=lo}^∞ A·rᵏ. For a
+// convergent ratio (|r| < 1, either sign) it closes to A·r^lo/(1−r) — the naive
+// r^∞ substitution turned a negative ratio into nan and a symbolic ratio into an
+// r^∞ artifact. A positive divergent ratio gives ±∞; an oscillating divergent or
+// symbolic ratio is left as a clean unevaluated Sum.
+TEST_CASE("summation: infinite plain geometric series (SUM-GEOM-INF-1)",
+          "[6][summation][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto S_ = [&](const Expr& e, const Expr& lo) { return summation(e, k, lo, oo); };
+
+    // Positive ratio.
+    REQUIRE(S_(pow(rational(1, 2), k), S::Zero()) == integer(2));
+    REQUIRE(oracle.equivalent(S_(pow(rational(1, 3), k), S::One())->str(), "1/2"));
+    REQUIRE(S_(mul(integer(3), pow(rational(2, 3), k)), S::Zero()) == integer(9));
+    // Negative ratio with |r| < 1 — previously nan.
+    REQUIRE(oracle.equivalent(S_(pow(rational(-1, 2), k), S::Zero())->str(), "2/3"));
+    REQUIRE(oracle.equivalent(S_(pow(rational(-1, 3), k), S::Zero())->str(), "3/4"));
+    // Positive divergent ratio → ∞.
+    REQUIRE(S_(pow(integer(2), k), S::Zero()) == oo);
+    // Oscillating divergent and symbolic ratios stay clean unevaluated Sums
+    // (no r^∞ artifact).
+    REQUIRE(S_(pow(integer(-2), k), S::Zero())->str().find("Sum(") == 0);
+    Expr sx = S_(pow(x, k), S::Zero());
+    REQUIRE(sx->str().find("Sum(") == 0);
+    REQUIRE(sx->str().find("**oo") == std::string::npos);  // no x**oo leak
+}
+
 // SUM-POLYGEOM-SYM-1: Σ_{k=1}^n P(k)·xᵏ for a SYMBOLIC ratio x — the generating-
 // function identity Σ k·xᵏ = x(1−(n+1)xⁿ+n·xⁿ⁺¹)/(x−1)². The poly·geometric closed
 // form was gated to a numeric base/ratio; it now applies symbolically for a finite
@@ -1556,6 +2103,33 @@ TEST_CASE("summation: Dirichlet beta β(1)=π/4, β(2)=Catalan (SUM-DIRICHLET-BE
                       S::Zero(), oo)
                 ->str()
                 .find("Sum(") != std::string::npos);
+
+    // SUM-DIRICHLET-BETA-2: the same series written with a (2k−1) denominator
+    // from k=1 — the classic Leibniz form Σ_{k≥1} (−1)^(k+1)/(2k−1) = π/4. It is
+    // the k → k+1 reindexing of the (2k+1)-from-0 form and is now recognized.
+    auto odd_m = integer(2) * k - integer(1);
+    auto altk1 = pow(integer(-1), k + integer(1));
+    REQUIRE(oracle.equivalent(
+        summation(altk1 * pow(odd_m, integer(-1)), k, S::One(), oo)->str(),
+        "pi/4"));
+    // Flipped sign: Σ_{k≥1} (−1)^k/(2k−1) = −π/4.
+    REQUIRE(oracle.equivalent(
+        summation(altk * pow(odd_m, integer(-1)), k, S::One(), oo)->str(),
+        "-pi/4"));
+    // β(2) form: Σ_{k≥1} (−1)^(k+1)/(2k−1)² = Catalan.
+    REQUIRE(oracle.equivalent(
+        summation(altk1 * pow(odd_m, integer(-2)), k, S::One(), oo)->str(),
+        "Catalan"));
+    // Leading constant carries through: Σ 2(−1)^(k+1)/(2k−1) = π/2.
+    REQUIRE(oracle.equivalent(
+        summation(integer(2) * altk1 * pow(odd_m, integer(-1)), k, S::One(), oo)
+            ->str(),
+        "pi/2"));
+    // The (2k−1) base from k=0 (denominators −1,1,3,…) is NOT this series and
+    // must not fire.
+    REQUIRE(summation(altk1 * pow(odd_m, integer(-1)), k, S::Zero(), oo)
+                ->str()
+                .find("Sum(") != std::string::npos);
 }
 
 // SUM-EXP-1: the exponential series Σ_{k=0}^∞ r^k/k! = e^r (and its shifted /
@@ -1612,6 +2186,21 @@ TEST_CASE("summation: exponential series r^k/k! closes to e^r (SUM-EXP-1)",
     REQUIRE(oracle.equivalent(
         summation(mul({k, pow(x, k), inv_fact}), k, integer(0), oo)->str(),
         "x*exp(x)"));
+    // The Γ(k+1) spelling of the factorial is recognized identically: Σ x^k/Γ(k+1)
+    // = e^x, Σ k·x^k/Γ(k+1) = x·e^x, Σ x^k/Γ(k+2) = (e^x − 1)/x, Σ 1/Γ(k+1) = e.
+    auto inv_g1 = pow(gamma(add(k, integer(1))), integer(-1));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, k), inv_g1), k, integer(0), oo)->str(), "exp(x)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul({k, pow(x, k), inv_g1}), k, integer(0), oo)->str(),
+        "x*exp(x)"));
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(x, k), pow(gamma(add(k, integer(2))), integer(-1))), k,
+                  integer(0), oo)
+            ->str(),
+        "(exp(x) - 1)/x"));
+    REQUIRE(oracle.equivalent(
+        summation(inv_g1, k, integer(0), oo)->str(), "E"));
     // SUM-EXP-NOLEAK: a non-polynomial numerator factor (cos(k·x), cos(k)) is NOT a
     // degree-0 Poly coefficient — it must not be pulled out, which previously leaked
     // the bound variable as a bogus closed form (Σ cos(k·x)/k! → e·cos(k·x)). The
@@ -1950,4 +2539,690 @@ TEST_CASE("inflection_points: x⁴ - 6x² at ±1 (f'' = 12x² - 12 = 0)",
     }
     REQUIRE(has_pos);
     REQUIRE(has_neg);
+}
+
+// ONESIDED-1: the 4-argument limit(expr, var, target, dir) computes a one-sided
+// limit (dir = +1 from the right, −1 from the left). It resolves the cases a
+// two-sided limit leaves undefined — finite poles (1/x → ±∞), sign/abs
+// discontinuities (|x|/x → ±1) and essential singularities (exp(1/x) → ∞ from
+// the right, 0 from the left). The 3-argument overload stays two-sided. Matches
+// SymPy's limit(..., dir='+'/'-').
+TEST_CASE("limit: one-sided limits (ONESIDED-1)", "[7][limit][onesided]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr noo = S::NegativeInfinity();
+
+    // Finite pole: signed infinity per side.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), -1) == noo);
+    // 1/x² diverges to +∞ from both sides.
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(pow(x, integer(-2)), x, S::Zero(), -1) == oo);
+    // Pole away from the origin.
+    REQUIRE(limit(pow(x - integer(2), integer(-1)), x, integer(2), 1) == oo);
+    REQUIRE(limit(pow(x - integer(2), integer(-1)), x, integer(2), -1) == noo);
+
+    // log diverges to −∞ from the right.
+    REQUIRE(limit(log(x), x, S::Zero(), 1) == noo);
+
+    // Sign/abs discontinuity: |x|/x → +1 (right), −1 (left).
+    REQUIRE(limit(abs(x) * pow(x, integer(-1)), x, S::Zero(), 1) == integer(1));
+    REQUIRE(limit(abs(x) * pow(x, integer(-1)), x, S::Zero(), -1) == integer(-1));
+    REQUIRE(limit(x * pow(abs(x), integer(-1)), x, S::Zero(), 1) == integer(1));
+    REQUIRE(limit(x * pow(abs(x), integer(-1)), x, S::Zero(), -1) == integer(-1));
+
+    // Essential singularity: exp(1/x) → ∞ from the right, 0 from the left.
+    REQUIRE(limit(exp(pow(x, integer(-1))), x, S::Zero(), 1) == oo);
+    REQUIRE(limit(exp(pow(x, integer(-1))), x, S::Zero(), -1) == S::Zero());
+
+    // Continuous point: both sides and the two-sided limit agree.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, S::Zero(), 1) == integer(1));
+
+    // The 3-argument (two-sided) overload is unchanged: 1/x stays the unsigned
+    // ComplexInfinity, and dir = 0 matches it.
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero())->type_id()
+            == TypeId::ComplexInfinity);
+    REQUIRE(limit(pow(x, integer(-1)), x, S::Zero(), 0)->type_id()
+            == TypeId::ComplexInfinity);
+}
+
+// LIMIT-BOUNDED-1: a bounded oscillating factor (sin/cos) times a vanishing
+// factor tends to 0 by the squeeze theorem, even with a polynomial present —
+// x·cos(x)·e^(−x) → 0. Previously these returned nan, which also broke the
+// definite integrals ∫₀^∞ xⁿ·e^(−x)·sin/cos(x). Matches SymPy.
+TEST_CASE("limit: bounded oscillation times a vanishing factor (LIMIT-BOUNDED-1)",
+          "[7][limit][bounded]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto edecay = exp(mul(S::NegativeOne(), x));  // e^(−x)
+
+    REQUIRE(limit(x * cos(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(x * sin(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, integer(2)) * sin(x) * edecay, x, oo) == S::Zero());
+    REQUIRE(limit(cos(x) * pow(x, integer(-2)), x, oo) == S::Zero());
+    // Already-handled simple cases still hold.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(cos(x) * edecay, x, oo) == S::Zero());
+    // x·sin(x) is unbounded oscillation — no limit (left as before, not 0).
+    REQUIRE(limit(x * sin(x), x, oo) != S::Zero());
+    // The definite integrals this unblocks (∫₀^∞ xⁿ·e^(−x)·sin/cos x) are
+    // covered in the integrate tests (INT-POLY-EXP-TRIG-1).
+}
+
+// LIMIT-ADD-SF-1: the limit of a sum whose terms each converge is the sum of the
+// term limits — applied before substitution / L'Hôpital so a convergent special
+// function (Si, Ci, atan, …) plus a vanishing term isn't mangled. Previously
+// limit(sinint(2x) + 1/x, x, oo) collapsed to 0 (and limit(sinint(x) + 1/x) leaked a
+// sin(oo) term) because direct substitution / L'Hôpital ran first. Matches SymPy.
+TEST_CASE("limit: sum of a special function and a vanishing term (LIMIT-ADD-SF-1)",
+          "[7][limit][add]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr half_pi = S::Pi() / integer(2);
+
+    // sinint(c·x) → π/2 survives addition of a vanishing / finite term.
+    REQUIRE(simplify(limit(sinint(integer(2) * x) + pow(x, integer(-1)), x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(sinint(x) + pow(x, integer(-1)), x, oo)) == half_pi);
+    REQUIRE(simplify(limit(sinint(integer(2) * x) - pow(x, integer(-1)), x, oo))
+            == half_pi);
+    // atan likewise.
+    REQUIRE(simplify(limit(atan(x) + exp(mul(S::NegativeOne(), x)), x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(atan(integer(2) * x)
+                               - pow(x + integer(1), integer(-1)), x, oo))
+            == half_pi);
+    // cosint(x) → 0 plus a vanishing term stays 0.
+    REQUIRE(limit(cosint(x) + pow(x, integer(-1)), x, oo) == S::Zero());
+    // A genuine ∞ − ∞ is still left to the other machinery (not forced finite).
+    REQUIRE(limit(pow(x, integer(2)) - x, x, oo) == oo);
+
+    // Mixed: a finite term (Si(2x) → 0) alongside two infinite terms whose
+    // ∞ − ∞ cancels (cos(2x)/(2x) − 1/(2x) → 0). The finite part is peeled off
+    // and the divergent remainder resolved on its own — the lower bound of the
+    // ∫₀^∞ sin²x/x² antiderivative.
+    auto inv2x = pow(integer(2) * x, integer(-1));
+    REQUIRE(limit(sinint(integer(2) * x) + cos(integer(2) * x) * inv2x - inv2x,
+                  x, S::Zero())
+            == S::Zero());
+    // The same cancellation without the finite term still works.
+    REQUIRE(limit(cos(integer(2) * x) * inv2x - inv2x, x, S::Zero())
+            == S::Zero());
+}
+
+// LIMIT-CONST-MUL-1: a var-free constant factor is pulled out before
+// substitution, so c·(convergent sum) isn't collapsed by the substitution /
+// L'Hôpital paths. limit(−1·(−Si(x) − cos(x)/x), x, ∞) = π/2 (the antiderivative
+// of (1−cos x)/x²); previously this folded to a wrong 0. Matches SymPy.
+TEST_CASE("limit: constant factor times a convergent sum (LIMIT-CONST-MUL-1)",
+          "[7][limit][add]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr half_pi = S::Pi() / integer(2);
+
+    REQUIRE(simplify(limit(mul(S::NegativeOne(),
+                               mul(S::NegativeOne(), sinint(x))
+                                   - cos(x) * pow(x, integer(-1))),
+                           x, oo))
+            == half_pi);
+    REQUIRE(simplify(limit(integer(3) * atan(x), x, oo))
+            == integer(3) * half_pi);
+    REQUIRE(simplify(limit(integer(-2) * sinint(x), x, oo))
+            == mul(S::NegativeOne(), S::Pi()));
+    // Constant times a vanishing / diverging factor still behaves.
+    REQUIRE(limit(integer(5) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(integer(2) * x, x, oo) == oo);
+}
+
+// LIMIT-LOGDIFF-1: the 0·∞ product x·(log(x+1) − log(x)) → 1. The vanishing
+// factor is a difference of logs equal to log((x+1)/x) with argument → 1; its
+// naive endpoint subs is log(∞/∞) = nan, which derailed L'Hôpital and left the
+// whole limit nan. The product handler now folds Σcᵢ·log(gᵢ) → log(∏gᵢ^cᵢ) and
+// replaces it by the leading asymptotic (∏gᵢ^cᵢ − 1), preserving the limit.
+// Matches SymPy.
+TEST_CASE("limit: 0·∞ product of x and a log difference (LIMIT-LOGDIFF-1)",
+          "[6][limit][lhopital][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto logdiff = [&](const Expr& a, const Expr& b) {
+        return log(a) - log(b);
+    };
+
+    // x·(log(x+1) − log(x)) = x·log(1 + 1/x) → 1.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(1), x), x, oo))
+            == S::One());
+    // Scaled shift: x·(log(x+3) − log(x)) → 3.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(3), x), x, oo))
+            == integer(3));
+    // Two-sided shift: x·(log(x+1) − log(x−1)) → 2.
+    REQUIRE(simplify(limit(x * logdiff(x + integer(1), x - integer(1)), x, oo))
+            == integer(2));
+    // Inner scale cancels: x·(log(2x+1) − log(2x)) → 1/2.
+    REQUIRE(simplify(
+                limit(x * logdiff(integer(2) * x + integer(1), integer(2) * x),
+                      x, oo))
+            == rational(1, 2));
+    // Faster prefactor still diverges: x²·(log(x+1) − log(x)) → ∞.
+    REQUIRE(limit(pow(x, integer(2)) * logdiff(x + integer(1), x), x, oo) == oo);
+    // A genuine non-vanishing log difference (log 2x − log x = log 2) is NOT a
+    // 0·∞ form; the softening must not fire and collapse it to a finite value.
+    {
+        Expr r = limit(x * logdiff(integer(2) * x, x), x, oo);
+        REQUIRE(r->type_id() != TypeId::Integer);
+        REQUIRE(r->type_id() != TypeId::Rational);
+    }
+}
+
+// LIMIT-GAMMARATIO-1: balanced gamma ratios at +∞ via the Stirling asymptotic
+// Γ(x+a)/Γ(x) ~ x^a. For C·∏ Γ(x+aᵢ)^{pᵢ}·x^q with Σpᵢ = 0 the limit is
+// C·x^{q+Σpᵢaᵢ}. Half-integer shifts previously gave a WRONG 0 (the growth-rank
+// test abstains — same rank, opposite direction — and a later path collapsed to
+// 0); some shapes (Γ(x+3/2)/Γ(x)/x^(3/2)) even hung the Stirling-root numeric
+// guard. The asymptotic rule, tried first, returns the exact value and matches
+// SymPy. Γ(2x)/Γ(x) (argument not a pure shift) is left to other methods.
+TEST_CASE("limit: balanced gamma-ratio asymptotics (LIMIT-GAMMARATIO-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto half = rational(1, 2);
+    auto G = [&](const Expr& shift) { return gamma(x + shift); };
+
+    // Γ(x+1/2)/Γ(x)/√x → 1 (exponent 1/2 − 1/2 = 0).
+    REQUIRE(simplify(limit(G(half) * pow(gamma(x), integer(-1))
+                               * pow(x, mul(S::NegativeOne(), half)),
+                           x, oo))
+            == S::One());
+    // Γ(x+3/2)/Γ(x)/x^(3/2) → 1 — this shape used to hang the numeric guard.
+    REQUIRE(simplify(limit(G(rational(3, 2)) * pow(gamma(x), integer(-1))
+                               * pow(x, rational(-3, 2)),
+                           x, oo))
+            == S::One());
+    // Constant carries through: 2·Γ(x+1/2)/Γ(x)/√x → 2.
+    REQUIRE(simplify(limit(integer(2) * G(half) * pow(gamma(x), integer(-1))
+                               * pow(x, mul(S::NegativeOne(), half)),
+                           x, oo))
+            == integer(2));
+    // Positive net exponent diverges, negative vanishes.
+    REQUIRE(limit(G(half) * pow(gamma(x), integer(-1)), x, oo) == oo);  // x^{1/2}
+    REQUIRE(limit(gamma(x) * pow(G(half), integer(-1)), x, oo)
+            == S::Zero());  // x^{-1/2}
+    // Two shifted gammas: Γ(x+1/4)/Γ(x+3/4)·√x → 1 (−1/2 + 1/2 = 0).
+    REQUIRE(simplify(limit(G(rational(1, 4)) * pow(G(rational(3, 4)), integer(-1))
+                               * pow(x, half),
+                           x, oo))
+            == S::One());
+    // Not a pure shift — left untouched (Γ(2x)/Γ(x) is not C·x^k).
+    {
+        Expr r = limit(gamma(integer(2) * x) * pow(gamma(x), integer(-1)), x, oo);
+        REQUIRE(r->type_id() != TypeId::Integer);  // not coerced to a finite int
+    }
+    // Integer-shift ratios still resolve (regression guard).
+    REQUIRE(simplify(limit(gamma(x + integer(1)) * pow(gamma(x), integer(-1))
+                               * pow(x, integer(-1)),
+                           x, oo))
+            == S::One());
+    // Combined-denominator form, as a/(b·c) division produces it: together()
+    // leaves the denominator a single (√x·Γ(x))⁻¹ Pow with a product base. The
+    // factor flattening distributes (∏gᵢ)^p so the rule still applies. Previously
+    // Γ(x+1/2)/(√x·Γ(x)) → nan and Γ(x+3/2)/(x^(3/2)·Γ(x)) even hung.
+    auto over = [&](const Expr& num, const Expr& den) {
+        return mul(num, pow(den, integer(-1)));
+    };
+    REQUIRE(limit(over(G(half), mul(pow(x, half), gamma(x))), x, oo) == S::One());
+    REQUIRE(limit(over(G(rational(3, 2)), mul(pow(x, rational(3, 2)), gamma(x))),
+                  x, oo)
+            == S::One());
+    // Quarter-integer shifts via the same flattening: Γ(x+1/4)·Γ(x+3/4)/(x·Γ(x)²).
+    REQUIRE(limit(over(mul(G(rational(1, 4)), G(rational(3, 4))),
+                       mul(x, pow(gamma(x), integer(2)))),
+                  x, oo)
+            == S::One());
+}
+
+// LIMIT-EXP-CONTINUITY-1: limit(exp(g)) = exp(limit g) with exp(+∞)=∞,
+// exp(−∞)=0. exp(x²−2x) → ∞ previously gave nan: the exponent substitutes to
+// the indeterminate ∞−∞ even though its limit is +∞. The continuity rule takes
+// the inner limit of the exponent first. Matches SymPy.
+TEST_CASE("limit: exp continuity over an indeterminate exponent (LIMIT-EXP-CONTINUITY-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // exponent x²−2x → +∞, so exp → ∞ (was nan under naive ∞−∞ substitution).
+    REQUIRE(limit(exp(pow(x, integer(2)) - integer(2) * x), x, oo) == oo);
+    // exponent 2x−x² → −∞, so exp → 0.
+    REQUIRE(limit(exp(integer(2) * x - pow(x, integer(2))), x, oo) == S::Zero());
+    // exponent x−√x → +∞ (sub-leading radical).
+    REQUIRE(limit(exp(x - pow(x, rational(1, 2))), x, oo) == oo);
+    // exponent √x−x → −∞.
+    REQUIRE(limit(exp(pow(x, rational(1, 2)) - x), x, oo) == S::Zero());
+    // exponent −x+log(x) → −∞ (exp dominates log).
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x) + log(x)), x, oo) == S::Zero());
+    // A finite exponent passes through: exp(1/x) → exp(0) = 1.
+    REQUIRE(simplify(limit(exp(pow(x, integer(-1))), x, oo)) == S::One());
+    // Bare growing/decaying exponentials are unchanged.
+    REQUIRE(limit(exp(x), x, oo) == oo);
+    REQUIRE(limit(exp(mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+}
+
+// LIMIT-EXP-COMBINE-1: a product/ratio of exponentials with *different* exponent
+// monomials — exp(x²)/exp(x)², exp(x²)·exp(−2x), x²·exp(x)/exp(x²) — substitutes
+// factor-by-factor to ∞·0 = nan. try_exponential_product only merges a shared
+// monomial; a new pre-step merges *all* exp factors into one exp(Σ kᵢgᵢ) and
+// re-takes the limit, which the exp-continuity rule then resolves. Matches SymPy.
+TEST_CASE("limit: merge exponentials with differing monomials (LIMIT-EXP-COMBINE-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto E = [&](const Expr& g) { return exp(g); };
+
+    // exp(x²)/exp(x)² = exp(x²−2x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2))) * pow(E(x), integer(-2)), x, oo) == oo);
+    // exp(x²)·exp(−2x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2))) * E(integer(-2) * x), x, oo) == oo);
+    // exp(x²)/exp(x²−x) = exp(x) → ∞.
+    REQUIRE(limit(E(pow(x, integer(2)))
+                      * pow(E(pow(x, integer(2)) - x), integer(-1)),
+                  x, oo)
+            == oo);
+    // x²·exp(x)/exp(x²) = x²·exp(x−x²) → 0 (exp decay beats the polynomial).
+    REQUIRE(limit(pow(x, integer(2)) * E(x) * pow(E(pow(x, integer(2))),
+                                                  integer(-1)),
+                  x, oo)
+            == S::Zero());
+    // x¹⁰·exp(x)·exp(−x²) → 0.
+    REQUIRE(limit(pow(x, integer(10)) * E(x) * E(mul(S::NegativeOne(),
+                                                     pow(x, integer(2)))),
+                  x, oo)
+            == S::Zero());
+    // Shared-monomial and constant-base products are unaffected.
+    REQUIRE(limit(E(x) * pow(E(integer(2) * x), integer(-1)), x, oo)
+            == S::Zero());  // exp(x)/exp(2x)
+    REQUIRE(limit(pow(integer(2), x) * pow(integer(3), mul(S::NegativeOne(), x)),
+                  x, oo)
+            == S::Zero());  // 2^x/3^x
+}
+
+// LIMIT-OSC-RATIO-1: a ratio of sums mixing polynomial and bounded-oscillating
+// terms at ∞ — (x + sin x)/(x + cos x) → 1. Direct substitution leaked
+// sin(∞)/cos(∞) garbage and L'Hôpital oscillates. The bounded terms are negligible
+// against the diverging polynomial skeleton, so the limit is the rational ratio of
+// the skeletons. Matches SymPy.
+TEST_CASE("limit: ratio of polynomials perturbed by bounded oscillation (LIMIT-OSC-RATIO-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto rat = [&](const Expr& n, const Expr& d) {
+        return n * pow(d, S::NegativeOne());
+    };
+    auto x2 = pow(x, integer(2));
+
+    REQUIRE(simplify(limit(rat(x + sin(x), x + cos(x)), x, oo)) == S::One());
+    REQUIRE(simplify(limit(rat(x + sin(x), x - cos(x)), x, oo)) == S::One());
+    REQUIRE(limit(rat(x2 + sin(x), x + cos(x)), x, oo) == oo);
+    REQUIRE(limit(rat(x + cos(x), x2 + sin(x)), x, oo) == S::Zero());
+    REQUIRE(simplify(limit(rat(integer(2) * x + sin(x), integer(3) * x + cos(x)),
+                           x, oo))
+            == rational(2, 3));
+    REQUIRE(simplify(
+                limit(rat(x2 + integer(3) * sin(x), integer(2) * x2 - cos(x)),
+                      x, oo))
+            == rational(1, 2));
+
+    // Unaffected: a pure rational ratio and a bounded×vanishing product. A
+    // growing-amplitude oscillation (x·sin x) is not a clean polynomial+bounded
+    // split, so the rule abstains — the value depends on other machinery and is
+    // not asserted here.
+    REQUIRE(simplify(limit(rat(x + integer(1), x + integer(2)), x, oo))
+            == S::One());
+    REQUIRE(limit(x * cos(x) * exp(mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+}
+
+// LIMIT-OSC-NAN-1: an unresolved oscillation at ∞ has no determinate limit, so
+// the engine reports nan instead of leaking the meaningless f(∞). lim sin(x)
+// used to return sin(oo) (and 1+sin(x) → sin(oo)+1, etc.) because L'Hôpital's
+// determinate-denominator branch divides sin(x)/1 → sin(∞). SymPy returns an
+// AccumBounds interval, which SymPP has no type for; nan is the honest "the limit
+// does not exist as a single value". Convergent oscillations are unaffected.
+TEST_CASE("limit: oscillation at infinity reports nan, not f(oo) (LIMIT-OSC-NAN-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto is_nan = [](const Expr& e) { return e->type_id() == TypeId::NaN; };
+
+    // No determinate limit → nan (and never a buried sin(oo)/cos(oo)/tan(oo)).
+    for (const Expr& e : {sin(x), cos(x), tan(x), integer(1) + sin(x),
+                          sin(x) + cos(x), pow(sin(x), integer(2)), x * sin(x),
+                          sin(integer(2) * x)}) {
+        auto r = limit(e, x, oo);
+        REQUIRE(is_nan(r));
+        REQUIRE(r->str().find("oo") == std::string::npos);
+    }
+
+    // Convergent / finite-point cases are unaffected.
+    REQUIRE(limit(sin(x) * pow(x, integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit((x + sin(x)) * pow(x, integer(-1)), x, oo) == S::One());
+    REQUIRE(limit(sin(x), x, S::Zero()) == S::Zero());
+    REQUIRE(limit(cos(x), x, S::Zero()) == S::One());
+    REQUIRE(simplify(limit(sin(x) * pow(x, integer(-1)), x, S::Zero()))
+            == S::One());
+}
+
+// LIMIT-POW-AS-EXP-1: Gruntz preprocessing — a general power f(x)^g(x) (var in
+// both base and exponent) is rewritten as exp(g·log f) so the exp/gamma growth
+// machinery can compare it. Γ(2n)/n^n diverges (gamma outgrows the super-power);
+// the bare-power paths previously left these as nan.
+TEST_CASE("limit: general power rewritten as exp resolves growth (LIMIT-POW-AS-EXP-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // Γ(2n)/n^n → ∞ (gamma ≫ super-power), via n^n → exp(n·log n).
+    REQUIRE(limit(gamma(integer(2) * n) * pow(n, mul(S::NegativeOne(), n)), n, oo)
+            == oo);
+    // x^x → ∞ stays correct after the rewrite is available.
+    REQUIRE(limit(pow(x, x), x, oo) == oo);
+    // Determinate/indeterminate powers resolved by the dedicated paths are
+    // untouched: the rewrite is a nan-branch fallback only.
+    REQUIRE(limit(pow(x, pow(x, integer(-1))), x, oo) == S::One());  // x^(1/x) → 1
+    REQUIRE(limit(pow(integer(1) + pow(x, integer(-1)), x), x, oo)
+            == S::E());  // (1+1/x)^x → e
+}
+
+// LIMIT-DOMINANT-SUM-1: Gruntz dominant-term rule — an indeterminate ∞−∞ sum
+// whose terms differ in growth order collapses to its strictly dominant term.
+// x − x·log x → −∞ (the −x·log x term outgrows x); combined with the power-as-exp
+// rewrite this closes exp(x)/xˣ → 0 and xˣ/exp(x) → ∞. Cancelling/algebraic
+// differences keep their dedicated handlers and must be unaffected.
+TEST_CASE("limit: dominant-term resolution of an unequal-order ∞−∞ sum (LIMIT-DOMINANT-SUM-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // The −x·log x term dominates x, so the sum diverges to −∞.
+    REQUIRE(limit(x + mul(S::NegativeOne(), mul(x, log(x))), x, oo)
+            == S::NegativeInfinity());
+    // Full chain: exp(x)/xˣ → 0 and xˣ/exp(x) → ∞ (power-as-exp + exp-combine +
+    // dominant-term sum).
+    REQUIRE(limit(exp(x) * pow(pow(x, x), integer(-1)), x, oo) == S::Zero());
+    REQUIRE(limit(pow(x, x) * pow(exp(x), integer(-1)), x, oo) == oo);
+    // Genuinely cancelling / equal-order differences are left to the
+    // conjugate/polynomial machinery and stay correct.
+    REQUIRE(limit(add(x, mul(S::NegativeOne(), x)), x, oo) == S::Zero());
+    REQUIRE(simplify(limit(add(sqrt(add(pow(x, integer(2)), x)),
+                               mul(S::NegativeOne(), x)),
+                           x, oo))
+            == S::Half());  // → 1/2
+    REQUIRE(limit(add(pow(x, integer(2)), mul(S::NegativeOne(), x)), x, oo)
+            == oo);
+}
+
+// LIMIT-BURIED-INF-1: a limit must never return an ∞ buried inside arithmetic
+// (the ∞·(∞+…)⁻¹ noise L'Hôpital leaves on a divergent gamma ratio). The engine
+// returns a clean ±∞ (when it can resolve the growth) or nan (when it cannot) —
+// never that noise. Genuine divergences (bare ±∞) are reported cleanly.
+TEST_CASE("limit: buried infinity reports nan, not noise (LIMIT-BURIED-INF-1)",
+          "[6][limit][infinity][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+
+    // Γ(2x)/Γ(x)² → ∞ (via duplication + the exponential-rate asymptotic), as a
+    // clean bare ∞ — never ∞·(∞+∞·log4)⁻¹ noise.
+    Expr r = limit(mul(gamma(mul(integer(2), x)), pow(gamma(x), integer(-2))),
+                   x, oo);
+    REQUIRE(r == oo);
+    REQUIRE(r->str() == "oo");  // clean singleton, no embedded ∞-arithmetic
+
+    // Bare-∞ divergences are still reported cleanly.
+    REQUIRE(limit(mul(pow(x, integer(2)), pow(x, integer(-1))), x, oo) == oo);
+    REQUIRE(limit(mul(exp(x), pow(x, integer(-1))), x, oo) == oo);
+    REQUIRE(limit(gamma(x), x, oo) == oo);
+}
+
+// LIMIT-SMALL-ANGLE-1: the leading-term (small-angle) substitution f(g) → g for
+// f ∈ {sin, tan, sinh, tanh, asin, atan, …} and g → 0, numerically verified.
+// Closes the 0·∞ forms the heuristic engine abandons — including the canonical
+// Gruntz oscillation eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1.
+TEST_CASE("limit: small-angle substitution and the Gruntz oscillation (LIMIT-SMALL-ANGLE-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr emx = exp(mul(S::NegativeOne(), x));
+
+    // The canonical Gruntz oscillation.
+    REQUIRE(limit(mul(exp(x),
+                      add(sin(add(pow(x, integer(-1)), emx)),
+                          mul(S::NegativeOne(), sin(pow(x, integer(-1)))))),
+                  x, oo)
+            == S::One());
+    // eˣ·sin(e⁻ˣ) → 1, eˣ·sin(e⁻ˣ/2) → 1/2, eˣ·tanh(e⁻ˣ) → 1.
+    REQUIRE(limit(mul(exp(x), sin(emx)), x, oo) == S::One());
+    REQUIRE(limit(mul(exp(x), sin(mul(rational(1, 2), emx))), x, oo) == S::Half());
+    REQUIRE(limit(mul(exp(x), tanh(emx)), x, oo) == S::One());
+    // x·f(1/x) → 1 for the linear-at-0 functions.
+    REQUIRE(limit(mul(x, sin(pow(x, integer(-1)))), x, oo) == S::One());
+    REQUIRE(limit(mul(x, tan(pow(x, integer(-1)))), x, oo) == S::One());
+    REQUIRE(limit(mul(x, atan(pow(x, integer(-1)))), x, oo) == S::One());
+    // Unit-at-zero heads: eᵍ − 1 ~ g and cos g − 1 ~ −g²/2.
+    REQUIRE(limit(mul(exp(x), add(exp(emx), S::NegativeOne())), x, oo)
+            == S::One());                                    // eˣ·(e^{e⁻ˣ} − 1) → 1
+    REQUIRE(limit(mul(exp(x), add(cos(emx), S::NegativeOne())), x, oo)
+            == S::Zero());                                   // eˣ·(cos e⁻ˣ − 1) → 0
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(S::One(), mul(S::NegativeOne(), cos(pow(x, integer(-1)))))),
+                  x, oo)
+            == S::Half());                                   // x²·(1 − cos 1/x) → 1/2
+    // No over-reach: an argument that does NOT vanish (sin(x), x → ∞) stays nan.
+    REQUIRE(limit(mul(x, sin(x)), x, oo)->type_id() == TypeId::NaN);
+}
+
+// LIMIT-HYPERBOLIC-1: combinations of sinh/cosh/tanh/coth at ±∞, where the closed
+// forms hide an exponential cancellation. Rewriting each hyperbolic of a diverging
+// argument to its eᵘ definition exposes it: sinh u + cosh u = eᵘ, cosh u − sinh u =
+// e⁻ᵘ, sinh u/cosh u = tanh u → 1. Previously (sinh+cosh)/eˣ and sinh/cosh returned
+// nan, and (cosh+sinh)/(cosh−sinh) hung. The (eᵃ)ⁿ → eⁿᵃ canonicalization keeps the
+// reciprocal of a single-exponential denominator from collapsing to 0⁻¹ = zoo. The
+// rewrite is gated to diverging arguments so the small-angle rule still owns the
+// vanishing-argument forms (eˣ·tanh(e⁻ˣ) → 1). Matches SymPy.
+TEST_CASE("limit: hyperbolic combinations via exponential form (LIMIT-HYPERBOLIC-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr sh = sinh(x), ch = cosh(x);
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // sinh x + cosh x = eˣ, so (sinh x + cosh x)/eˣ → 1.
+    REQUIRE(limit(over(add(sh, ch), exp(x)), x, oo) == S::One());
+    // sinh x/cosh x = tanh x → 1.
+    REQUIRE(limit(over(sh, ch), x, oo) == S::One());
+    // cosh x − sinh x = e⁻ˣ → 0.
+    REQUIRE(limit(add(ch, mul(S::NegativeOne(), sh)), x, oo) == S::Zero());
+    // (cosh x + sinh x)/(cosh x − sinh x) = e²ˣ → ∞ (previously hung, then zoo).
+    REQUIRE(limit(over(add(ch, sh), add(ch, mul(S::NegativeOne(), sh))), x, oo)
+            == oo);
+    // cosh x/eˣ → 1/2, and x·(coth x − 1) → 0.
+    REQUIRE(limit(over(ch, exp(x)), x, oo) == S::Half());
+    REQUIRE(limit(mul(x, add(coth(x), S::NegativeOne())), x, oo) == S::Zero());
+    // Gate guard: a vanishing argument is left to the small-angle rule, not the
+    // exponential rewrite — eˣ·tanh(e⁻ˣ) → 1 still resolves.
+    REQUIRE(limit(mul(exp(x), tanh(exp(mul(S::NegativeOne(), x)))), x, oo)
+            == S::One());
+}
+
+// LIMIT-HARMONIC-1: a harmonic number H(n) with a diverging argument expands to
+// its asymptotic log n + γ + 1/(2n) − 1/(12n²). H(n) was opaque to the limit
+// machinery — H(n)/log n returned a wrong 0 and H(n) returned nan.
+TEST_CASE("limit: harmonic number asymptotics (LIMIT-HARMONIC-1)",
+          "[6][limit][infinity][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+
+    REQUIRE(limit(harmonic(n), n, oo) == oo);                         // H(n) → ∞
+    REQUIRE(simplify(limit(harmonic(n) * pow(log(n), integer(-1)), n, oo))
+            == S::One());                                            // H(n)/log n → 1
+    REQUIRE(simplify(limit(add(harmonic(n), mul(S::NegativeOne(), log(n))), n, oo))
+            == S::EulerGamma());                                     // H(n) − log n → γ
+    // n·(H(n) − log n − γ) → 1/2 (needs the 1/(2n) correction term).
+    REQUIRE(simplify(limit(
+                mul(n, add(harmonic(n),
+                           add(mul(S::NegativeOne(), log(n)),
+                               mul(S::NegativeOne(), S::EulerGamma())))),
+                n, oo))
+            == S::Half());
+    // A difference of harmonics flattens after the substitution is expanded:
+    // H(2n) − H(n) → log 2 (the asymptotic logs combine, the 1/n tails vanish).
+    auto& oracle = Oracle::instance();
+    REQUIRE(oracle.equivalent(
+        simplify(limit(add(harmonic(mul(integer(2), n)),
+                           mul(S::NegativeOne(), harmonic(n))),
+                       n, oo))
+            ->str(),
+        "log(2)"));
+    // A finite-argument harmonic is untouched (no spurious asymptotic).
+    REQUIRE(harmonic(integer(5)) == rational(137, 60));
+}
+
+// LIMIT-LOGGAMMA-1: log of a diverging factorial/gamma expands by log-Stirling,
+// log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1), so log(n!) ~ (n+½)·log n − n + …
+// These were opaque: log(n!)/n returned a wrong 0, log(n!)/(n·log n) and
+// log(n!) − n·log n returned nan, and log(n!)/log(nⁿ) hung. A gamma with a
+// positive-integer shift is recast as the equal factorial so its log argument
+// stays var-clean (Γ(n+1) ⇒ log n, matching n!). Matches SymPy.
+TEST_CASE("limit: log-Stirling asymptotics of log Γ / log n! (LIMIT-LOGGAMMA-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr nln = mul(n, log(n));
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+
+    // log(n!)/(n·log n) → 1, log Γ(n)/(n·log n) → 1.
+    REQUIRE(simplify(limit(over(log(factorial(n)), nln), n, oo)) == S::One());
+    REQUIRE(simplify(limit(over(log(gamma(n)), nln), n, oo)) == S::One());
+    // log(n!)/n → ∞ (previously a wrong 0).
+    REQUIRE(limit(over(log(factorial(n)), n), n, oo) == oo);
+    // log(n!) − n·log n → −∞, and divided by n → −1.
+    REQUIRE(limit(add(log(factorial(n)), mul(S::NegativeOne(), nln)), n, oo)
+            == S::NegativeInfinity());
+    REQUIRE(simplify(limit(
+                over(add(log(factorial(n)), mul(S::NegativeOne(), nln)), n),
+                n, oo))
+            == S::NegativeOne());
+    // The ½·log n term: (log(n!) − n·log n + n)/log n → 1/2.
+    REQUIRE(simplify(limit(
+                over(add({log(factorial(n)), mul(S::NegativeOne(), nln), n}),
+                     log(n)),
+                n, oo))
+            == S::Half());
+    // log(n!)/log(nⁿ) → 1 (previously hung), and log Γ(2n)/(n·log n) → 2.
+    REQUIRE(simplify(limit(over(log(factorial(n)), log(pow(n, n))), n, oo))
+            == S::One());
+    REQUIRE(simplify(limit(over(log(gamma(mul(integer(2), n))), nln), n, oo))
+            == integer(2));
+    // Γ(n+1) = n! recast keeps the log argument var-clean: log(n!)/log Γ(n+1) → 1
+    // (previously hung on the mismatched log n vs log(n+1)).
+    REQUIRE(limit(over(log(factorial(n)), log(gamma(n + integer(1)))), n, oo)
+            == S::One());
+}
+
+// LIMIT-GAMMA-DUP-1: Legendre duplication splits a doubled-rate Γ(2x+b) into
+// slope-1 gammas plus a 4ˣ, which the gamma-ratio asymptotic's exponential-rate
+// branch then resolves: the central binomial Γ(2x+1)/Γ(x+1)²/4ˣ → 0,
+// Γ(2x+1)/Γ(x+1)²·√x/4ˣ → 1/√π (Stirling's constant), and the un-cancelled
+// Γ(2x+1)/Γ(x+1)² → ∞ (the 4ˣ dominates). The constant-base exponential rate
+// also decides ordinary gamma ratios: 2ˣ·Γ(x+½)/Γ(x) → ∞, 2⁻ˣ·Γ(x+1)/Γ(x) → 0.
+TEST_CASE("limit: gamma duplication and exponential-rate asymptotics (LIMIT-GAMMA-DUP-1)",
+          "[6][limit][infinity][gamma][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    Expr cbinom = mul(gamma(add(mul(integer(2), x), integer(1))),
+                      pow(gamma(add(x, integer(1))), integer(-2)));
+    Expr inv4x = pow(integer(4), mul(integer(-1), x));
+
+    // C(2x,x)/4ˣ → 0; ·√x → 1/√π; bare → ∞.
+    REQUIRE(limit(mul(cbinom, inv4x), x, oo) == S::Zero());
+    REQUIRE(simplify(limit(mul(mul(cbinom, inv4x), sqrt(x)), x, oo))
+            == simplify(pow(S::Pi(), rational(-1, 2))));
+    REQUIRE(limit(cbinom, x, oo) == oo);
+
+    // Exponential rate vs a slope-1 gamma ratio.
+    Expr ghalf = mul(gamma(add(x, rational(1, 2))), pow(gamma(x), integer(-1)));
+    REQUIRE(limit(mul(pow(integer(2), x), ghalf), x, oo) == oo);      // 2ˣ·√x → ∞
+    REQUIRE(limit(mul(pow(integer(2), mul(S::NegativeOne(), x)),
+                      mul(gamma(add(x, integer(1))), pow(gamma(x), integer(-1)))),
+                  x, oo)
+            == S::Zero());  // 2⁻ˣ·x → 0
+
+    // Unbalanced gamma power dominates everything: Γ(2x)/Γ(x) → ∞ (duplication
+    // leaves a single Γ(x+½)·4ˣ), and the gamma growth/decay beats any c^x or x^k.
+    REQUIRE(limit(mul(gamma(mul(integer(2), x)), pow(gamma(x), integer(-1))), x, oo)
+            == oo);
+    REQUIRE(limit(gamma(add(x, integer(1))), x, oo) == oo);          // Γ(x+1) → ∞
+    REQUIRE(limit(pow(gamma(x), integer(-1)), x, oo) == S::Zero());  // 1/Γ(x) → 0
+    REQUIRE(limit(mul(pow(integer(4), x), pow(gamma(x), integer(-1))), x, oo)
+            == S::Zero());  // 4ˣ/Γ(x) → 0 (gamma decay beats the exponential)
+    REQUIRE(limit(mul(gamma(x), pow(x, integer(-5))), x, oo) == oo);  // Γ(x)/x⁵ → ∞
+
+    // Gauss multiplication generalizes duplication to any integer rate k:
+    // Γ(3x)/Γ(x)³ → ∞, Γ(4x)/Γ(x)⁴ → ∞ (previously timed out in the slow fallback).
+    REQUIRE(limit(mul(gamma(mul(integer(3), x)), pow(gamma(x), integer(-3))), x, oo)
+            == oo);
+    REQUIRE(limit(mul(gamma(mul(integer(4), x)), pow(gamma(x), integer(-4))), x, oo)
+            == oo);
+}
+
+// LIMIT-POW-CONTINUITY-1: continuity of a constant-exponent power —
+// lim base^r = (lim base)^r. A non-rational base substitutes pointwise to an
+// indeterminate ∞/∞ → nan, so a radical of it surfaced as nan even though the
+// base has a clean limit; taking the base limit first resolves it.
+TEST_CASE("limit: constant-exponent power continuity (LIMIT-POW-CONTINUITY-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto ratio = mul(log(log(x)), pow(log(x), integer(-1)));  // → 0
+
+    // √ and cube-root of a vanishing non-rational base → 0.
+    REQUIRE(limit(sqrt(ratio), x, oo) == S::Zero());
+    REQUIRE(limit(pow(ratio, rational(1, 3)), x, oo) == S::Zero());
+    // Finite non-zero base: √((x+1)/(2x+3)) → √(1/2).
+    REQUIRE(simplify(limit(sqrt(mul(add(x, integer(1)),
+                                    pow(add(mul(integer(2), x), integer(3)),
+                                        integer(-1)))),
+                           x, oo))
+            == simplify(pow(rational(1, 2), rational(1, 2))));
+    // Already-working cases stay correct (rational base, vanishing base).
+    REQUIRE(limit(pow(pow(x, integer(-1)), rational(1, 3)), x, oo) == S::Zero());
+}
+
+// LIMIT-LOG-EXP-REDUCTION-1: Gruntz log-exp reduction — for a positive
+// product/power at +∞ whose growth ranking is opaque, lim e = exp(lim log e),
+// with log e expanded into a sum of logs (each factor certified positive at large
+// x). Closes nested-transcendental ratios the heuristic growth ranking misses.
+TEST_CASE("limit: log-exp reduction of nested transcendentals (LIMIT-LOG-EXP-REDUCTION-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto sqln = sqrt(mul(log(x), log(log(x))));  // √(log x · log log x)
+
+    // The canonical nested ratio: log x / exp(√(log x·log log x)) → 0.
+    REQUIRE(limit(mul(log(x), pow(exp(sqln), integer(-1))), x, oo) == S::Zero());
+    // Its comparability core (= the inner log-ratio) → 0.
+    REQUIRE(limit(mul(log(log(x)), pow(sqln, integer(-1))), x, oo) == S::Zero());
+    // x^log x / exp(log²x) = exp(log²x)/exp(log²x) → 1.
+    REQUIRE(limit(mul(pow(x, log(x)),
+                      pow(exp(pow(log(x), integer(2))), integer(-1))),
+                  x, oo)
+            == S::One());
+    // exp(√(log x)) outgrows log x → ∞.
+    REQUIRE(limit(mul(exp(sqrt(log(x))), pow(log(x), integer(-1))), x, oo) == oo);
+
+    // No regression on ordinary growth comparisons.
+    REQUIRE(limit(mul(pow(x, integer(2)), pow(exp(x), integer(-1))), x, oo)
+            == S::Zero());
+    REQUIRE(limit(mul(exp(x), pow(pow(x, integer(3)), integer(-1))), x, oo) == oo);
 }

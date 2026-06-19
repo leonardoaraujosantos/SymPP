@@ -30,6 +30,13 @@ namespace sympp {
 // trivial logical consequences.
 [[nodiscard]] SYMPP_EXPORT std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept;
 
+// Like ask() but WITHOUT implication-chasing: the node's own fact for `k`, with
+// any active `assuming` scope taking precedence. Compound nodes (Mul, Add, …)
+// query their children through this so scoped facts (e.g. x > 0) propagate
+// through products and sums. With no `assuming` scope active it is exactly
+// `e->ask(k)`, so existing behavior is unchanged.
+[[nodiscard]] SYMPP_EXPORT std::optional<bool> direct_ask(const Expr& e, AssumptionKey k) noexcept;
+
 [[nodiscard]] inline std::optional<bool> is_real(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Real);
 }
@@ -65,6 +72,27 @@ namespace sympp {
 }
 [[nodiscard]] inline std::optional<bool> is_odd(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Odd);
+}
+[[nodiscard]] inline std::optional<bool> is_prime(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Prime);
+}
+[[nodiscard]] inline std::optional<bool> is_composite(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Composite);
+}
+[[nodiscard]] inline std::optional<bool> is_irrational(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Irrational);
+}
+[[nodiscard]] inline std::optional<bool> is_algebraic(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Algebraic);
+}
+[[nodiscard]] inline std::optional<bool> is_transcendental(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Transcendental);
+}
+[[nodiscard]] inline std::optional<bool> is_extended_real(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedReal);
+}
+[[nodiscard]] inline std::optional<bool> is_infinite(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Infinite);
 }
 [[nodiscard]] inline std::optional<bool> is_imaginary(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Imaginary);

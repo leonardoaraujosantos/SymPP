@@ -16,6 +16,1283 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-INVHYP-1 — asinh(x)/log x and acosh(x)/log x hung
+- **Problem:** `limit(asinh(x)/log x, x, ∞) = 1` and `acosh(x)/log x → 1` did not terminate. `asinh(x) =
+  log(x + √(x²+1))` and `acosh(x) = log(x + √(x²−1))` both grow like `log(2x)`, but the exact log-of-a-radical
+  form sends L'Hôpital into a non-terminating path (each step balloons the nested radical in the derivative
+  `1/√(x²±1)`).
+- **Fix:** added `try_inverse_hyperbolic_asymptotic`, which substitutes the leading asymptotic
+  `asinh(g), acosh(g) ~ log(2g)` for `g → +∞` and re-takes the limit (the engine handles `log(2x)/log x`
+  cleanly). Because the substitution is only leading-order, the result is verified numerically; the guard uses
+  a wide sample span and a strictly-shrinking-gap trend test, since the `∼1/log x` convergence is far too slow
+  for an absolute tolerance. That trend test also rejects the precision-sensitive cases the leading form gets
+  wrong (e.g. `x²·(asinh(x) − log(2x)) → 1/4`, whose gap stays O(1)), returning an honest nan rather than a
+  wrong 0. Now `asinh(x)/log x → 1`, `acosh(x)/log x → 1`, `asinh(x²)/log x → 2`, `asinh(x) − log(2x) → 0`.
+  Regression: `LIMIT-INVHYP-1`. Matches SymPy.
+- **Extended (second-order term):** the substitution now carries two terms —
+  `asinh(g) = log(2g) + 1/(4g²) + O(g⁻⁴)`, `acosh(g) = log(2g) − 1/(4g²) + O(g⁻⁴)` — so a difference that
+  cancels the leading `log(2g)` still resolves: `(acosh(x) − asinh(x))·x² → −1/2` and
+  `x²·(asinh(x) − log(2x)) → 1/4` (both previously the honest nan). A case needing the dropped `O(g⁻⁴)` term
+  is still rejected by the numeric guard.
+
+### LIMIT-EXP-DIFF-1 — e^{x+e⁻ˣ} − e^x (Gruntz's flagship example) returned nan
+- **Problem:** a difference of asymptotically-equal exponentials returned `nan`: `e^{x+e⁻ˣ} − e^x → 1` (the
+  canonical Gruntz most-rapidly-varying example), `e^x − e^{x+e⁻ˣ} → −1`, `e^{x+2e⁻ˣ} − e^x → 2`. The two
+  exponentials have the same growth rate, so direct substitution gives `∞ − ∞` and the heuristic paths cannot
+  separate them.
+- **Fix:** added `try_exp_difference`, the Gruntz MRV-rewrite step for an exponential sum. For
+  `Σ cᵢ·exp(aᵢ)` with every `aᵢ − aⱼ → finite`, factor out a common `exp(b)` (an exact identity, since
+  `exp(b)·Σ cᵢ·exp(aᵢ − b) = Σ cᵢ·exp(aᵢ)`), collapsing the difference to a unit term the existing machinery
+  resolves: `e^{x+e⁻ˣ} − e^x = e^x·(e^{e⁻ˣ} − 1) → 1`. Each exponent is tried as the reference `b`; because the
+  rewrite is an identity, any determinate re-take is exact. Now `e^{x+e⁻ˣ} − e^x → 1`, `e^x − e^{x+e⁻ˣ} → −1`,
+  `e^{x+2e⁻ˣ} − e^x → 2`, `e^{x+e⁻²ˣ} − e^x → 0`. Regression: `LIMIT-EXP-DIFF-1`. Matches SymPy.
+- **Also fixed (regression):** the unit-power expansion (`LIMIT-UNIT-POWER-1`) had begun firing on a unit
+  difference multiplied by a *divergent* exponential — `e^x·(e^{1/x} − 1)` — where substituting the expansion
+  leaves an undistributed `e^x·(1+…) − e^x` (`∞ − ∞`) that the reciprocal substitution spins on, a hang. It is
+  now gated off any `exp(h → +∞)` factor (those `0·∞` MRV products are left to other paths, honest nan), while
+  the genuine ratio cases still resolve.
+
+### LIMIT-UNIT-POWER-1 — (x^x − 1)/(x·log x) and (x^(1/x) − 1)/(log x/x) hung / nan
+- **Problem:** a power `f(x)^g(x)` that tends to 1 — its exponent `t = g·log f → 0` — inside a difference was
+  unresolved: `(x^x − 1)/(x·log x) → 1` (at `x → 0`) hung, and `(x^(1/x) − 1)/(log x/x) → 1` (at `+∞`) returned
+  `nan`. The series leading-term stage cannot help here: the base tends to `0` or `∞`, so the substituted
+  exponent carries a `log u` singularity that no polynomial series can expand (this is exactly the
+  `LIMIT-NOHANG-1` family the series stage deliberately gates out). The exact value also previously surfaced as
+  the "honest nan" for `(x^(1/x) − 1)·x/log x` (SymPy gets 1).
+- **Fix:** added `try_unit_power_expansion`. For a unit-tending power under a sum it uses the exponential
+  expansion directly: `f^g − 1 = exp(t) − 1 = t + t²/2 + t³/6 + …` with `t = g·log f`, so the leading `t`
+  carries the limit (`f^g − 1 ~ g·log f`) and a couple of extra terms cover an `h ∼ t²`/`t³` denominator. It
+  matches the power both as a raw `f(x)^g(x)` and as `exp(t)` (its form after the power-as-exp rewrite), gated
+  to `t → 0` under a difference, and is numerically verified so a too-short truncation cannot pass. Now
+  `(x^x − 1)/(x·log x) → 1`, `(x^(1/x) − 1)/(log x/x) → 1`, and `(x^(1/x) − 1)·x/log x → 1` (previously the
+  honest nan). Regression: `LIMIT-UNIT-POWER-1`; `LIMIT-NOHANG-1` updated to assert the now-correct `1`.
+  Matches SymPy.
+
+### LIMIT-SERIES-1 (finite point) — ((1+x)^(1/x) − e)/x at x → 0 hung
+- **Problem:** the series leading-term stage handled `1^∞` corrections at `±∞` but not at a finite point, where
+  the same form appears: `limit(((1+x)^(1/x) − e)/x, x, 0) = −e/2` and the order-2
+  `((1+x)^(1/x) − e + e·x/2)/x² → 11e/24` hung (the `x = 1/u` substitution and the gate were `∞`-only).
+- **Fix:** generalized `try_series_limit` to a finite real target `a`: instead of `x = ±1/u` it substitutes
+  `x = a + u`, so the limit again becomes `u → 0`, and reuses the same exponent-preexpansion, pole-factoring,
+  and leading-term extraction. Numeric verification samples `x = a + 1/N` for growing `N`. A finite-point pole
+  (leading order `< 0`) is declined — its two-sided value depends on the approach direction and the power's
+  parity, so it is left to the other machinery. Now `((1+x)^(1/x) − e)/x → −e/2` and
+  `((1+x)^(1/x) − e + e·x/2)/x² → 11e/24`. Regression: `LIMIT-SERIES-1` (extended). Matches SymPy.
+
+### LIMIT-SERIES-1 (transcendental base / divergent term) — x·(cos(1/x)^x − 1) hung
+- **Problem:** the series leading-term stage handled rational-base powers like `(1+1/x)^x` but still hung on a
+  *transcendental* base — `x·(cos(1/x)^x − 1) → −1/2`, `x²·(cos(1/x)^x − 1) → −∞` — because `series` expands
+  `log(cos u)/u` but stalls on `exp(log(cos u)/u)`. It also could not report a divergent (`±∞`) correction:
+  the final limit went through a two-sided `limit()` on a Laurent form that returns `zoo`.
+- **Fix:** two changes to `try_series_limit`. (1) Pre-expand the exponent: rewrite `f^g → exp(series(g·log f))`
+  so the `exp` argument is already a polynomial, which `series(exp(poly))` expands cleanly (it stalls on
+  `exp(log(cos u)/u)`); the exponent series is required to reduce to a polynomial or the form is abandoned.
+  (2) Read the limit straight off the leading term of `u^p · series` — lowest `u`-degree term, combined with
+  the pole `p` — giving the finite coefficient when the order is 0, `0` when positive, and `sign·∞` (one-sided
+  as `u → 0⁺`) when negative. This replaces the two-sided `limit()` call (which lost the sign and could hang
+  on a stray pole) and adds `±∞` support, numerically verified by a divergence check. Now
+  `x·(cos(1/x)^x − 1) → −1/2`, `x²·(cos(1/x)^x − 1) → −∞`, `x·((1+1/x)^(x+1) − e) → e/2`, alongside the
+  existing rational-base cases. Regression: `LIMIT-SERIES-1` (extended). Matches SymPy.
+
+### LIMIT-SERIES-1 — asymptotic correction of a 1^∞ power, x·((1+1/x)^x − e), hung
+- **Problem:** `limit(x·((1+1/x)^x − e), x, ∞)` (= `−e/2`) did not terminate, and likewise the `0/0` form
+  `((1+1/x)^x − e)/(1/x)` and the `a≠1` variants `x·((1+a/x)^x − eᵃ) → −a²eᵃ/2`. `(1+1/x)^x → e` and
+  `(1+1/x)^{x²}/eˣ → e^{−1/2}` already worked, but subtracting the limit and scaling by `x` needs the *next*
+  term of the asymptotic series `(1+1/x)^x = e·(1 − 1/(2x) + …)`, which the heuristic engine lacks: the
+  power-as-exp rewrite turns the form into an `∞·0` the reciprocal substitution spins on.
+- **Fix:** added `try_series_limit`, the Gruntz leading-term-by-series stage. It substitutes `x = ±1/u` (so
+  `x → ±∞` becomes `u → 0`), rewrites each `u`-dependent power `f^g → exp(g·log f)` (series cannot expand a
+  raw `f^g`), factors out the explicit `u`-power pole `re = u^p·rest` (series stalls on a `(1/u)·nested-exp`
+  Laurent form but expands the regular `rest` cleanly), series-expands `rest`, recombines `u^p·series`, and
+  reads the limit off the leading term — validated numerically against the original. Three subtleties were
+  needed: a *plain* substitution symbol (a positive one makes `exp(g·log f)` canonicalize straight back to
+  `f^g`); rewriting `exp(k) → E^k` in the series so the lifted base cancels the original `eᵏ` (SymPp does not
+  equate `exp(2)` with `E²`, leaving a spurious `(exp(2)−E²)/u` pole); and a wide, high-precision numeric
+  sample range (the `∼1/x` corrections need a far point to drop below tolerance). The rule is gated to a power
+  with a *finite nonzero base* inside a sum, so `x^(1/x)` (base → ∞ ⇒ singular `log(1/u)`) stays with the
+  no-hang path (`LIMIT-NOHANG-1`). Now `x·((1+1/x)^x − e) → −e/2`, `x·((1+2/x)^x − e²) → −2e²`. Regression:
+  `LIMIT-SERIES-1`. Matches SymPy.
+
+### LIMIT-HYPERBOLIC-1 — sinh/cosh combinations at ±∞ gave nan / hung
+- **Problem:** combinations of hyperbolic functions whose closed forms hide an exponential cancellation were
+  unresolved. `(sinh x + cosh x)/eˣ` and `sinh x/cosh x` returned `nan` (SymPy: `1`), `cosh x − sinh x`
+  returned `nan` (SymPy: `0`), and `(cosh x + sinh x)/(cosh x − sinh x)` hung. The closed forms (`tanh x → 1`,
+  `cosh x/eˣ → ½`) worked, but the engine never expanded `sinh`/`cosh` to expose the `eᵘ` cancellations.
+- **Fix:** added `rewrite_hyperbolic_exp`, which rewrites every hyperbolic of a *diverging* argument to its
+  exponential definition (`sinh u = (eᵘ−e⁻ᵘ)/2`, …) and re-takes the (expanded) limit, so `sinh u + cosh u`
+  collapses to `eᵘ`, `cosh u − sinh u` to `e⁻ᵘ`, and the ratios to constant-base-exponential fractions the
+  existing machinery resolves. Two supporting pieces: the rewrite is gated to arguments that tend to ±∞ so the
+  leading-term/small-angle rule still owns vanishing-argument forms (`eˣ·tanh(e⁻ˣ) → 1`); and a global
+  `(eᵃ)ⁿ → eⁿᵃ` canonicalization at the top of `limit_impl` stops the reciprocal of a single-exponential
+  denominator from substituting to `0⁻¹ = zoo` (which was the residual wrong answer on the `(c+s)/(c−s)` case,
+  and a latent general bug: `limit(eˣ·(e⁻ˣ)⁻¹) = zoo`). Now `(sinh+cosh)/eˣ → 1`, `sinh/cosh → 1`,
+  `cosh−sinh → 0`, `(cosh+sinh)/(cosh−sinh) → ∞`, `x·(coth x − 1) → 0`. Regression: `LIMIT-HYPERBOLIC-1`.
+  Matches SymPy.
+
+### LIMIT-LOGGAMMA-1 — log of a factorial/gamma at +∞ gave nan / wrong 0 / hung
+- **Problem:** limits of `log(n!)` and `log Γ(n)` were unresolved. `log(n!)/n` returned a **wrong 0**
+  (SymPy: `∞`), `log(n!)/(n·log n)` and `log(n!) − n·log n` returned `nan` (SymPy: `1` and `−∞`), and
+  `log(n!)/log(nⁿ)` hung. The growth hierarchy has no entry for the log of a factorial/gamma, so these fell to
+  generic paths that mis-ranked or spun.
+- **Fix:** added `rewrite_loggamma_asymptotic`, which replaces each `log` of a divergent factorial/gamma by its
+  log-Stirling expansion `log Γ(z) = (z−½)·log z − z + ½·log 2π + o(1)` — `log(n!) ~ (n+½)·log n − n + ½·log 2π`,
+  `log Γ(n) ~ (n−½)·log n − n + ½·log 2π` — then re-takes the (now elementary, exact-in-the-limit) limit. A
+  gamma with a positive-integer shift `Γ(var+k) = (var+k−1)!` is recast as that factorial so its log argument
+  stays var-clean (`Γ(n+1) ⇒ log n`, matching `n!`) rather than `log(n+1)`, on which the engine's
+  polynomial·log-ratio handling stalls — without this, `log(n!)/log Γ(n+1)` regressed from `1` to a hang.
+  Now `log(n!)/(n·log n) → 1`, `log(n!)/n → ∞`, `log(n!) − n·log n → −∞`, `(log(n!) − n·log n + n)/log n → ½`,
+  `log(n!)/log(nⁿ) → 1`, `log Γ(2n)/(n·log n) → 2`. Regression: `LIMIT-LOGGAMMA-1`. Matches SymPy.
+
+### LIMIT-GAMMARATIO-1 (combined denominator) — Γ(n+½)/(√n·Γ(n)) gave nan / hung
+- **Problem:** half-integer gamma ratios written as ordinary division failed: `limit(Γ(n+½)/(√n·Γ(n)), n, ∞)`
+  returned `nan` (SymPy: `1`) and `limit(Γ(n+3/2)/(n^(3/2)·Γ(n)), n, ∞)` even hung. The balanced-gamma-ratio
+  asymptotic (`Γ(x+a)/Γ(x) ~ x^a`) already covered these *when the factors were handed to it pre-separated*,
+  but `together` collapses a ratio's denominator into a single combined power: `Γ(n+½)/(√n·Γ(n))` becomes
+  `(√n·Γ(n))⁻¹·Γ(n+½)`. The rule iterates the top-level `Mul` factors and saw `(√n·Γ(n))⁻¹` — a `Pow` with a
+  *product* base — as one unrecognized factor, so it aborted; the expression then fell through to the wrong-0
+  growth-rank path (nan) or the Stirling-root numeric guard (hang). Integer shifts slipped through only
+  because the `Γ(n+1)=n·Γ(n)` recurrence rewrites them first.
+- **Fix:** `gamma_ratio_asymptotic` now flattens its input, distributing a numeric power of a product
+  `(∏ gᵢ)^p → ∏ gᵢ^p`, so `(√n·Γ(n))⁻¹` splits back into `n^(−1/2)` and `Γ(n)⁻¹` and every gamma/power factor
+  is recognized. Now `Γ(n+½)/(√n·Γ(n)) → 1`, `Γ(n+3/2)/(n^(3/2)·Γ(n)) → 1`,
+  `Γ(n+¼)·Γ(n+¾)/(n·Γ(n)²) → 1` (quarter-integer shifts too). Because the asymptotic returns first, the
+  earlier hang is also gone. Regression: `LIMIT-GAMMARATIO-1` (combined-denominator cases added). Matches SymPy.
+
+### LIMIT-STIRLING-PRODUCT-1 — Stirling-prefactor limits like n!/(nⁿ·e⁻ⁿ) hung
+- **Problem:** `limit(n!/(nⁿ·e⁻ⁿ), n, ∞)` (= `n!·n⁻ⁿ·eⁿ ~ √(2πn) → ∞`) did not terminate. The Stirling
+  handler rewrote `n! ~ (n/e)ⁿ` using only the **leading** power form, which cancels exactly against the
+  `n⁻ⁿ·eⁿ` factor and leaves the false candidate `1`; the numeric guard correctly rejected it, but the
+  expression then spun in the power-as-exp / reciprocal-substitution fallbacks. The whole `√(2πn)`
+  asymptotic lives entirely in the subleading prefactor the bare `(n/e)ⁿ` form drops.
+- **Fix:** `try_stirling_limit` now tries the bare leading form first (keeping the n-th-root path
+  `(n!)^(1/n)/n → 1/e` exact, where the prefactor cancels under the root) and, when that candidate fails the
+  numeric guard, falls back to the **full** leading Stirling form — `n! = Γ(n+1) ~ √(2π)·n^(n+1/2)·e⁻ⁿ` and
+  `Γ(n) ~ √(2π)·n^(n−1/2)·e⁻ⁿ` — whose prefactor carries the limit once `(n/e)ⁿ` cancels. The two forms share
+  one numeric guard. Now `n!/(nⁿ·e⁻ⁿ) → ∞`, `n!·eⁿ·n^(−n−1/2) → √(2π)`, `(n!)²·n^(−2n)·e^(2n) → ∞`.
+  Regression: `LIMIT-STIRLING-PRODUCT-1`. Matches SymPy.
+- **Still open:** product shapes whose full-Stirling candidate is `0` with slow `n^(−1/2)` convergence (e.g.
+  `n!·eⁿ·n^(−n−1)`) still hang — the numeric guard's `< 1e-2` threshold rejects the slow tail, and the
+  fall-through reaches a separate pre-existing `limit_impl` hang on mixed-base super-powers
+  (`((n+1)/e)^(n+1)·n^(−n−1/2)`, base `n+1` vs `n` not combining). Tracked for a later increment.
+
+### LIMIT-CONST-BASE-RATIO-1 — rational functions of constant-base exponentials cˣ failed or were wrong
+- **Problem:** ratios of constant-base exponentials at `+∞` mis-resolved while their `eˣ` analogues worked.
+  `limit((2ˣ+1)/(2ˣ−1), x, ∞)` and `limit((3ˣ−2ˣ)/(3ˣ+2ˣ), x, ∞)` returned `nan` (SymPy: `1`), and
+  `limit((2ˣ+3ˣ)/3ˣ, x, ∞)` returned the **wrong** value `0` (SymPy: `1`). The engine resolves `eˣ` because
+  it is a `Function` node L'Hôpital differentiates cleanly, but `2ˣ = Pow(2,x)` is a constant-base power:
+  L'Hôpital loops on the cancelling `cᵏˣ/cᵏˣ` ratio (the differentiated quotient never collapses), and the
+  `0·∞` product `(2ˣ+3ˣ)·3⁻ˣ` — which `together` will not pull into a denominator — was folded per-factor to
+  `0`.
+- **Fix:** added `try_dominant_ratio`. For a fraction `P/Q` at `±∞` it finds the denominator's dominant term
+  `D` (every other term over `D → 0`), divides numerator and denominator through by `D` so the quotient is
+  finite/finite, and as a fallback distributes a sum × vanishing factor (`(2ˣ+3ˣ)·3⁻ˣ → 2ˣ3⁻ˣ + 1 → 1`) that
+  per-term linearity then resolves. The rule is gated by `is_exp_rational` to constant-base-exponential
+  rationals (`cˣ`, `c > 0`, and polynomials in `x`) — anything with a logarithm, gamma, general power
+  `f(x)^g(x)`, or an `exp` of a transcendental (the form `x^(1/x)` rewrites into) is excluded, so the
+  divide/distribute never reopens a hard Gruntz form (`LIMIT-NOHANG-1` stays terminating). Now
+  `(2ˣ+1)/(2ˣ−1) → 1`, `(2ˣ+3ˣ)/3ˣ → 1`, `(3ˣ−2ˣ)/(3ˣ+2ˣ) → 1`, `(2ˣ−3ˣ)/(2ˣ+3ˣ) → −1`, `2ˣ/(2ˣ+x) → 1`.
+  Regression: `LIMIT-CONST-BASE-RATIO-1`. Matches SymPy.
+
+### LIMIT-COMMON-LOG-1 — x^x/(x+1)^x and (x+1)^x/x^x hung the limit engine
+- **Problem:** `limit(x^x/(x+1)^x, x, ∞) = 1/e` and `limit((x+1)^x/x^x, x, ∞) = e` did not terminate. The
+  power-as-exp rewrite + exp-combine produce the **distributed** exponent `x·log(x+1) − x·log(x)`, an `∞−∞`
+  that the standard log-combine cannot reduce (its coefficients carry the variable `x`), so the exponent
+  stayed `nan`, exp-continuity failed, and the reciprocal substitution `x = 1/t` spun on the resulting `t→0`
+  form.
+- **Fix:** added `try_common_log_combine` for an `∞−∞` sum whose terms share a common variable coefficient on
+  a log: `c·log(p) − c·log(q) = c·log(p/q)`. This reduces `x·log(x+1) − x·log(x)` to `x·log((x+1)/x) → 1`
+  (resolved by the existing `0·∞` machinery), so exp-continuity yields `e` before the reciprocal substitution
+  is reached. Now `x·log(x+1) − x·log(x) → 1`, `x^x/(x+1)^x → e⁻¹`, `(x+1)^x/x^x → e` — all terminate with the
+  correct value. Only fires when every term is `c·log(g)` with a matching var coefficient (up to sign), so
+  other `∞−∞` sums are untouched. Regression: `LIMIT-COMMON-LOG-1`. Matches SymPy.
+
+### LIMIT-NOHANG-1 — (x^(1/x) − 1)·x/log x hung the limit engine
+- **Problem:** `limit((x^(1/x) − 1)·x/log x, x, ∞)` (SymPy: `1`) did not terminate. Two paths drove the hang:
+  the log-exp reduction took `log` of the vanishing `eᵍ − 1` factor (after `x^(1/x) ↦ exp(g)`), turning the
+  reduction into an expensive `∞ − ∞`; and the reciprocal substitution `x = 1/t` mapped `x^(1/x)` to the
+  equally hard `exp(−t·log t)` at `t → 0`, on which the finite-point machinery spun.
+- **Fix:** two narrow guards. (a) `log_factor_positive` (the log-exp reduction's splitter) now abstains on an
+  **Add factor** — a sum like `eᵍ − 1` is not a clean log-factor (its log neither expands nor stays bounded),
+  so such products defer to the small-angle / product paths. (b) The reciprocal substitution is skipped when a
+  general power `f(x)^g(x)` (var in both base and exponent) sits **inside a sum** — the `f(x)^g(x) − c`
+  difference shape — since `x = 1/t` only relocates the hardness; a *standalone* such power (the Stirling root
+  `(n!)^(1/n)`) is still substituted and resolves. The limit now returns a determinate `nan` (the slow `1/x`
+  convergence defeats the numeric leading-term check, so the exact `1` is not recovered — but it no longer
+  hangs). Both guards leave every existing target unchanged (log-exp reduction, radical differences, Stirling
+  roots). Regression: `LIMIT-NOHANG-1`.
+
+### LIMIT-NESTED-RADICAL-1 — √(x+√x) − √x and similar nested differences returned nan
+- **Problem:** `limit(√(x+√x) − √x, x, ∞) = 1/2` returned `nan`. The conjugate handler rationalises
+  `t₁ − t₂ = (t₁²−t₂²)/(t₁+t₂)`, but bailed whenever the numerator `t₁²−t₂²` still contained a radical — and a
+  nested radical leaves exactly that (`num = √x`), even though the rationalised ratio `√x/(√(x+√x)+√x) → 1/2`
+  is perfectly determinate.
+- **Fix:** when the conjugate numerator is a **simple var radical** `c·x^q` (the nested-difference shape), the
+  ratio `num/den` is attempted rather than abstaining — it resolves as a clean lower-order form. Restricted to
+  that shape so the engine does not recurse on every other radical `∞−∞`, and any failure falls through on the
+  existing `nan` guard, so it cannot loop. Now `√(x+√x) − √x → 1/2`, `√(x+2√x) − √x → 1`; the plain radical
+  differences (`√(x²+x) − x → 1/2`, the n-th-root cases) are unchanged. Regression: `LIMIT-RADICAL-INF-1`
+  (extended). Matches SymPy.
+
+### LIMIT-SMALL-ANGLE-1 — 0·∞ trig forms and the canonical Gruntz oscillation returned nan
+- **Problem:** `eˣ·sin(e⁻ˣ) → 1`, `x·tan(1/x) → 1`, and the canonical Gruntz oscillation
+  `eˣ·(sin(1/x + e⁻ˣ) − sin(1/x)) → 1` all returned `nan`. The heuristic engine has no leading-term rule for
+  `sin(g) ~ g` as `g → 0`, so these `0·∞` forms were abandoned.
+- **Fix:** added `try_small_angle`, a nan-branch fallback at `±∞`. Every `f(g)` with `f(t) = t + O(t³)` at 0
+  (`sin, tan, sinh, tanh, asin, atan, asinh, atanh`) whose argument `g → 0` is replaced by `g`, the form is
+  expanded, and the limit is re-taken. The substitution drops the cubic tail, so the candidate is **accepted
+  only after a numeric check** against the original at `|x| ∈ {100, 300, 600}` — a wrong value keeps an
+  `O(1)` offset and is rejected, and the working precision scales with the sample point so a difference
+  `sin(a+h) − sin(a)` with `h ∼ e⁻ˣ` is resolved rather than lost to catastrophic cancellation. Now
+  `eˣ·sin(e⁻ˣ) → 1`, `eˣ·sin(e⁻ˣ/2) → 1/2`, `x·sin(1/x) → 1`, and the Gruntz oscillation → 1, while a
+  non-vanishing argument (`x·sin x`) correctly stays `nan`. Regression: `LIMIT-SMALL-ANGLE-1`. Matches SymPy
+  (closes the brief's headline oscillatory example).
+- **Extended** to the unit-at-zero functions: `exp`, `cos`, `cosh` are replaced by their Maclaurin heads
+  (`eᵍ ~ 1 + g + g²/2`, `cos g ~ 1 − g²/2`), so `eˣ·(e^{e⁻ˣ} − 1) → 1`, `eˣ·(cos e⁻ˣ − 1) → 0`, and
+  `x²·(1 − cos 1/x) → 1/2` resolve too. The quadratic-head truncation avoids an `expand()` blow-up on a
+  sum-valued `g`, and the whole rule is gated to **product** expressions (the only shape giving the `0·∞` it
+  targets) so the common `eᵍ`/`cos g` subterms do not slow the rest of the engine.
+
+### LIMIT-HARMONIC-1 — harmonic-number limits returned nan or a wrong 0
+- **Problem:** `H(n)` (the harmonic number) was opaque to the limit engine — `H(∞)` did not fold, so
+  `limit(H(n), n, ∞)` returned `nan` and, worse, `H(n)/log n` returned `0` instead of `1` (the engine treated
+  `H(∞)` as bounded over a diverging `log n`). SymPy gives `∞`, `1`, `γ`, `1/2` for the standard cases.
+- **Fix:** added `rewrite_harmonic_asymptotic`, a limit preprocessing step at `+∞`: every `H(g)` whose
+  argument `g` **provably diverges** is replaced by its asymptotic expansion
+  `H(g) ~ log g + γ + 1/(2g) − 1/(12g²)`. Four terms cover the usual limits — `H(n) → ∞`, `H(n)/log n → 1`,
+  `H(n) − log n → γ`, `n·(H(n) − log n − γ) → 1/2` — and the divergence gate leaves a finite-argument
+  harmonic (`H(5) = 137/60`) untouched. Regression: `LIMIT-HARMONIC-1`. Matches SymPy.
+- **Follow-up (done):** `H(2n) − H(n) → log 2` now resolves. The substituted form is **expanded** before the
+  re-take, so the undistributed `−1·(log n + γ + …)` flattens — otherwise the `γ` did not cancel and the
+  `log(2n) − log(n)` sat behind a product, sending the engine down a non-terminating path (the limit hung).
+  Expanded, it is a flat sum the log-combine / vanishing-tail rules resolve, also eliminating that hang.
+
+### BINOM-GEN-1 — generalized binomial C(n,k) for non-integer/negative n left unevaluated
+- **Problem:** `binomial(1/2, 3)`, `binomial(-1, 2)`, `binomial(7/2, 2)` stayed unevaluated. The factory only
+  evaluated a non-negative-integer pair (via `mpz_bin_uiui`); SymPy evaluates the generalized binomial for any
+  numeric upper index (`binomial(1/2,3)=1/16`, `binomial(-1,2)=1`, `binomial(7/2,2)=35/8`).
+- **Fix:** added the generalized branch `C(n,k) = ∏_{i=0}^{k-1}(n−i)/k!` for a **numeric** upper index `n`
+  (negative integer or rational) and a non-negative integer `k` (bounded `k ≤ 10000`). The numeric product
+  folds to a single rational through the `Mul` factory. The exact non-negative-integer path is unchanged, and
+  a symbolic upper index stays symbolic (`binomial(n,2)`), matching SymPy. Gives `C(1/2,3)=1/16`,
+  `C(7/2,2)=35/8`, `C(-1/2,4)=35/128`, `C(-3,3)=−10`. Regression: `BINOM-GEN-1`. Matches SymPy.
+
+### SUM-GEOM-INF-1 — infinite geometric series: nan for negative ratio, x^∞ garbage for symbolic
+- **Problem:** the plain infinite geometric series substituted `hi = ∞` into the finite closed form
+  `A·(r^lo − r^(hi+1))/(1−r)`, leaving `r^∞`. For a **negative** convergent ratio this collapsed to `nan`
+  (`Σ(−½)ᵏ → nan` instead of `2/3`); for a **symbolic** ratio it leaked `(−x^∞ + 1)/(1−x)` noise; an
+  oscillating divergent ratio (`Σ(−2)ᵏ`) likewise leaked `(−2)^∞`.
+- **Fix:** added an explicit infinite-bound branch. The series converges iff `|r| < 1` (tested as
+  `|r| − 1 < 0`), and then `r^(hi+1) → 0` regardless of sign, so `Σ_{k=lo}^∞ A·rᵏ = A·r^lo/(1−r)`. A positive
+  divergent ratio (`|r| > 1`) gives `sign(A)·∞`; an oscillating divergent or symbolic-magnitude ratio is left
+  as a clean unevaluated `Sum` rather than an `r^∞` artifact. Now `Σ(−½)ᵏ = 2/3`, `Σ(−⅓)ᵏ = 3/4`,
+  `Σ3·(⅔)ᵏ = 9`, `Σ2ᵏ = ∞`, `Σxᵏ → Sum(xᵏ,…)`, `Σ(−2)ᵏ → Sum(…)`; positive-ratio and finite sums are
+  unchanged. Regression: `SUM-GEOM-INF-1`. Matches SymPy (which returns a `Piecewise`; SymPP gives the
+  principal closed form for a known-convergent ratio and a clean marker otherwise).
+
+### SUM-EXP-GAMMA-1 — Σ xᵏ/Γ(k+1) (the gamma spelling of the exp series) left unevaluated
+- **Problem:** `Σ_{k≥0} xᵏ/k! = eˣ` was recognized, but the mathematically identical `Σ_{k≥0} xᵏ/Γ(k+1)`
+  stayed an unevaluated `Sum(...)`. The exponential-series recognizer matched `factorial(k)` but not
+  `Γ(k+1)`, even though `Γ(k+1) = k!`.
+- **Fix:** added `gamma_to_factorial`, run at the recognizer entry: it rewrites every `Γ(var + c)` with an
+  integer offset `c` to `factorial(var + c − 1)`, then re-enters the one factorial code path. Half-integer
+  shifts and doubled rates (`Γ(2k)`) are left untouched. Now `Σ xᵏ/Γ(k+1) = eˣ`, `Σ k·xᵏ/Γ(k+1) = x·eˣ`,
+  `Σ xᵏ/Γ(k+2) = (eˣ−1)/x`, `Σ 1/Γ(k+1) = e`, all matching the factorial spelling and SymPy. Regression:
+  `SUM-EXP-1` (extended). Matches SymPy.
+
+### LIMIT-GAMMA-GAUSS-1 — slope-k gamma ratios Γ(kx)/… (k ≥ 3) timed out / nan
+- **Problem:** `Γ(3x)/Γ(x)³ → ∞`, `Γ(4x)/Γ(x)⁴ → ∞` ran into the slow gamma-growth fallback (30 s+) and
+  returned `nan`. The duplication rule only handled a *doubled* rate `Γ(2x+b)`.
+- **Fix:** generalized `try_gamma_duplication` to `try_gamma_multiplication` using the Gauss multiplication
+  formula `Γ(kz) = (2π)^((1−k)/2)·k^(kz−1/2)·∏_{j=0}^{k−1} Γ(z + j/k)` (`z = x + b/k`) for any integer rate
+  `k ∈ [2, 6]`. It rewrites a slope-k gamma into k slope-1 gammas plus a constant-base exponential
+  `k^(kx+…)`, which the exponential-rate branch of `gamma_ratio_asymptotic` (from `LIMIT-GAMMA-EXPRATE-1`)
+  absorbs — cancelling an explicit `kᵏ^(−x)` through the log-rate sum rather than base-matching. Resolved
+  through that asymptotic directly (never a recursive limit), so it stays sound and bounded. Now
+  `Γ(3x)/Γ(x)³ → ∞`, `Γ(4x)/Γ(x)⁴ → ∞` resolve in ~0 s, and the whole slope-2 family (central binomial → 0,
+  Γ(2x)/Γ(x)² → ∞, …) is unchanged. Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+
+### LIMIT-GAMMA-UNBALANCED-1 — Γ(2x)/Γ(x) took ~80 s and returned nan
+- **Problem:** `limit(Γ(2x)/Γ(x), x, ∞) = ∞` ran for ~80 s and returned `nan`. Duplication turns it into
+  `4ˣ·½·π^(−½)·Γ(x+½)` — a **single, unbalanced** gamma (`Σpᵢ = 1`), which `gamma_ratio_asymptotic` required
+  to be balanced (`Σpᵢ = 0`); it abstained, dropping the limit into the slow gamma-growth fallback. (This was
+  a pre-existing cost — the prior commit behaved identically.)
+- **Fix:** extended `gamma_ratio_asymptotic` to resolve the unbalanced case. With every gamma a same-rate
+  shift `Γ(x+aᵢ)`, a net exponent `Σpᵢ ≠ 0` makes the gamma part `~ (x^x)^{Σpᵢ}` by Stirling — it grows
+  (`Σpᵢ > 0`) or decays (`Σpᵢ < 0`) faster than any `c^{ρx}·x^E`, so `Σpᵢ < 0 → 0` and `Σpᵢ > 0 → sign(C)·∞`.
+  Reached only after every factor is recognized (gammas, `x^q`, constant-base exponentials), so a
+  super-exponential factor like `e^{x²}` — which my code does not classify — still abstains, never a wrong
+  answer. Now `Γ(2x)/Γ(x) → ∞` resolves in ~0 s (and the gamma growth/decay correctly beats an exponential:
+  `4ˣ/Γ(x) → 0`, `Γ(x)/x⁵ → ∞`, `Γ(x+1) → ∞`, `1/Γ(x) → 0`). The full test suite dropped from ~138 s to
+  ~56 s. Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+
+### LIMIT-GAMMA-EXPRATE-1 — gamma ratios against a constant-base exponential left as nan
+- **Problem:** `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`, `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0` all
+  returned `nan`. After Legendre duplication (`LIMIT-GAMMA-DUP-1`) the un-cancelled `4ˣ` left a constant-base
+  exponential that `gamma_ratio_asymptotic` could not absorb, so it abstained.
+- **Fix:** extended `gamma_ratio_asymptotic` to collect a constant-base exponential `c^(k·x+d)` (c > 0) into a
+  growth rate `ρ = Σ kᵢ·log cᵢ`, folding the var-free `c^d` into the leading constant. An exponential
+  (`ρ ≠ 0`) dominates any power of x, so `ρ < 0 → 0` and `ρ > 0 → sign(C)·∞`; `ρ = 0` falls back to the
+  existing `x^E` power law. The sign of `ρ` is read from the assumption layer, then a numeric probe. With
+  this, `try_gamma_duplication` no longer needs its no-residual-exponential gate — it resolves the rewritten
+  form **directly through `gamma_ratio_asymptotic`** (never a recursive `limit`), so it succeeds exactly when
+  the form is gamma-ratio-shaped and otherwise abstains cleanly (e.g. `Γ(2n)·n^(−n)`, whose surviving `n^(−n)`
+  is left to the super-power path rather than looping). Gives `Γ(2x)/Γ(x)² → ∞`, `(2x)!/(x!)² → ∞`,
+  `2ˣ·Γ(x+½)/Γ(x) → ∞`, `2⁻ˣ·Γ(x+1)/Γ(x) → 0`, while `C(2x,x)/4ˣ → 0` and `·√x → 1/√π` still hold.
+  Regression: `LIMIT-GAMMA-DUP-1` (extended). Matches SymPy.
+- **Note:** `Γ(2x)/Γ(x)` was left pathologically slow here; resolved by `LIMIT-GAMMA-UNBALANCED-1` above
+  (now ~0 s → ∞).
+
+### LIMIT-GAMMA-DUP-1 — central binomial Γ(2x+1)/Γ(x+1)²/4ˣ left as nan
+- **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞) = 0` (Stirling: the central binomial ~ 4ˣ/√(πx)) was returned
+  as `nan`. `gamma_ratio_asymptotic` only ranks slope-1 gammas `Γ(x+a)`; a doubled-rate `Γ(2x+1)` is opaque
+  to it.
+- **Fix:** added `try_gamma_duplication`, the Legendre duplication formula
+  `Γ(2z) = 2^(2z−1)·π^(−1/2)·Γ(z)·Γ(z+1/2)` (`z = x + b/2`). It rewrites a slope-2 `Γ(2x+b)` into two slope-1
+  gammas plus `4ˣ·2^(b−1)`, written with the `4ˣ` in **base 4** so an explicit `4^(−x)` in the original
+  cancels via Mul canonicalization. It only proceeds when **no constant-base exponential survives** the
+  rewrite (checked by `has_const_base_exponential`); the leftover pure slope-1 gamma ratio is then resolved
+  soundly by the existing asymptotic. Gives `C(2x,x)/4ˣ → 0` and `C(2x,x)·√x/4ˣ → 1/√π`. A bare
+  `Γ(2x)/Γ(x)²` (whose `4ˣ` would not cancel, → ∞) keeps a residual exponential, so duplication abstains and
+  it stays a clean `nan` — no wrong answer, since combining a surviving `cˣ` with a gamma asymptotic needs
+  more machinery (a future increment). Regression: `LIMIT-GAMMA-DUP-1`. Matches SymPy.
+
+### LIMIT-BURIED-INF-1 — divergent gamma ratio leaked ∞-arithmetic garbage
+- **Problem:** `limit(Γ(2x+1)/Γ(x+1)²/4ˣ, x, ∞)` (the central binomial over 4ˣ, → 0 by Stirling) returned the
+  malformed expression `∞·(∞ + ∞·log 4)⁻¹` — L'Hôpital differentiated the loggamma factors into digamma and
+  substituted ∞, leaving an unresolved ∞/∞ that the engine accepted as the answer. Also `digamma(∞)` /
+  `polygamma(0, ∞)` did not evaluate.
+- **Fix:** two parts. (a) Added the `polygamma` values at +∞: `ψ(∞) = ∞` and `ψ⁽ⁿ⁾(∞) = 0` for `n ≥ 1`
+  (matching SymPy). (b) Added a `has_buried_infinity` guard: a genuine limit value is finite or a bare ±∞/zoo
+  singleton, never an ∞ nested inside a Mul/Add/Pow. The L'Hôpital acceptance test and a final catch-all at
+  the public `limit()` now reject such forms and return `nan` — honest "indeterminate" rather than noise.
+  Bare-∞ divergences (`x²/x`, `eˣ/x`, `Γ(x) → ∞`) are unaffected. The definite-integral path was updated to
+  emit a clean unevaluated `Integral` marker when a boundary limit comes back `nan` (e.g. parametric
+  `∫₀^∞ e^(−a·x)` with `a` of unknown sign), preserving `INT-PARAMSIGN-1`. Regressions: `LIMIT-BURIED-INF-1`,
+  `POLYGAMMA-INF-1`.
+- **Note:** the exact value `0` needs a Stirling asymptotic for gamma ratios with differing argument
+  coefficients (Γ(2x) vs Γ(x)) — a future Gruntz leading-term increment. `nan` is the correct honest result
+  until then.
+
+### ASSUMING-PROPAGATE-1 — assuming context did not reach compound expressions
+- **Problem:** a scoped fact (`assuming(x, positive)`) was visible on the bare symbol but not on expressions
+  built from it: `is_positive(x·y)`, `is_negative(x·y)`, `is_real(x+y)` all stayed unknown under
+  `Q.positive(x)∧Q.positive(y)` even though SymPy answers `True`. `Mul::ask`/`Add::ask` and their helpers
+  query children through the context-blind `a->ask(k)`, which cannot see the scoped facts.
+- **Fix:** added an exported `direct_ask(e, k)` — the node's own fact with any active `assuming` scope taking
+  precedence, *without* implication-chasing — and routed the child queries in `Mul::ask`, `Add::ask`, and the
+  shared `assumption_helpers.hpp` (`all_args_have`, `any_arg_has`, the transcendental/irrational forcers)
+  through it. Now scoped sign/reality facts propagate through products and sums:
+  `(+)(+) > 0`, `(−)(+) < 0`, real·real and real+real are real, and `refine` of compound abs/√ forms picks
+  the facts up at the top level. Crucially, when no scope is active `direct_ask(e,k) ≡ e->ask(k)`, so all
+  existing behavior is byte-for-byte unchanged (zero regressions by construction). Regression:
+  `ASSUMING-PROPAGATE-1`. Matches SymPy.
+- **Follow-up (done):** `ASSUMING-PROPAGATE-POW-1` extends the same routing to `Pow::ask`'s 44 child queries,
+  so `is_real(x³)`, `is_nonnegative(x²)`, `is_positive(x³)`, `is_positive(√x)` now resolve under the relevant
+  scopes. Same zero-regression-by-construction guarantee. The `assuming` context now reaches every compound
+  node (Mul, Add, Pow). Matches SymPy.
+
+### REFINE-ABS-MUL-1 — refine(|x·y|) did not apply per-factor sign facts
+- **Problem:** `refine(|x·y|)` stayed `Abs(x·y)` even under `Q.positive(x)`/`Q.positive(y)`. The sign facts
+  reach a bare symbol via the `assuming` context but not a product: `Mul::ask` queries its factors through the
+  context-blind `f->ask(k)`, so `is_nonnegative(x·y)` cannot see the scoped facts. SymPy distributes:
+  `x·Abs(y)` under `Q.positive(x)` alone, `x·y` under both, `−x·y` under `Q.positive(x)∧Q.negative(y)`.
+- **Fix:** extended `refine_abs` to distribute over a product — `|∏fᵢ| = ∏|fᵢ|` (valid for any complex
+  factors) — applying each factor's known sign independently (`f` if `f ≥ 0`, `−f` if `f ≤ 0`, else `|f|`).
+  The distributed product is returned only when at least one factor collapses, so `|x·y|` with no facts stays
+  `Abs(x·y)`, matching SymPy. The numeric-coefficient case (`|−2·x| = 2·|x|`) is already handled by the `abs`
+  factory. This sidesteps the context-blind `Mul::ask` at the refine layer rather than reworking the core ask
+  recursion. Regression: `REFINE-ABS-MUL-1`. Matches SymPy.
+
+### REFINE-SQRT-SQUARE-1 — refine(√(x²)) did not reduce under sign/reality facts
+- **Problem:** `refine(√(x²))` was left unchanged even when `x` was known real or negative. SymPy reduces it
+  to `Abs(x)` under a real assumption and to `-x` under `Q.negative(x)` (and `x` under `Q.positive(x)`).
+- **Fix:** extended `refine_pow` with the principal-root identity `√(g²) = |g|` (the square root of a square is
+  the absolute value, not `g`), gated on `g` being real or imaginary so it stays `√(g²)` without a reality
+  fact — exactly as SymPy does. The resulting `|g|` is immediately collapsed by `refine_abs` (from
+  `ASSUMING-CONTEXT-1`): `→ x` for a positive base, `→ −x` for a negative one, `Abs(g)` when only reality is
+  known. Deliberately does **not** generalize to other even roots like `(x⁴)^(1/4)`, matching SymPy. Builds on
+  the `assuming` context. Regression: `REFINE-SQRT-SQUARE-1`. Matches SymPy.
+
+### ASSUMING-CONTEXT-1 — no scoped (`assuming`) assumption context
+- **Problem:** assumptions could only be attached to a symbol at construction; there was no way to assert a
+  fact about an existing symbol for a region of code, as SymPy's `with assuming(Q.positive(x)): …` does. So
+  `refine` could never use a relational fact supplied at the call site (`refine(Abs(x), Q.positive(x))`).
+- **Fix:** added a thread-local `assuming` RAII context (`assumption_context.{hpp,cpp}`). Constructing
+  `assuming(x, AssumptionMask{}.set_positive(true))` pushes a closed fact frame for `x`; the central query
+  `ask(e, k)` consults the active scopes (innermost first) inside `direct()`, so a scoped fact overrides the
+  symbol's own mask **and feeds the full implication chain** — `x>0` then answers `real`, `nonzero`,
+  `nonnegative`, etc., and propagates through `Add`/`Mul`. Because every engine (refine, limits, integration)
+  routes through `ask`, they all respect the scope; it retracts at scope exit, and the lookup is skipped
+  entirely when no scope is active (near-zero overhead). Also added `refine_abs`: `|g| → g` when `g ≥ 0`,
+  `−g` when `g ≤ 0`. Together this unlocks `refine(√(x²)) → x`, `refine(|x|) → x` (and `→ −x` under a negative
+  scope), matching SymPy. Scopes nest and apply to independent symbols. Regression: `ASSUMING-CONTEXT-1`.
+  Priority-3 increment (relational assumptions + a minimal `assuming` context).
+
+### LIMIT-LOG-EXP-REDUCTION-1 — nested-transcendental ratios returned nan
+- **Problem:** `limit(log(x)/exp(√(log x·log log x)), x, ∞)` returned `nan` (SymPy gives `0`). The heuristic
+  growth ranking compares a fixed hierarchy (gamma ≫ exp ≫ poly ≫ log) but cannot rank a nested form like
+  `exp(√(log x·log log x))` against `log x`, and the iterated logs defeat the pointwise-substitution paths.
+- **Fix:** added `try_log_exp_reduction`, the Gruntz log-exp reduction: for a positive product/power at `+∞`
+  whose pointwise value is indeterminate, `lim e = exp(lim log e)`. `log e` is expanded into a sum of logs
+  (`log(∏fᵢ)=Σlog fᵢ`, `log(bᵉ)=e·log b`, `log(eᵍ)=g`), splitting **only** factors certified positive at a
+  large sample point so the identity is exact in the asymptotic regime — keeping the rule sound and strictly
+  additive. The resulting sum is resolved by the dominant-term rule (`LIMIT-DOMINANT-SUM-1`) and power
+  continuity (`LIMIT-POW-CONTINUITY-1`), and `exp` of that limit is the answer. Closes
+  `log x/exp(√(log x·log log x)) → 0`, its inner comparability ratio `log log x/√(log x·log log x) → 0`,
+  `x^(log x)/exp(log²x) → 1`, `exp(√(log x))/log x → ∞`. Regression: `LIMIT-LOG-EXP-REDUCTION-1`. Matches
+  SymPy. This composes the earlier Gruntz pieces (power-as-exp, dominant-term sum, power continuity) into a
+  working asymptotic engine for the positive product/power class.
+
+### FUNC-INCGAMMA-HALF-1 — incomplete gamma stayed symbolic at half-integer orders
+- **Problem:** `uppergamma(1/2, x)` / `lowergamma(1/2, x)` (and other half-integer orders) stayed as
+  unevaluated function nodes. SymPy reduces them to error-function closed forms: `Γ(1/2,x)=√π·erfc(√x)`,
+  `γ(1/2,x)=√π·erf(√x)`, with higher/lower orders following from the recurrence.
+- **Fix:** added `half_integer_incgamma`, wired into both factories. From the base values
+  `Γ(1/2,x)=√π·erfc(√x)` and `γ(1/2,x)=√π·erf(√x)` it walks the recurrence `V(s+1)=s·V(s) ± x^s·e^{-x}`
+  (`+` for the upper `Γ`, `−` for the lower `γ`) up or down to any half-integer order, with a bounded step
+  count. Gives `Γ(3/2,x)=√π·erfc(√x)/2 + √x·e^{-x}`, `Γ(5/2,x)=3√π·erfc(√x)/4 + x^(3/2)e^{-x} + 3√x·e^{-x}/2`,
+  `Γ(−1/2,x)=−2√π·erfc(√x) + 2e^{-x}/√x`, and the matching `γ` forms — each verified equal to SymPy.
+  Builds on `FUNC-INCGAMMA-1`. Regression: `FUNC-INCGAMMA-HALF-1`. Matches SymPy.
+
+### LIMIT-POW-CONTINUITY-1 — √(non-rational vanishing base) returned nan
+- **Problem:** `limit(sqrt(log(log x)/log x), x, ∞)` returned `nan` even though the base `log(log x)/log x → 0`.
+  The limit engine applies continuity for `log`, `exp`, and `atan`, but not for a power with a constant
+  exponent: direct substitution evaluates the base pointwise, and a non-rational base lands on an
+  indeterminate `∞/∞ → nan`, so `√(…)` of it surfaced as `nan`. (A rational base like `(x+1)/(2x+3)` already
+  worked via the rational-limit path.) SymPy gives `0`.
+- **Fix:** added `try_power_continuity`, a nan-branch fallback for `base^r` with a **constant** exponent `r`:
+  take the base's limit first and return `(lim base)^r`. Resolves `√(log log x/log x) → 0`,
+  `(log log x/log x)^(1/3) → 0`. Guards skip a pole (`0^negative`) and a complex root of a negative base, so
+  no real-limit query is turned into a spurious complex value. A leading-term/continuity piece of the Gruntz
+  machinery; the nan-branch gating makes it strictly additive. Regression: `LIMIT-POW-CONTINUITY-1`. Matches
+  SymPy.
+- **Note:** the fully nested `log(x)/exp(√(log x·log log x)) → 0` is still `nan` — it needs the Gruntz mrv
+  rewrite of the whole quotient, a deeper stage.
+
+### INT-GAMMA-1 — the Gamma-function integral ∫₀^∞ xˢ⁻¹e⁻ᶜˣ left unevaluated
+- **Problem:** `∫₀^∞ x^(s-1)·e^(-c·x) dx = Γ(s)/cˢ` returned an unevaluated marker. The incomplete-gamma
+  antiderivative `γ(s,x)` (from `INT-INCGAMMA-1`) cannot recover it via Newton–Leibniz: SymPy deliberately
+  keeps `γ(s,∞)` symbolic and reaches `Γ(s)` through a Meijer-G definite path instead.
+- **Fix:** added `try_gamma_integral`, a definite-integral rule for `coeff·x^p·e^(-c·x)` over `[0,∞)` with a
+  positive rate `c`, returning `coeff·Γ(p+1)/c^(p+1)`. Handles a **symbolic** exponent (the headline `Γ(s)`
+  case) as well as numeric ones; a numeric `p` must satisfy `p > −1` to converge at 0, so divergent integrands
+  abstain rather than fabricate a value. Gives `∫₀^∞ x^(s-1)e^(-x) = Γ(s)`, `∫₀^∞ x^(s-1)e^(-2x) = 2⁻ˢΓ(s)`,
+  `∫₀^∞ x³e^(-2x) = 3/8`. Regression: `INT-GAMMA-1`. Matches SymPy. Closes the `INT-INCGAMMA-1` follow-up.
+
+### INT-INCGAMMA-1 — ∫xˢ⁻¹e⁻ˣ with a symbolic exponent left unevaluated
+- **Problem:** `∫ x^(s-1)·e^(-x) dx` (symbolic exponent) returned an unevaluated `Integral` marker —
+  integration by parts only terminates for a non-negative integer power. SymPy returns the lower incomplete
+  gamma `γ(s, x)` (printed as `s·Γ(s)·γ(s,x)/Γ(s+1)`, which equals `γ(s,x)`).
+- **Fix:** added `try_powexp_lowergamma`, a recognizer for `c·x^p·e^(-x+b)` with a **non-numeric** exponent
+  `p`. It returns `c·e^b·γ(p+1, x)`, the exact non-elementary antiderivative (it differentiates back to the
+  integrand). Restricted to a symbolic `p` so a non-negative integer power keeps its elementary by-parts
+  result (no regression) and the singular orders (`p` a non-positive integer → `γ(0,·)`) are avoided. Builds
+  on `FUNC-INCGAMMA-1`. Now `∫x^(s-1)e^(-x) = γ(s,x)`, `∫x^s e^(-x) = γ(s+1,x)`, and the definite
+  `∫₀^a x^(s-1)e^(-x) = γ(s,a)` (using the generalized fold `γ(s,0)=0`). Regression: `INT-INCGAMMA-1`.
+  Matches SymPy.
+- **Follow-up:** resolved by `INT-GAMMA-1` above — `∫₀^∞ x^(s-1)e^(-x) = Γ(s)` now closes.
+
+### FUNC-INCGAMMA-1 — no lowergamma/uppergamma function classes
+- **Problem:** SymPP had no incomplete gamma functions. `lowergamma(s,x)` and `uppergamma(s,x)` could not be
+  built, parsed, evaluated, or differentiated — they are the natural closed form of `∫xⁿe⁻ˣ` definite
+  integrals, so their absence blocked those results. SymPy provides both as first-class functions.
+- **Fix:** added `LowerGamma`/`UpperGamma` as real two-argument function classes (FunctionId entries, classes
+  with `rebuild`/`ask`/`diff_arg`, factory builders, parser registration). For a **positive-integer** first
+  argument `n` both collapse to the closed elementary form `Γ(n,x) = (n−1)!·e⁻ˣ·Σ_{k<n} xᵏ/k!` and
+  `γ(n,x) = Γ(n) − Γ(n,x)`, matching SymPy (`Γ(2,x)=(x+1)e⁻ˣ`, `γ(2,x)=1−(x+1)e⁻ˣ`,
+  `Γ(3,x)=2(x²/2+x+1)e⁻ˣ`). Special points: `Γ(s,0)=Γ(s)`, `γ(s,0)=0`, `Γ(s,∞)=0`; `γ(n,∞)` folds to `nan`
+  like SymPy (it is built as `Γ(n) − Γ(n,x)` rather than through the ∞-simplified upper form). Derivatives are
+  exact: `∂ₓγ(s,x)=xˢ⁻¹e⁻ˣ`, `∂ₓΓ(s,x)=−xˢ⁻¹e⁻ˣ` (the non-elementary `∂ₛ` direction returns 0, as polygamma
+  does for its order). A symbolic order stays unevaluated and round-trips through the parser; both are `Real`
+  for real order and argument. Regression: `FUNC-INCGAMMA-1`. Matches SymPy.
+
+### LIMIT-POW-AS-EXP-1 — Γ(2n)/nⁿ and general powers f(x)^g(x) left unevaluated
+- **Problem:** `limit(gamma(2n)/n**n, n, oo)` returned `nan`. The heuristic limit engine resolved bare
+  super-powers (`n!/nⁿ`, `nⁿ/n!`) and balanced gamma ratios, but a gamma against a variable-exponent
+  power `nⁿ` fell through every path: the gamma-growth handler does not understand a raw `Pow` denominator,
+  and the bare-power paths abstain. SymPy gives `oo` (Γ grows faster than the super-power).
+- **Fix:** added the canonical Gruntz preprocessing step `try_power_as_exp`. As a nan-branch fallback it
+  rewrites every *general* power `f(x)^g(x)` — one with the variable in **both** base and exponent — as
+  `exp(g·log f)`, then re-takes the limit. With `nⁿ → exp(n·log n)` the gamma-growth machinery sees
+  `Γ(2n)·exp(−n·log n)` and resolves it to `oo`. Constant-base exponentials (`2ˣ`, `exp x`) keep their
+  dedicated handlers — a var-free base is not a general power, so they are untouched — and the determinate
+  /indeterminate power paths (`x^(1/x) → 1`, `(1+1/x)ˣ → e`) run earlier and never reach the fallback, so
+  they are unaffected. First stage of converting the heuristic limit engine toward the real Gruntz
+  most-rapidly-varying algorithm. Matches SymPy. Regression: `LIMIT-POW-AS-EXP-1`.
+- **Follow-up:** resolved by `LIMIT-DOMINANT-SUM-1` below — `exp(x)/xˣ → 0` now works.
+
+### LIMIT-DOMINANT-SUM-1 — exp(x)/xˣ and unequal-order ∞−∞ sums left unevaluated
+- **Problem:** `limit(exp(x)/x**x, x, oo)` returned `nan`. After the power-as-exp rewrite the expression is
+  `exp(x)·exp(−x·log x)`, which `try_exp_combine` correctly merges to `exp(x − x·log x)`; the exp-continuity
+  rule then needs `limit(x − x·log x)`. That sum is an indeterminate ∞−∞ that direct substitution and the
+  conjugate/polynomial machinery leave as `nan`, even though one term strictly dominates. SymPy gives `0`.
+- **Fix:** added `try_dominant_term_sum`, the Gruntz dominant-term rule. For an ∞−∞ sum at ±∞ it pairwise
+  compares term growth via `limit(tⱼ/tᵢ)`; if one term `tᵢ` strictly outgrows every other (all ratios → 0)
+  and itself diverges to a signed ∞, the sum is asymptotic to `tᵢ`, so the limit is `limit(tᵢ)`. Thus
+  `x − x·log x → −∞` (the `−x·log x` term dominates `x`), and the full chain gives `exp(x)/xˣ → 0`,
+  `xˣ/exp(x) → ∞`. It only fires for a **unique strict** dominator, so genuinely cancelling or equal-order
+  differences (`x − x → 0`, `√(x²+x) − x → 1/2`, `x² − x → ∞`) keep their dedicated handlers and are
+  unaffected. Second Gruntz increment. Matches SymPy. Regression: `LIMIT-DOMINANT-SUM-1`.
+
+### INT-LOG1PX2-1 — ∫₀^∞ log(1+cx²)/x² was left unevaluated
+- **Problem:** `∫₀^∞ log(1+x²)/x² dx = π` and the family `∫₀^∞ log(1+c·x²)/x² dx` were returned as
+  unevaluated `Integral` markers (non-elementary antiderivative). SymPy evaluates these.
+- **Fix:** added `try_log1px2_integral`, a closed-form rule on `[0, ∞)`. By differentiating under the
+  integral in `c`, `∫₀^∞ log(1+c·x²)/x² dx = π·√c` for a positive constant `c`. It matches a
+  `log(1 + c·x²)` factor times `x^{-2}`, optionally scaled. The constant inside the log must be 1 so the
+  integrand behaves like `c` at 0 (a non-unit constant leaves `log(a)/x²`, divergent there) — the rule
+  requires that and otherwise abstains. Gives `log(1+x²)/x² → π`, `log(1+4x²)/x² → 2π`,
+  `log(1+2x²)/x² → √2·π`. Matches SymPy.
+
+### SERIES-TAYLOR-CAP-1 — series of log(sin x/x) / log(tan x/x) took ~100 s
+- **Problem:** `series(log(sin x/x), x, 0, 6)` ran for ~119 s (and `log(tan x/x)` for ~162 s), only to
+  return the correct result. `taylor_series` is tried before the composition path; for these removable
+  composites its k-th derivative balloons (the 5th derivative of `log(sin x/x)` has ~350 nodes), and the
+  removable-singularity `limit` of that derivative is catastrophically slow — taking ~100 s and then
+  returning nan, after which `taylor_series` bails to the (fast) composition path anyway. The whole
+  test suite was borderline-slow because of it.
+- **Fix:** added a node-count cap (`kTaylorLimitNodeCap = 128`) on the limit branch of `taylor_series`:
+  when a coefficient needs a limit but the current derivative exceeds the cap, bail immediately to
+  `nullopt` so the composition / Laurent paths — which resolve these directly — take over. Legitimate
+  removable cases keep small derivatives and stay under the cap, and bailing a moderately-large case to
+  composition is always correct (composition produces the same series). `log(sin x/x)` order 6 now takes
+  ~0.1 s (a 1000× speed-up), `log(tan x/x)` ~0.08 s; the full suite dropped to ~37 s. Results match SymPy
+  (verified to order 8).
+
+### MUL-CONSEC-EVEN-1 — product of consecutive integers was not recognized as even
+- **Problem:** `is_even(n·(n−1))` was Unknown for an integer `n`, even though a product of consecutive
+  integers is always even (one of any two consecutive integers is even). SymPy infers this for the
+  factored product (`(n*(n-1)).is_even = True`).
+- **Fix:** added `has_consecutive_int_factors` to `Mul::ask`. It decomposes each factor into
+  `(rest, offset)` (the non-constant part and its integer constant term) and reports two consecutive
+  factors when two share the same `rest` with offsets differing by ±1 — `n` & `n+1`, or `2n` & `2n+1`.
+  When the caller has already established every factor is an integer, such a pair forces the product
+  even (and not odd). Now `n·(n−1)`, `n·(n+1)·(n+2)`, `2n·(2n+1)` are even; non-consecutive offsets
+  (`n·(n−2)`) and distinct non-constant parts (`n·m`) stay Unknown, and the existing parity arithmetic
+  is unaffected. Matches SymPy — which, like SymPP, leaves the *expanded* `n²−n` Unknown.
+
+### FUNC-SIGN-2 — atan did not propagate the argument's sign
+- **Problem:** `is_positive(atan(p))` for `p > 0` was Unknown (likewise `atan(negative) < 0`,
+  `atan(positive) ≠ 0`). `atan` is odd and strictly increasing on ℝ — and always real and finite
+  (bounded in `(−π/2, π/2)`) — so it preserves the sign, which SymPy reports (`atan(p).is_positive =
+  True`).
+- **Fix:** added `ask_atan` and wired it into `Atan::ask` (the analogue of [[FUNC-SIGN-1]]'s
+  `ask_odd_real_sign`): Positive/Negative/Zero/Nonzero delegate to the argument's sign, while Real and
+  Finite hold for any real argument. Imaginary or unknown-sign-real arguments stay Unknown. Matches
+  SymPy. (SymPy is conservatively Unknown on `asinh`/`erf` sign — SymPP already answers those, so this
+  increment only adds the `atan` parity gap.)
+
+### FUNC-SIGN-1 — exp-nonzero and sinh/tanh sign propagation were Unknown
+- **Problem:** `is_zero(exp(x))` returned Unknown (exp is never zero), and the odd, strictly-increasing
+  hyperbolics did not propagate the argument's sign: `is_positive(sinh(p))` for `p > 0` was Unknown, as
+  were `sinh(negative) < 0`, `tanh(positive) > 0`, etc. SymPy answers these (`exp(x).is_zero = False`,
+  `sinh(p).is_positive = True`).
+- **Fix:** added `case Zero → false` to `Exp::ask` (a surviving Exp node has a finite argument; `exp(−∞)`
+  folds to 0 in the factory). Added `ask_odd_real_sign`, wired into `Sinh::ask` and `Tanh::ask`: since
+  both are odd and strictly increasing on ℝ they preserve the sign — `f(x) > 0 ⇔ x > 0`, `f(x) = 0 ⇔
+  x = 0` — so Positive/Negative/Zero/Nonzero delegate to the argument, while Real/Finite carry over as
+  before. Imaginary or unknown-sign real arguments stay Unknown (`sinh(iy)` can be 0), and `cosh` is
+  unchanged. Matches SymPy.
+
+### SIGN-IDEMPOTENT-1 — sign(sign(x)) did not collapse
+- **Problem:** `sign(sign(x))` was left unevaluated. SymPy folds it to `sign(x)` — `sign` is
+  idempotent, since `sign(z)` already lies in `{−1, 0, 1}` (real `z`) or on the unit circle (complex
+  `z`), whose own sign is itself.
+- **Fix:** added the idempotency rule to the `sign` factory — when the argument is itself a `Sign`
+  node, return it unchanged. Now `sign(sign(x)) = sign(x)` (and nested `sign` fully collapses), while
+  the argument's own reductions still apply (`sign(sign(−3)) = −1`) and non-`sign` arguments
+  (`sign(|x|)`) are untouched. Matches SymPy. (SymPP already simplifies `sign(x)·|x| = x`, which SymPy
+  leaves unevaluated.)
+
+### POLYLOG-NEGORDER-1 — Li₀ and Li₋₁ rational closed forms were unevaluated
+- **Problem:** `polylog(0, z)` and `polylog(−1, z)` were returned unevaluated, even though they have
+  elementary rational closed forms `Li₀(z) = z/(1−z)` and `Li₋₁(z) = z/(1−z)²` that SymPy auto-evaluates.
+- **Fix:** added these two orders to the `polylog` factory, after the existing `z = 0` (→ 0) and
+  `z = 1` (→ ζ(s)) special cases so they keep precedence (`Li₀(1) = ζ(0) = −1/2`, `Li₋₁(1) = ζ(−1) =
+  −1/12`). Now `polylog(0, 1/3) = 1/2`, `polylog(−1, 1/2) = 2`. Orders ≤ −2 stay unevaluated — matching
+  SymPy's default, which expands them only under `expand_func`. Matches SymPy.
+
+### SUM-DIRICHLET-BETA-2 — the Leibniz form Σ(−1)^(k+1)/(2k−1) was unevaluated
+- **Problem:** `Σ_{k=1}^∞ (−1)^(k+1)/(2k−1) = π/4` (the classic Leibniz series) was left as an
+  unevaluated `Sum`, even though the identical series written as `Σ_{k=0}^∞ (−1)^k/(2k+1)` was already
+  recognized as Dirichlet β(1) = π/4. The reindexed form (denominator `2k−1` from `k=1` instead of
+  `2k+1` from `k=0`) was not matched.
+- **Fix:** generalized the Dirichlet beta recognizer to accept the `2·var − 1` base from `lo = 1` in
+  addition to `2·var + 1` from `lo = 0` — both start the denominator run `1, 3, 5, …`. The `k → k+1`
+  reindexing shifts the sign exponent's constant by `a`, applied via `b_eff`. Now `Σ(−1)^(k+1)/(2k−1) =
+  π/4`, `Σ(−1)^k/(2k−1) = −π/4`, `Σ(−1)^(k+1)/(2k−1)² = Catalan`, with leading constants carried
+  through. The `2k−1` base from `k=0` (denominators `−1, 1, 3, …`, a different series) correctly does
+  not fire. Matches SymPy.
+
+### INT-CSCH-1 — ∫₀^∞ x^p/sinh(cx) was left unevaluated
+- **Problem:** `∫₀^∞ x/sinh(x) dx = π²/4` and the family `∫₀^∞ x^p/sinh(cx) dx` were returned as
+  unevaluated `Integral` markers (non-elementary antiderivative; SymPy also leaves them unevaluated).
+- **Fix:** added `try_sinh_integral`, a closed-form rule on `[0, ∞)`. From `1/sinh(cx) =
+  2·Σ_{k≥0} e^{−(2k+1)cx}` and term-wise Γ-integration, with the odd-denominator zeta
+  `Σ 1/(2k+1)^s = (1 − 2^{−s})ζ(s)`, `∫₀^∞ x^p/sinh(cx) dx = 2·Γ(p+1)·(1 − 2^{−(p+1)})·ζ(p+1)/c^{p+1}`
+  for `p > 0`, `c > 0`. It matches a `sinh(c·x)^{-1}` kernel times a monomial `coeff·x^p`. Gives
+  `x/sinh x → π²/4`, `x³/sinh x → π⁴/8`, `x²/sinh x → 7ζ(3)/2`, `x/sinh(2x) → π²/16`. The `cosh` kernel
+  (a different closed form) and the `e^{x}−1` Bose kernel are left to their own rules. Verified
+  numerically against SymPy quadrature; this exceeds SymPy, which returns these unevaluated.
+
+### INVHYP-COMPOSE-1 — asinh(sinh x)/acosh(cosh x)/atanh(tanh x) were not folded
+- **Problem:** `asinh(sinh(2))`, `atanh(tanh(3))`, `acosh(cosh(2))` were left unevaluated. SymPy folds
+  an inverse-of-direct hyperbolic composition with a concrete real argument: `asinh(sinh a) = a`,
+  `atanh(tanh a) = a` (both injective on ℝ), `acosh(cosh a) = |a|` (cosh even).
+- **Fix:** added `inverse_of_direct_hyp` to the `asinh`/`acosh`/`atanh` factories — the hyperbolic
+  analogue of [[INVTRIG-COMPOSE-1]], simpler because there is no periodic folding. For `sinh(a)`/
+  `cosh(a)`/`tanh(a)` with `a` a concrete real number it returns `a` (or `|a|` for `acosh`). Also
+  fixed the odd-function branches of `asinh`/`atanh` to recurse through the factory rather than
+  `make<Asinh>`/`make<Atanh>` so the negative composition (`asinh(sinh(−3)) = −3`) folds too. Symbolic
+  arguments and the opposite-order composition (`sinh(asinh x) = x`) are unaffected. Matches SymPy.
+
+### INVTRIG-COMPOSE-1 — asin(sin x)/acos(cos x)/atan(tan x) were not folded
+- **Problem:** `asin(sin(1))`, `acos(cos(2))`, `atan(tan(1))` were left unevaluated. SymPy folds an
+  inverse-of-direct composition with a concrete real argument back into the inverse's principal range:
+  `asin(sin 3) = π−3`, `acos(cos 4) = 2π−4`, `atan(tan 2) = 2−π`.
+- **Fix:** added `inverse_of_direct` to the `asin`/`acos`/`atan` factories. When the argument is
+  `sin(a)`/`cos(a)`/`tan(a)` with `a` a concrete real number, it applies the triangle-wave identities
+  (`k = round(a/π)`, `m = round(a/(2π))`): `atan(tan a) = a − kπ`, `asin(sin a) = (−1)^k·(a − kπ)`,
+  `acos(cos a) = |a − 2mπ|`, returning the exact symbolic value (the rounding is computed from a 40-digit
+  `evalf`, the result is built from the exact `a`). In-range arguments map to themselves
+  (`asin(sin 1) = 1`, `asin(sin(π/3)) = π/3`); a symbolic argument and the opposite-order composition
+  (`sin(asin x) = x`) are unaffected. Matches SymPy.
+
+### LIMIT-OSC-NAN-1 — oscillation at ∞ leaked sin(oo) instead of reporting no limit
+- **Problem:** `lim_{x→∞} sin(x)` returned the meaningless `sin(oo)`; `1 + sin(x) → sin(oo) + 1`,
+  `sin(x)²  → sin(oo)²`, `x·sin(x) → oo·sin(oo)`, `tan(x) → tan(oo)`, etc. L'Hôpital's
+  determinate-denominator branch divides `sin(x)/1` and, finding the result "not nan", returns
+  `sin(∞)` as if it were a value. SymPy returns an `AccumBounds` interval here.
+- **Fix:** an unresolved oscillation has no determinate limit, so the engine now reports **nan** — the
+  honest "the limit does not exist as a single value" (SymPP has no `AccumBounds` type). Added
+  `has_oscillating_infinity` (detects `sin`/`cos`/`tan` of a diverging argument) as a guard at the
+  end of `limit_impl` and on the L'Hôpital early-return. Convergent oscillations (`sin(x)/x → 0`,
+  `(x+sin x)/(x+cos x) → 1`, resolved by earlier rules) and finite-point limits (`sin(x)→0` at 0) are
+  unaffected. No result ever contains a buried `sin(∞)` again.
+
+### LIMIT-OSC-RATIO-1 — ratio of polynomials with bounded oscillation gave garbage
+- **Problem:** `lim_{x→∞} (x + sin x)/(x + cos x)` returned the garbage `(oo + sin(oo))/(oo + cos(oo))`
+  instead of **1**. Direct substitution leaks `sin(∞)`/`cos(∞)`, and L'Hôpital oscillates — the
+  derivative `(1 + cos x)/(1 − sin x)` of the bounded part has no limit. The whole family
+  `(P(x) + bounded)/(Q(x) + bounded)` was affected.
+- **Fix:** added `try_oscillating_rational`. It splits numerator and denominator into a polynomial
+  skeleton plus a bounded O(1) remainder (sin/cos of the variable, value in [−1,1]); whenever both
+  skeletons → ±∞ the bounded remainders are negligible, so the limit is the rational ratio of the
+  skeletons. Gives `(x+sin x)/(x+cos x) → 1`, `(x²+sin x)/(x+cos x) → ∞`, `(2x+sin x)/(3x+cos x) → 2/3`.
+  Fires only when a genuine sin/cos of the variable is present, so pure rational ratios and
+  bounded×vanishing products are untouched; a growing-amplitude term (`x·sin x`, neither polynomial
+  nor bounded) makes the rule abstain. Matches SymPy.
+
+### INT-CALLBUDGET-1 — integrating a transcendental over a reducible quadratic hung
+- **Problem:** `integrate(log(x)/(x²−1), x)` (and `log(x)/(x²−4)`, `atan(x)/(x²−1)`, …) **hung** —
+  any transcendental (log/atan) over a *factorable* quadratic. The integrand is non-elementary, but
+  the partial-fraction split feeds `log(x)/(x±1)` pieces into integration-by-parts, which ping-pongs
+  between `log(x)/(x−a)` and `log(x−a)/x` forever. The existing depth guard (64) bounds *linear*
+  recursion (e.g. the cyclic `∫eˣ·sin x`) but not this *exponential* call-count blow-up, so the call
+  ran out of time rather than overflowing the stack. Irreducible quadratics (`x²+1`), linear denoms,
+  and `exp` numerators were unaffected.
+- **Fix:** added a per-top-level **call-count budget** (`kMaxIntegrateCalls`) on `integrate()`,
+  alongside the depth guard. It bounds the total number of `integrate()` invocations whatever the
+  branch shape; on exhaustion the call bails to a clean unevaluated `Integral` marker. The cap (1000)
+  is ~6× the high-water mark measured across the entire test suite (159), so no legitimately solvable
+  integral trips it — verified by instrumenting the full suite. Pathological integrands now terminate
+  with a marker in bounded time instead of hanging; ordinary closed-form integrals are unchanged.
+
+### INT-LOG-QUADRATIC-1 — ∫₀^∞ log(x)/(x²+A) was left unevaluated
+- **Problem:** `∫₀^∞ log(x)/(x²+1) dx` (= **0**) and the family `∫₀^∞ log(x)/(x²+A) dx` were returned
+  as unevaluated `Integral` markers. The antiderivative is non-elementary (dilogarithms), so
+  Newton–Leibniz cannot reach the value. SymPy evaluates these for a concrete `A`.
+- **Fix:** added `try_log_over_quadratic`, a closed-form rule on `[0, ∞)`:
+  `∫₀^∞ log(x)/(x²+A) dx = π·log(A)/(4·√A)` for a positive constant `A` (equivalently `π·log(a)/(2a)`
+  with `A = a²`). It matches a `log(x)` factor times `(x²+A)^{-1}` with `A` a positive constant free of
+  `x`, optionally scaled by a constant. Gives `log(x)/(x²+1) → 0`, `log(x)/(x²+4) → π·log4/8`,
+  `log(x)/(x²+9) → π·log9/12`. Plain arctangent integrals (no log factor), non-positive `A`, and finite
+  bounds are unaffected. Matches SymPy.
+
+### INT-GAMMA-LOG-1 — ∫₀^∞ x^p e^{−cx} log x gave nan
+- **Problem:** `∫₀^∞ e^{−x} log x dx` returned `nan` (correct value **−γ**), as did the weighted/scaled
+  variants `x·e^{−x} log x → 1 − γ`, `x³·e^{−x} log x → 11 − 6γ`, `e^{−2x} log x → −γ/2 − log2/2`. The
+  antiderivative is non-elementary (incomplete-gamma / Ei), so Newton–Leibniz leaves nan. SymPy
+  evaluates all of these.
+- **Fix:** added `try_gamma_log_integral`, a closed-form rule on `[0, ∞)`. Differentiating the
+  Γ-integral `∫₀^∞ x^{s−1} e^{−cx} dx = Γ(s)/c^s` with respect to `s` gives
+  `∫₀^∞ x^p·e^{−cx}·log x dx = Γ(p+1)·(ψ(p+1) − log c)/c^{p+1}`. It matches a single `log(x)` factor, an
+  `exp(−c·x)` with `c` a positive constant, and a monomial `coeff·x^p` with `p > −1` (convergent at 0).
+  `ψ = digamma` evaluates at integer/half-integer `p` ([[SPECVAL-2]]), yielding the closed forms in
+  `EulerGamma`. Plain Γ-integrals (no log factor) and finite bounds are unaffected. Matches SymPy.
+
+### IRRATIONAL-PROP-1 — irrationality did not propagate through Mul/Add
+- **Problem:** `is_irrational(2·π)`, `is_irrational(π + 1)`, `is_irrational(3·√2)`, `is_irrational(√2/2)`
+  all returned Unknown instead of True (the follow-up flagged in [[IRRATIONAL-ROOT-1]]). A nonzero
+  rational times an irrational, and a rational plus an irrational, are irrational; SymPy reports these.
+- **Fix:** added `sum_forces_irrational` / `product_forces_irrational` (mirroring the existing
+  transcendental helpers) and wired them into the `Add` / `Mul` `Irrational` cases. A sum is irrational
+  when exactly one term is irrational and the rest are rational (rationals are closed under
+  subtraction); a product is irrational when exactly one factor is irrational and the rest are nonzero
+  rationals. A real transcendental (π, e) counts as the irrational operand — `node_is_irrational`
+  spells out the `transcendental ∧ real ⇒ irrational` path that the node-level `ask` does not derive on
+  its own. Two irrational operands stay Unknown (`√2 + √3`, `π·e`, since the result may be rational),
+  and an open-rationality constant (`EulerGamma`) keeps the whole expression Unknown. Matches SymPy.
+
+### IRRATIONAL-ROOT-1 — radicals like √2 were not recognized as irrational
+- **Problem:** `is_irrational(sqrt(2))` returned Unknown (and `is_rational(sqrt(2))` Unknown too)
+  instead of True/False, even though `sqrt(2)` was already known to be algebraic. The irrational
+  derivation (`real ∧ ¬rational`) could not fire because nothing established that `√2` is not rational.
+  SymPy gives `sqrt(2).is_irrational = True`.
+- **Fix:** added a Pow `ask` rule keyed on the factory's guarantee that every perfect rational root is
+  reduced at construction (`√4 → 2`, `√(9/4) → 3/2`) and rational bases are rationalized. So a `Pow`
+  that **survives** with a positive rational base ≠ 1 and a non-integer rational exponent — `√2`,
+  `2^(1/3)`, `6^(1/2)` — is a genuine real algebraic irrational: `Rational` answers False and
+  `Irrational` answers True. A negative base (imaginary value) and reduced perfect roots are excluded.
+  A reciprocal/scaled root such as `1/√2 = √2/2` is a `Mul`; Mul/Add-level irrationality propagation
+  (covering `2π`, `π/2`, `√2 + 1`) is left for a follow-up. Matches SymPy.
+
+### SPECVAL-2 — digamma/polygamma at integers and half-integers were unevaluated
+- **Problem:** `digamma(1/2)`, `digamma(n)` for `n ≥ 2`, `digamma(n+1/2)`, and `polygamma(m, ·)` at
+  integer/half-integer arguments were returned as the unevaluated `polygamma(m, x)` (only `x = 1` was
+  evaluated). SymPy gives `digamma(1/2) = −2 log 2 − γ`, `digamma(2) = 1 − γ`, `polygamma(1,2) = π²/6 − 1`,
+  etc.
+- **Fix:** extended `polygamma(n, x)` to any positive integer or half-integer `x` (non-negative integer
+  order `n`). From the base values `ψ⁽⁰⁾(1) = −γ`, `ψ⁽⁰⁾(1/2) = −γ − 2 log 2`,
+  `ψ⁽ⁿ⁾(1) = (−1)^(n+1)·n!·ζ(n+1)`, `ψ⁽ⁿ⁾(1/2) = (−1)^(n+1)·n!·(2^(n+1)−1)·ζ(n+1)`, it walks up with the
+  recurrence `ψ⁽ⁿ⁾(y+1) = ψ⁽ⁿ⁾(y) + (−1)ⁿ·n!/y^(n+1)`. Gives `digamma(m) = −γ + H_{m−1}`,
+  `digamma(m+1/2) = −γ − 2 log 2 + 2·Σ 1/(2k−1)`, `polygamma(2,1/2) = −14 ζ(3)`, etc. Poles (nonpositive
+  integers → zoo) and generic/symbolic arguments are untouched. Integer and digamma cases match SymPy;
+  the half-integer order-≥1 cases (which SymPy itself leaves unevaluated) are verified numerically — so
+  SymPP exceeds SymPy there.
+
+### GAMMA-REFL-2 — simplify reverted the gamma reflection at rational arguments
+- **Problem:** `simplify(gamma(1/3)·gamma(2/3))` returned the gamma product unchanged instead of
+  **2√3·π/3**, even though `gammasimp` produced the correct elementary form via the Euler reflection
+  `Γ(z)Γ(1−z) = π/sin(πz)`. The elementary form `2√3·π/3` has a slightly higher node count than
+  `gamma(1/3)·gamma(2/3)`, so simplify's global anti-bloat guard discarded it. `gamma(1/4)·gamma(3/4)
+  = √2·π` survived only because its elementary form happens to be small.
+- **Fix:** added a "removed gamma" exception to the anti-bloat guard (step 6), alongside the existing
+  removed-surd / removed-complex-denominator exceptions: replacing a `Γ` with an elementary form is a
+  genuine simplification even when marginally larger. Now `gamma(1/3)·gamma(2/3) → 2√3·π/3`,
+  `gamma(1/6)·gamma(5/6) → 2π`, etc. Single gammas, non-reflection products (`Γ(1/3)²`) and evaluated
+  values (`Γ(5)=24`) are untouched. Matches SymPy.
+
+### SIMP-EULER-1 — complex exponentials did not cancel against their trig expansion
+- **Problem:** `simplify(exp(i·x) − cos x − i·sin x)` returned the expression unchanged instead of
+  **0**; likewise `cos x + i·sin x − exp(i·x)`, `exp(i·x) + exp(−i·x) − 2 cos x`, and the
+  double-angle form. SymPy reduces all of these to 0 via Euler's formula `e^{iθ} = cos θ + i·sin θ`.
+- **Fix:** added an Euler-cancellation step to `simplify` (step 5c), mirroring the existing trig
+  multiple-angle step. When the expression contains a complex exponential `exp(g)` with the imaginary
+  unit in `g`, it rewrites trig onto the `e^{iθ}` basis (`rewrite(·, "exp")`), expands, and adopts the
+  result only when it has strictly fewer nodes. So Euler combinations collapse to 0/constants, while a
+  lone `exp(i·x)`, a real trig sum (`sin x + cos x`), `cos²+sin² = 1`, and `exp(x)+exp(−x) = 2 cosh x`
+  — whose exponential forms are not smaller — are untouched. The gate keeps the rewrite off ordinary
+  real expressions. Matches SymPy.
+
+### INT-BOSE-EINSTEIN-1 — ∫₀^∞ x^p/(e^{cx}∓1) was left unevaluated
+- **Problem:** the Bose–Einstein / Fermi–Dirac (Debye) integrals `∫₀^∞ x^p/(e^{cx}−1) dx` and
+  `∫₀^∞ x^p/(e^{cx}+1) dx` — e.g. `x/(e^x−1) → π²/6`, `x³/(e^x−1) → π⁴/15`, `x/(e^x+1) → π²/12` — were
+  returned as unevaluated `Integral` markers. Their antiderivative is non-elementary, so the
+  Newton–Leibniz path cannot reach them. (SymPy also leaves these unevaluated.)
+- **Fix:** added `try_bose_einstein`, a closed-form rule on `[0, ∞)`. By the standard series identity,
+  `∫₀^∞ x^p/(e^{cx}−1) dx = Γ(p+1)·ζ(p+1)/c^{p+1}` and `∫₀^∞ x^p/(e^{cx}+1) dx =
+  Γ(p+1)·(1−2^{−p})·ζ(p+1)/c^{p+1}` (the second using the Dirichlet eta `η(s) = (1−2^{1−s})ζ(s)`). It
+  matches a kernel `(e^{cx}∓1)^{-1}` times a monomial `coeff·x^p` with `p > 0` (convergent, ζ below its
+  pole) and `c > 0`. SymPP's `Γ`/`ζ` deliver the closed forms (`ζ(2)=π²/6`, `ζ(4)=π⁴/90`, odd `ζ` left
+  symbolic). The seven closed forms were verified numerically against SymPy quadrature to 1e-9 — this
+  exceeds SymPy, which returns these unevaluated. Non-`[0,∞)` bounds, non-monomial numerators and the
+  plain `∫₀^∞ x²e^{−x}=2` Γ-integral are unaffected.
+
+### INT-LOGPOW-BOUNDARY-1 — ∫₀¹ (log x)ⁿ gave nan at the lower boundary
+- **Problem:** `∫₀¹ (log x)² dx` returned `nan` (correct value **2**); likewise `(log x)³ → −6`,
+  `(log x)⁴ → 24`, `x·(log x)² → 1/4`, `√x·log x → −4/9`. The antiderivative is found correctly
+  (`x·(log x)² − 2x·log x + 2x`), but its value at the lower bound needs `lim_{x→0} x·(log x)ⁿ = 0` —
+  a `0·∞` form that is finite only from the **right**: for `x < 0`, `log x` is complex, so the
+  *two-sided* limit the boundary evaluation used is nan.
+- **Fix:** Newton–Leibniz boundary evaluation now approaches each bound from inside the integration
+  interval — the lower bound from the right (`x → a⁺`), the upper bound from the left (`x → b⁻`) —
+  using the one-sided `limit` overload, falling back to the two-sided limit only if that is nan. This
+  is the correct convention: the integrand is defined on the open interval, so the boundary value is
+  the one-sided limit from within. Non-singular boundaries (direct substitution finite) and the `n = 1`
+  case are unaffected. Matches SymPy (and returns a clean `−4/9` for `√x·log x`, where SymPy leaves an
+  unevaluated meijerg).
+
+### LIMIT-EXP-COMBINE-1 — products of exponentials with differing monomials gave nan
+- **Problem:** `lim_{x→∞} exp(x²)/exp(x)²` returned `nan` (correct value **∞**), as did `exp(x²)·exp(−2x)`,
+  `exp(x²)/exp(x²−x)`, `x²·exp(x)/exp(x²) → 0`, `x¹⁰·exp(x)·exp(−x²) → 0`. Evaluated factor by factor
+  these are `∞·0` indeterminates. The existing `try_exponential_product` only merges exponentials that
+  share a single exponent *monomial* (e.g. `exp(x)·exp(−2x)`, `2^x/3^x`); with mismatched monomials
+  (`x²` vs `x`) it abstains and the generic product path stalls in L'Hôpital → nan.
+- **Fix:** added `try_exp_combine`, a pre-step that merges *every* exponential factor of a product into
+  a single `exp(Σ kᵢ·gᵢ)` (handling `exp(g)` and `exp(g)^k` with numeric `k`) and re-takes the limit.
+  The identity `exp(a)·exp(b) = exp(a+b)` holds everywhere, so the merge is always valid; the resulting
+  single exponential is resolved by the exp-continuity rule ([[LIMIT-EXP-CONTINUITY-1]]) and the
+  polynomial×exponential machinery. Requires ≥2 exponential factors so the merge strictly reduces their
+  count and the recursion terminates. Constant-base (`2^x/3^x`) and shared-monomial products are
+  unaffected (handled, as before, by `try_exponential_product`). Matches SymPy.
+
+### LIMIT-EXP-CONTINUITY-1 — exp of an indeterminate exponent gave nan
+- **Problem:** `lim_{x→∞} exp(x²−2x)` returned `nan` (correct value **∞**). The exponent `x²−2x`
+  substitutes to the indeterminate `∞−∞`, so `exp(nan) = nan`, even though the exponent's limit is a
+  definite `+∞`. The family `exp(2x−x²) → 0`, `exp(x−√x) → ∞`, `exp(√x−x) → 0`, `exp(−x+log x) → 0`
+  was all affected. Bare `exp(x)`, `exp(±x²)` worked only because their exponents substitute cleanly.
+- **Fix:** added an `exp` branch to the continuity rule alongside `log` and `atan`:
+  `limit(exp(g)) = exp(limit g)`, taking the inner limit of the exponent first, with `exp(+∞) = ∞`,
+  `exp(−∞) = 0`, and `exp(c)` for a finite `c`. A genuinely indeterminate exponent (no limit) still
+  returns nullopt. Matches SymPy. (A product of exponentials written as a ratio, e.g.
+  `exp(x²)/exp(x)²`, is a `Mul` and still relies on `simplify` combining it first — a separate, less
+  common shape left for a future increment.)
+
+### SERIES-LAURENT-FIRST-1 — series of a removable transcendental ratio hung
+- **Problem:** `series(x/(exp(x)−1))` (the Bernoulli generating function) **hung**, as did
+  `x/sin(x)` and `x²/(1−cos x)`. These are removable singularities: numerator and denominator both
+  vanish at 0 to the same order, so the ratio is analytic with a finite value. The Taylor path is
+  tried first; at `k = 0` it finds a finite 0/0 limit and proceeds to compute every coefficient as a
+  derivative-limit, but the high-order derivatives of an exp/trig ratio explode and each `limit`
+  call (L'Hôpital + simplify on a huge expression) effectively never returns. `1/(exp(x)−1)` worked
+  only because its genuine pole makes the Taylor path bail immediately to Laurent.
+- **Fix:** `series()` now routes a ratio whose denominator vanishes at 0 through the Laurent-division
+  path **first** (a new `only_if_pole` gate on `try_laurent_series`, which defers to Taylor only when
+  the denominator is non-vanishing). Laurent expands numerator and denominator as separate Taylor
+  polynomials and divides the coefficient sequences, so no division-induced 0/0 limit is ever formed.
+  Resolves `x/(exp(x)−1) = 1 − x/2 + x²/12 − x⁴/720`, `x/sin(x)`, `x²/(1−cos x)`, `x/sinh(x)`; poles
+  (`1/(exp(x)−1) → 1/x − ½ + …`) and analytic ratios are unchanged. Matches SymPy.
+
+### LIMIT-GAMMARATIO-1 — half-integer gamma ratios gave a wrong 0 (or hung)
+- **Problem:** `lim_{x→∞} Γ(x+½)/(Γ(x)·√x)` returned **0** (correct value **1**). Integer shifts
+  worked (`Γ(x+1)/Γ(x)/x → 1`, via the `Γ(x+1) = x·Γ(x)` recurrence collapse), but a half-integer
+  shift does not reduce to an elementary multiple, so the growth-rank test abstains (numerator and
+  denominator share the top gamma rank with opposite directions) and a later path collapsed to 0.
+  Worse, some shapes — e.g. `Γ(x+3/2)/Γ(x)/x^(3/2)` — drove the Stirling-root numeric guard into a
+  non-terminating loop.
+- **Fix:** added `gamma_ratio_asymptotic`, tried first in the gamma/factorial block. By Stirling,
+  `log Γ(x+a) = (x+a−½)·log x − x + ½·log 2π + o(1)`, so for a product `C·∏ᵢ Γ(x+aᵢ)^{pᵢ}·x^q` with
+  **Σpᵢ = 0** (a balanced ratio) the `x·log x` and `x` terms cancel and `∏ᵢ Γ(x+aᵢ)^{pᵢ} ~ x^{Σ pᵢ aᵢ}`,
+  hence the whole expression `~ C·x^{q+Σ pᵢ aᵢ}`. The limit is `C` (net exponent 0), `sign(C)·∞`
+  (positive), or 0 (negative). Each gamma argument must be a pure shift `x + aᵢ` with `pᵢ, aᵢ, q`
+  numeric, so `Γ(2x)/Γ(x)` (argument not a shift) is left to other methods. Being exact and cheap, it
+  also pre-empts the non-terminating numeric guard for half-integer shifts. Matches SymPy.
+
+### LIMIT-LOGDIFF-1 — 0·∞ product of x and a log difference gave nan
+- **Problem:** `lim_{x→∞} x·(log(x+1) − log(x))` returned `nan` (correct value **1**). The vanishing
+  factor `log(x+1) − log(x)` equals `log((x+1)/x)` with argument → 1, but its naive endpoint
+  substitution is `log(∞/∞) = log(nan) = nan`, which fails L'Hôpital's 0/0 test in `lhopital_nd`
+  and propagates nan to the whole limit. `x·log(1+1/x)` (argument already written as `1 + small`)
+  worked; only the ratio / log-difference form broke.
+- **Fix:** in `try_product_form` (the 0·∞ handler), a vanishing `log(g)` factor — including a sum
+  `Σ cᵢ·log(gᵢ)` folded to `log(∏ gᵢ^cᵢ)` — whose argument `g → 1` is replaced by its leading
+  asymptotic `log(g) ~ (g − 1)` (reduced to lowest terms). `log(g)/(g−1) → 1` as `g → 1`, so the
+  product's limit is preserved while the nan-producing endpoint disappears. Mirrors the existing
+  `1^∞` power-form trick. Covers `x·(log(x+a) − log(x)) → a`, `x²·(log(x+1) − log(x)) → ∞`, and
+  inner-scaled forms; a non-vanishing log difference (`log 2x − log x = log 2`) is not a 0·∞ form
+  and is left untouched. Matches SymPy.
+
+### INT-PARAMSIGN-1 — parametric improper integrals leaked ±∞ for a generic coefficient
+- **Problem:** `∫₀^∞ exp(-a·x) dx` with a **generic** `a` (sign unknown) returned garbage like
+  `(-exp(a·-oo) + 1)/a`. The whole family of parametric exponential integrals was affected —
+  `∫₀^∞ x·exp(-a·x)`, `∫₀^∞ exp(-a·x)·cos(x)`, `∫₀^∞ sin(a·x)/x`, `∫₀^∞ 1/cosh(a·x)` — each leaving
+  a raw `±oo` stranded inside `exp` / `Si` / `atan(sinh(…))`. The boundary limit cannot decide the
+  sign of `a`, so Newton–Leibniz substituted the bound and produced an expression no rule could fold.
+  (With `a` declared **positive** the limits resolve and the closed forms are correct — `1/a`, `1/a²`,
+  `√π/(4a^{3/2})`, … — so only the indeterminate-sign case was broken.)
+- **Fix:** added a `has_buried_infinity` check to the definite-integration tail. A legitimate result
+  is either finite (no infinity anywhere) or exactly `±oo`/`zoo` at the root; any infinity strictly
+  below the top level marks the evaluation as garbage. When detected (and not recoverable by the
+  expand-retry), `integrate` returns a clean unevaluated `Integral(f, x, 0, oo)` instead. This matches
+  SymPy, which returns a `Piecewise` gated on `sign(a)` — the unevaluated form is its "otherwise"
+  branch. Positive-parameter closed forms and previously-working improper integrals are unaffected.
+
+### COSINE-GAUSS-1 — cosine/sine transforms fell back to nothing for the Gaussian
+- **Problem:** `cosine_transform(exp(-a·t²))` returned the unevaluated `CosineTransform(…)` marker.
+  The pattern rules covered `exp(-a·t)` but not the Gaussian, and the transforms did not fall back
+  to their integral definition.
+- **Fix:** added an integral-definition fallback to `cosine_transform` / `sine_transform`:
+  `∫₀^∞ f(t)·cos(ωt) dt` (resp. `sin`) with `ω` treated as **real** (a transform variable is
+  real by definition — without this the integral engine's Gaussian-cosine rule, which needs a
+  real trig coefficient, would not fire). `cosine_transform(exp(-a·t²)) = √π·exp(-ω²/4a)/(2√a)` in
+  this engine's unnormalized convention. The result is adopted only when fully evaluated (no
+  leftover `Integral` marker / nan / ∞), so the sine transform of a Gaussian (a non-elementary
+  erfi/Dawson value) is correctly left unevaluated. The `exp(-a·t)` patterns and other transforms
+  are unaffected.
+
+### FOURIER-LORENTZ-1 — Fourier transform of exp(-a·|t|) was unevaluated
+- **Problem:** `fourier_transform(exp(-a·|t|))` returned the unevaluated `FourierTransform(…)`
+  marker. The engine handled the Gaussian `exp(-a·t²)` but not the Lorentzian `exp(-a·|t|)`.
+- **Fix:** added the case `exp(-a·|t|) → 2a/(a² + ω²)` (a > 0) to `fourier_term`, in the engine's
+  convention `F(ω) = ∫ f(t)·e^(-iωt) dt` (the same one the Gaussian uses; note SymPy scales the
+  exponent by 2π, so its numeric form differs while the symbolic closed form here is exact). The
+  coefficient `a` is required provably positive, so `exp(+|t|)` (divergent) is left unevaluated
+  rather than given a bogus value. `F[exp(-|t|)] = 2/(1+ω²)`, `F[exp(-2|t|)] = 4/(4+ω²)`,
+  `F[exp(-a|t|)] = 2a/(a²+ω²)`. The Gaussian and other transforms are unaffected.
+
+### LAPLACE-TRIGSQ-1 — Laplace transforms of trig squares/products were unevaluated
+- **Problem:** `laplace_transform(cos²t)`, `sin²t`, `sin t·cos t` returned the unevaluated
+  `LaplaceTransform(…)` marker, where SymPy gives `(s²+2)/(s(s²+4))`, `2/(s(s²+4))`, `1/(s²+4)`.
+  The transform handled single-frequency trig and polynomial/exponential weights but not a trig
+  power or product.
+- **Fix:** added a `linearize_trig` power-reduction pre-step, applied before emitting the marker:
+  `cos²(g) → ½ + ½cos(2g)`, `sin²(g) → ½ − ½cos(2g)`, `sin(g)·cos(g) → ½sin(2g)`. The squares are
+  rewritten in place (so a weighted form like `t·cos²t` or `e^(−t)·sin²t` linearizes too) and the
+  single-frequency result is handled by the existing linear rules. `L[cos²t] = (s²+2)/(s(s²+4))`,
+  `L[sin²t] = 2/(s(s²+4))`, `L[sin t·cos t] = 1/(s²+4)`, `L[cos²2t] = (s²+8)/(s(s²+16))`,
+  `L[t·cos²t] = (s⁴+2s²+8)/(s²(s²+4)²)`. Plain trig transforms are unaffected. Matches SymPy.
+
+### LIMIT-STIRLING-1 — n-th roots of factorial gave wrong/1 answers
+- **Problem:** `(n!)^{1/n}/n` should be `1/e`, `(n!)^{1/n}` should be `∞`, `n/(n!)^{1/n}` should
+  be `e`, and `(n!/nⁿ)^{1/n}` should be `1/e`, but all returned wrong values (`0`, `1`, `∞`, `1`)
+  — the `∞^0` power-form handler could not find the growth rate of `n!` that needs Stirling's
+  asymptotic.
+- **Fix:** added a numerically-guarded `try_stirling_limit` handler (run only when a factorial /
+  gamma sits under an n-th root). It recasts the limit over a *positive* variable — valid at `+∞`,
+  and the positivity lets the powdenest rules (SIMP-POWDENEST-1) collapse `((m/e)ᵐ)^{1/m} → m/e`
+  — then substitutes the leading Stirling form `g! ~ (g/e)ᵍ`, which is asymptotically exact for an
+  n-th root (the dropped `√(2πn)` factor's n-th root → 1). The candidate is accepted only after a
+  numeric check against the original at `n = 300, 1000, 3000` (convergence for a finite/0 limit,
+  monotone growth/decay for `±∞`), so an inappropriate rewrite — where the dropped subleading term
+  matters — is rejected rather than returning a wrong value. `(n!)^{1/n}/n = 1/e`,
+  `(n!)^{1/n} = ∞`, `n/(n!)^{1/n} = e`, `(n!/nⁿ)^{1/n} = 1/e`, `(n!)^{2/n}/n² = 1/e²`,
+  `(n!)^{1/n}/√n = ∞`. Matches SymPy.
+
+### SIMP-POWDENEST-1 — (product of nonnegative powers)^q did not denest
+- **Problem:** `simplify(((m/e)ᵐ)^(1/m))` returned the nested form rather than `m/e`, and likewise
+  `((2m)ᵐ)^(1/m)` did not denest to `2m`. `pow_of_pow` denested `(bᵖ)^q → b^(p·q)` for a single
+  nonnegative base, but the pipeline's `expand` distributes a power over a product — `(2m)ᵐ →
+  2ᵐ·mᵐ` — so the outer power ends up applied to a **Mul** of nonnegative-base powers, which the
+  rule did not handle.
+- **Fix:** extended `pow_of_pow_node` with a `(∏ bᵢ^pᵢ)^q = ∏ bᵢ^(pᵢ·q)` rule, applied only when
+  every base `bᵢ` is provably nonnegative. `((2m)ᵐ)^(1/m) → 2m`, `((m/e)ᵐ)^(1/m) → m/e`,
+  `((3p)²)^(1/2) → 3p`. A factor whose base may be negative is left alone, so `((x·y)²)^(1/2)` is
+  *not* denested to `x·y` (the branch-cut-safe form is preserved). Matches SymPy. (This also
+  partially unblocks the Stirling-root limits `(n!)^{1/n}` — those additionally need the limit
+  engine to treat the variable as positive and remain a separate, deeper gap.)
+
+### SIMP-TRIGEXPAND-1 — multiple-angle trig identities did not cancel
+- **Problem:** `simplify(sin(3x) − 3·sin x + 4·sin³x)` returned the input unchanged instead of
+  `0`, and likewise `cos(3x) − 4·cos³x + 3·cos x`. simplify reduced double-angle forms
+  (`cos(2x) − 1 + 2·sin²x → 0`) but never expanded a triple/compound angle to expose the
+  cancellation.
+- **Fix:** added a trig-expansion step to `simplify`: it computes
+  `trigsimp(expand(expand_trig(current)))` — expanding compound angles (`sin(3x) = 3·sin x −
+  4·sin³x`, …), distributing, then re-applying the Pythagorean reduction — and adopts the result
+  only when it is *strictly* smaller (node count). `sin(3x) − 3·sin x + 4·sin³x → 0`,
+  `cos(3x) − 4·cos³x + 3·cos x → 0`; a lone `sin(3x)` or `cos(2x)` (which expansion would inflate)
+  and non-trig forms are left unchanged. Matches SymPy.
+
+### LIMIT-SUPERPOW-1 — n!/nⁿ and nⁿ/n! returned nan
+- **Problem:** `limit(n!/nⁿ, n, ∞)` is `0` and `limit(nⁿ/n!, n, ∞)` is `∞`, but both returned
+  `nan`. The super-power `nⁿ` (which grows faster than `n!`) is outside the limit engine's growth
+  hierarchy (gamma/factorial ≫ exp ≫ poly ≫ log), so a factorial-vs-`nⁿ` ratio could not be
+  classified. (`2ⁿ/n!` and `n!/2ⁿ` already worked — exponential is in the hierarchy.)
+- **Fix:** added a targeted handler `superpow_vs_factorial`. When an expression at `+∞` is a
+  super-power `n^(c·n)` (`c` a nonzero rational) times a single `factorial(n)` / `gamma(n+1)`
+  raised to ±1 (plus constants), the super-power dominates, so its sign decides the limit — `∞`
+  when it sits in the numerator, `0` in the denominator. `n!/nⁿ = 0`, `nⁿ/n! = ∞`,
+  `n!/n^(2n) = 0`, `n^(2n)/n! = ∞`, `Γ(n+1)/nⁿ = 0`, with a constant prefactor carried through.
+  Restricted to a **lone** factorial of the matching variable, so `Γ(2n)` (which outgrows `nⁿ`)
+  is left unevaluated rather than given a wrong answer. Matches SymPy. (The Stirling-asymptotics
+  limit `(n!)^{1/n}/n → 1/e` needs `loggamma` expansions and remains a separate gap.)
+
+### SIMP-LOGSUM-1 — sums of numeric logarithms were not combined
+- **Problem:** `simplify(log(2) + log(3) − log(6))` returned the input unchanged instead of `0`,
+  and `log(2) + log(3)` was not folded to `log(6)`. SymPP had a `log(b)/log(a)` ratio rule but no
+  rule for a *sum* of logarithms.
+- **Fix:** added a `log_sum` node to the simplify pipeline. A sum of numeric logarithms `Σ cᵢ·
+  log(qᵢ)` — each `qᵢ` a positive rational and `cᵢ` an integer — combines into `log(∏ qᵢ^cᵢ)`,
+  collapsing to `0` when the product is 1. `log(2)+log(3)−log(6) = 0`, `log(4)−2·log(2) = 0`,
+  `log(2)+log(3) = log(6)`, `log(6)−log(2) = log(3)`, `2·log(3)+log(2) = log(18)`; a non-log
+  addend is preserved (`log(2)+log(3)+x = x + log(6)`). Symbolic logs (`log(x)+log(y)`, which
+  needs assumptions) and a lone numeric log are left unchanged, matching SymPy's `simplify`. The
+  existing `log` ratio rule is untouched. The combiner is capped to small coefficients (|c| ≤ 64)
+  and bases (≤ 128 bits) so the huge `c·log(q)` terms the limit engine's numeric sampling
+  produces — e.g. `−10¹²·log(1000001/1000000)` — are left alone rather than exploding `qᶜ`.
+
+### INT-DIRICHLET-1 / LIMIT-CONST-MUL-1 — ∫₀^∞ (1−cos x)/x² and constant·sum limits
+- **Problem:** `∫₀^∞ (1−cos x)/x²` should be `π/2`, but returned a wrong `0`. Its antiderivative
+  (now found, after INT-POLYPROD-1 made the integrand integrable) is the factored form
+  `−1·(−Si(x) − cos(x)/x) − 1/x`, and `limit(−1·(−Si(x) − cos(x)/x), x, ∞)` folded to `0` instead
+  of `π/2`: a var-free constant factor multiplying a convergent special-function sum was
+  collapsed by the substitution / L'Hôpital paths. Separately, definite integrals with no closed
+  form emitted garbage like `−Integral(nan, a) + Integral(…, b)` instead of a clean result.
+- **Fix (two parts):**
+  - *Limit engine:* pull var-free constant factors out of a product before substitution —
+    `lim c·g(x) = c·lim g(x)` — when the inner limit is determinate. `limit(−1·(−Si(x) −
+    cos(x)/x)) = π/2`, `limit(3·atan x) = 3π/2`, `limit(−2·Si(x)) = −π`. This is the root-cause
+    fix the earlier `sin²x/x²` work (INT-SINSQ-1) only worked around.
+  - *Definite integrate:* when the antiderivative is an unevaluated `Integral` marker (and the
+    abs/sign path does not apply), return a clean unevaluated definite integral `Integral(f, x,
+    a, b)` rather than running Newton–Leibniz, which would leak the marker or fold an
+    `Integral(0, b)` term into a bogus `0`.
+  - `∫₀^∞ (1−cos x)/x² = π/2`; an unintegrable `∫₀^∞ x/(eˣ+1)` returns a clean `Integral(…)`;
+    `∫₀^∞ sin²x/x²`, the Gaussian and polynomial integrals are unchanged. Matches SymPy.
+
+### DSOLVE-LINVAR-1 — first-order linear ODEs with a variable coefficient unsolved
+- **Problem:** `dsolve` returned the unevaluated `Dsolve(…)` marker for a first-order linear ODE
+  with a variable coefficient — `x·y' + y = x²`, `y' + y/x = x²`, `y' − y/x = x` — even though
+  these are textbook linear equations (`y = x²/3 + C/x`, etc.).
+- **Fix:** `isolate_yp` leaves the right-hand side as a product such as `(x² − y)·x⁻¹`. The linear
+  classifier built `Poly(rhs, y)` without expanding it first, so the `x⁻¹` was never distributed
+  over the `Add`; `Poly` then treated the whole product as a single degree-0 term whose
+  coefficient still contained `y`, and the `has(q, y)` guard rejected the equation as non-linear.
+  Expanding the right-hand side before the polynomial-in-`y` step exposes the `−y·x⁻¹ + x` form.
+  `x·y' + y = x² → x²/3 + C/x`, `y' + y/x = x² → x⁴/4·x⁻¹ + C/x`, `y' + 2x·y = x → C·e^(−x²) +
+  1/2`; all verified by back-substitution. The constant-coefficient and separable paths are
+  unchanged. Matches SymPy.
+
+### INT-POLYPROD-1 — products of polynomials were not integrated
+- **Problem:** an integrand that is a product or power of polynomial factors — `x³·(1−x)²`,
+  `x²·(1−x)`, `x·(x+1)·(x+2)` — was returned unevaluated (`Integral(…)`), since no handler
+  expands such a product. The definite integral then garbled (`∫₀¹ x³(1−x)² → −Integral(0,0) +
+  Integral(0,1)` instead of `1/60`), even though the expanded integrand integrates trivially.
+- **Fix:** added a last-resort step to `integrate(expr, var)`: when every closed-form handler
+  has failed and the integrand is a `Mul`/`Pow`, expand it; if expansion yields a different
+  `Add`, integrate term-wise via linearity (guarded so already-expanded input cannot loop, and
+  only accepted when the expanded result carries no leftover `Integral` marker). `∫ x³(1−x)²`
+  now integrates, and `∫₀¹ x³(1−x)² = ∫₀¹ x²(1−x)³ = 1/60`, `∫₀¹ x²(1−x) = 1/12`, `∫₀¹
+  x(x+1)(x+2) = 9/4`. By-parts and rational integrands are untouched (the fallback runs after
+  the closed-form table). Matches SymPy.
+
+### SUM-BINOM-SQ-1 — Σ C(n,k)² = C(2n,n) was unevaluated
+- **Problem:** the central-binomial identity `Σ_{k=0}^n C(n,k)² = C(2n,n)` returned unevaluated.
+- **Fix:** added a `sum_binomial_square` detector: a summand `C·binomial(n,k)²` over `k = 0…n`
+  (where `n` is exactly the binomial's first argument) returns `C·binomial(2n, n)`, carrying a
+  constant prefactor through. `Σ C(n,k)² = C(2n,n)`, `Σ 3·C(n,k)² = 3·C(2n,n)`, and the concrete
+  `Σ_{k=0}^5 C(5,k)² = 252`. A mismatched upper bound (≠ the binomial's `n`) is left unevaluated.
+  Matches SymPy.
+
+### SUM-BINOM-K-1 — Σ k·C(n,k)·rᵏ binomial identity was unevaluated
+- **Problem:** `Σ_{k=0}^n k·C(n,k)` returned unevaluated where the closed form is `n·2^(n−1)`.
+  The summation engine handled the plain binomial theorem `Σ C(n,k)·rᵏ = (1+r)ⁿ` but not a
+  `k`-weighted summand.
+- **Fix:** extended `sum_binomial_theorem` to accept a single bare `k` factor. Differentiating
+  the binomial theorem in `r` and multiplying by `r` gives `Σ k·C(n,k)·rᵏ = n·r·(1+r)^(n−1)`,
+  so `Σ k·C(n,k) = n·2^(n−1)`, `Σ k·C(n,k)·2ᵏ = 2n·3^(n−1)`, with a constant prefactor carried
+  through. The alternating `r = −1` base is left unevaluated (its `0^(n−1)` is ambiguous for
+  symbolic `n`, as SymPy's Piecewise reflects). The plain binomial theorem is unchanged. Matches
+  SymPy — and closes the geometric-weighted `k·C(n,k)·2ᵏ` form that SymPy itself leaves as a
+  `Sum` (numerically verified).
+
+### INT-SINSQ-1 / LIMIT-ADD-MIX-1 — ∫₀^∞ sin²x/x² and mixed finite + cancelling ∞ − ∞
+- **Problem:** `∫₀^∞ sin²x/x² = π/2` came back `nan`. The antiderivative is correct but factored
+  (`−½·(−2·Si(2x) − cos(2x)/x) − 1/(2x)`), which (a) hid the bounded `Si` inside a product so its
+  limit folded to a wrong value, and (b) at the lower bound produced a three-term sum mixing a
+  finite term (`Si(2x) → 0`) with two infinite terms whose `∞ − ∞` cancels
+  (`cos(2x)/(2x) − 1/(2x) → 0`) — which the limit engine left as `nan`.
+- **Fix (two parts):**
+  - *Limit engine:* the sum-linearity rule now handles the mixed case — terms with a finite
+    limit are peeled off and the divergent remainder is resolved on its own; if it has a
+    determinate limit the results are added. `limit(Si(2x) + cos(2x)/(2x) − 1/(2x), x, 0) = 0`,
+    while a genuine all-divergent `∞ − ∞` (`x² − x → ∞`) still falls through.
+  - *Definite integrate:* when the boundary (Newton–Leibniz) evaluation fails to resolve (nan /
+    infinity / leftover `Integral` marker), retry on the **expanded** antiderivative, whose flat
+    `Si(2x) + cos(2x)/(2x) − 1/(2x)` form lets the per-term limit rules resolve each piece.
+  - `∫₀^∞ sin²x/x² = π/2`, `∫₀^∞ sin²(2x)/x² = π`; finite-bound versions and the other definite
+    integrals are unchanged. Matches SymPy. (`∫₀^∞ (1−cos x)/x²` still needs its *indefinite*
+    integral found first — a separate gap.)
+
+### LIMIT-ADD-SF-1 — limit of a sum with a special function collapsed
+- **Problem:** `limit(Si(2x) + 1/x, x, ∞)` returned `0` (and `limit(Si(x) + 1/x)` leaked a
+  `sin(oo)` term) where the answer is `π/2`. `Si(2x)` on its own gave `π/2` correctly, but
+  wrapped in a sum the engine ran direct substitution / L'Hôpital first — folding `Si(∞)` to a
+  wrong value or differentiating `Si` into `sin(x)/x` and substituting `∞`. The term-wise
+  linearity rule existed but only ran inside the `nan`-after-substitution branch, which this
+  case never reached.
+- **Fix:** hoisted the sum-linearity rule ahead of substitution and L'Hôpital: if every term of
+  an `Add` has a determinate finite limit, the limit is their sum. A divergent term bails,
+  leaving a genuine `∞ − ∞` to the conjugate / L'Hôpital machinery (so `x² − x → ∞` is
+  unaffected). `limit(Si(2x) + 1/x) = limit(atan(2x) − 1/(x+1)) = π/2`, `limit(Ci(x) + 1/x) =
+  0`. Matches SymPy. (The remaining `∫₀^∞ sin²x/x²` still needs a finite-point `∞ − ∞` in its
+  antiderivative resolved — tracked separately.)
+
+### LIMIT-BOUNDED-1 — bounded oscillation × vanishing factor returned nan
+- **Problem:** `limit(x·cos(x)·e^(−x), x, ∞)` is 0 by the squeeze theorem (a bounded oscillation
+  times a decaying envelope), but the limit engine returned `nan`. SymPP already closed the
+  simple cases (`cos(x)·e^(−x)`, `sin(x)/x`), but any extra polynomial factor broke it. This
+  also propagated into definite integrals: `∫₀^∞ xⁿ·e^(−x)·sin/cos(x)` came back `nan` even
+  though the (poly × exp × trig) antiderivative was correct — the upper-bound limit failed.
+- **Fix:** added a `bounded_times_vanishing` rule to the limit engine. At an infinite target a
+  product is split into bounded oscillating factors (`sin`/`cos` of a real argument, value in
+  [−1, 1]) and the rest; if the rest provably → 0, the whole product → 0 (|sin(g)·rest| ≤
+  |rest| → 0). Guarded so non-vanishing or non-oscillating products are untouched (e.g.
+  `x·sin(x)` keeps no limit). `limit(x·cos(x)·e^(−x)) = limit(x²·sin(x)·e^(−x)) = 0`, which
+  unblocks `∫₀^∞ x·e^(−x)·sin x = 1/2`, `∫₀^∞ x²·e^(−x)·sin x = 1/2`, `∫₀^∞ x·e^(−2x)·sin 3x =
+  12/169`. Matches SymPy.
+
+### INT-GAUSSFOURIER-1 — Gaussian Fourier integral garbled
+- **Problem:** `∫_{-∞}^{∞} exp(-x²)·cos(x) dx` should be `√π·exp(-1/4)` (the Fourier transform of
+  a Gaussian), but the integrand has no elementary antiderivative, so the Newton–Leibniz path
+  evaluated the unevaluated `Integral(...)` marker at ±∞ and produced garbage
+  (`-Integral(0, -oo) + Integral(0, oo)`).
+- **Fix:** added a definite-integral detector `try_gaussian_fourier`, run before the
+  antiderivative path. For a real even Gaussian times a linear-argument cosine/sine it returns
+  the closed form: `∫_{-∞}^{∞} exp(-a x²)·cos(b x) dx = √(π/a)·exp(-b²/(4a))` (a > 0, b real),
+  half that over `[0,∞)`, and `0` for the odd `sin` integrand over the symmetric line. It
+  recognizes a pure even Gaussian `exp(c·x²)` with a provably-negative leading coefficient and
+  a `cos`/`sin(b·x)` factor with a real coefficient, carrying a constant prefactor through.
+  `∫_{-∞}^{∞} exp(-x²)cos(x) = √π·exp(-1/4)`, `∫_{-∞}^{∞} exp(-2x²)cos(3x) = √(π/2)·exp(-9/8)`,
+  `∫_{-∞}^{∞} exp(-x²)sin(x) = 0`; pure Gaussians and other integrands are untouched. Matches
+  SymPy — and is more robust on the sine case, where SymPy's meijer-G path raises. (The
+  half-line sine, a Dawson/erfi value, is left to the general machinery.)
+
+### SUM-HARMONIC-1 — Σ 1/kᵖ over a finite range was left unevaluated
+- **Problem:** `summation` closed integer power sums (Faulhaber) and the convergent p-series at
+  ∞ (→ ζ), but a reciprocal power over a finite or symbolic range — `Σ_{k=1}^{n} 1/k` or
+  `Σ 1/k²` — fell through unevaluated, where SymPy returns the generalized harmonic number
+  `harmonic(n)` / `harmonic(n, 2)`.
+- **Fix:** added a block recognizing `1/kᵖ` (a `Pow` of the summation variable with a negative
+  integer exponent) over a non-infinite upper bound: `Σ_{k=lo}^{hi} k^(−p) = H_hi^(p) −
+  H_(lo−1)^(p)`, using the 1-argument `harmonic(n)` for `p = 1` and the 2-argument
+  `harmonic(n, p)` otherwise. Guarded by `lo ≥ 1` so the `k = 0` pole never enters the range.
+  `Σ_{1}^{n} 1/k = harmonic(n)`, `Σ_{2}^{n} 1/k = harmonic(n) − 1`, `Σ_{1}^{n} 1/k² =
+  harmonic(n, 2)`, `Σ_{3}^{n} 1/k² = harmonic(n, 2) − 5/4`, `Σ_{1}^{5} 1/k = 137/60`. The
+  convergent ∞ p-series (ζ) and integer power sums are untouched. Matches SymPy. (The divergent
+  `Σ_{1}^{∞} 1/k = ∞` remains a separate, pre-existing gap — out of scope here.)
+
+### ONESIDED-1 — no one-sided limits
+- **Problem:** `limit` only computed two-sided limits, so directional limits were unavailable.
+  At a pole or discontinuity the two-sided result is the unsigned `zoo` or `nan` — e.g.
+  `limit(1/x, x, 0)` is `zoo` and `limit(|x|/x, x, 0)` is `nan` — with no way to ask for the
+  one-sided value that SymPy returns (`limit(1/x, x, 0, '+') = oo`, `'-' = -oo`;
+  `limit(|x|/x, x, 0, '+') = 1`).
+- **Fix:** added a 4-argument overload `limit(expr, var, target, dir)` with `dir = +1` (from the
+  right), `−1` (from the left), or `0` (two-sided, identical to the 3-argument form). A one-sided
+  finite limit is reduced to a limit at infinity by substituting `x = target + 1/u` and taking
+  `u → +∞` (right) or `u → −∞` (left); `u` carries the sign of its target so `simplify` resolves
+  `Abs(1/u)`/`log(1/u)`, and using `+1/u` keeps reciprocals un-nested so the engine evaluates
+  them cleanly. This reuses the well-tested ±∞ machinery and resolves poles (`1/x → ±∞`),
+  sign/abs discontinuities (`|x|/x → ±1`), and essential singularities (`exp(1/x) → ∞` from the
+  right, `0` from the left). The 3-argument overload stays two-sided (SymPy instead defaults to
+  `dir='+'`). En route, filled a small `Pow` sign gap so the substitution’s sign nodes resolve:
+  a negative real base raised to an **odd** integer power is negative (`(neg)^(-1)` is negative).
+  Matches SymPy on directional poles, discontinuities and essential singularities.
+
+### ALGCLOSURE-POW-1 — Pow did not recognize algebraic radicals
+- **Problem:** a rational power of an algebraic number is algebraic (e.g. `sqrt(2) = 2^(1/2)`),
+  but `Pow` returned Unknown for `algebraic`/`transcendental`, so `is_algebraic(sqrt(2))` and
+  `is_algebraic(a**Rational(3,2))` were Unknown where SymPy returns True.
+- **Fix:** added rules to the `Pow` assumption handler. An algebraic base raised to a rational
+  exponent is algebraic, guarding the `0^negative` case by requiring a nonnegative exponent or
+  a nonzero base. A transcendental base raised to a nonzero rational exponent is transcendental
+  (hence ¬algebraic). `is_algebraic(2^(1/2))=True`, `is_algebraic(a^(3/2))=True`,
+  `is_algebraic(anz^(-1/2))=True` for nonzero algebraic `anz`, `is_algebraic(a^(-1/2))=None`
+  (base may be zero), `is_transcendental(t^2)=True`; and `(1 + sqrt(2))^3` is recognized as
+  algebraic by composing with the Add-closure rule (ALGCLOSURE-1). The exotic
+  Gelfond–Schneider case `2^sqrt(2)` (algebraic^(algebraic irrational) ⇒ transcendental)
+  remains Unknown — out of scope. Matches SymPy on the common cases.
+
+### ALGCLOSURE-1 — Add/Mul did not propagate algebraic/transcendental status
+- **Problem:** the algebraic numbers form a field (closed under +, −, ×), but `Add` and `Mul`
+  returned Unknown for `algebraic`/`transcendental`. So `is_algebraic(a + b)` and
+  `is_algebraic(a * b)` for algebraic `a`, `b` were Unknown where SymPy returns True, and a sum
+  like `a + π` was not recognized as transcendental.
+- **Fix:** added algebraic-closure rules to the `Add` and `Mul` assumption handlers (via two
+  `detail::` helpers). A sum/product whose args are all algebraic is algebraic. A sum of
+  algebraics with exactly one transcendental term is transcendental (hence ¬algebraic), since
+  the algebraic numbers are closed under subtraction. A product of nonzero algebraics with
+  exactly one transcendental factor is transcendental — the nonzero requirement guards against
+  a zero algebraic factor collapsing the product to 0 (which is algebraic). `is_algebraic(a+b)=
+  True`, `is_algebraic(a*b)=True`, `is_algebraic(a*I)=True`, `is_algebraic(a+π)=False` with
+  `is_transcendental(a+π)=True`, `is_transcendental(anz*π)=True` for nonzero algebraic `anz`,
+  while `a*π` (a possibly zero) and `π+π'` stay Unknown. Matches SymPy.
+
+### EXTREAL-INF-1 — no `extended_real` / `infinite` predicates; complex ⇏ finite
+- **Problem:** the assumption vocabulary could not express the extended real line or
+  boundedness. There was no way to ask `is_extended_real(oo)` / `is_infinite(zoo)` or to declare
+  a symbol `extended_real`/`infinite` (SymPy: `oo.is_extended_real is True` with
+  `oo.is_real is False`, `zoo.is_infinite is True`). Separately, a symbol declared `complex`
+  reported `finite=None`, although `AssumptionKey::Complex` is documented as a *finite* complex
+  number and SymPy has `is_complex ⇒ is_finite`.
+- **Fix:** added `AssumptionKey::ExtendedReal` and `AssumptionKey::Infinite`. `extended_real`
+  is a point of ℝ ∪ {±∞}: `real ⇒ extended_real` (but not conversely — ±∞ are extended-real,
+  not real), `extended_real ⇒ ¬imaginary`, and it does *not* imply real/finite/complex.
+  `infinite ⟺ ¬finite`, with `infinite ⇒ ¬real ∧ ¬complex ∧ ¬zero`. Also added the
+  `complex ⇒ finite` closure rule so a bare complex symbol is finite (hence not infinite),
+  matching SymPy and the enum's own contract. Wired the pair through the stack: mask fields +
+  `set_extended_real`/`set_infinite` builders, closure rules, generic derive cases (plus
+  `infinite ⇒ ¬finite` in the Finite derivation), `is_extended_real(e)`/`is_infinite(e)`
+  helpers, and the MATLAB surface. The ∞ atoms answer directly: `oo`/`-oo` →
+  `extended_real=true`/`infinite=true`, `zoo` → `extended_real=false`/`infinite=true`;
+  `Integer`/`Rational`/`NumberSymbol`/`I` are extended-real-or-not but `infinite=false`; a
+  `Float` is extended-real and infinite iff it holds an mpfr infinity. `is_extended_real(oo)=
+  True` with `is_real(oo)=False`, `is_infinite(zoo)=True`, `is_extended_real(I)=False`; a
+  declared-infinite symbol is ¬finite/¬real/¬complex/¬zero. Matches SymPy.
+
+### ALGTRANS-1 — no `algebraic` / `transcendental` predicates
+- **Problem:** the assumption vocabulary had no `algebraic` or `transcendental` predicate, so
+  `is_algebraic(I)`, `is_transcendental(pi)` and declared-algebraic/transcendental symbols were
+  unsupported (SymPy: `Q.algebraic`/`Q.transcendental`, `pi.is_transcendental is True`,
+  `I.is_algebraic is True`).
+- **Fix:** added `AssumptionKey::Algebraic` and `AssumptionKey::Transcendental` as the
+  complex-domain pair, with `transcendental ⟺ complex ∧ ¬algebraic`. Wired through the stack:
+  `AssumptionMask` gains `algebraic`/`transcendental` fields and `set_algebraic`/
+  `set_transcendental` builders; closure rules `rational ⇒ algebraic`, `algebraic ⇒ complex ∧
+  finite ∧ ¬transcendental`, `transcendental ⇒ complex ∧ finite ∧ ¬algebraic ∧ ¬rational` (so
+  ¬integer/¬zero, and irrational once real is known), plus the in-ℂ partition (`complex ∧
+  ¬algebraic ⇒ transcendental`, `complex ∧ ¬transcendental ⇒ algebraic`) — neither implies
+  real, matching `I.is_algebraic = True` with `I.is_real = False`. `Integer`/`Rational` answer
+  `algebraic=true`/`transcendental=false`; `I` answers `algebraic=true`/`transcendental=false`;
+  the infinities answer both `false`; `NumberSymbol` answers per kind (π/e →
+  `algebraic=false`/`transcendental=true`, EulerGamma/Catalan → both Unknown); `Float`/`Mul`/
+  `Add`/`Pow` stay Unknown. Added generic derive cases, an `algebraic ∨ transcendental ⇒
+  complex` forward derivation, `is_algebraic(e)`/`is_transcendental(e)` helpers, and the MATLAB
+  surface. `is_algebraic(3/Rational(3,2)/I)=True`, `is_transcendental(pi/e)=True`,
+  `is_algebraic(EulerGamma)=None`, `is_algebraic(oo)=False`; a declared-transcendental real
+  symbol is irrational. Matches SymPy. (Structural algebraicity such as `sqrt(2).is_algebraic`
+  remains out of scope — still Unknown.)
+
+### IRRATIONAL-1 — no `irrational` predicate; EulerGamma/Catalan wrongly rational=False
+- **Problem:** the assumption vocabulary had no `irrational` predicate, so `is_irrational(pi)`
+  was unanswerable and a symbol could not be declared irrational (SymPy: `Symbol('q',
+  irrational=True)`, `Q.irrational`, `pi.is_irrational is True`). Separately, every
+  `NumberSymbol` answered `rational=False`/`integer=False`, but the rationality of `EulerGamma`
+  (γ) and `Catalan` is an open problem — SymPy reports `None` for those, so SymPP was claiming
+  more than is known.
+- **Fix:** added `AssumptionKey::Irrational`, defined as the biconditional `irrational ⟺ real
+  ∧ ¬rational`. Wired through the stack like the other predicates: an
+  `AssumptionMask::irrational` field with a `set_irrational` builder; closure rules `irrational
+  ⇒ real ∧ ¬rational ∧ finite` (cascading to ¬integer/¬zero/nonzero/¬parity/complex/¬imaginary)
+  plus the reverse `real ∧ ¬rational ⇒ irrational` and exclusions (`rational ∨ ¬real ⇒
+  ¬irrational`); a generic-layer derive case implementing the same biconditional; forward
+  derivations (`irrational ⇒ real`, `irrational ⇒ ¬rational`); an `is_irrational(e)` helper; and
+  the MATLAB surface. `NumberSymbol::ask` now answers the rationality-dependent predicates
+  per kind: `false` only for the proven-irrational constants π and e (so the layer derives
+  `irrational=True`), `None` for `EulerGamma`/`Catalan` (so `is_rational`/`is_integer`/
+  `is_prime`/`is_irrational` are all Unknown for them, matching SymPy) — while real/positive/
+  finite/nonzero stay True. `is_irrational(pi/e)=True`, `is_irrational(3/Rational(3,2))=False`,
+  `is_irrational(I/oo)=False`, `is_irrational(EulerGamma)=None`; a declared-irrational symbol is
+  real/finite/nonzero/¬rational/¬integer/¬parity/complex/¬imaginary. Matches SymPy. (Radical
+  irrationality such as `sqrt(2).is_irrational` remains a separate structural fact, still
+  Unknown — out of scope here.)
+
+### COMPOSITE-1 — no `composite` assumption predicate
+- **Problem:** the assumption vocabulary had no `composite` predicate (the natural pair to
+  `prime`). `is_composite(4)` was unanswerable, and a symbol could not be declared composite
+  (SymPy: `Symbol('c', composite=True)`, `Q.composite`, `Integer(4).is_composite is True`).
+- **Fix:** added `AssumptionKey::Composite` and wired it through the stack exactly as PRIME-1:
+  an `AssumptionMask::composite` field with a `set_composite` builder; closure rules
+  `composite ⇒ integer ∧ positive ∧ ¬prime` (cascading to real/finite/nonzero/nonnegative/
+  rational), `prime ⇒ ¬composite`, and `¬integer ⇒ ¬composite` — no parity rule (4 is even,
+  9 is odd); `Integer::ask`/`Rational::ask` decide it via `mpz_probab_prime_p` (composite iff
+  value `≥ 4` and not prime, so values `< 4` — including 1, 0 and negatives — are False);
+  every other node answers structurally (`I`/π/∞ → False, `Float`/`Mul`/`Add`/`Pow` →
+  Unknown); generic-layer derive case (`¬integer ∨ prime ⇒ ¬composite`) and forward
+  derivations (`composite ⇒ integer/nonzero/real`); an `is_composite(e)` query helper; and the
+  MATLAB surface (`assume(x,"composite")`, `assumptions()` listing). `is_composite(4/6/9)=True`,
+  `is_composite(2/3/5)=False` (prime), `is_composite(1/0/−4)=False`; a declared-composite
+  symbol is integer/positive/nonzero/¬prime with unknown parity, and prime/composite are
+  mutually exclusive. Matches SymPy.
+
+### PRIME-1 — no `prime` assumption predicate
+- **Problem:** the assumption vocabulary had no `prime` predicate. `is_prime(7)` was
+  unanswerable, and a symbol could not be declared prime (SymPy: `Symbol('p', prime=True)`,
+  `Q.prime`, `Integer(7).is_prime is True`).
+- **Fix:** added `AssumptionKey::Prime` and wired it through the whole stack: an
+  `AssumptionMask::prime` field with a `set_prime` builder; closure rules `prime ⇒ integer ∧
+  positive` (which cascade to real/finite/nonzero/nonnegative/rational) and `¬integer ⇒
+  ¬prime` — deliberately *no* parity rule, since 2 is prime and even; `Integer::ask`/
+  `Rational::ask` decide concrete primality via `mpz_probab_prime_p` (values `< 2` → False);
+  every other node answers structurally (`I`/π/∞ → False, `Float`/`Mul`/`Add`/`Pow` →
+  Unknown); a generic-layer derive case (`¬integer ⇒ ¬prime`) and forward derivations
+  (`prime ⇒ integer/nonzero/real`); an `is_prime(e)` query helper; and the MATLAB surface
+  (`assume(x,"prime")`, `assumptions()` listing). `is_prime(2/3/11)=True`,
+  `is_prime(1/4/8/0/−3)=False`; a declared-prime symbol is integer/positive/nonzero but of
+  unknown parity. Matches SymPy.
+
 ### DIVSIGMA-GEN-1 — generalized divisor function `divisor_sigma(n, k)` was unsupported
 - **Problem:** SymPP's `divisor_sigma` was single-argument (σ₁) only, so the generalized
   divisor function `σ_k(n) = Σ_{d|n} d^k` parsed as a 2-arg unknown function and stayed

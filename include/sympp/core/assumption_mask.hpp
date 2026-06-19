@@ -34,6 +34,13 @@ struct SYMPP_EXPORT AssumptionMask {
     std::optional<bool> odd;
     std::optional<bool> complex_;
     std::optional<bool> imaginary;
+    std::optional<bool> prime;
+    std::optional<bool> composite;
+    std::optional<bool> irrational;
+    std::optional<bool> algebraic;
+    std::optional<bool> transcendental;
+    std::optional<bool> extended_real;
+    std::optional<bool> infinite;
 
     [[nodiscard]] std::optional<bool> get(AssumptionKey k) const noexcept;
     void set(AssumptionKey k, bool value) noexcept;
@@ -53,6 +60,17 @@ struct SYMPP_EXPORT AssumptionMask {
     AssumptionMask& set_odd(bool v) noexcept { odd = v; return *this; }
     AssumptionMask& set_complex(bool v) noexcept { complex_ = v; return *this; }
     AssumptionMask& set_imaginary(bool v) noexcept { imaginary = v; return *this; }
+    AssumptionMask& set_prime(bool v) noexcept { prime = v; return *this; }
+    AssumptionMask& set_composite(bool v) noexcept { composite = v; return *this; }
+    AssumptionMask& set_irrational(bool v) noexcept { irrational = v; return *this; }
+    AssumptionMask& set_algebraic(bool v) noexcept { algebraic = v; return *this; }
+    AssumptionMask& set_transcendental(bool v) noexcept {
+        transcendental = v; return *this;
+    }
+    AssumptionMask& set_extended_real(bool v) noexcept {
+        extended_real = v; return *this;
+    }
+    AssumptionMask& set_infinite(bool v) noexcept { infinite = v; return *this; }
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t hash() const noexcept;
