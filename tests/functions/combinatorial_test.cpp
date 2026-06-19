@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/core/assumption_mask.hpp>
+#include <sympp/core/derivative.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
@@ -746,6 +747,15 @@ TEST_CASE("incomplete gamma: closed forms, derivatives, round-trip (FUNC-INCGAMM
                               "x**(s-1)*exp(-x)"));
     REQUIRE(oracle.equivalent(diff(uppergamma(s, x), x)->str(),
                               "-x**(s-1)*exp(-x)"));
+    // The ∂/∂s direction is non-elementary (Meijer-G), which SymPP cannot
+    // represent — it must stay an unevaluated Derivative, never a silently-wrong 0
+    // (which would drop the term when the order depends on the diff variable).
+    REQUIRE(diff(uppergamma(s, x), s) == derivative(uppergamma(s, x), s));
+    REQUIRE(diff(lowergamma(s, x), s) == derivative(lowergamma(s, x), s));
+    // A constant order is unaffected: d/dx Γ(2,x) = −x·e⁻ˣ (the ∂/∂s term carries a
+    // zero s′, so no Derivative leaks in).
+    REQUIRE(oracle.equivalent(diff(uppergamma(integer(2), x), x)->str(),
+                              "-x*exp(-x)"));
 
     // Symbolic order stays unevaluated and round-trips through the parser.
     REQUIRE(uppergamma(s, x)->type_id() == TypeId::Function);

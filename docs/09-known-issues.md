@@ -16,6 +16,18 @@ truth and links the issue number.
 
 ## Fixed
 
+### FUNC-INCGAMMA-DIFFS-1 — d/ds of incomplete gamma returned a wrong 0
+- **Problem:** `diff(uppergamma(s, x), s)` and `diff(lowergamma(s, x), s)` (the derivative with respect to the
+  *order*) returned `0`. The ∂/∂s direction is non-elementary (a Meijer-G expression), but `diff_arg` for the
+  order slot returned `S::Zero()` — silently wrong: it drops the term whenever the order depends on the
+  differentiation variable (e.g. `∂/∂s γ(s, x)`, or the order contribution in `d/dx Γ(x, x)`).
+- **Fix:** the order-slot `diff_arg` now delegates to the base `Function::diff_arg`, which yields the honest
+  unevaluated `Derivative(f, s)` — the same fallback SymPP uses for other untabulated specials (zeta, besselj, …)
+  whose parameter derivatives it cannot express in closed form. Now `diff(uppergamma(s, x), s) =
+  Derivative(uppergamma(s, x), s)`, while the ∂/∂x derivative (`−xˢ⁻¹·e⁻ˣ`) and every constant-order case
+  (`d/dx Γ(2, x) = −x·e⁻ˣ`) are unchanged. SymPy returns the Meijer-G form, which SymPP does not represent, so the
+  unevaluated Derivative is the parity-consistent honest result. Regression: `FUNC-INCGAMMA-1` (extended).
+
 ### LIMIT-EXPUNITDIFF-1 — product times a unit exponential difference returned nan
 - **Problem:** the Gruntz flagship `e^x·(e^{1/x − e^{−x}} − e^{1/x}) → −1` returned `nan`. The difference
   `e^{1/x − e^{−x}} − e^{1/x}` vanishes (its two exponents differ by `−e^{−x} → 0`), so the product is `∞·0`; the
