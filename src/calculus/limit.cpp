@@ -75,6 +75,21 @@ struct NumDen { Expr num; Expr den; };
     return e->type_id() == TypeId::NaN;
 }
 
+// True if `e` contains a log(...) node anywhere — a cheap structural pre-filter
+// for the dominant-term quotient rules, whose target residuals (from the
+// log-of-a-sum rewrite) always carry a log; pure polynomial/exponential ratios
+// have dedicated handlers and must not pay for those rules' recursive probing.
+[[nodiscard]] bool has_log_node(const Expr& e) noexcept {
+    if (e->type_id() == TypeId::Function
+        && static_cast<const Function&>(*e).function_id() == FunctionId::Log) {
+        return true;
+    }
+    for (const auto& a : e->args()) {
+        if (has_log_node(a)) return true;
+    }
+    return false;
+}
+
 // True if `e` contains sin/cos/tan of an argument that diverges to infinity —
 // the residue of substituting x = ∞ into an unresolved oscillation, e.g. sin(∞),
 // cos(∞) + 1, x·sin(∞). Such an expression has no determinate limit (it
@@ -1886,6 +1901,8 @@ struct Growth {
 // so the residual log has a finite limit. Rewrites the first such log(g) inside
 // `expr` and re-takes the limit. Resolves x − log(cosh x) → log 2,
 // log(2^x+3^x)/x → log 3, (2^x+3^x)^(1/x) → 3.
+[[nodiscard]] bool is_poly_in_var(const Expr& e, const Expr& var);
+
 [[nodiscard]] std::optional<Expr> try_log_exp_asymptotic(const Expr& expr,
                                                          const Expr& var,
                                                          const Expr& target,
@@ -1934,7 +1951,10 @@ struct Growth {
     Expr g_exp = expand(hyp.empty() ? g : xreplace(g, hyp));
 
     // The exponent e such that `term = const·exp(e)` (a^h ↦ e = h·log a; a bare
-    // constant ↦ e = 0). Bails on a non-exponential var factor (e.g. x·eˣ).
+    // constant ↦ e = 0). A polynomial var factor is sub-exponential, so it is
+    // absorbed as a rate-0 coefficient — the x in x·eˣ, or a bare xᵏ term, ranks
+    // below any positively-growing exponential. Bails on a non-polynomial,
+    // non-exponential var factor (e.g. a nested log or x^x).
     auto exp_exponent = [&](const Expr& term) -> std::optional<Expr> {
         if (!has(term, var)) return Expr{S::Zero()};
         std::vector<Expr> facs;
@@ -1959,6 +1979,8 @@ struct Growth {
                 if (found) return std::nullopt;
                 exponent = mul(f->args()[1], log(f->args()[0]));
                 found = true;
+            } else if (is_poly_in_var(f, var)) {
+                continue;  // sub-exponential coefficient — rate 0
             } else {
                 return std::nullopt;
             }
@@ -3644,6 +3666,82 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
                                     depth + 1);
             if (!is_nan(inner)) {
                 return simplify(mul(mul(std::move(const_factors)), inner));
+            }
+        }
+    }
+
+    // Distribute a single summed factor over the rest of a product — (Σ tᵢ)·F —
+    // when every distributed term tᵢ·F has a determinate finite limit. The limit
+    // is then their sum (linearity is valid since each part converges). This
+    // resolves a quotient (Σ tᵢ)/D whose dominant term D · F → finite but whose
+    // remainder is a bounded, non-oscillating transcendental the exp-rational
+    // dominant-ratio path rejects — e.g. (x + log(1 + x·e⁻ˣ))/x → 1, the residual
+    // form the log-of-a-sum rewrite produces. Bails the moment a part diverges, so
+    // genuinely cancelling ∞ − ∞ quotients are left to the dominant-term machinery.
+    // Held to a shallow depth and to log-carrying sums (via the per-block guards
+    // below): the residuals surface near the top, and probing every deep series
+    // intermediate would multiply the cost of the heavy power-series limits.
+    if (depth < 4 && expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> add_factors;
+        std::vector<Expr> other_factors;
+        for (const auto& f : expr->args()) {
+            (f->type_id() == TypeId::Add ? add_factors : other_factors)
+                .push_back(f);
+        }
+        if (add_factors.size() == 1 && !other_factors.empty()
+            && has_log_node(add_factors[0])) {
+            Expr rest = mul(std::move(other_factors));
+            std::vector<Expr> term_limits;
+            bool all_finite = true;
+            for (const auto& t : add_factors[0]->args()) {
+                Expr tl = limit_impl(simplify(mul(t, rest)), var, target,
+                                     depth + 1);
+                if (is_nan(tl) || is_infinity(tl)) {
+                    all_finite = false;
+                    break;
+                }
+                term_limits.push_back(std::move(tl));
+            }
+            if (all_finite) return simplify(add(std::move(term_limits)));
+        }
+    }
+
+    // Quotient N/D whose denominator is a sum with a unique dominant divergent
+    // term Dt: divide N and D through by Dt so each side converges, then the limit
+    // is lim(N/Dt) / lim(D/Dt). The dedicated dominant-ratio path requires an
+    // exp-rational form, so a denominator carrying a bounded, non-oscillating
+    // remainder — 2x + log(1 + x·e⁻²ˣ) — slips past it and the engine loops.
+    // Resolves x/(2x + log(1 + x·e⁻²ˣ)) → 1/2, the quotient-of-logs the
+    // log-of-a-sum rewrite produces. Bails unless dividing yields finite/finite.
+    if (depth < 4 && is_infinity(target) && expr->type_id() == TypeId::Mul
+        && has_log_node(expr)) {
+        NumDen nd = split_after_together(expr);
+        if (nd.den->type_id() == TypeId::Add && has(nd.num, var)
+            && has_log_node(nd.den)) {
+            const auto& dterms = nd.den->args();
+            Expr dominant;
+            for (const auto& ti : dterms) {
+                if (!has(ti, var)) continue;
+                bool dom = true;
+                for (const auto& tj : dterms) {
+                    if (tj.get() == ti.get()) continue;
+                    Expr ratio = limit_impl(simplify(mul(tj, pow(ti, integer(-1)))),
+                                            var, target, depth + 1);
+                    if (!(ratio == S::Zero())) { dom = false; break; }
+                }
+                if (dom) { dominant = ti; break; }
+            }
+            if (dominant
+                && is_infinity(limit_impl(dominant, var, target, depth + 1))) {
+                Expr inv = pow(dominant, integer(-1));
+                Expr lnum = limit_impl(simplify(mul(nd.num, inv)), var, target,
+                                       depth + 1);
+                Expr lden = limit_impl(simplify(mul(nd.den, inv)), var, target,
+                                       depth + 1);
+                if (!is_nan(lnum) && !is_nan(lden) && !is_infinity(lnum)
+                    && !is_infinity(lden) && !(lden == S::Zero())) {
+                    return simplify(mul(lnum, pow(lden, integer(-1))));
+                }
             }
         }
     }

@@ -16,6 +16,25 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-LOGEXPSUM-1 — log of an exponential sum with polynomial terms hung in a ratio
+- **Problem:** `log(x + eˣ)/log(x + e²ˣ) → 1/2` (and the wider family of ratios of logs of exponential-dominated
+  sums that also carry polynomial terms) did not terminate. The log-of-an-exponential-sum rewrite identifies the
+  dominant exponent and rewrites `log(Σ) = e_dom + log(1 + residual·e^{−e_dom})`, but its exponent extractor
+  **bailed** on any non-exponential var factor, so a polynomial summand like the `x` in `x + eˣ` aborted the
+  rewrite. Even with the rewrite applied, the residual quotient `(x + log(1 + x·e⁻ˣ))/(2x + log(1 + x·e⁻²ˣ))`
+  looped: its bounded, non-oscillating `log(1 + …)` remainder is not exp-rational, so the dominant-ratio path
+  rejected it.
+- **Fix:** two coordinated changes in the limit engine. (1) The exponent extractor now treats a polynomial
+  var factor as a rate-0 (sub-exponential) coefficient — the `x` in `x·eˣ`, or a bare `xᵏ` term, ranks below any
+  positively-growing exponential — instead of bailing, so `log(poly + exp)` sums rewrite. (2) Two dominant-term
+  quotient rules resolve the residual: a numerator distribution `(Σ tᵢ)·F → Σ lim(tᵢ·F)` when every part
+  converges, and a dominant-denominator division `N/D` (D a sum with a unique divergent term Dt) → `lim(N/Dt) /
+  lim(D/Dt)`. Both are held to a shallow recursion depth and gated to log-carrying sums so they do not slow the
+  heavy power-series limits. Now `log(x+eˣ) − x → 0`, `log(eˣ+x)/x → 1`, `log(x+eˣ)/log(x+e²ˣ) → 1/2`,
+  `log(x²+e³ˣ)/log(x+eˣ) → 3`, `log(x³+5eˣ)/x → 1`. Regression: `LIMIT-LOGEXPSUM-1`. Matches SymPy.
+  (Still open: `log(log x + log log x) − log log x → 0`, a log of a *non-exponential* sum, needs the analogous
+  dominant-summand extraction for logarithmic-rate terms.)
+
 ### LIMIT-EI-1 — exponential integral Ei(x) limits returned nan
 - **Problem:** `Ei` of a diverging argument had no asymptotic, so `x·e⁻ˣ·Ei(x) → 1`, `e⁻ˣ·Ei(x) → 0`,
   `Ei(x)/(eˣ/x) → 1`, and the subleading `x·(x·e⁻ˣ·Ei(x) − 1) → 1` all returned `nan`.

@@ -3274,6 +3274,39 @@ TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOG
             == S::Zero());
 }
 
+// LIMIT-LOGEXPSUM-1: log of an exponential-dominated sum that also carries
+// polynomial terms — log(x + eˣ), log(x³ + 5eˣ) — extracts the dominant exponent:
+// log(Σ) = e_dom + log(1 + residual/e^{e_dom}). Previously the polynomial summand
+// made the log-exp-asymptotic handler bail, so a ratio of two such logs hung. The
+// rewrite now treats a polynomial factor as a rate-0 (sub-exponential) coefficient,
+// and a new dominant-denominator division resolves the residual quotient (whose
+// bounded log remainder the exp-rational dominant-ratio path rejects). Matches SymPy.
+TEST_CASE("limit: log of an exponential-dominated polynomial sum (LIMIT-LOGEXPSUM-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+    const Expr ex = exp(x);
+    const Expr e2x = exp(mul(integer(2), x));
+    const Expr e3x = exp(mul(integer(3), x));
+
+    // log(x + eˣ) ~ x, so the difference → 0 and the over-x ratio → 1.
+    REQUIRE(limit(add(log(add(x, ex)), mul(S::NegativeOne(), x)), x, oo)
+            == S::Zero());
+    REQUIRE(limit(over(log(add(ex, x)), x), x, oo) == S::One());
+    // Ratio of two such logs picks the exponent rates: log(x+eˣ)/log(x+e²ˣ) → 1/2.
+    REQUIRE(limit(over(log(add(x, ex)), log(add(x, e2x))), x, oo)
+            == rational(1, 2));
+    // Higher rates and polynomial coefficients: log(x²+e³ˣ)/log(x+eˣ) → 3.
+    REQUIRE(limit(over(log(add(pow(x, integer(2)), e3x)), log(add(x, ex))), x, oo)
+            == integer(3));
+    // A polynomial coefficient on the exponential is absorbed: log(x³+5eˣ)/x → 1.
+    REQUIRE(limit(over(log(add(pow(x, integer(3)), mul(integer(5), ex))), x), x, oo)
+            == S::One());
+}
+
 // LIMIT-EI-1: the exponential integral Ei(g) with a diverging argument grows like
 // Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + …) (DLMF 6.12.2), an asymptotic series
 // whose truncation error vanishes in the limit. Previously Ei limits returned nan.
