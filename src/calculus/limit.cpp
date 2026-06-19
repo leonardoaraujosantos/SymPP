@@ -3011,7 +3011,16 @@ struct Growth {
                 && e->args().size() == 1 && has(e->args()[0], var)
                 && limit_impl(e->args()[0], var, target, depth + 1)
                        == S::Infinity()) {
-                m.emplace(e, log(mul(integer(2), e->args()[0])));
+                // Two-term asymptotic, so a difference that cancels the leading
+                // log(2g) still resolves: asinh(g) = log(2g) + 1/(4g²) + O(g⁻⁴),
+                // acosh(g) = log(2g) − 1/(4g²) + O(g⁻⁴), giving
+                // (acosh − asinh)·g² → −1/2. The numeric guard rejects a case that
+                // needs the dropped O(g⁻⁴) term.
+                const Expr& g = e->args()[0];
+                const Expr corr = id == FunctionId::Asinh ? Expr{rational(1, 4)}
+                                                          : Expr{rational(-1, 4)};
+                m.emplace(e, add(log(mul(integer(2), g)),
+                                 mul(corr, pow(g, integer(-2)))));
             }
         }
         for (const auto& a : e->args()) self(self, a);

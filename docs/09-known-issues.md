@@ -29,6 +29,11 @@ truth and links the issue number.
   wrong (e.g. `x²·(asinh(x) − log(2x)) → 1/4`, whose gap stays O(1)), returning an honest nan rather than a
   wrong 0. Now `asinh(x)/log x → 1`, `acosh(x)/log x → 1`, `asinh(x²)/log x → 2`, `asinh(x) − log(2x) → 0`.
   Regression: `LIMIT-INVHYP-1`. Matches SymPy.
+- **Extended (second-order term):** the substitution now carries two terms —
+  `asinh(g) = log(2g) + 1/(4g²) + O(g⁻⁴)`, `acosh(g) = log(2g) − 1/(4g²) + O(g⁻⁴)` — so a difference that
+  cancels the leading `log(2g)` still resolves: `(acosh(x) − asinh(x))·x² → −1/2` and
+  `x²·(asinh(x) − log(2x)) → 1/4` (both previously the honest nan). A case needing the dropped `O(g⁻⁴)` term
+  is still rejected by the numeric guard.
 
 ### LIMIT-EXP-DIFF-1 — e^{x+e⁻ˣ} − e^x (Gruntz's flagship example) returned nan
 - **Problem:** a difference of asymptotically-equal exponentials returned `nan`: `e^{x+e⁻ˣ} − e^x → 1` (the

@@ -805,6 +805,18 @@ TEST_CASE("limit: inverse-hyperbolic asymptotics (LIMIT-INVHYP-1)",
     // asinh itself is unchanged: → ∞, and asinh(x)/x → 0.
     REQUIRE(limit(asinh(x), x, oo) == oo);
     REQUIRE(limit(mul(asinh(x), pow(x, integer(-1))), x, oo) == S::Zero());
+    // Second-order term: asinh(x) = log(2x) + 1/(4x²) + …, acosh(x) = log(2x) −
+    // 1/(4x²) + …, so the leading log(2x) cancels and the next term carries the
+    // limit: x²·(asinh(x) − log(2x)) → 1/4 and (acosh(x) − asinh(x))·x² → −1/2.
+    REQUIRE(limit(mul(pow(x, integer(2)),
+                      add(asinh(x), mul(S::NegativeOne(),
+                                        log(mul(integer(2), x))))),
+                  x, oo)
+            == rational(1, 4));
+    REQUIRE(limit(mul(add(acosh(x), mul(S::NegativeOne(), asinh(x))),
+                      pow(x, integer(2))),
+                  x, oo)
+            == rational(-1, 2));
 }
 
 // LIMIT-EXP-DIFF-1: Gruntz's flagship example — a difference of asymptotically-equal
