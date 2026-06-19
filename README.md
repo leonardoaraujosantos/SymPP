@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1525%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1534%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1525 tests / 5317 assertions  all passing
+1534 tests / 5373 assertions  all passing
 670 cases (2711 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -252,9 +252,16 @@ and a general SAT-based `ask` solver for arbitrary boolean combinations.
   `series`, **`limit` with a Gruntz-style leading-term engine** (L'Hôpital +
   composable asymptotic stages: power-as-exp, dominant-term `∞−∞`, power
   continuity, log-exp reduction for nested transcendentals, numerically-verified
-  small-angle/Maclaurin-head for `0·∞` analytic forms, harmonic-number
-  asymptotics, and a gamma-ratio asymptotic with Legendre/Gauss multiplication,
-  exponential rates and unbalanced gamma powers — resolves `Γ(2n)/nⁿ`,
+  small-angle/Maclaurin-head for `0·∞` analytic forms, harmonic-number and
+  log-Stirling (`log(n!)/(n·log n)→1`) asymptotics, a gamma-ratio asymptotic with
+  Legendre/Gauss multiplication, exponential rates, unbalanced gamma powers and
+  combined-denominator flattening, the full Stirling prefactor for cancelling
+  products (`n!/(nⁿe⁻ⁿ)→∞`), constant-base-exponential rationals
+  (`(2ˣ+3ˣ)/3ˣ→1`), hyperbolic→exp rewriting (`(sinh x+cosh x)/eˣ→1`),
+  inverse-hyperbolic two-term asymptotics (`asinh x/log x→1`), an MRV rewrite for
+  exponential differences (Gruntz's flagship `e^{x+e⁻ˣ}−eˣ→1`), and a
+  leading-term-by-series stage for `1^∞` corrections at `±∞` and finite points
+  (`x·((1+1/x)ˣ−e)→−e/2`, `(xˣ−1)/(x·log x)→1`) — resolves `Γ(2n)/nⁿ`,
   `eˣ·(sin(1/x+e⁻ˣ)−sin(1/x))→1`; size-bounded so it never hangs),
   `summation` (p-series → ζ, exponential/geometric series, telescoping,
   geometric/arithmetic-geometric, irreducible-quadratic

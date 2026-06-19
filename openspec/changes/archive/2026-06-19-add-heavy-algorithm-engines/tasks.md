@@ -19,7 +19,17 @@ regression test and a green full suite. Known-issue tags in
 - [x] 1.10 Harmonic-number asymptotics (LIMIT-HARMONIC-1)
 - [x] 1.11 Small-angle substitution + the Gruntz oscillation (LIMIT-SMALL-ANGLE-1)
 - [x] 1.12 Nested-radical conjugate differences (LIMIT-NESTED-RADICAL-1)
-- [x] 1.13 Terminate `(x^(1/x)−1)·x/log x` instead of hanging (LIMIT-NOHANG-1)
+- [x] 1.13 Terminate `(x^(1/x)−1)·x/log x` instead of hanging (LIMIT-NOHANG-1; now resolves to `1`)
+- [x] 1.14 Rational functions of constant-base exponentials `cˣ` (LIMIT-CONST-BASE-RATIO-1)
+- [x] 1.15 Full Stirling prefactor for cancelling products, `n!/(nⁿe⁻ⁿ)` (LIMIT-STIRLING-PRODUCT-1)
+- [x] 1.16 Flatten combined denominators in the gamma-ratio asymptotic (LIMIT-GAMMARATIO-1)
+- [x] 1.17 Log-Stirling expansion for `log(n!)`, `log Γ(n)` (LIMIT-LOGGAMMA-1)
+- [x] 1.18 Rewrite hyperbolics of a diverging argument to exp form (LIMIT-HYPERBOLIC-1)
+- [x] 1.19 Gruntz leading-term-by-series for `1^∞` corrections (LIMIT-SERIES-1)
+- [x] 1.20 Finite-point + transcendental-base/divergent-term series (LIMIT-SERIES-1)
+- [x] 1.21 Unit-tending power difference via `exp(t)−1 ~ t` (LIMIT-UNIT-POWER-1)
+- [x] 1.22 MRV rewrite for differences of exponentials, `e^{x+e⁻ˣ}−eˣ` (LIMIT-EXP-DIFF-1)
+- [x] 1.23 Inverse-hyperbolic asymptotics `asinh/acosh ~ log(2g) ± 1/(4g²)` (LIMIT-INVHYP-1)
 
 ## 2. Incomplete gamma functions
 
@@ -45,4 +55,4 @@ regression test and a green full suite. Known-issue tags in
 ## 5. Validation
 
 - [x] 5.1 Each increment has a regression test and oracle cross-check
-- [x] 5.2 Full suite green (5317 assertions / 1525 cases) after every commit
+- [x] 5.2 Full suite green (5373 assertions / 1534 cases) after every commit

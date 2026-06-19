@@ -75,3 +75,76 @@ arithmetic expression.
 #### Scenario: No ∞-arithmetic noise
 - **WHEN** a divergent gamma ratio drives L'Hôpital to an `∞·(∞+…)⁻¹` form
 - **THEN** the engine returns a clean `±∞` or `nan`, never the buried-`∞` expression
+
+### Requirement: Rational functions of constant-base exponentials
+
+The limit engine SHALL evaluate rational functions of constant-base
+exponentials `cˣ` (c a positive number) at `±∞` by dividing through by the
+denominator's dominant term, resolving forms that L'Hôpital loops on and that
+per-factor folding mis-reads.
+
+#### Scenario: Constant-base exponential ratio
+- **WHEN** `limit((2ˣ+3ˣ)/3ˣ, x, ∞)`, `limit((2ˣ+1)/(2ˣ−1), x, ∞)` are requested
+- **THEN** the results are `1` and `1`
+
+### Requirement: Full Stirling and log-Stirling asymptotics
+
+The engine SHALL use the full leading Stirling form `n! ~ √(2πn)·(n/e)ⁿ` for
+factorial/gamma products whose `(n/e)ⁿ` factor cancels, and the log-Stirling
+expansion `log Γ(z) ~ (z−½)·log z − z + ½·log 2π` for a log of a divergent
+factorial/gamma. Gamma ratios written as ordinary division (a combined
+denominator) SHALL be flattened so the asymptotic still applies.
+
+#### Scenario: Stirling-prefactor product
+- **WHEN** `limit(n!/(nⁿ·e⁻ⁿ), n, ∞)` and `limit(n!·eⁿ·n^(−n−1/2), n, ∞)` are requested
+- **THEN** the results are `∞` and `√(2π)`
+
+#### Scenario: Log-Stirling
+- **WHEN** `limit(log(n!)/(n·log n), n, ∞)` and `limit(log(n!)/n, n, ∞)` are requested
+- **THEN** the results are `1` and `∞`
+
+#### Scenario: Combined-denominator gamma ratio
+- **WHEN** `limit(Γ(n+½)/(√n·Γ(n)), n, ∞)` is requested
+- **THEN** the result is `1`
+
+### Requirement: Gruntz leading-term-by-series for unit-tending powers
+
+The engine SHALL resolve the asymptotic correction of a `1^∞` power inside a
+difference, at `±∞` and at a finite point, by substituting the most-rapidly-
+varying coordinate, pre-expanding the exponent to a polynomial, and reading the
+limit off the leading series term (numerically verified). It SHALL use the
+exponential expansion `f^g − 1 = exp(t) − 1 = t + t²/2 + …` for a power tending
+to 1 whose base tends to `0` or `∞`.
+
+#### Scenario: Asymptotic correction of (1+a/x)^x
+- **WHEN** `limit(x·((1+1/x)ˣ − e), x, ∞)` and `limit(((1+x)^(1/x) − e)/x, x, 0)` are requested
+- **THEN** the results are `−e/2` and `−e/2`
+
+#### Scenario: Unit-tending power with a log-singular exponent
+- **WHEN** `limit((xˣ − 1)/(x·log x), x, 0)` and `limit((x^(1/x) − 1)/(log x/x), x, ∞)` are requested
+- **THEN** both results are `1`
+
+### Requirement: Hyperbolic and inverse-hyperbolic asymptotics
+
+The engine SHALL rewrite hyperbolic functions of a diverging argument to their
+exponential form (resolving `sinh`/`cosh` combinations) and SHALL use the
+two-term asymptotics `asinh(g), acosh(g) = log(2g) ± 1/(4g²) + O(g⁻⁴)` for an
+inverse hyperbolic of a diverging argument (numerically verified).
+
+#### Scenario: Hyperbolic combination
+- **WHEN** `limit((sinh x + cosh x)/eˣ, x, ∞)` is requested
+- **THEN** the result is `1`
+
+#### Scenario: Inverse-hyperbolic over log
+- **WHEN** `limit(asinh(x)/log x, x, ∞)` and `limit((acosh x − asinh x)·x², x, ∞)` are requested
+- **THEN** the results are `1` and `−1/2`
+
+### Requirement: MRV rewrite for differences of exponentials
+
+The engine SHALL resolve a difference of asymptotically-equal exponentials by
+factoring out a common `exp(b)` (an exact identity), collapsing the difference
+to a unit term — Gruntz's flagship most-rapidly-varying example.
+
+#### Scenario: Difference of asymptotically-equal exponentials
+- **WHEN** `limit(e^{x+e⁻ˣ} − eˣ, x, ∞)` is requested
+- **THEN** the result is `1`
