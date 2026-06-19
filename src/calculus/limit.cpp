@@ -1385,6 +1385,111 @@ struct Growth {
                       depth + 1);
 }
 
+// Tricomi–Erdélyi asymptotic of a gamma ratio. Each slope-1 gamma is replaced by
+// its two-term expansion relative to Γ(var):
+//   Γ(var + a) = Γ(var)·varᵃ·(1 + a(a−1)/(2·var) + O(var⁻²)).
+// In a *balanced* ratio (the Γ(var) factors cancel) this leaves a pure-power form,
+// so a difference that cancels the leading term still resolves — Γ(n+1)/Γ(n+½) − √n
+// → 0, ·√n → 1/8, ·n² → ∞. The dropped Γ(var) makes an unbalanced product wrong, so
+// the candidate is accepted only after a numeric check against the original.
+[[nodiscard]] std::optional<Expr> try_gamma_ratio_series(const Expr& expr,
+                                                         const Expr& var,
+                                                         const Expr& target,
+                                                         int depth) {
+    if (depth >= 8 || target->type_id() != TypeId::Infinity
+        || count_gamma_factorial(expr) == 0) {
+        return std::nullopt;
+    }
+    const Expr work = normalize_factorial(expr);  // factorial → gamma
+    // The Γ(var)-dropping expansion is only valid in a balanced product of gammas
+    // raised to integer powers. Bail if any gamma sits under a non-integer or
+    // var-dependent power — e.g. (n!)^(1/n), which needs the full Stirling growth,
+    // not this ratio expansion.
+    bool nonint_gamma_power = false;
+    auto pcheck = [&](auto&& self, const Expr& e) -> void {
+        if (nonint_gamma_power) return;
+        if (e->type_id() == TypeId::Pow
+            && count_gamma_factorial(e->args()[0]) > 0
+            && (has(e->args()[1], var)
+                || e->args()[1]->type_id() != TypeId::Integer)) {
+            nonint_gamma_power = true;
+            return;
+        }
+        for (const auto& a : e->args()) self(self, a);
+    };
+    pcheck(pcheck, work);
+    if (nonint_gamma_power) return std::nullopt;
+    ExprMap<Expr> m;
+    auto scan = [&](auto&& self, const Expr& e) -> void {
+        if (e->type_id() == TypeId::Function && !m.count(e)) {
+            const auto& fn = static_cast<const Function&>(*e);
+            if (fn.function_id() == FunctionId::Gamma && fn.args().size() == 1) {
+                const Expr a = simplify(add(fn.args()[0],
+                                            mul(S::NegativeOne(), var)));
+                if (!has(a, var) && is_number(a)) {
+                    // varᵃ·(1 + a(a−1)/(2·var)), dropping the common Γ(var).
+                    const Expr c1 =
+                        mul(a, mul(add(a, S::NegativeOne()), rational(1, 2)));
+                    m.emplace(e, mul(pow(var, a),
+                                     add(S::One(),
+                                         mul(c1, pow(var, integer(-1))))));
+                }
+            }
+        }
+        for (const auto& arg : e->args()) self(self, arg);
+    };
+    scan(scan, work);
+    if (m.empty()) return std::nullopt;
+    Expr cand = limit_impl(simplify(xreplace(work, m)), var, target, depth + 1);
+    if (is_nan(cand) || has(cand, var)
+        || cand->type_id() == TypeId::ComplexInfinity
+        || count_gamma_factorial(cand) > 0) {
+        return std::nullopt;
+    }
+    // Numeric guard: the two-term form is only asymptotic and drops Γ(var) for an
+    // unbalanced product, so verify against the original at moderate n (gammas grow
+    // factorially — keep the samples small enough to evaluate).
+    const bool pinf = cand->type_id() == TypeId::Infinity;
+    const bool ninf = cand->type_id() == TypeId::NegativeInfinity;
+    double cvd = 0.0;
+    if (!pinf && !ninf) {
+        Expr cvf = evalf(cand, 30);
+        if (cvf->type_id() != TypeId::Float) return std::nullopt;
+        try {
+            cvd = std::stod(cvf->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+    }
+    double prev_diff = 1e300, prev_val = 0.0;
+    int checks = 0;
+    for (long g : {30L, 120L, 480L}) {
+        Expr at = evalf(simplify(subs(expr, var, integer(g))), 50);
+        if (at->type_id() != TypeId::Float) return std::nullopt;
+        double v = 0.0;
+        try {
+            v = std::stod(at->str());
+        } catch (...) {
+            return std::nullopt;
+        }
+        if (pinf) {
+            if (checks > 0 && !(v > prev_val)) return std::nullopt;
+            if (g == 480L && !(v > 1.0)) return std::nullopt;
+        } else if (ninf) {
+            if (checks > 0 && !(v < prev_val)) return std::nullopt;
+            if (g == 480L && !(v < -1.0)) return std::nullopt;
+        } else {
+            const double d = std::fabs(v - cvd);
+            if (!(d <= prev_diff + 1e-9)) return std::nullopt;
+            prev_diff = d;
+            if (g == 480L && !(d < 1e-2)) return std::nullopt;
+        }
+        prev_val = v;
+        ++checks;
+    }
+    return checks == 3 ? std::optional<Expr>{cand} : std::nullopt;
+}
+
 // A super-power var^(c·var) (c a nonzero rational) dominates the factorial/gamma
 // class: n^n ≫ n!. When the expression is exactly such a super-power times a
 // single factorial(var) / gamma(var+1) raised to ±1 (plus constants), the
@@ -3268,6 +3373,9 @@ Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
         // Gauss multiplication splits it into k slope-1 gammas plus a
         // constant-base exponential (e.g. Γ(2x+1)/Γ(x+1)²/4ˣ → 0, Γ(3x)/Γ(x)³ → ∞).
         if (auto r = try_gamma_multiplication(expr, var, target, depth)) return *r;
+        // Tricomi–Erdélyi two-term gamma asymptotic — resolves a difference whose
+        // leading gamma-ratio term cancels: Γ(n+1)/Γ(n+½) − √n → 0, ·n² → ∞.
+        if (auto r = try_gamma_ratio_series(expr, var, target, depth)) return *r;
     }
 
     // A super-power n^(c·n) against a single factorial: n!/n^n → 0, n^n/n! → ∞.

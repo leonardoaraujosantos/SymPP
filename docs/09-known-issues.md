@@ -16,6 +16,19 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-GAMMARATIO-SERIES-1 — gamma-ratio differences (Γ(n+1)/Γ(n+½) − √n) hung
+- **Problem:** `limit(Γ(n+1)/Γ(n+½) − √n, n, ∞) = 0`, `limit(√n·(Γ(n+1)/Γ(n+½) − √n), n, ∞) = 1/8`, and
+  `·n² → ∞` did not terminate. The leading gamma-ratio asymptotic gives `Γ(n+1)/Γ(n+½) ~ √n` (which resolves
+  the plain ratio), but that *leading* term cancels in the difference, so the limit needs the *subleading*
+  term — which the engine did not have.
+- **Fix:** added `try_gamma_ratio_series`, the Tricomi–Erdélyi two-term gamma asymptotic. Each slope-1 gamma is
+  replaced by `Γ(n+a) = Γ(n)·nᵃ·(1 + a(a−1)/(2n) + O(n⁻²))`; in a *balanced* ratio the common `Γ(n)` cancels,
+  leaving a pure-power form (no recombining `Γ` for `simplify` to re-fold), so `Γ(n+1)/Γ(n+½) = √n·(1 + 1/(8n))`
+  and the subleading `(1/8)n^(−1/2)` carries the difference. It is gated off any gamma under a non-integer or
+  variable power — `(n!)^(1/n)` needs the full Stirling growth, not this ratio expansion — and numerically
+  verified against the original. Now `Γ(n+1)/Γ(n+½) − √n → 0`, `√n·(…) → 1/8`, `n²·(…) → ∞`, and the plain
+  ratio and `(n!)^(1/n)` cases are unchanged. Regression: `LIMIT-GAMMARATIO-SERIES-1`. Matches SymPy.
+
 ### LIMIT-LOGEXPAND-1 — same-rank log·polynomial differences (2n·log(2n) − n·log n) gave nan
 - **Problem:** `limit(2n·log(2n) − n·log n, n, ∞) = ∞` returned `nan`. The two terms have the *same* growth
   rank (both `∼ n·log n`), so the strict dominant-term rule abstains (their ratio tends to `1/2`, not `0`), and

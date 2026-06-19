@@ -2858,6 +2858,42 @@ TEST_CASE("limit: balanced gamma-ratio asymptotics (LIMIT-GAMMARATIO-1)",
             == S::One());
 }
 
+// LIMIT-GAMMARATIO-SERIES-1: a gamma-ratio difference whose leading term cancels
+// needs the subleading asymptotic. The Tricomi–Erdélyi two-term expansion
+// Γ(n+a) = Γ(n)·nᵃ·(1 + a(a−1)/(2n) + …) (the Γ(n) cancels in a balanced ratio)
+// gives Γ(n+1)/Γ(n+½) = √n·(1 + 1/(8n) + …), so the √n subtracts off and the
+// 1/(8n)·√n term carries the limit. Previously these hung. Matches SymPy.
+TEST_CASE("limit: gamma-ratio subleading via Tricomi expansion (LIMIT-GAMMARATIO-SERIES-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto n = symbol("n");
+    const Expr oo = S::Infinity();
+    const Expr ratio = mul(gamma(add(n, integer(1))),
+                           pow(gamma(add(n, rational(1, 2))), integer(-1)));
+    const Expr sqn = pow(n, rational(1, 2));
+    auto diff = add(ratio, mul(S::NegativeOne(), sqn));   // Γ(n+1)/Γ(n+½) − √n
+
+    // The leading ratio still resolves: Γ(n+1)/(√n·Γ(n+½)) → 1.
+    REQUIRE(limit(mul(ratio, pow(sqn, integer(-1))), n, oo) == S::One());
+    // The difference cancels the leading √n → 0.
+    REQUIRE(limit(diff, n, oo) == S::Zero());
+    // √n·(difference) → 1/8 (the subleading coefficient).
+    REQUIRE(limit(mul(sqn, diff), n, oo) == rational(1, 8));
+    // n²·(difference) → ∞.
+    REQUIRE(limit(mul(pow(n, integer(2)), diff), n, oo) == oo);
+    // Γ(n+2)/Γ(n+1) = n+1 exactly, so n·(Γ(n+2)/Γ(n+1) − n) → 1·n → ∞.
+    REQUIRE(limit(mul(n, add(mul(gamma(add(n, integer(2))),
+                                 pow(gamma(add(n, integer(1))), integer(-1))),
+                             mul(S::NegativeOne(), n))),
+                  n, oo)
+            == oo);
+    // Non-regression: a gamma under a non-integer power (the n-th root) is NOT this
+    // expansion — n/(n!)^(1/n) → e via the Stirling-root stage, not the ratio series.
+    REQUIRE(simplify(limit(mul(n, pow(pow(factorial(n), pow(n, integer(-1))),
+                                      integer(-1))),
+                           n, oo))
+            == exp(integer(1)));
+}
+
 // LIMIT-EXP-CONTINUITY-1: limit(exp(g)) = exp(limit g) with exp(+∞)=∞,
 // exp(−∞)=0. exp(x²−2x) → ∞ previously gave nan: the exponent substitutes to
 // the indeterminate ∞−∞ even though its limit is +∞. The continuity rule takes
