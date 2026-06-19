@@ -3017,11 +3017,13 @@ struct Growth {
     // factors do not cancel and which SymPy also leaves unevaluated — is not turned
     // into a spinning e^{3x²}·(series ratio) form.
     int erf_count = 0;
+    int ei_count = 0;
     {
         auto cnt = [&](auto&& self, const Expr& e) -> void {
             if (e->type_id() == TypeId::Function) {
                 const auto id = static_cast<const Function&>(*e).function_id();
                 if (id == FunctionId::Erf || id == FunctionId::Erfc) ++erf_count;
+                if (id == FunctionId::Ei) ++ei_count;
             }
             for (const auto& a : e->args()) self(self, a);
         };
@@ -3153,6 +3155,27 @@ struct Growth {
                     && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
                     m.emplace(e, add(S::One(),
                                      pow(integer(2), mul(S::NegativeOne(), g))));
+                }
+            }
+            // Ei(g), g → +∞ (DLMF 6.12.2): the exponential integral grows like
+            //   Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + 4!/g⁴ + …),
+            // an asymptotic series whose truncation error vanishes in the limit.
+            // This gives the rate the engine otherwise lacks: x·e⁻ˣ·Ei(x) → 1,
+            // x·(x·e⁻ˣ·Ei(x) − 1) → 1, etc. Fires only with a single Ei node, so a
+            // ratio Ei(x)/Ei(2x) — whose two e^g factors leave an elementary but
+            // deeply-nested product the recursion churns on — stays unevaluated
+            // rather than spinning.
+            if (fn.function_id() == FunctionId::Ei && fn.args().size() == 1
+                && ei_count == 1 && !m.count(e)) {
+                const Expr& g = fn.args()[0];
+                if (has(g, var)
+                    && limit_impl(g, var, target, depth + 1) == S::Infinity()) {
+                    m.emplace(e, mul(mul(exp(g), pow(g, integer(-1))),
+                                     add({S::One(),
+                                          pow(g, integer(-1)),
+                                          mul(integer(2), pow(g, integer(-2))),
+                                          mul(integer(6), pow(g, integer(-3))),
+                                          mul(integer(24), pow(g, integer(-4)))})));
                 }
             }
         }

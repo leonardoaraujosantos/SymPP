@@ -16,6 +16,16 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-EI-1 — exponential integral Ei(x) limits returned nan
+- **Problem:** `Ei` of a diverging argument had no asymptotic, so `x·e⁻ˣ·Ei(x) → 1`, `e⁻ˣ·Ei(x) → 0`,
+  `Ei(x)/(eˣ/x) → 1`, and the subleading `x·(x·e⁻ˣ·Ei(x) − 1) → 1` all returned `nan`.
+- **Fix:** extended the special-function asymptotic rewrite with the Poincaré asymptotic series (DLMF 6.12.2)
+  `Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + 4!/g⁴ + …)` for `g → +∞` (truncation error vanishes in the
+  limit). Now `x·e⁻ˣ·Ei(x) → 1`, `x·(x·e⁻ˣ·Ei(x) − 1) → 1`, `x²·(x·e⁻ˣ·Ei(x) − 1 − 1/x) → 2`,
+  `e⁻ˣ·Ei(x) → 0`, `Ei(x)/(eˣ/x) → 1`. The rewrite fires only with a single `Ei` node, so a ratio like
+  `Ei(x)/Ei(2x)` — whose two `e^g` factors leave an elementary but deeply-nested product the recursion churns
+  on — stays unevaluated (`nan`) rather than spinning. Regression: `LIMIT-EI-1`. Matches SymPy.
+
 ### LIMIT-ZETA-1 — Riemann zeta ζ(x) at +∞ returned nan
 - **Problem:** `limit(ζ(x), x, ∞)` returned `nan` instead of `1`; `ζ(x) − 1` and `2ˣ·(ζ(x) − 1)` likewise
   did not resolve. The engine had no asymptotic for the zeta function.

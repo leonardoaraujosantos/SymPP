@@ -3274,6 +3274,38 @@ TEST_CASE("limit: higher-polygamma and loggamma asymptotics (LIMIT-POLYGAMMA-LOG
             == S::Zero());
 }
 
+// LIMIT-EI-1: the exponential integral Ei(g) with a diverging argument grows like
+// Ei(g) ~ (e^g/g)·(1 + 1/g + 2!/g² + 3!/g³ + …) (DLMF 6.12.2), an asymptotic series
+// whose truncation error vanishes in the limit. Previously Ei limits returned nan.
+// Now x·e⁻ˣ·Ei(x) → 1 (leading), x·(x·e⁻ˣ·Ei(x) − 1) → 1 (subleading), e⁻ˣ·Ei(x) → 0.
+// The rewrite fires only with a single Ei node, so a ratio Ei(x)/Ei(2x) stays nan
+// rather than spinning. Matches SymPy on the cases SymPy resolves.
+TEST_CASE("limit: exponential integral Ei asymptotics (LIMIT-EI-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    // x·e⁻ˣ·Ei(x) → 1: the leading (e^x/x) growth, peeled by x·e⁻ˣ.
+    const Expr lead = mul(mul(x, exp(mul(S::NegativeOne(), x))), expint_ei(x));
+    REQUIRE(simplify(limit(lead, x, oo)) == S::One());
+    // Subleading 1/g term: x·(x·e⁻ˣ·Ei(x) − 1) → 1.
+    REQUIRE(simplify(limit(mul(x, add(lead, S::NegativeOne())), x, oo)) == S::One());
+    // Sub-subleading 2!/g² term: x²·(x·e⁻ˣ·Ei(x) − 1 − 1/x) → 2.
+    REQUIRE(simplify(limit(
+                mul(pow(x, integer(2)),
+                    add({lead, S::NegativeOne(), mul(S::NegativeOne(),
+                                                     pow(x, integer(-1)))})),
+                x, oo))
+            == integer(2));
+    // Ei(x) = o(e^x): e⁻ˣ·Ei(x) → 0, and Ei(x)/(e^x/x) → 1.
+    REQUIRE(limit(mul(exp(mul(S::NegativeOne(), x)), expint_ei(x)), x, oo)
+            == S::Zero());
+    REQUIRE(simplify(limit(
+                mul(expint_ei(x),
+                    pow(mul(exp(x), pow(x, integer(-1))), integer(-1))),
+                x, oo))
+            == S::One());
+}
+
 // LIMIT-ZETA-1: the Riemann zeta function ζ(g) with a diverging argument tends to 1.
 // ζ(s) = Σ_{k≥1} k⁻ˢ has every term past k=1 vanishing as s → +∞, with leading
 // correction 2⁻ˢ, so ζ(g) is rewritten 1 + 2⁻ᵍ. Previously ζ(x) returned nan. Now
