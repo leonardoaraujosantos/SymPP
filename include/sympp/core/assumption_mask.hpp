@@ -41,6 +41,7 @@ struct SYMPP_EXPORT AssumptionMask {
     std::optional<bool> transcendental;
     std::optional<bool> extended_real;
     std::optional<bool> infinite;
+    std::optional<bool> commutative;  // default-true; only stored when declared
 
     [[nodiscard]] std::optional<bool> get(AssumptionKey k) const noexcept;
     void set(AssumptionKey k, bool value) noexcept;
@@ -71,6 +72,7 @@ struct SYMPP_EXPORT AssumptionMask {
         extended_real = v; return *this;
     }
     AssumptionMask& set_infinite(bool v) noexcept { infinite = v; return *this; }
+    AssumptionMask& set_commutative(bool v) noexcept { commutative = v; return *this; }
 
     [[nodiscard]] bool empty() const noexcept;
     [[nodiscard]] std::size_t hash() const noexcept;
@@ -83,5 +85,17 @@ struct SYMPP_EXPORT AssumptionMask {
 // the conflicting fields set to their explicit input values; downstream code
 // is responsible for treating the symbol as ill-formed.
 [[nodiscard]] SYMPP_EXPORT AssumptionMask close_assumptions(AssumptionMask m) noexcept;
+
+// True iff `m` (after closure) carries no contradictory pair of facts and
+// satisfies the basic completeness laws of the ontology:
+//   * a real number is positive, negative or zero (and is ≥0 or ≤0);
+//   * an integer is even or odd;
+//   * a finite complex number is algebraic or transcendental.
+// A mask whose fields are all Unknown is trivially consistent. This is the
+// satisfiability oracle the boolean `ask` solver uses to decide entailment by
+// refutation (a proposition is entailed when asserting its negation yields an
+// inconsistent mask). Only *genuine* contradictions return false, so a "true"
+// here never over-claims.
+[[nodiscard]] SYMPP_EXPORT bool assumptions_consistent(AssumptionMask m) noexcept;
 
 }  // namespace sympp

@@ -11,6 +11,7 @@ target_sources(sympp_tests
         calculus/series_limit_test.cpp
         core/arithmetic_test.cpp
         core/assumptions_test.cpp
+        core/satask_test.cpp
         core/collection_test.cpp
         core/expand_test.cpp
         core/expr_cache_test.cpp

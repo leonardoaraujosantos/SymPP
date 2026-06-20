@@ -64,6 +64,14 @@ enum class AssumptionKey : std::uint8_t {
                    // not real). Does not imply finite or complex.
     Infinite,      // an infinite quantity (±∞, zoo). infinite ⟺ ¬finite; implies
                    // ¬real, ¬complex, ¬zero.
+
+    // Algebraic structure.
+    Commutative,   // commutes under multiplication (a·b = b·a). DEFAULT TRUE:
+                   // every number and ordinary symbol is commutative, and a
+                   // compound (Add/Mul/Pow/…) is commutative iff all of its
+                   // operands are. Only a symbol explicitly declared
+                   // commutative=false (and anything built from it) answers
+                   // false. Mirrors SymPy, where commutative defaults to True.
 };
 
 }  // namespace sympp

@@ -17,7 +17,7 @@ Paths are relative to `sympy/sympy/` in the repository root. ★ marks the algor
 | Singletons (Pi, E, oo, NaN, …) | `core/singleton.py`, `core/numbers.py` | 1 |
 | `subs`, `xreplace` | `core/basic.py` (`_subs`, `xreplace`) | 1 |
 | Assumptions (`real`, `positive`, `integer`, …) — old system | ★`core/assumptions.py`, `assumptions/assume.py` | 2 |
-| Assumptions — SAT-based `ask` | `assumptions/sathandlers.py`, `satask.py`, `cnf.py`, `lra_satask.py` | 2 (deferred sub-phase) |
+| Assumptions — boolean / SAT-style `ask` over combined predicates | `assumptions/sathandlers.py`, `satask.py`, `cnf.py`, `lra_satask.py` | 2 (`core/satask.hpp`) |
 | `refine` (apply assumptions to expr) | `assumptions/refine.py` | 2 |
 | Units, SI/CGS/US conversion | `physics/units/quantities.py`, `dimensions.py`, `unitsystem.py`, `definitions/` | 12 |
 

@@ -88,7 +88,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 |---|---|---|
 | 0  | Foundation & oracle harness            | ✅ shipped |
 | 1  | Core expression tree                   | ✅ shipped |
-| 2  | Assumptions                            | 🟡 full sign/number ontology + closure + Add/Mul/Pow propagation, at SymPy parity on common predicates (prime/irrational/algebraic + SAT-based `ask` deferred) |
+| 2  | Assumptions                            | ✅ full sign/number/domain ontology (incl. prime/irrational/algebraic/transcendental/commutative) + closure + Add/Mul/Pow propagation + scoped `assuming` + boolean/SAT-style `ask`, at SymPy parity on the predicates |
 | 3  | Elementary & special functions         | ✅ shipped |
 | 4  | Polynomials                            | ✅ shipped (multivariate factor + BZ deferred) |
 | 5  | Simplification                         | ✅ shipped (hyperexpand subset shipped — full Slater + Meijer-G expansion deferred) |
@@ -148,25 +148,31 @@ distinct number type (we use `a + b*I` instead), `Infinity` /
 `NegativeInfinity` / `ComplexInfinity` / `NaN` — these are deferred
 together with the Gruntz limit work.
 
-### Phase 2 — Assumptions · 🟡 minimal
+### Phase 2 — Assumptions · ✅
 
-**Shipped**: `AssumptionMask` (Real, Rational, Integer, Positive,
-Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite, **Even, Odd**),
-`is_real/is_positive/is_integer/...` queries on every `Expr`, full deductive
-closure (positive ⇒ real ∧ nonzero ∧ nonnegative; even ⇒ integer ∧ rational;
-odd ⇒ integer ∧ nonzero; even/odd mutually exclusive; integer ∧ ¬even ⇒ odd; …)
-and propagation through `Add`/`Mul`/`Pow` (sum/product sign and parity,
-even-power-of-real ≥ 0, x²+1 > 0, …), `refine()` on assumption-gated rewrites.
-The shipped ontology is functional, not minimal — it drives the assumption-gated
-simplifications (`√(x²)→|x|`, `|x|²→x²`, log/exp splits, `(−1)^(2n)=1`).
+**Shipped**: `AssumptionMask` over the full ontology — Real, Rational, Integer,
+Positive, Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite, Even, Odd,
+Complex, Imaginary, Prime, Composite, Irrational, Algebraic, Transcendental,
+ExtendedReal, Infinite, **Commutative** — with
+`is_real/is_positive/is_integer/is_commutative/...` queries on every `Expr`, full
+deductive closure (positive ⇒ real ∧ nonzero ∧ nonnegative; even ⇒ integer ∧
+rational; prime ⇒ integer ∧ positive; irrational ⟺ real ∧ ¬rational; algebraic ⟺
+complex ∧ ¬transcendental; …) and propagation through `Add`/`Mul`/`Pow`
+(sum/product sign and parity, even-power-of-real ≥ 0, x²+1 > 0, …), `refine()` on
+assumption-gated rewrites, and a thread-local scoped `assuming` context.
 
-**Deferred**: the *breadth* — Complex/Imaginary, Irrational/Noninteger,
-Prime/Composite, Algebraic/Transcendental, Hermitian/Antihermitian,
-Commutative (everything is assumed commutative), extended-real/infinite
-predicates — and the **SAT-based `ask(query, assumptions)`** reasoner (SymPP's
-`ask` is per-node hardcoded propagation, not a general inference engine over
-combined predicates). ~12 of SymPy's ~30+ predicates. Reason: SAT porting is its
-own multi-week subsystem and our practical use cases hit only the basic ontology.
+Beyond single predicates, a **boolean / SAT-style `ask`** (`core/satask.hpp`)
+resolves arbitrary `&&` / `||` / `!` combinations of predicate literals: it
+evaluates them three-valued and, for a single expression, refutes by closure (a
+proposition is `true` when its negation produces an inconsistent mask). This
+matches SymPy's `satask` on the common exhaustive disjunctions — a real nonzero
+`x` is `positive ∨ negative`, an integer is `even ∨ odd`, etc.
+`commutative` defaults to `true` (as in SymPy) and propagates structurally.
+
+**Deferred**: only non-commutative *algebra* — order-preserving multiplication of
+non-commuting symbols — which is a structural multiplication feature rather than an
+assumption predicate; the `commutative` predicate itself is shipped. SymPy's rarer
+Hermitian/Antihermitian predicates are also not modelled.
 
 ### Phase 3 — Elementary & special functions · ✅
 

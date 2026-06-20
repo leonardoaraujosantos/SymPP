@@ -79,6 +79,7 @@ assumption_registry() {
     if (prop == "transcendental") return AssumptionKey::Transcendental;
     if (prop == "extended_real") return AssumptionKey::ExtendedReal;
     if (prop == "infinite")    return AssumptionKey::Infinite;
+    if (prop == "commutative") return AssumptionKey::Commutative;
     throw std::runtime_error(
         std::string("assumption '") + std::string(prop)
         + "' not yet supported in SymPP");
@@ -107,6 +108,7 @@ assumption_registry() {
         case AssumptionKey::Transcendental: return "transcendental";
         case AssumptionKey::ExtendedReal: return "extended_real";
         case AssumptionKey::Infinite:    return "infinite";
+        case AssumptionKey::Commutative: return "commutative";
     }
     return "unknown";
 }

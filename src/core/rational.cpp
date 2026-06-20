@@ -68,6 +68,7 @@ std::optional<bool> Rational::ask(AssumptionKey k) const noexcept {
     switch (k) {
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
+        case AssumptionKey::Commutative:
             return std::nullopt;  // derived by the generic ask() layer
 
         case AssumptionKey::Real: return true;

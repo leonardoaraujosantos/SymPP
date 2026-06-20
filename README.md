@@ -31,7 +31,7 @@ for the multi-metric parity breakdown.
 |---|---|---|
 | 0  | Foundation & oracle harness            | ✅ |
 | 1  | Core expression tree                   | ✅ |
-| 2  | Assumptions                            | 🟡 full sign/number ontology with closure + Add/Mul/Pow propagation, consumed by simplify/integrate/refine; **at SymPy parity on the common predicates** (see [Assumptions](#assumptions) below). Only prime/irrational/algebraic/commutative predicates + a SAT-based `ask` solver remain deferred |
+| 2  | Assumptions                            | ✅ full sign/number ontology (incl. prime/irrational/algebraic/transcendental/commutative) with closure + Add/Mul/Pow propagation, consumed by simplify/integrate/refine; scoped `assuming` context; boolean/SAT-style `ask` over arbitrary predicate combinations. **At SymPy parity on the predicates** (see [Assumptions](#assumptions) below) |
 | 3  | Elementary & special functions         | ✅ |
 | 4  | Polynomials                            | ✅ |
 | 5  | Simplification                         | ✅ |
@@ -214,16 +214,38 @@ auto x = symbol("x");                                   // no built-in assumptio
 
 **Declarable predicates** (via `AssumptionMask::set_*`): `real`, `positive`,
 `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`, `finite`, `integer`,
-`rational`, `even`, `odd`, `complex`, `imaginary`. They are closed under the
-obvious implications (e.g. `zero ⇒ integer ∧ nonnegative ∧ nonpositive`,
-`real ⇒ finite`, `nonnegative ⇒ real ∧ ¬negative`) before propagation.
+`rational`, `even`, `odd`, `complex`, `imaginary`, `prime`, `composite`,
+`irrational`, `algebraic`, `transcendental`, `extended_real`, `infinite`,
+`commutative`. They are closed under the obvious implications (e.g.
+`zero ⇒ integer ∧ nonnegative ∧ nonpositive`, `real ⇒ finite`,
+`nonnegative ⇒ real ∧ ¬negative`, `prime ⇒ integer ∧ positive`) before
+propagation. `commutative` defaults to `true` for every number and symbol (as in
+SymPy) and is `false` only for an expression built from a symbol explicitly
+declared `commutative=false`.
 
-**Parity with SymPy.** On a battery of sign/number queries the subsystem matches
-SymPy's `ask` on every common predicate; the only divergences are cases where
-SymPP is *strictly more decisive* — e.g. `Abs(x)` is reported `real`/`nonnegative`
-for a generic `x`, where SymPy returns `None`. Still **deferred** (and tracked in
-the roadmap): the `prime` / `irrational` / `algebraic` / `commutative` predicates
-and a general SAT-based `ask` solver for arbitrary boolean combinations.
+**Boolean / SAT-style `ask`.** Beyond single predicates, `ask` accepts arbitrary
+boolean *combinations* of predicate literals — `Q(x, Positive) || Q(x, Negative)`,
+`Q(k, Even) && !Q(k, Odd)`, etc. (see `<sympp/core/satask.hpp>`). It evaluates
+them three-valued and, for a single expression, *refutes* by closure: a
+proposition is `true` when asserting its negation yields an inconsistent
+assumption mask. So a real, nonzero `x` answers `Q(x, Positive) || Q(x, Negative)`
+as `true` and a known integer answers `Q(k, Even) || Q(k, Odd)` as `true`, exactly
+matching SymPy's `satask`.
+
+```cpp
+auto x = symbol("x", AssumptionMask{}.set_real(true).set_nonzero(true));
+ask(Q(x, Positive) || Q(x, Negative));   // → true  (neither disjunct alone is)
+ask(Q(x, Positive) && Q(x, Negative));   // → false (contradiction)
+```
+
+**Parity with SymPy.** On a battery of sign/number/parity/domain queries the
+subsystem matches SymPy's `ask` on every predicate; the only divergences are cases
+where SymPP is *strictly more decisive* — e.g. `Abs(x)` is reported
+`real`/`nonnegative` for a generic `x`, and `ask(Q(k, Even) || Q(k, Odd))` is
+`true` for a known integer `k`, where SymPy's `satask` returns `None`. Both answers
+are mathematically correct; SymPP just closes the gap. Non-commutative *algebra*
+(order-preserving multiplication of non-commuting symbols) is the one piece left
+for a later phase; the `commutative` predicate itself is supported.
 
 ## What's in the box
 

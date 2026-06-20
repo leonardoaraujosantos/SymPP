@@ -25,6 +25,18 @@ namespace {
     return e ? e->ask(k) : std::nullopt;
 }
 
+// Commutativity is a default-true, structural predicate: an expression
+// commutes under multiplication unless it — or any subexpression — was
+// explicitly declared non-commutative. Matches SymPy's `is_commutative`.
+[[nodiscard]] bool structural_commutative(const Expr& e) noexcept {
+    if (!e) return true;
+    if (direct(e, AssumptionKey::Commutative) == false) return false;
+    for (const auto& a : e->args()) {
+        if (!structural_commutative(a)) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 std::optional<bool> direct_ask(const Expr& e, AssumptionKey k) noexcept {
@@ -170,6 +182,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return false;
             return std::nullopt;
         }
+        case AssumptionKey::Commutative:
+            return structural_commutative(e);
         default:
             return std::nullopt;
     }

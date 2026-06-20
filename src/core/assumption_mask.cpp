@@ -23,6 +23,7 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Transcendental: return transcendental;
         case AssumptionKey::ExtendedReal: return extended_real;
         case AssumptionKey::Infinite: return infinite;
+        case AssumptionKey::Commutative: return commutative;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
             // real ∨ imaginary ⇒ complex (a finite complex number).
@@ -78,6 +79,7 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Transcendental: transcendental = value; break;
         case AssumptionKey::ExtendedReal: extended_real = value; break;
         case AssumptionKey::Infinite: infinite = value; break;
+        case AssumptionKey::Commutative: commutative = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
         case AssumptionKey::Nonzero:
@@ -99,7 +101,8 @@ bool AssumptionMask::empty() const noexcept {
     return !real && !rational && !integer && !positive && !negative && !zero
            && !nonnegative && !nonpositive && !finite && !even && !odd
            && !complex_ && !imaginary && !prime && !composite && !irrational
-           && !algebraic && !transcendental && !extended_real && !infinite;
+           && !algebraic && !transcendental && !extended_real && !infinite
+           && !commutative;
 }
 
 std::size_t AssumptionMask::hash() const noexcept {
@@ -131,6 +134,7 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(transcendental));
     mix(encode(extended_real));
     mix(encode(infinite));
+    mix(encode(commutative));
     return h;
 }
 
@@ -348,6 +352,78 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         if (m.finite == false && !m.infinite) m.infinite = true;
     }
     return m;
+}
+
+namespace {
+// std::optional<bool> shorthands for the consistency checks below.
+[[nodiscard]] inline bool yes(std::optional<bool> v) noexcept { return v == true; }
+[[nodiscard]] inline bool no(std::optional<bool> v) noexcept { return v == false; }
+}  // namespace
+
+bool assumptions_consistent(AssumptionMask m) noexcept {
+    m = close_assumptions(m);
+
+    // Mutually exclusive facts — both true is a contradiction.
+    const bool clash =
+        (yes(m.positive) && yes(m.negative)) ||
+        (yes(m.positive) && yes(m.zero)) ||
+        (yes(m.negative) && yes(m.zero)) ||
+        (yes(m.even) && yes(m.odd)) ||
+        (yes(m.prime) && yes(m.composite)) ||
+        (yes(m.real) && yes(m.imaginary)) ||
+        (yes(m.finite) && yes(m.infinite)) ||
+        (yes(m.rational) && yes(m.irrational)) ||
+        (yes(m.algebraic) && yes(m.transcendental)) ||
+        (yes(m.nonnegative) && yes(m.negative)) ||
+        (yes(m.nonpositive) && yes(m.positive)) ||
+        (yes(m.zero) && yes(m.odd)) ||
+        (yes(m.zero) && yes(m.imaginary)) ||
+        (yes(m.zero) && yes(m.irrational)) ||
+        (yes(m.zero) && yes(m.prime)) ||
+        (yes(m.zero) && yes(m.composite));
+    if (clash) return false;
+
+    // A nonzero pure imaginary excludes every real-line / integer property.
+    if (yes(m.imaginary) &&
+        (yes(m.real) || yes(m.rational) || yes(m.integer) || yes(m.positive) ||
+         yes(m.negative) || yes(m.even) || yes(m.odd) || yes(m.prime) ||
+         yes(m.composite))) {
+        return false;
+    }
+    // An infinite quantity is no finite real/complex number (±∞ keep only their
+    // sign / extended-real / nonzero facts).
+    if (yes(m.infinite) &&
+        (yes(m.real) || yes(m.complex_) || yes(m.finite) || yes(m.zero) ||
+         yes(m.rational) || yes(m.integer) || yes(m.even) || yes(m.odd) ||
+         yes(m.prime) || yes(m.composite) || yes(m.algebraic) ||
+         yes(m.transcendental) || yes(m.irrational) || yes(m.imaginary))) {
+        return false;
+    }
+    // Order / tower properties presuppose membership.
+    if (no(m.real) &&
+        (yes(m.positive) || yes(m.negative) || yes(m.zero) || yes(m.rational) ||
+         yes(m.integer) || yes(m.irrational))) {
+        return false;
+    }
+    if (no(m.integer) &&
+        (yes(m.even) || yes(m.odd) || yes(m.prime) || yes(m.composite))) {
+        return false;
+    }
+    if (no(m.rational) && (yes(m.integer) || yes(m.zero))) return false;
+    if (no(m.complex_) &&
+        (yes(m.real) || yes(m.imaginary) || yes(m.integer) || yes(m.rational) ||
+         yes(m.algebraic) || yes(m.transcendental))) {
+        return false;
+    }
+
+    // Completeness laws — failing to be any branch of a total partition is a
+    // contradiction (these are what make exhaustive disjunctions provable).
+    if (yes(m.real) && no(m.positive) && no(m.negative) && no(m.zero)) return false;
+    if (yes(m.real) && no(m.nonnegative) && no(m.nonpositive)) return false;
+    if (yes(m.integer) && no(m.even) && no(m.odd)) return false;
+    if (yes(m.complex_) && no(m.algebraic) && no(m.transcendental)) return false;
+
+    return true;
 }
 
 }  // namespace sympp
