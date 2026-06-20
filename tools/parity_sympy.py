@@ -81,6 +81,20 @@ def battery():
     add("p_times_q", p * q)
     add("two_n_plus_1", 2 * n + 1)
     add("i_times_real", I * r)
+    add("sqrt2", sp.sqrt(2))
+    add("abs_real", Abs(r))
+    add("sym_transcendental", Symbol("t", transcendental=True))
+    add("two_pi", 2 * pi)
+    add("pi_plus_one", pi + 1)
+    nsym = Symbol("m", negative=True)
+    add("neg_times_neg", nsym * Symbol("m2", negative=True))
+    add("pos_times_neg", p * nsym)
+    add("pow_neg_2", nsym**2)
+    add("pow_real_2", r**2)
+    add("p_over_q", p / q)
+    add("exp_real", sp.exp(r))
+    add("log_positive", sp.log(p))
+    add("sin_real", sp.sin(r))
     return b
 
 

@@ -77,6 +77,7 @@ endif()
 target_compile_definitions(sympp_tests PRIVATE
     SYMPP_TEST_ORACLE_SCRIPT="${CMAKE_SOURCE_DIR}/oracle/oracle.py"
     SYMPP_TEST_PYTHON_EXECUTABLE="${Python3_EXECUTABLE}"
+    SYMPP_TEST_PARITY_DATA="${CMAKE_SOURCE_DIR}/tools/parity_expected.tsv"
 )
 
 include(Catch)

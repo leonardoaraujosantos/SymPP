@@ -171,6 +171,11 @@ std::optional<bool> Log::ask(AssumptionKey k) const noexcept {
             if (is_positive(am1) == true || is_negative(am1) == true) return true;
             return std::nullopt;
         }
+        case AssumptionKey::Finite:
+            // log diverges only at 0 and ∞; for a finite, nonzero argument it is
+            // finite (real or complex).
+            if (is_finite(a) == true && is_nonzero(a) == true) return true;
+            return std::nullopt;
         default:
             return std::nullopt;
     }

@@ -78,6 +78,24 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Odd) == true) return true;
             if (direct(e, AssumptionKey::Prime) == true) return true;
             if (direct(e, AssumptionKey::Composite) == true) return true;
+            // ¬rational ⇒ ¬integer (so an irrational/transcendental value, and any
+            // non-real value, is not an integer).
+            if (direct(e, AssumptionKey::Rational) == false) return false;
+            if (direct(e, AssumptionKey::Irrational) == true) return false;
+            if (direct(e, AssumptionKey::Real) == false) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Even: {
+            // even ⇒ integer; a known non-integer is not even; 0 is even.
+            // (ask() here, not direct(), so a *derived* ¬integer is seen.)
+            if (ask(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Odd) == true) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return true;
+            return std::nullopt;
+        }
+        case AssumptionKey::Odd: {
+            if (ask(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Even) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Positive: {
@@ -121,8 +139,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         case AssumptionKey::Prime: {
             // A non-integer is never prime; a non-positive value is never prime
             // (a prime is ≥ 2); a composite is not prime; otherwise primality is
-            // a direct fact.
-            if (direct(e, AssumptionKey::Integer) == false) return false;
+            // a direct fact. (ask() for Integer so a derived ¬integer is seen.)
+            if (ask(e, AssumptionKey::Integer) == false) return false;
             if (direct(e, AssumptionKey::Positive) == false) return false;
             if (direct(e, AssumptionKey::Composite) == true) return false;
             return std::nullopt;
@@ -130,7 +148,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         case AssumptionKey::Composite: {
             // A non-integer / non-positive value is never composite; a prime is
             // not composite.
-            if (direct(e, AssumptionKey::Integer) == false) return false;
+            if (ask(e, AssumptionKey::Integer) == false) return false;
             if (direct(e, AssumptionKey::Positive) == false) return false;
             if (direct(e, AssumptionKey::Prime) == true) return false;
             return std::nullopt;
