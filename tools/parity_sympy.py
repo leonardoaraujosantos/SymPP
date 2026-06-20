@@ -103,6 +103,14 @@ def battery():
     add("floor_real", sp.floor(r))
     add("conj_real", sp.conjugate(r))
     add("even_times_odd", Symbol("ev", even=True) * Symbol("od", odd=True))
+    add("conj_imaginary", sp.conjugate(Symbol("im", imaginary=True)))
+    add("re_real", sp.re(r))
+    add("im_real", sp.im(r))
+    add("int_plus_pi", 1 + pi)
+    add("pow_p_p", p**p)
+    add("tan_real", sp.tan(r))
+    add("sign_positive", sp.sign(p))
+    add("two_inv", Integer(2)**Integer(-1))
     return b
 
 

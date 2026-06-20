@@ -176,6 +176,14 @@ std::vector<std::pair<std::string, Expr>> battery() {
     add("even_times_odd",
         symbol("ev", S_(AssumptionMask{}.set_even(true)))
             * symbol("od", S_(AssumptionMask{}.set_odd(true))));
+    add("conj_imaginary", conjugate(symbol("im", S_(AssumptionMask{}.set_imaginary(true)))));
+    add("re_real", re(r));
+    add("im_real", im(r));
+    add("int_plus_pi", integer(1) + S::Pi());
+    add("pow_p_p", pow(p, p));
+    add("tan_real", tan(r));
+    add("sign_positive", sign(p));
+    add("two_inv", pow(integer(2), integer(-1)));
     return b;
 }
 
@@ -186,11 +194,16 @@ const std::set<std::pair<std::string, std::string>>& whitelist() {
         // Abs(x): SymPP is strictly more decisive (and correct) for generic x.
         {"abs_generic", "real"}, {"abs_generic", "nonnegative"},
         {"abs_generic", "complex"}, {"abs_generic", "hermitian"},
+        // tan(real): SymPP treats trig of a real argument as real (a deliberate,
+        // tested convention assuming the argument avoids the function's poles);
+        // SymPy is conservative and returns None.
+        {"tan_real", "real"}, {"tan_real", "complex"}, {"tan_real", "hermitian"},
         // `nonzero` = "≠ 0" in SymPP (not SymPy's real ∧ ≠ 0).
         {"I", "nonzero"}, {"zoo", "nonzero"}, {"sym_imaginary", "nonzero"},
         {"oo", "nonzero"}, {"neg_oo", "nonzero"},
         {"sym_ext_positive", "nonzero"}, {"sym_ext_negative", "nonzero"},
         {"sym_transcendental", "nonzero"}, {"sqrt_neg", "nonzero"},
+        {"conj_imaginary", "nonzero"},
         {"sym_nonzero", "real"}, {"sym_nonzero", "complex"},
         {"sym_nonzero", "finite"}, {"sym_nonzero", "extended_real"},
         {"sym_nonzero", "hermitian"}, {"sym_nonzero", "imaginary"},

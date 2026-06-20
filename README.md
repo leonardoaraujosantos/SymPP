@@ -245,9 +245,10 @@ ask(Q(x, Positive) && Q(x, Negative));   // → false (contradiction)
 **Parity with SymPy.** On a battery of sign/number/parity/domain queries the
 subsystem matches SymPy's `ask` on every predicate; the only divergences are cases
 where SymPP is *strictly more decisive* — e.g. `Abs(x)` is reported
-`real`/`nonnegative` for a generic `x`, and `ask(Q(k, Even) || Q(k, Odd))` is
-`true` for a known integer `k`, where SymPy's `satask` returns `None`. Both answers
-are mathematically correct; SymPP just closes the gap. Two intentional
+`real`/`nonnegative` for a generic `x`, `ask(Q(k, Even) || Q(k, Odd))` is `true`
+for a known integer `k`, and `tan(x)` for real `x` is taken as `real` (assuming
+the argument avoids the poles) — all cases where SymPy returns `None`. The first
+two are exact; the trig one is a deliberate not-at-a-pole convention. Two intentional
 differences remain, both deliberate (and exercised by the engine): SymPP's
 `nonzero` predicate means "≠ 0" rather than SymPy's "real ∧ ≠ 0" (so `I` and
 `±∞` are `nonzero`), and SymPP reports `±∞` as strictly `positive`/`negative`
