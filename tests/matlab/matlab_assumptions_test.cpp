@@ -97,8 +97,18 @@ TEST_CASE("matlab::refresh on unregistered symbol returns input unchanged",
 
 TEST_CASE("matlab::assume rejects unsupported property",
           "[15m][matlab][assumptions]") {
+    auto x = matlab::sym("xbogus");
+    REQUIRE_THROWS_AS(matlab::assume(x, "not_a_real_property"), std::runtime_error);
+}
+
+TEST_CASE("matlab::assume supports the hermitian property",
+          "[15m][matlab][assumptions]") {
     auto x = matlab::sym("xherm");
-    REQUIRE_THROWS_AS(matlab::assume(x, "hermitian"), std::runtime_error);
+    matlab::clearAssumptions(x);
+    matlab::assume(x, "hermitian");
+    x = matlab::refresh(x);
+    auto props = matlab::assumptions(x);
+    REQUIRE(std::find(props.begin(), props.end(), "hermitian") != props.end());
 }
 
 TEST_CASE("matlab::assume supports the prime property",

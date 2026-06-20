@@ -13,6 +13,7 @@
 #include <sympp/core/pow.hpp>
 #include <sympp/core/queries.hpp>
 #include <sympp/core/satask.hpp>
+#include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 
 using namespace sympp;
@@ -111,6 +112,67 @@ TEST_CASE("assumptions_consistent: genuine contradictions", "[satask]") {
     posAndNeg.set(Pos, true);
     posAndNeg.set(Neg, true);
     REQUIRE_FALSE(assumptions_consistent(posAndNeg));
+}
+
+TEST_CASE("extended-signed predicates match SymPy", "[extended]") {
+    auto p = symbol("p", AssumptionMask{}.set_positive(true));
+    auto n = symbol("n", AssumptionMask{}.set_negative(true));
+    auto z = integer(0);
+
+    // positive ⇒ extended_positive ∧ extended_nonnegative ∧ ¬extended_negative
+    REQUIRE(is_extended_positive(p) == true);
+    REQUIRE(is_extended_nonnegative(p) == true);
+    REQUIRE(is_extended_negative(p) == false);
+    REQUIRE(is_extended_negative(n) == true);
+    REQUIRE(is_extended_nonpositive(n) == true);
+
+    // zero is ≥0 and ≤0 on the extended line, but neither strictly signed.
+    REQUIRE(is_extended_nonnegative(z) == true);
+    REQUIRE(is_extended_nonpositive(z) == true);
+    REQUIRE(is_extended_positive(z) == false);
+
+    // ±∞ carry an extended sign (where SymPy puts oo.is_extended_positive=True).
+    REQUIRE(is_extended_positive(S::Infinity()) == true);
+    REQUIRE(is_extended_nonnegative(S::Infinity()) == true);
+    REQUIRE(is_extended_negative(S::NegativeInfinity()) == true);
+    REQUIRE(is_extended_nonpositive(S::NegativeInfinity()) == true);
+    REQUIRE(is_extended_real(S::Infinity()) == true);
+
+    // A nonzero pure imaginary is off the extended line.
+    REQUIRE(is_extended_positive(S::I()) == false);
+
+    // Declaring extended_positive closes to extended_real, nonzero, ext_nonneg;
+    // adding finiteness refines it back to (strict) positive.
+    auto e = symbol("e", AssumptionMask{}.set_extended_positive(true));
+    REQUIRE(is_extended_real(e) == true);
+    REQUIRE(is_nonzero(e) == true);
+    REQUIRE(is_extended_nonnegative(e) == true);
+    REQUIRE(!is_positive(e).has_value());  // could be +∞
+    auto ef = symbol("ef", AssumptionMask{}.set_extended_positive(true).set_finite(true));
+    REQUIRE(is_positive(ef) == true);
+
+    // SAT: an extended-real nonzero value is extended_positive ∨ extended_negative.
+    auto x = symbol("x", AssumptionMask{}.set_extended_real(true).set_nonzero(true));
+    REQUIRE(ask(Q(x, AssumptionKey::ExtendedPositive)
+                || Q(x, AssumptionKey::ExtendedNegative)) == true);
+}
+
+TEST_CASE("hermitian / antihermitian match SymPy", "[extended]") {
+    auto r = symbol("r", AssumptionMask{}.set_real(true));
+    auto m = symbol("m", AssumptionMask{}.set_imaginary(true));
+
+    REQUIRE(is_hermitian(r) == true);             // real ⇒ hermitian
+    REQUIRE(is_hermitian(integer(0)) == true);
+    REQUIRE(is_antihermitian(m) == true);         // imaginary ⇒ antihermitian
+    REQUIRE(is_antihermitian(S::I()) == true);
+
+    // hermitian ∧ antihermitian ⇒ zero.
+    auto both = symbol("b", AssumptionMask{}.set_hermitian(true).set_antihermitian(true));
+    REQUIRE(is_zero(both) == true);
+
+    // Generic symbol: unknown.
+    REQUIRE(!is_hermitian(symbol("g")).has_value());
+    REQUIRE(!is_antihermitian(symbol("g")).has_value());
 }
 
 TEST_CASE("commutative: default true; non-commutative is structural", "[commutative]") {

@@ -41,6 +41,12 @@ struct SYMPP_EXPORT AssumptionMask {
     std::optional<bool> transcendental;
     std::optional<bool> extended_real;
     std::optional<bool> infinite;
+    std::optional<bool> extended_positive;
+    std::optional<bool> extended_negative;
+    std::optional<bool> extended_nonnegative;
+    std::optional<bool> extended_nonpositive;
+    std::optional<bool> hermitian;
+    std::optional<bool> antihermitian;
     std::optional<bool> commutative;  // default-true; only stored when declared
 
     [[nodiscard]] std::optional<bool> get(AssumptionKey k) const noexcept;
@@ -72,6 +78,20 @@ struct SYMPP_EXPORT AssumptionMask {
         extended_real = v; return *this;
     }
     AssumptionMask& set_infinite(bool v) noexcept { infinite = v; return *this; }
+    AssumptionMask& set_extended_positive(bool v) noexcept {
+        extended_positive = v; return *this;
+    }
+    AssumptionMask& set_extended_negative(bool v) noexcept {
+        extended_negative = v; return *this;
+    }
+    AssumptionMask& set_extended_nonnegative(bool v) noexcept {
+        extended_nonnegative = v; return *this;
+    }
+    AssumptionMask& set_extended_nonpositive(bool v) noexcept {
+        extended_nonpositive = v; return *this;
+    }
+    AssumptionMask& set_hermitian(bool v) noexcept { hermitian = v; return *this; }
+    AssumptionMask& set_antihermitian(bool v) noexcept { antihermitian = v; return *this; }
     AssumptionMask& set_commutative(bool v) noexcept { commutative = v; return *this; }
 
     [[nodiscard]] bool empty() const noexcept;

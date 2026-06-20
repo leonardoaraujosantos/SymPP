@@ -10,6 +10,44 @@ decide — by three-valued evaluation plus refutation against the assumption
 closure.
 
 ## Requirements
+### Requirement: Extended-signed predicates
+
+SymPP SHALL expose `extended_positive`, `extended_negative`,
+`extended_nonnegative` and `extended_nonpositive` predicates that describe the
+sign of a value on the extended real line ℝ ∪ {±∞}. A strict sign SHALL imply its
+extended counterpart (`positive ⇒ extended_positive`); the extended signs SHALL
+NOT imply finiteness, and `extended_positive ∧ finite ⇒ positive`. They SHALL be
+declarable via `AssumptionMask::set_extended_*` and queryable via
+`is_extended_positive` etc.
+
+#### Scenario: Strict sign implies extended sign
+- **WHEN** `p` is positive and `n` is negative
+- **THEN** `is_extended_positive(p)`, `is_extended_nonnegative(p)`,
+  `is_extended_negative(n)` and `is_extended_nonpositive(n)` are all `true`
+
+#### Scenario: Infinities carry an extended sign
+- **WHEN** `is_extended_positive(+∞)` and `is_extended_negative(−∞)` are queried
+- **THEN** both are `true` and `is_extended_real(+∞)` is `true`
+
+#### Scenario: Extended-positive refines to positive under finiteness
+- **WHEN** a symbol is declared `extended_positive`
+- **THEN** it is `extended_real` and `nonzero`, `is_positive` is `unknown`, and
+  adding `finite` makes `is_positive` `true`
+
+### Requirement: Hermitian and antihermitian predicates
+
+SymPP SHALL expose `hermitian` and `antihermitian` predicates with
+`real ⇒ hermitian`, `imaginary ⇒ antihermitian`, and
+`hermitian ∧ antihermitian ⇒ zero`.
+
+#### Scenario: Reality and imaginarity imply conjugation symmetry
+- **WHEN** `r` is real and `m` is imaginary
+- **THEN** `is_hermitian(r)` is `true` and `is_antihermitian(m)` is `true`
+
+#### Scenario: Both symmetries force zero
+- **WHEN** a symbol is declared both `hermitian` and `antihermitian`
+- **THEN** `is_zero` of that symbol is `true`
+
 ### Requirement: Commutative predicate
 
 SymPP SHALL expose an `AssumptionKey::Commutative` predicate, declarable via

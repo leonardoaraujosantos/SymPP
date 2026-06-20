@@ -79,6 +79,12 @@ assumption_registry() {
     if (prop == "transcendental") return AssumptionKey::Transcendental;
     if (prop == "extended_real") return AssumptionKey::ExtendedReal;
     if (prop == "infinite")    return AssumptionKey::Infinite;
+    if (prop == "extended_positive") return AssumptionKey::ExtendedPositive;
+    if (prop == "extended_negative") return AssumptionKey::ExtendedNegative;
+    if (prop == "extended_nonnegative") return AssumptionKey::ExtendedNonnegative;
+    if (prop == "extended_nonpositive") return AssumptionKey::ExtendedNonpositive;
+    if (prop == "hermitian")   return AssumptionKey::Hermitian;
+    if (prop == "antihermitian") return AssumptionKey::Antihermitian;
     if (prop == "commutative") return AssumptionKey::Commutative;
     throw std::runtime_error(
         std::string("assumption '") + std::string(prop)
@@ -108,6 +114,12 @@ assumption_registry() {
         case AssumptionKey::Transcendental: return "transcendental";
         case AssumptionKey::ExtendedReal: return "extended_real";
         case AssumptionKey::Infinite:    return "infinite";
+        case AssumptionKey::ExtendedPositive: return "extended_positive";
+        case AssumptionKey::ExtendedNegative: return "extended_negative";
+        case AssumptionKey::ExtendedNonnegative: return "extended_nonnegative";
+        case AssumptionKey::ExtendedNonpositive: return "extended_nonpositive";
+        case AssumptionKey::Hermitian:   return "hermitian";
+        case AssumptionKey::Antihermitian: return "antihermitian";
         case AssumptionKey::Commutative: return "commutative";
     }
     return "unknown";
@@ -147,10 +159,16 @@ inline void assumeAlso(const Expr& sym_expr, std::string_view property) {
                     AssumptionKey::Negative, AssumptionKey::Zero,
                     AssumptionKey::Nonzero, AssumptionKey::Nonnegative,
                     AssumptionKey::Nonpositive, AssumptionKey::Finite,
+                    AssumptionKey::Even, AssumptionKey::Odd,
+                    AssumptionKey::Complex, AssumptionKey::Imaginary,
                     AssumptionKey::Prime, AssumptionKey::Composite,
                     AssumptionKey::Irrational, AssumptionKey::Algebraic,
                     AssumptionKey::Transcendental, AssumptionKey::ExtendedReal,
-                    AssumptionKey::Infinite}) {
+                    AssumptionKey::Infinite, AssumptionKey::ExtendedPositive,
+                    AssumptionKey::ExtendedNegative,
+                    AssumptionKey::ExtendedNonnegative,
+                    AssumptionKey::ExtendedNonpositive, AssumptionKey::Hermitian,
+                    AssumptionKey::Antihermitian, AssumptionKey::Commutative}) {
         auto v = m.get(k);
         if (v == std::optional<bool>{true}) {
             out.emplace_back(detail::key_name(k));

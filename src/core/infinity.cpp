@@ -26,8 +26,14 @@ std::size_t NaN::hash() const noexcept { return 0x00'1F'17'00'00'00'0004ULL; }
 std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
     // +oo is positive and non-zero, but neither finite nor (ordinary) real.
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return false;  // not a finite complex number
@@ -59,8 +65,14 @@ std::optional<bool> Infinity::ask(AssumptionKey k) const noexcept {
 
 std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return false;  // not a finite complex number
@@ -93,8 +105,14 @@ std::optional<bool> NegativeInfinity::ask(AssumptionKey k) const noexcept {
 std::optional<bool> ComplexInfinity::ask(AssumptionKey k) const noexcept {
     // zoo has no determined sign and is not real/finite; it is non-zero.
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Complex:
         case AssumptionKey::Imaginary:
             return false;  // not a finite complex number

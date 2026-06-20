@@ -13,8 +13,14 @@ std::optional<bool> ImaginaryUnit::ask(AssumptionKey k) const noexcept {
     // I is a finite, non-zero, purely-imaginary complex number — not real /
     // integer / rational / signed.
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Finite:
         case AssumptionKey::Nonzero:
         case AssumptionKey::Imaginary:

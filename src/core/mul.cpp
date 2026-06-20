@@ -131,8 +131,14 @@ std::optional<bool> Mul::ask(AssumptionKey k) const noexcept {
     using detail::all_args_have;
     using detail::any_arg_has;
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Complex:
             // A product of finite complex factors is complex.
             if (all_args_have(args_, AssumptionKey::Complex, true)) return true;

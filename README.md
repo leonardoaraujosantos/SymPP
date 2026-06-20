@@ -216,12 +216,16 @@ auto x = symbol("x");                                   // no built-in assumptio
 `negative`, `zero`, `nonzero`, `nonnegative`, `nonpositive`, `finite`, `integer`,
 `rational`, `even`, `odd`, `complex`, `imaginary`, `prime`, `composite`,
 `irrational`, `algebraic`, `transcendental`, `extended_real`, `infinite`,
-`commutative`. They are closed under the obvious implications (e.g.
+`extended_positive`, `extended_negative`, `extended_nonnegative`,
+`extended_nonpositive`, `hermitian`, `antihermitian`, `commutative` — the full
+SymPy-style ontology. They are closed under the obvious implications (e.g.
 `zero ⇒ integer ∧ nonnegative ∧ nonpositive`, `real ⇒ finite`,
-`nonnegative ⇒ real ∧ ¬negative`, `prime ⇒ integer ∧ positive`) before
-propagation. `commutative` defaults to `true` for every number and symbol (as in
-SymPy) and is `false` only for an expression built from a symbol explicitly
-declared `commutative=false`.
+`nonnegative ⇒ real ∧ ¬negative`, `prime ⇒ integer ∧ positive`,
+`positive ⇒ extended_positive`, `real ⇒ hermitian`) before propagation. The
+extended-signed predicates carry the sign of ±∞ on the extended real line
+(`extended_positive ∧ finite ⇒ positive`); `commutative` defaults to `true` for
+every number and symbol (as in SymPy) and is `false` only for an expression built
+from a symbol explicitly declared `commutative=false`.
 
 **Boolean / SAT-style `ask`.** Beyond single predicates, `ask` accepts arbitrary
 boolean *combinations* of predicate literals — `Q(x, Positive) || Q(x, Negative)`,
@@ -243,9 +247,13 @@ subsystem matches SymPy's `ask` on every predicate; the only divergences are cas
 where SymPP is *strictly more decisive* — e.g. `Abs(x)` is reported
 `real`/`nonnegative` for a generic `x`, and `ask(Q(k, Even) || Q(k, Odd))` is
 `true` for a known integer `k`, where SymPy's `satask` returns `None`. Both answers
-are mathematically correct; SymPP just closes the gap. Non-commutative *algebra*
-(order-preserving multiplication of non-commuting symbols) is the one piece left
-for a later phase; the `commutative` predicate itself is supported.
+are mathematically correct; SymPP just closes the gap. One intentional difference
+remains at the boundary: SymPP reports `±∞` as `positive`/`negative` (and
+`extended_positive`/`extended_negative`), whereas SymPy ties strict sign to
+finiteness and reports `oo.is_positive` as `False` with only
+`oo.is_extended_positive` `True`. Non-commutative *algebra* (order-preserving
+multiplication of non-commuting symbols) is the one structural piece left for a
+later phase; the `commutative` predicate itself is supported.
 
 ## What's in the box
 

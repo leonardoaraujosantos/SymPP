@@ -23,6 +23,12 @@ std::optional<bool> AssumptionMask::get(AssumptionKey k) const noexcept {
         case AssumptionKey::Transcendental: return transcendental;
         case AssumptionKey::ExtendedReal: return extended_real;
         case AssumptionKey::Infinite: return infinite;
+        case AssumptionKey::ExtendedPositive: return extended_positive;
+        case AssumptionKey::ExtendedNegative: return extended_negative;
+        case AssumptionKey::ExtendedNonnegative: return extended_nonnegative;
+        case AssumptionKey::ExtendedNonpositive: return extended_nonpositive;
+        case AssumptionKey::Hermitian: return hermitian;
+        case AssumptionKey::Antihermitian: return antihermitian;
         case AssumptionKey::Commutative: return commutative;
         case AssumptionKey::Imaginary: return imaginary;
         case AssumptionKey::Complex: {
@@ -79,6 +85,12 @@ void AssumptionMask::set(AssumptionKey k, bool value) noexcept {
         case AssumptionKey::Transcendental: transcendental = value; break;
         case AssumptionKey::ExtendedReal: extended_real = value; break;
         case AssumptionKey::Infinite: infinite = value; break;
+        case AssumptionKey::ExtendedPositive: extended_positive = value; break;
+        case AssumptionKey::ExtendedNegative: extended_negative = value; break;
+        case AssumptionKey::ExtendedNonnegative: extended_nonnegative = value; break;
+        case AssumptionKey::ExtendedNonpositive: extended_nonpositive = value; break;
+        case AssumptionKey::Hermitian: hermitian = value; break;
+        case AssumptionKey::Antihermitian: antihermitian = value; break;
         case AssumptionKey::Commutative: commutative = value; break;
         case AssumptionKey::Complex: complex_ = value; break;
         case AssumptionKey::Imaginary: imaginary = value; break;
@@ -102,6 +114,8 @@ bool AssumptionMask::empty() const noexcept {
            && !nonnegative && !nonpositive && !finite && !even && !odd
            && !complex_ && !imaginary && !prime && !composite && !irrational
            && !algebraic && !transcendental && !extended_real && !infinite
+           && !extended_positive && !extended_negative && !extended_nonnegative
+           && !extended_nonpositive && !hermitian && !antihermitian
            && !commutative;
 }
 
@@ -134,6 +148,12 @@ std::size_t AssumptionMask::hash() const noexcept {
     mix(encode(transcendental));
     mix(encode(extended_real));
     mix(encode(infinite));
+    mix(encode(extended_positive));
+    mix(encode(extended_negative));
+    mix(encode(extended_nonnegative));
+    mix(encode(extended_nonpositive));
+    mix(encode(hermitian));
+    mix(encode(antihermitian));
     mix(encode(commutative));
     return h;
 }
@@ -350,6 +370,71 @@ AssumptionMask close_assumptions(AssumptionMask m) noexcept {
         }
         if (m.finite == true && !m.infinite) m.infinite = false;
         if (m.finite == false && !m.infinite) m.infinite = true;
+
+        // Sign on the extended real line. The strict signs imply their extended
+        // counterparts; the extended signs do NOT imply finite (±∞ carry them).
+        if (m.positive == true) {
+            if (!m.extended_positive) m.extended_positive = true;
+            if (!m.extended_nonnegative) m.extended_nonnegative = true;
+        }
+        if (m.negative == true) {
+            if (!m.extended_negative) m.extended_negative = true;
+            if (!m.extended_nonpositive) m.extended_nonpositive = true;
+        }
+        if (m.zero == true) {
+            if (!m.extended_nonnegative) m.extended_nonnegative = true;
+            if (!m.extended_nonpositive) m.extended_nonpositive = true;
+        }
+        if (m.nonnegative == true && !m.extended_nonnegative) m.extended_nonnegative = true;
+        if (m.nonpositive == true && !m.extended_nonpositive) m.extended_nonpositive = true;
+        // extended_positive ⇒ extended_real, extended_nonnegative, nonzero,
+        // ¬negative, ¬extended_negative; finite refines it back to positive.
+        if (m.extended_positive == true) {
+            if (!m.extended_real) m.extended_real = true;
+            if (!m.extended_nonnegative) m.extended_nonnegative = true;
+            if (!m.zero) m.zero = false;
+            if (!m.negative) m.negative = false;
+            if (!m.extended_negative) m.extended_negative = false;
+            if (m.finite == true && !m.positive) m.positive = true;
+        }
+        if (m.extended_negative == true) {
+            if (!m.extended_real) m.extended_real = true;
+            if (!m.extended_nonpositive) m.extended_nonpositive = true;
+            if (!m.zero) m.zero = false;
+            if (!m.positive) m.positive = false;
+            if (!m.extended_positive) m.extended_positive = false;
+            if (m.finite == true && !m.negative) m.negative = true;
+        }
+        // extended_nonnegative ⇒ extended_real, ¬extended_negative; with the
+        // zero side pinned it refines to extended_positive (≠0) or zero.
+        if (m.extended_nonnegative == true) {
+            if (!m.extended_real) m.extended_real = true;
+            if (!m.extended_negative) m.extended_negative = false;
+            if (m.zero == false && !m.extended_positive) m.extended_positive = true;
+            if (m.finite == true && !m.nonnegative) m.nonnegative = true;
+            if (m.extended_nonpositive == true && !m.zero) m.zero = true;
+        }
+        if (m.extended_nonpositive == true) {
+            if (!m.extended_real) m.extended_real = true;
+            if (!m.extended_positive) m.extended_positive = false;
+            if (m.zero == false && !m.extended_negative) m.extended_negative = true;
+            if (m.finite == true && !m.nonpositive) m.nonpositive = true;
+            if (m.extended_nonnegative == true && !m.zero) m.zero = true;
+        }
+        // Off the extended real line ⇒ no extended sign.
+        if (m.extended_real == false) {
+            if (!m.extended_positive) m.extended_positive = false;
+            if (!m.extended_negative) m.extended_negative = false;
+            if (!m.extended_nonnegative) m.extended_nonnegative = false;
+            if (!m.extended_nonpositive) m.extended_nonpositive = false;
+        }
+
+        // Conjugation symmetry. A real number is hermitian; a pure imaginary is
+        // antihermitian; the only value that is both is 0.
+        if (m.real == true && !m.hermitian) m.hermitian = true;
+        if (m.zero == true && !m.hermitian) m.hermitian = true;
+        if (m.imaginary == true && !m.antihermitian) m.antihermitian = true;
+        if (m.hermitian == true && m.antihermitian == true && !m.zero) m.zero = true;
     }
     return m;
 }
@@ -380,7 +465,14 @@ bool assumptions_consistent(AssumptionMask m) noexcept {
         (yes(m.zero) && yes(m.imaginary)) ||
         (yes(m.zero) && yes(m.irrational)) ||
         (yes(m.zero) && yes(m.prime)) ||
-        (yes(m.zero) && yes(m.composite));
+        (yes(m.zero) && yes(m.composite)) ||
+        (yes(m.extended_positive) && yes(m.extended_negative)) ||
+        (yes(m.extended_positive) && yes(m.zero)) ||
+        (yes(m.extended_negative) && yes(m.zero)) ||
+        (yes(m.extended_nonnegative) && yes(m.extended_negative)) ||
+        (yes(m.extended_nonpositive) && yes(m.extended_positive)) ||
+        (yes(m.positive) && yes(m.extended_negative)) ||
+        (yes(m.negative) && yes(m.extended_positive));
     if (clash) return false;
 
     // A nonzero pure imaginary excludes every real-line / integer property.
@@ -415,6 +507,14 @@ bool assumptions_consistent(AssumptionMask m) noexcept {
          yes(m.algebraic) || yes(m.transcendental))) {
         return false;
     }
+    // No extended sign off the extended real line.
+    if (no(m.extended_real) &&
+        (yes(m.extended_positive) || yes(m.extended_negative) ||
+         yes(m.extended_nonnegative) || yes(m.extended_nonpositive))) {
+        return false;
+    }
+    // hermitian ∧ antihermitian ⇒ zero; a nonzero value cannot be both.
+    if (yes(m.hermitian) && yes(m.antihermitian) && no(m.zero)) return false;
 
     // Completeness laws — failing to be any branch of a total partition is a
     // contradiction (these are what make exhaustive disjunctions provable).
@@ -422,6 +522,15 @@ bool assumptions_consistent(AssumptionMask m) noexcept {
     if (yes(m.real) && no(m.nonnegative) && no(m.nonpositive)) return false;
     if (yes(m.integer) && no(m.even) && no(m.odd)) return false;
     if (yes(m.complex_) && no(m.algebraic) && no(m.transcendental)) return false;
+    // Every point of the extended line is extended_negative, zero or
+    // extended_positive.
+    if (yes(m.extended_real) && no(m.extended_positive) && no(m.extended_negative)
+        && no(m.zero)) {
+        return false;
+    }
+    if (yes(m.extended_real) && no(m.extended_nonnegative) && no(m.extended_nonpositive)) {
+        return false;
+    }
 
     return true;
 }

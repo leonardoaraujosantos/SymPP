@@ -154,9 +154,62 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::ExtendedReal: {
-            // real ⇒ extended_real; a nonzero pure imaginary is off the line.
+            // real ⇒ extended_real; any extended sign ⇒ extended_real; a nonzero
+            // pure imaginary is off the line.
             if (direct(e, AssumptionKey::Real) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedPositive) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedNegative) == true) return true;
             if (direct(e, AssumptionKey::Imaginary) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedPositive: {
+            // > 0 on the extended line: positives and +∞. Excluded by zero, the
+            // opposite sign, or being off the line.
+            if (direct(e, AssumptionKey::Positive) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return false;
+            if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (direct(e, AssumptionKey::ExtendedNegative) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedNegative: {
+            if (direct(e, AssumptionKey::Negative) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return false;
+            if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (direct(e, AssumptionKey::ExtendedPositive) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedNonnegative: {
+            // ≥ 0 on the extended line: extended_positive ∨ zero.
+            if (direct(e, AssumptionKey::Positive) == true) return true;
+            if (direct(e, AssumptionKey::Zero) == true) return true;
+            if (direct(e, AssumptionKey::Nonnegative) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedPositive) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (direct(e, AssumptionKey::ExtendedNegative) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::ExtendedNonpositive: {
+            if (direct(e, AssumptionKey::Negative) == true) return true;
+            if (direct(e, AssumptionKey::Zero) == true) return true;
+            if (direct(e, AssumptionKey::Nonpositive) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedNegative) == true) return true;
+            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (direct(e, AssumptionKey::ExtendedPositive) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Hermitian: {
+            // real ⇒ hermitian (0 included, being real).
+            if (direct(e, AssumptionKey::Real) == true) return true;
+            if (direct(e, AssumptionKey::Zero) == true) return true;
+            return std::nullopt;
+        }
+        case AssumptionKey::Antihermitian: {
+            // a pure imaginary value is antihermitian.
+            if (direct(e, AssumptionKey::Imaginary) == true) return true;
             return std::nullopt;
         }
         case AssumptionKey::Infinite: {

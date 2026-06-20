@@ -153,7 +153,8 @@ together with the Gruntz limit work.
 **Shipped**: `AssumptionMask` over the full ontology — Real, Rational, Integer,
 Positive, Negative, Zero, Nonzero, Nonnegative, Nonpositive, Finite, Even, Odd,
 Complex, Imaginary, Prime, Composite, Irrational, Algebraic, Transcendental,
-ExtendedReal, Infinite, **Commutative** — with
+ExtendedReal, Infinite, **ExtendedPositive/Negative/Nonnegative/Nonpositive**,
+**Hermitian/Antihermitian**, **Commutative** — with
 `is_real/is_positive/is_integer/is_commutative/...` queries on every `Expr`, full
 deductive closure (positive ⇒ real ∧ nonzero ∧ nonnegative; even ⇒ integer ∧
 rational; prime ⇒ integer ∧ positive; irrational ⟺ real ∧ ¬rational; algebraic ⟺
@@ -171,8 +172,10 @@ matches SymPy's `satask` on the common exhaustive disjunctions — a real nonzer
 
 **Deferred**: only non-commutative *algebra* — order-preserving multiplication of
 non-commuting symbols — which is a structural multiplication feature rather than an
-assumption predicate; the `commutative` predicate itself is shipped. SymPy's rarer
-Hermitian/Antihermitian predicates are also not modelled.
+assumption predicate; the `commutative` predicate itself is shipped. One
+intentional boundary difference: SymPP keeps `±∞` strictly `positive`/`negative`
+(plus the extended-signed predicates), where SymPy reports `oo.is_positive` as
+`False` and only `oo.is_extended_positive` as `True`.
 
 ### Phase 3 — Elementary & special functions · ✅
 

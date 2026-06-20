@@ -65,6 +65,19 @@ enum class AssumptionKey : std::uint8_t {
     Infinite,      // an infinite quantity (±∞, zoo). infinite ⟺ ¬finite; implies
                    // ¬real, ¬complex, ¬zero.
 
+    // Sign on the extended real line ℝ ∪ {±∞}. Unlike the strict signs these do
+    // NOT imply finite: +∞ is extended_positive, −∞ is extended_negative.
+    // positive ⇒ extended_positive; extended_positive ∧ finite ⇒ positive.
+    ExtendedPositive,    // > 0 on the extended line (positives and +∞)
+    ExtendedNegative,    // < 0 on the extended line (negatives and −∞)
+    ExtendedNonnegative, // ≥ 0 on the extended line (= extended_positive ∨ zero)
+    ExtendedNonpositive, // ≤ 0 on the extended line (= extended_negative ∨ zero)
+
+    // Conjugation symmetry (1×1 operator view). real ⇒ hermitian;
+    // imaginary ⇒ antihermitian; hermitian ∧ antihermitian ⇒ zero.
+    Hermitian,     // equal to its own conjugate (a real number)
+    Antihermitian, // negated by conjugation (a pure imaginary number)
+
     // Algebraic structure.
     Commutative,   // commutes under multiplication (a·b = b·a). DEFAULT TRUE:
                    // every number and ordinary symbol is commutative, and a

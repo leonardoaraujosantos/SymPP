@@ -143,7 +143,7 @@ using Dnf = std::vector<Clause>;      // a disjunction of conjunctions
 }
 
 // All predicate keys, so the base mask can be seeded from `ask`.
-constexpr std::array<AssumptionKey, 21> kAllKeys{
+constexpr std::array<AssumptionKey, 27> kAllKeys{
     AssumptionKey::Real,           AssumptionKey::Rational,
     AssumptionKey::Integer,        AssumptionKey::Positive,
     AssumptionKey::Negative,       AssumptionKey::Zero,
@@ -154,7 +154,10 @@ constexpr std::array<AssumptionKey, 21> kAllKeys{
     AssumptionKey::Prime,          AssumptionKey::Composite,
     AssumptionKey::Irrational,     AssumptionKey::Algebraic,
     AssumptionKey::Transcendental, AssumptionKey::ExtendedReal,
-    AssumptionKey::Infinite,
+    AssumptionKey::Infinite,        AssumptionKey::ExtendedPositive,
+    AssumptionKey::ExtendedNegative, AssumptionKey::ExtendedNonnegative,
+    AssumptionKey::ExtendedNonpositive, AssumptionKey::Hermitian,
+    AssumptionKey::Antihermitian,
 };
 
 // Seed an AssumptionMask with everything currently known about `e`.

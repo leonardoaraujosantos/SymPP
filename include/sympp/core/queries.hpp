@@ -103,6 +103,24 @@ namespace sympp {
 [[nodiscard]] inline std::optional<bool> is_commutative(const Expr& e) noexcept {
     return ask(e, AssumptionKey::Commutative);
 }
+[[nodiscard]] inline std::optional<bool> is_extended_positive(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedPositive);
+}
+[[nodiscard]] inline std::optional<bool> is_extended_negative(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedNegative);
+}
+[[nodiscard]] inline std::optional<bool> is_extended_nonnegative(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedNonnegative);
+}
+[[nodiscard]] inline std::optional<bool> is_extended_nonpositive(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::ExtendedNonpositive);
+}
+[[nodiscard]] inline std::optional<bool> is_hermitian(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Hermitian);
+}
+[[nodiscard]] inline std::optional<bool> is_antihermitian(const Expr& e) noexcept {
+    return ask(e, AssumptionKey::Antihermitian);
+}
 
 // Structural parity of an integer-valued expression. Conservative: reports
 // even/odd only when provable from the form — `2·n` (n a known integer) is even,

@@ -103,8 +103,14 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
         && direct_ask(base, AssumptionKey::Positive) == true
         && exp->type_id() == TypeId::Rational;
     switch (k) {
+        case AssumptionKey::ExtendedPositive:
+        case AssumptionKey::ExtendedNegative:
+        case AssumptionKey::ExtendedNonnegative:
+        case AssumptionKey::ExtendedNonpositive:
+        case AssumptionKey::Hermitian:
+        case AssumptionKey::Antihermitian:
         case AssumptionKey::Commutative:
-            return std::nullopt;  // commutativity handled by the generic ask() layer
+            return std::nullopt;  // derived by the generic ask() layer
         case AssumptionKey::Complex:
             if (direct_ask(base, AssumptionKey::Complex) == true
                 && direct_ask(exp, AssumptionKey::Integer) == true
