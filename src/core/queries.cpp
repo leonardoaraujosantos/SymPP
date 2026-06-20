@@ -70,6 +70,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         case AssumptionKey::Rational: {
             if (direct(e, AssumptionKey::Integer) == true) return true;
             if (direct(e, AssumptionKey::Irrational) == true) return false;
+            if (ask(e, AssumptionKey::Real) == false) return false;  // ℝ-only
             return std::nullopt;
         }
         case AssumptionKey::Integer: {
@@ -79,10 +80,10 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Prime) == true) return true;
             if (direct(e, AssumptionKey::Composite) == true) return true;
             // ¬rational ⇒ ¬integer (so an irrational/transcendental value, and any
-            // non-real value, is not an integer).
-            if (direct(e, AssumptionKey::Rational) == false) return false;
+            // non-real value, is not an integer). ask() so derived facts count.
+            if (ask(e, AssumptionKey::Rational) == false) return false;
             if (direct(e, AssumptionKey::Irrational) == true) return false;
-            if (direct(e, AssumptionKey::Real) == false) return false;
+            if (ask(e, AssumptionKey::Real) == false) return false;
             return std::nullopt;
         }
         case AssumptionKey::Even: {
@@ -99,6 +100,8 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Positive: {
+            // The order predicates live on ℝ: a non-real value is not positive.
+            if (ask(e, AssumptionKey::Real) == false) return false;
             // Sign exclusions, so a sum/product known to be of one sign answers
             // the others. (Nodes supply the definite sign; this rules out the
             // incompatible signs.)
@@ -110,6 +113,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Negative: {
+            if (ask(e, AssumptionKey::Real) == false) return false;
             if (direct(e, AssumptionKey::Positive) == true) return false;
             if (direct(e, AssumptionKey::Zero) == true) return false;
             if (direct(e, AssumptionKey::Nonnegative) == true) return false;
@@ -118,6 +122,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Zero: {
+            if (ask(e, AssumptionKey::Real) == false) return false;
             if (direct(e, AssumptionKey::Positive) == true) return false;
             if (direct(e, AssumptionKey::Negative) == true) return false;
             if (direct(e, AssumptionKey::Odd) == true) return false;  // odd ⇒ ≠ 0
@@ -157,7 +162,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             // irrational ⟺ real ∧ ¬rational. A rational or non-real value is not
             // irrational; a known real non-rational is irrational.
             if (direct(e, AssumptionKey::Rational) == true) return false;
-            if (direct(e, AssumptionKey::Real) == false) return false;
+            if (ask(e, AssumptionKey::Real) == false) return false;
             if (direct(e, AssumptionKey::Real) == true
                 && direct(e, AssumptionKey::Rational) == false) {
                 return true;
@@ -190,12 +195,14 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Positive) == true) return true;
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (ask(e, AssumptionKey::Real) == false) return false;  // ℝ-only
             return std::nullopt;
         }
         case AssumptionKey::Nonpositive: {
             if (direct(e, AssumptionKey::Negative) == true) return true;
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (ask(e, AssumptionKey::Real) == false) return false;  // ℝ-only
             return std::nullopt;
         }
         case AssumptionKey::Finite: {
@@ -217,7 +224,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             // > 0 on the extended line: positives and +∞. Excluded by zero, the
             // opposite sign, or being off the line.
             if (direct(e, AssumptionKey::Positive) == true) return true;
-            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (ask(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Zero) == true) return false;
             if (direct(e, AssumptionKey::Negative) == true) return false;
             if (direct(e, AssumptionKey::Nonpositive) == true) return false;
@@ -226,7 +233,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
         }
         case AssumptionKey::ExtendedNegative: {
             if (direct(e, AssumptionKey::Negative) == true) return true;
-            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (ask(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Zero) == true) return false;
             if (direct(e, AssumptionKey::Positive) == true) return false;
             if (direct(e, AssumptionKey::Nonnegative) == true) return false;
@@ -239,7 +246,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Nonnegative) == true) return true;
             if (direct(e, AssumptionKey::ExtendedPositive) == true) return true;
-            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (ask(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Negative) == true) return false;
             if (direct(e, AssumptionKey::ExtendedNegative) == true) return false;
             return std::nullopt;
@@ -249,7 +256,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Zero) == true) return true;
             if (direct(e, AssumptionKey::Nonpositive) == true) return true;
             if (direct(e, AssumptionKey::ExtendedNegative) == true) return true;
-            if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
+            if (ask(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Positive) == true) return false;
             if (direct(e, AssumptionKey::ExtendedPositive) == true) return false;
             return std::nullopt;

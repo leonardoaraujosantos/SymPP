@@ -127,6 +127,14 @@ std::optional<bool> Pow::ask(AssumptionKey k) const noexcept {
                 long n = static_cast<const Integer&>(*exp).to_long();
                 return (n % 2 == 1);
             }
+            // (negative real)^(odd/2) is imaginary: √(−a) = i√a, (−a)^(3/2), …
+            // A rational exponent in lowest terms with denominator 2 always has
+            // an odd numerator, so this covers every such half-integer power.
+            if (direct_ask(base, AssumptionKey::Negative) == true
+                && exp->type_id() == TypeId::Rational
+                && static_cast<const Rational&>(*exp).value().get_den() == 2) {
+                return true;
+            }
             return std::nullopt;
         }
 

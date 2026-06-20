@@ -32,6 +32,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/integers.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
@@ -165,6 +166,16 @@ std::vector<std::pair<std::string, Expr>> battery() {
     add("exp_real", exp(r));
     add("log_positive", log(p));
     add("sin_real", sin(r));
+    add("cos_real", cos(r));
+    add("exp_positive", exp(p));
+    add("sqrt_positive", sqrt(p));
+    add("sqrt_neg", sqrt(nsym));
+    add("abs_integer", abs(nn));
+    add("floor_real", floor(r));
+    add("conj_real", conjugate(r));
+    add("even_times_odd",
+        symbol("ev", S_(AssumptionMask{}.set_even(true)))
+            * symbol("od", S_(AssumptionMask{}.set_odd(true))));
     return b;
 }
 
@@ -179,7 +190,7 @@ const std::set<std::pair<std::string, std::string>>& whitelist() {
         {"I", "nonzero"}, {"zoo", "nonzero"}, {"sym_imaginary", "nonzero"},
         {"oo", "nonzero"}, {"neg_oo", "nonzero"},
         {"sym_ext_positive", "nonzero"}, {"sym_ext_negative", "nonzero"},
-        {"sym_transcendental", "nonzero"},
+        {"sym_transcendental", "nonzero"}, {"sqrt_neg", "nonzero"},
         {"sym_nonzero", "real"}, {"sym_nonzero", "complex"},
         {"sym_nonzero", "finite"}, {"sym_nonzero", "extended_real"},
         {"sym_nonzero", "hermitian"}, {"sym_nonzero", "imaginary"},

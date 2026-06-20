@@ -95,6 +95,14 @@ def battery():
     add("exp_real", sp.exp(r))
     add("log_positive", sp.log(p))
     add("sin_real", sp.sin(r))
+    add("cos_real", sp.cos(r))
+    add("exp_positive", sp.exp(p))
+    add("sqrt_positive", sp.sqrt(p))
+    add("sqrt_neg", sp.sqrt(nsym))
+    add("abs_integer", Abs(n))
+    add("floor_real", sp.floor(r))
+    add("conj_real", sp.conjugate(r))
+    add("even_times_odd", Symbol("ev", even=True) * Symbol("od", odd=True))
     return b
 
 
