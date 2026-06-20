@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1554%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1566%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1554 tests / 5488 assertions  all passing
+1566 tests / 5555 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -190,6 +190,14 @@ is_positive(mul(p, n));                          // → unknown (n's sign is ope
 // Abs is always real and nonnegative — even for a generic complex x.
 is_nonnegative(abs(x));              // → true   (SymPy returns None here)
 
+// The full ontology: number theory, the complex tower, extended sign and more.
+is_prime(integer(7));                // → true
+is_irrational(sqrt(integer(2)));     // → true
+is_imaginary(sqrt(mul(S::NegativeOne(), p)));  // → true   (√(−p) = i·√p)
+is_extended_positive(S::Infinity()); // → true   (+∞ on the extended real line)
+is_hermitian(symbol("r", AssumptionMask{}.set_real(true)));  // → true
+is_commutative(x);                   // → true   (false only for non-commutative symbols)
+
 // simplify / integrate consume the assumptions.
 simplify(sqrt(pow(p, integer(2))));  // → p          (nonneg base)
 simplify(sqrt(pow(x, integer(2))));  // → sqrt(x**2)  (generic — Abs, not x)
@@ -270,12 +278,16 @@ and fails on any *new* divergence outside the whitelisted intentional set.
 - **Number tower** — `Integer` / `Rational` (GMP) / `Float` (MPFR
   arbitrary-precision) / `ImaginaryUnit` / `Pi` / `E` / `oo` / `-oo` /
   `zoo` / `nan` (full infinity arithmetic).
-- **Assumptions** — declarable predicates (`real`, sign, `nonzero`,
-  `nonnegative`/`nonpositive`, `finite`, `integer`/`rational`, parity,
-  `complex`/`imaginary`) with logical closure and Add/Mul/Pow propagation;
-  three-valued `is_positive` / `is_real` / … queries consumed by
-  `simplify`/`integrate`/`refine`. At SymPy parity on the common predicates —
-  see [Assumptions](#assumptions).
+- **Assumptions** — the full SymPy predicate ontology (28 predicates: `real`,
+  the sign tier incl. `nonzero`/`nonnegative`/`nonpositive`, `finite`/`infinite`,
+  `integer`/`rational`, parity, `complex`/`imaginary`, `prime`/`composite`,
+  `irrational`/`algebraic`/`transcendental`, `extended_real` + the four
+  extended-signed predicates, `hermitian`/`antihermitian`, `commutative`) with
+  logical closure and Add/Mul/Pow propagation; three-valued
+  `is_positive` / `is_real` / … queries consumed by `simplify`/`integrate`/`refine`;
+  a scoped `assuming` context; and a boolean/SAT-style `ask` over arbitrary
+  predicate combinations. **At SymPy parity on the predicates**, guarded by an
+  oracle parity test — see [Assumptions](#assumptions).
 - **30+ named functions** — sin/cos/tan/exp/log/sqrt/abs/floor/
   factorial/gamma/erf/heaviside/dirac_delta plus `lowergamma`/`uppergamma`
   (incomplete gamma, with positive-integer and half-integer erf/erfc closed
