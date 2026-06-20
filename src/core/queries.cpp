@@ -80,6 +80,35 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::Composite) == true) return true;
             return std::nullopt;
         }
+        case AssumptionKey::Positive: {
+            // Sign exclusions, so a sum/product known to be of one sign answers
+            // the others. (Nodes supply the definite sign; this rules out the
+            // incompatible signs.)
+            if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return false;
+            if (direct(e, AssumptionKey::Nonpositive) == true) return false;
+            if (direct(e, AssumptionKey::Prime) == true) return true;     // ≥ 2
+            if (direct(e, AssumptionKey::Composite) == true) return true;  // ≥ 4
+            return std::nullopt;
+        }
+        case AssumptionKey::Negative: {
+            if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (direct(e, AssumptionKey::Zero) == true) return false;
+            if (direct(e, AssumptionKey::Nonnegative) == true) return false;
+            if (direct(e, AssumptionKey::Prime) == true) return false;
+            if (direct(e, AssumptionKey::Composite) == true) return false;
+            return std::nullopt;
+        }
+        case AssumptionKey::Zero: {
+            if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (direct(e, AssumptionKey::Odd) == true) return false;  // odd ⇒ ≠ 0
+            if (direct(e, AssumptionKey::Prime) == true) return false;
+            if (direct(e, AssumptionKey::Composite) == true) return false;
+            if (direct(e, AssumptionKey::Irrational) == true) return false;
+            if (direct(e, AssumptionKey::Imaginary) == true) return false;
+            return std::nullopt;
+        }
         case AssumptionKey::Nonzero: {
             if (direct(e, AssumptionKey::Positive) == true) return true;
             if (direct(e, AssumptionKey::Negative) == true) return true;
@@ -90,15 +119,19 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             return std::nullopt;
         }
         case AssumptionKey::Prime: {
-            // A non-integer is never prime; a composite is not prime; otherwise
-            // primality is a direct fact.
+            // A non-integer is never prime; a non-positive value is never prime
+            // (a prime is ≥ 2); a composite is not prime; otherwise primality is
+            // a direct fact.
             if (direct(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Positive) == false) return false;
             if (direct(e, AssumptionKey::Composite) == true) return false;
             return std::nullopt;
         }
         case AssumptionKey::Composite: {
-            // A non-integer is never composite; a prime is not composite.
+            // A non-integer / non-positive value is never composite; a prime is
+            // not composite.
             if (direct(e, AssumptionKey::Integer) == false) return false;
+            if (direct(e, AssumptionKey::Positive) == false) return false;
             if (direct(e, AssumptionKey::Prime) == true) return false;
             return std::nullopt;
         }
@@ -169,6 +202,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Zero) == true) return false;
             if (direct(e, AssumptionKey::Negative) == true) return false;
+            if (direct(e, AssumptionKey::Nonpositive) == true) return false;
             if (direct(e, AssumptionKey::ExtendedNegative) == true) return false;
             return std::nullopt;
         }
@@ -177,6 +211,7 @@ std::optional<bool> ask(const Expr& e, AssumptionKey k) noexcept {
             if (direct(e, AssumptionKey::ExtendedReal) == false) return false;
             if (direct(e, AssumptionKey::Zero) == true) return false;
             if (direct(e, AssumptionKey::Positive) == true) return false;
+            if (direct(e, AssumptionKey::Nonnegative) == true) return false;
             if (direct(e, AssumptionKey::ExtendedPositive) == true) return false;
             return std::nullopt;
         }
