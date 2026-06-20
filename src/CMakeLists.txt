@@ -19,6 +19,7 @@ target_sources(sympp
         core/imaginary_unit.cpp
         core/infinity.cpp
         core/integer.cpp
+        core/lambdify.cpp
         core/mul.cpp
         core/number_arith.cpp
         core/number_symbol.cpp
