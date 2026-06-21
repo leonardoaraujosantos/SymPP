@@ -74,6 +74,7 @@ target_sources(sympp
         printing/printing.cpp
         polys/domain_matrix.cpp
         polys/poly.cpp
+        polys/zassenhaus.cpp
         polys/rootof.cpp
         sets/sets.cpp
         simplify/hyperexpand.cpp

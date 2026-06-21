@@ -70,6 +70,7 @@ target_sources(sympp_tests
         oracle/oracle_crosscheck_test.cpp
         polys/poly_test.cpp
         polys/domain_matrix_test.cpp
+        polys/zassenhaus_test.cpp
         sets/sets_test.cpp
         simplify/simplify_test.cpp
         solvers/solve_test.cpp

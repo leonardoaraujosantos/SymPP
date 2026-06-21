@@ -233,6 +233,14 @@ def handle(req):
             return {"ok": True, "result": flatten(res)}
         return {"ok": False, "error": "BadFn", "detail": f"unknown tensor fn: {fn!r}"}
 
+    # --- Polynomial factorization count (cross-check Zassenhaus) ---
+    if op == "polyfactor":
+        from sympy import factor_list
+        e = _sympify(req["expr"])
+        x = sympy.Symbol(req["var"])
+        _, facs = factor_list(e, x)
+        return {"ok": True, "result": str(sum(int(m) for _, m in facs))}
+
     # --- Cryptography (cross-check RSA against sympy.crypto) ---
     if op == "crypto":
         from sympy.crypto.crypto import rsa_private_key, rsa_public_key, encipher_rsa
