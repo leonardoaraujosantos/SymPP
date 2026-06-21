@@ -72,6 +72,7 @@ target_sources(sympp
         parsing/parser.cpp
         physics/units.cpp
         printing/printing.cpp
+        polys/domain_matrix.cpp
         polys/poly.cpp
         polys/rootof.cpp
         sets/sets.cpp
