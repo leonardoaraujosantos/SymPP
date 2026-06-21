@@ -34,6 +34,12 @@ demand with cost.
   mean/variance/pdf/cdf.
 - **Symbolic singular values** — `Matrix::singular_values()` (full SVD
   factorization still pending).
+- **Special integral functions** — Fresnel integrals + generalized `expint`
+  (Ei/Si/Ci/Shi/Chi already shipped).
+- **Vector calculus & differential geometry** — grad/div/curl/laplacian +
+  Christoffel/Ricci.
+- **Tensor algebra** — dense tensors: product, contraction, raise/lower.
+- **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 
 ## How to read effort vs. session-size
 
@@ -75,17 +81,17 @@ gains.
 | Number theory (Diophantine, CRT, discrete_log, partitions) | `ntheory/` | 1 wk | Medium | core + factorint/primitive_root/sqrt_mod/continued_fraction shipped |
 | ✅ Statistics & probability (core distributions) | `stats/` | — | shipped (`stats/stats.hpp`); extend w/ more distributions, sampling |
 | ✅ Geometry (Point/Line/Polygon) | `geometry/` | — | shipped (`geometry/geometry.hpp`) |
-| Vector calculus & differential geometry | `vector/`, `diffgeom/` | 3 wk | Medium | grad/div/curl, curvature |
-| Tensor algebra | `tensor/` | 2 wk | Medium | Index notation, contraction |
+| ✅ Vector calculus & differential geometry | `vector/`, `diffgeom/` | — | shipped (`vector/vector_calculus.hpp`; grad/div/curl/laplacian + Christoffel/Ricci) |
+| ✅ Tensor algebra (dense) | `tensor/` | — | shipped (`tensor/tensor.hpp`; product/contraction/raise/lower) |
 | Combinatorics & group theory | `combinatorics/` | 3 wk | Medium | Permutations, finite groups |
-| Cryptography | `crypto/` | 2 wk | Low–Med | RSA, ECC, finite fields |
+| ✅ Cryptography (RSA/DH/ElGamal) | `crypto/` | — | shipped (`crypto/crypto.hpp`); ECC remains |
 | Physics (mechanics, quantum, optics) | `physics/*` | 4 wk each | Medium | Large, niche submodules |
 
 ## Category D — modules outside the original 0–24 plan
 
 | Module | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
-| Special integral functions (`Ei,Si,Ci,Shi,Chi,fresnel,expint`) | `special.error_functions` | 1 wk | Medium | ⚡ enums exist; add eval/series |
+| ✅ Special integral functions (`Ei,Si,Ci,Shi,Chi,fresnels,fresnelc,expint`) | `special.error_functions` | — | shipped (derivatives + special values) |
 | Orthogonal polynomials (Legendre, Chebyshev, …) | `special.polynomials` | — | — | ✅ shipped (`functions/orthopolys.hpp`) |
 | `rewrite(target)` cross-cutting API (exp↔trig…) | core | — | — | ✅ shipped (`core/rewrite.hpp`); extend with more targets |
 | ✅ Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | — | shipped (`logic/logic.hpp`) |
