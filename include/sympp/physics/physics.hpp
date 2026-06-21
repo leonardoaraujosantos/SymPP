@@ -57,6 +57,19 @@ namespace sympp::physics {
 // Clebsch–Gordan coefficient ⟨j1 m1 j2 m2 | j3 m3⟩.
 [[nodiscard]] SYMPP_EXPORT Expr clebsch_gordan(const Expr& j1, const Expr& j2, const Expr& j3,
                                                const Expr& m1, const Expr& m2, const Expr& m3);
+// Wigner 9-j symbol {j1 j2 j3 ; j4 j5 j6 ; j7 j8 j9} (sum over a 6-j product).
+[[nodiscard]] SYMPP_EXPORT Expr wigner_9j(const Expr& j1, const Expr& j2, const Expr& j3,
+                                          const Expr& j4, const Expr& j5, const Expr& j6,
+                                          const Expr& j7, const Expr& j8, const Expr& j9);
+// Racah W coefficient W(a b c d ; e f) = (−1)^(a+b+c+d)·{a b e ; d c f}.
+[[nodiscard]] SYMPP_EXPORT Expr racah(const Expr& a, const Expr& b, const Expr& c, const Expr& d,
+                                      const Expr& e, const Expr& f);
+// Gaunt coefficient ∫ Yₗ₁ᵐ¹ Yₗ₂ᵐ² Yₗ₃ᵐ³ dΩ.
+[[nodiscard]] SYMPP_EXPORT Expr gaunt(const Expr& l1, const Expr& l2, const Expr& l3,
+                                      const Expr& m1, const Expr& m2, const Expr& m3);
+// Dirac gamma matrix γ^μ (μ = 0,1,2,3) or the chirality matrix γ⁵ (mu = 5),
+// in the Dirac representation (SymPy's sympy.physics.matrices.mgamma).
+[[nodiscard]] SYMPP_EXPORT Matrix dirac_gamma(int mu);
 
 // ----- Hydrogen atom (Hartree atomic units, ℏ=mₑ=e=1) ------------------------
 // Bohr energy level E_{n} = −Z²/(2n²) (l-degenerate, non-relativistic).

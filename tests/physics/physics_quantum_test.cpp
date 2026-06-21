@@ -105,6 +105,52 @@ TEST_CASE("wigner: Clebsch–Gordan match SymPy", "[physics][quantum][wigner]") 
                    {"j3", "1"}, {"m1", "1/2"}, {"m2", "-1/2"}, {"m3", "0"}});
 }
 
+TEST_CASE("wigner: 9-j symbols match SymPy", "[physics][quantum][wigner]") {
+    auto one = integer(1);
+    check_physics(ph::wigner_9j(one, one, one, one, one, one, one, one, integer(0)),
+                  {{"op", "physics"}, {"fn", "wigner_9j"}, {"j1", "1"}, {"j2", "1"}, {"j3", "1"},
+                   {"j4", "1"}, {"j5", "1"}, {"j6", "1"}, {"j7", "1"}, {"j8", "1"}, {"j9", "0"}});
+    auto h = rational(1, 2);
+    check_physics(ph::wigner_9j(h, h, one, h, h, one, one, one, integer(2)),
+                  {{"op", "physics"}, {"fn", "wigner_9j"}, {"j1", "1/2"}, {"j2", "1/2"},
+                   {"j3", "1"}, {"j4", "1/2"}, {"j5", "1/2"}, {"j6", "1"}, {"j7", "1"},
+                   {"j8", "1"}, {"j9", "2"}});
+}
+
+TEST_CASE("wigner: Racah W and Gaunt match SymPy", "[physics][quantum][wigner]") {
+    check_physics(ph::racah(integer(1), integer(2), integer(1), integer(2), integer(1),
+                            integer(2)),
+                  {{"op", "physics"}, {"fn", "racah"}, {"a", "1"}, {"b", "2"}, {"c", "1"},
+                   {"d", "2"}, {"e", "1"}, {"f", "2"}});
+    check_physics(ph::gaunt(integer(1), integer(0), integer(1), integer(0), integer(0),
+                            integer(0)),
+                  {{"op", "physics"}, {"fn", "gaunt"}, {"l1", "1"}, {"l2", "0"}, {"l3", "1"},
+                   {"m1", "0"}, {"m2", "0"}, {"m3", "0"}});
+    check_physics(ph::gaunt(integer(1), integer(1), integer(2), integer(0), integer(0),
+                            integer(0)),
+                  {{"op", "physics"}, {"fn", "gaunt"}, {"l1", "1"}, {"l2", "1"}, {"l3", "2"},
+                   {"m1", "0"}, {"m2", "0"}, {"m3", "0"}});
+}
+
+TEST_CASE("dirac: gamma matrices satisfy the Clifford algebra", "[physics][quantum][dirac]") {
+    // Minkowski metric η = diag(1,−1,−1,−1); {γ^μ,γ^ν} = 2 η^{μν} I₄.
+    int eta[4] = {1, -1, -1, -1};
+    auto I4 = Matrix::identity(4);
+    for (int mu = 0; mu < 4; ++mu) {
+        for (int nu = 0; nu < 4; ++nu) {
+            auto anti = ph::anticommutator(ph::dirac_gamma(mu), ph::dirac_gamma(nu));
+            Expr g = (mu == nu) ? integer(2 * eta[mu]) : integer(0);
+            REQUIRE(mat_equiv(anti, I4.scalar_mul(g)));
+        }
+    }
+    // γ⁵ anticommutes with every γ^μ and squares to the identity.
+    auto g5 = ph::dirac_gamma(5);
+    REQUIRE(mat_equiv(g5 * g5, I4));
+    for (int mu = 0; mu < 4; ++mu) {
+        REQUIRE(mat_equiv(ph::anticommutator(g5, ph::dirac_gamma(mu)), Matrix::zeros(4, 4)));
+    }
+}
+
 TEST_CASE("hydrogen: energies and radial wavefunctions", "[physics][atomic]") {
     check_physics(ph::hydrogen_energy(integer(2), integer(1)),
                   {{"op", "physics"}, {"fn", "hydrogen_E"}, {"n", "2"}, {"Z", "1"}});

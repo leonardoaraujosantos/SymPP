@@ -380,6 +380,19 @@ def handle(req):
             from sympy.physics.wigner import wigner_6j as _w6
             v = _w6(*[S_(req[k]) for k in ("j1", "j2", "j3", "j4", "j5", "j6")])
             return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "wigner_9j":
+            from sympy.physics.wigner import wigner_9j as _w9
+            ks = ("j1", "j2", "j3", "j4", "j5", "j6", "j7", "j8", "j9")
+            v = _w9(*[S_(req[k]) for k in ks])
+            return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "racah":
+            from sympy.physics.wigner import racah as _ra
+            v = _ra(*[S_(req[k]) for k in ("a", "b", "c", "d", "e", "f")])
+            return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "gaunt":
+            from sympy.physics.wigner import gaunt as _ga
+            v = _ga(*[S_(req[k]) for k in ("l1", "l2", "l3", "m1", "m2", "m3")])
+            return {"ok": True, "result": str(sympy.sympify(v))}
         if fn == "clebsch_gordan":
             from sympy.physics.wigner import clebsch_gordan as _cg
             v = _cg(*[S_(req[k]) for k in ("j1", "j2", "j3", "m1", "m2", "m3")])

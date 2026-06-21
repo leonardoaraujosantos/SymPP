@@ -283,6 +283,70 @@ Expr wigner_6j(const Expr& a, const Expr& b, const Expr& c, const Expr& d, const
     return mul(from_mpq(sum), sqrt(from_mpq(radicand)));
 }
 
+Expr wigner_9j(const Expr& j1e, const Expr& j2e, const Expr& j3e, const Expr& j4e,
+               const Expr& j5e, const Expr& j6e, const Expr& j7e, const Expr& j8e,
+               const Expr& j9e) {
+    mpq_class j1 = to_mpq(j1e), j2 = to_mpq(j2e), j3 = to_mpq(j3e);
+    mpq_class j4 = to_mpq(j4e), j5 = to_mpq(j5e), j6 = to_mpq(j6e);
+    mpq_class j7 = to_mpq(j7e), j8 = to_mpq(j8e), j9 = to_mpq(j9e);
+
+    // {j1 j2 j3; j4 j5 j6; j7 j8 j9} =
+    //   Σ_k (−1)^{2k}(2k+1)·{j1 j4 j7; j8 j9 k}·{j2 j5 j8; j4 k j6}·{j3 j6 j9; k j1 j2}.
+    // k runs in unit steps over the overlap of the three coupling ranges; the
+    // 6-j factors vanish outside their triangles, so a safe superset suffices.
+    mpq_class kmin = std::max(std::max(abs(j1 - j9), abs(j2 - j6)), abs(j4 - j8));
+    mpq_class kmax = std::min(std::min(j1 + j9, j2 + j6), j4 + j8);
+
+    Expr sum = integer(0);
+    for (mpq_class k = kmin; k <= kmax; k += 1) {
+        Expr ek = from_mpq(k);
+        Expr w1 = wigner_6j(j1e, j4e, j7e, j8e, j9e, ek);
+        Expr w2 = wigner_6j(j2e, j5e, j8e, j4e, ek, j6e);
+        Expr w3 = wigner_6j(j3e, j6e, j9e, ek, j1e, j2e);
+        int sign = phase(2 * k);  // (−1)^{2k}
+        Expr weight = mul(integer(sign), from_mpq(2 * k + 1));
+        sum = add(sum, mul(weight, mul(w1, mul(w2, w3))));
+    }
+    return sum;
+}
+
+Expr racah(const Expr& a, const Expr& b, const Expr& c, const Expr& d, const Expr& e,
+           const Expr& f) {
+    int sign = phase(to_mpq(a) + to_mpq(b) + to_mpq(c) + to_mpq(d));
+    return mul(integer(sign), wigner_6j(a, b, e, d, c, f));
+}
+
+Expr gaunt(const Expr& l1, const Expr& l2, const Expr& l3, const Expr& m1, const Expr& m2,
+           const Expr& m3) {
+    mpq_class a = to_mpq(l1), b = to_mpq(l2), cc = to_mpq(l3);
+    // √[(2l1+1)(2l2+1)(2l3+1)/(4π)]·( l1 l2 l3 ; 0 0 0 )·( l1 l2 l3 ; m1 m2 m3 ).
+    mpq_class deg = (2 * a + 1) * (2 * b + 1) * (2 * cc + 1);
+    Expr prefactor = sqrt(mul(from_mpq(deg), pow(mul(integer(4), S::Pi()), integer(-1))));
+    Expr w0 = wigner_3j(l1, l2, l3, integer(0), integer(0), integer(0));
+    Expr wm = wigner_3j(l1, l2, l3, m1, m2, m3);
+    return mul(prefactor, mul(w0, wm));
+}
+
+// ----- Dirac matrices --------------------------------------------------------
+
+Matrix dirac_gamma(int mu) {
+    Expr O = integer(0), P = integer(1), N = integer(-1), i = S::I(), ni = mul(integer(-1), i);
+    switch (mu) {
+        case 0:
+            return Matrix{{P, O, O, O}, {O, P, O, O}, {O, O, N, O}, {O, O, O, N}};
+        case 1:
+            return Matrix{{O, O, O, P}, {O, O, P, O}, {O, N, O, O}, {N, O, O, O}};
+        case 2:
+            return Matrix{{O, O, O, ni}, {O, O, i, O}, {O, i, O, O}, {ni, O, O, O}};
+        case 3:
+            return Matrix{{O, O, P, O}, {O, O, O, N}, {N, O, O, O}, {O, P, O, O}};
+        case 5:  // γ⁵ = i·γ⁰γ¹γ²γ³
+            return Matrix{{O, O, P, O}, {O, O, O, P}, {P, O, O, O}, {O, P, O, O}};
+        default:
+            throw std::invalid_argument("dirac_gamma: mu must be 0,1,2,3 or 5");
+    }
+}
+
 // ----- Hydrogen atom ---------------------------------------------------------
 
 Expr hydrogen_energy(const Expr& n, const Expr& Z) {
