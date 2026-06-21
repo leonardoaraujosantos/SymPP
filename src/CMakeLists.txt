@@ -31,6 +31,7 @@ target_sources(sympp
         core/refine.cpp
         core/rewrite.cpp
         crypto/crypto.cpp
+        discrete/discrete.cpp
         core/satask.cpp
         core/singletons.cpp
         core/symbol.cpp

@@ -189,6 +189,25 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Discrete transforms (cross-check against sympy.discrete) ---
+    if op == "discrete":
+        from sympy.discrete import fft, ifft, ntt, intt, convolution
+        from sympy.discrete.transforms import (mobius_transform,
+                                               inverse_mobius_transform)
+        seq = [sympy.sympify(x) for x in req["seq"]]
+        fn = req["fn"]
+        if fn == "fft": res = fft(seq)
+        elif fn == "ifft": res = ifft(seq)
+        elif fn == "ntt": res = ntt(seq, int(req["p"]))
+        elif fn == "intt": res = intt(seq, int(req["p"]))
+        elif fn == "convolution":
+            res = convolution(seq, [sympy.sympify(x) for x in req["seq2"]])
+        elif fn == "mobius": res = mobius_transform(seq)
+        elif fn == "inv_mobius": res = inverse_mobius_transform(seq)
+        else:
+            return {"ok": False, "error": "BadFn", "detail": f"unknown discrete fn: {fn!r}"}
+        return {"ok": True, "result": ";".join(_to_str(x) for x in res)}
+
     # --- Tensor algebra (cross-check against sympy.tensor.array) ---
     if op == "tensor":
         from sympy import Array, tensorproduct, tensorcontraction
