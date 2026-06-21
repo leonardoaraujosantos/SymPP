@@ -189,6 +189,11 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- 2D pretty printing (ASCII) ---
+    if op == "pretty":
+        e = _sympify(req["expr"])
+        return {"ok": True, "result": sympy.pretty(e, use_unicode=False)}
+
     # --- Propositional logic (cross-check satisfiable / equivalence) ---
     if op == "logic":
         from sympy.logic import satisfiable as _sat

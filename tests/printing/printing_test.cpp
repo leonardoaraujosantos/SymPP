@@ -145,9 +145,9 @@ TEST_CASE("pretty: x + 2", "[13][pretty]") {
     REQUIRE(pretty(x + integer(2)) == "x + 2");
 }
 
-TEST_CASE("pretty: x^2 uses **", "[13][pretty]") {
+TEST_CASE("pretty: x^2 renders as a 2D superscript", "[13][pretty]") {
     auto x = symbol("x");
-    REQUIRE(pretty(pow(x, integer(2))) == "x**2");
+    REQUIRE(pretty(pow(x, integer(2))) == " 2\nx ");
 }
 
 // ----- function emission ----------------------------------------------------
