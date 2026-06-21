@@ -189,6 +189,28 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Number theory (cross-check factorint/divisors/igcdex/jacobi) ---
+    if op == "ntheory":
+        fn = req["fn"]
+        if fn == "factorint":
+            d = sympy.factorint(int(req["n"]))
+            pairs = sorted((int(p), int(e)) for p, e in d.items())
+            return {"ok": True, "result": ";".join(f"{p}^{e}" for p, e in pairs)}
+        if fn == "divisors":
+            ds = sorted(sympy.divisors(int(req["n"])))
+            return {"ok": True, "result": ",".join(str(x) for x in ds)}
+        if fn == "igcdex":
+            try:
+                from sympy import igcdex as _igcdex
+            except ImportError:
+                from sympy.core.intfunc import igcdex as _igcdex
+            x, y, g = _igcdex(int(req["a"]), int(req["b"]))
+            return {"ok": True, "result": f"{x},{y},{g}"}
+        if fn == "jacobi":
+            v = int(sympy.jacobi_symbol(int(req["a"]), int(req["n"])))
+            return {"ok": True, "result": str(v)}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
+
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}
 
 

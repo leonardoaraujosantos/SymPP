@@ -48,6 +48,7 @@ target_sources(sympp
         functions/hypergeometric.cpp
         functions/integers.cpp
         functions/miscellaneous.cpp
+        functions/ntheory.cpp
         functions/special.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
