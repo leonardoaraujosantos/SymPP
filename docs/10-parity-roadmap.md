@@ -29,6 +29,11 @@ demand with cost.
   superscript powers, radicals) matching SymPy's ASCII output.
 - **`lambdify` LLVM ORC-JIT backend** — `lambdify_jit` compiles to native code
   (optional, auto-on when LLVM is found).
+- **Geometry** — Point/Line/Polygon: distance, area, slope, intersection, …
+- **Statistics** — Normal/Uniform/Exponential + Bernoulli/Binomial/Poisson with
+  mean/variance/pdf/cdf.
+- **Symbolic singular values** — `Matrix::singular_values()` (full SVD
+  factorization still pending).
 
 ## How to read effort vs. session-size
 
@@ -50,7 +55,7 @@ gains.
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
 | Berlekamp–Zassenhaus + Hensel lifting | `polys/factortools.py` | 2 wk | Medium | Robust univariate factoring over ℤ |
-| Symbolic SVD | `matrices/` | 2 wk | Medium | Needs eigendecomposition of AᵀA |
+| Symbolic SVD | `matrices/` | 1 wk | Medium | `singular_values()` ✅ shipped; full U·Σ·Vᴴ factorization remains |
 | General Jordan form (chains > 2) | `matrices/eigen.py` | 1 wk | Medium | Filtration algorithm; eigenvalue-limited |
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
 | Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | High | Most stages shipped; remaining `0·∞` divergent-exp subclass |
@@ -68,8 +73,8 @@ gains.
 | Module | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
 | Number theory (Diophantine, CRT, discrete_log, partitions) | `ntheory/` | 1 wk | Medium | core + factorint/primitive_root/sqrt_mod/continued_fraction shipped |
-| Statistics & probability | `stats/` | 3 wk | High | Distributions, pdf/cdf/E/Var |
-| Geometry | `geometry/` | 1 wk | Medium | ⚡ self-contained |
+| ✅ Statistics & probability (core distributions) | `stats/` | — | shipped (`stats/stats.hpp`); extend w/ more distributions, sampling |
+| ✅ Geometry (Point/Line/Polygon) | `geometry/` | — | shipped (`geometry/geometry.hpp`) |
 | Vector calculus & differential geometry | `vector/`, `diffgeom/` | 3 wk | Medium | grad/div/curl, curvature |
 | Tensor algebra | `tensor/` | 2 wk | Medium | Index notation, contraction |
 | Combinatorics & group theory | `combinatorics/` | 3 wk | Medium | Permutations, finite groups |

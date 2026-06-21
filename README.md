@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1597%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1607%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1597 tests / 5835 assertions  all passing
+1607 tests / 5918 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -343,10 +343,15 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators
   (incl. nested compound fractions `1/(1+1/x) → x/(x+1)`),
   `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁(1;2;z), ₂F₁(1,1;2;z), parameter cancellation).
-- **Linear algebra** — det, inverse, eigendecomposition, LU/QR/
-  Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
+- **Linear algebra** — det, inverse, eigendecomposition, `singular_values`,
+  LU/QR/Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
   `Matrix::jordan_form()` (chains ≤ 2), `Matrix::exp(t)` matrix
   exponential via Jordan, `MatrixSymbol` expression tree.
+- **Geometry** — `Point2D` / `Line2D` over exact coordinates: distance,
+  midpoint, collinearity, triangle/polygon area, slope, intersection,
+  parallel/perpendicular, point-to-line distance, perimeter.
+- **Statistics** (`sympp::stats`) — Normal/Uniform/Exponential and
+  Bernoulli/Binomial/Poisson distributions with `mean`/`variance`/`pdf`/`cdf`.
 - **Equation solvers** — `solve` (distinct roots; expands factored
   polynomials; radical equations `√x = 2`), `solveset` with `_invert` chain
   (peels log/exp/sin/cos/tan/sinh/cosh/tanh/abs and integer powers from the
