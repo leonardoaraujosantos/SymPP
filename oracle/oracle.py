@@ -189,6 +189,54 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Vector calculus (grad/div/curl/laplacian via sympy.diff) ---
+    if op == "vectorcalc":
+        vs = [sympy.Symbol(v) for v in req["vars"]]
+        fn = req["fn"]
+        if fn == "gradient":
+            f = sympy.sympify(req["f"])
+            return {"ok": True, "result": ";".join(_to_str(sympy.diff(f, v)) for v in vs)}
+        if fn == "divergence":
+            F = [sympy.sympify(c) for c in req["field"]]
+            return {"ok": True,
+                    "result": _to_str(sum(sympy.diff(F[i], vs[i]) for i in range(len(vs))))}
+        if fn == "curl":
+            F = [sympy.sympify(c) for c in req["field"]]
+            comps = [sympy.diff(F[2], vs[1]) - sympy.diff(F[1], vs[2]),
+                     sympy.diff(F[0], vs[2]) - sympy.diff(F[2], vs[0]),
+                     sympy.diff(F[1], vs[0]) - sympy.diff(F[0], vs[1])]
+            return {"ok": True, "result": ";".join(_to_str(c) for c in comps)}
+        if fn == "laplacian":
+            f = sympy.sympify(req["f"])
+            return {"ok": True,
+                    "result": _to_str(sum(sympy.diff(f, v, 2) for v in vs))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown vectorcalc fn: {fn!r}"}
+
+    # --- Differential geometry (Ricci scalar from a metric) ---
+    if op == "diffgeom":
+        coords = [sympy.Symbol(c) for c in req["coords"]]
+        n = len(coords)
+        g = sympy.Matrix([[sympy.sympify(req["metric"][i][j]) for j in range(n)]
+                          for i in range(n)])
+        gi = g.inv()
+        G = [[[sympy.simplify(sum(
+                  gi[k, l] * (sympy.diff(g[l, j], coords[i]) + sympy.diff(g[l, i], coords[j])
+                              - sympy.diff(g[i, j], coords[l])) for l in range(n)) / 2)
+               for j in range(n)] for i in range(n)] for k in range(n)]
+        R = [[0] * n for _ in range(n)]
+        for i in range(n):
+            for j in range(n):
+                r = 0
+                for k in range(n):
+                    r += sympy.diff(G[k][i][j], coords[k]) - sympy.diff(G[k][i][k], coords[j])
+                    for l in range(n):
+                        r += G[k][k][l] * G[l][i][j] - G[k][j][l] * G[l][i][k]
+                R[i][j] = sympy.simplify(r)
+        if req["fn"] == "ricci_scalar":
+            s = sympy.simplify(sum(gi[i, j] * R[i][j] for i in range(n) for j in range(n)))
+            return {"ok": True, "result": _to_str(s)}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown diffgeom fn: {req['fn']!r}"}
+
     # --- Matrix (cross-check singular values) ---
     if op == "matrix":
         rows = [[sympy.sympify(c) for c in row] for row in req["rows"]]
