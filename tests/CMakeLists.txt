@@ -59,6 +59,7 @@ target_sources(sympp_tests
         matrices/svd_test.cpp
         ode/dsolve_test.cpp
         parsing/parser_test.cpp
+        parsing/latex_parser_test.cpp
         physics/units_test.cpp
         printing/printing_test.cpp
         printing/pretty_test.cpp

@@ -66,6 +66,7 @@ target_sources(sympp
         matrices/matrix.cpp
         matrices/matrix_symbol.cpp
         ode/dsolve.cpp
+        parsing/latex_parser.cpp
         parsing/parser.cpp
         physics/units.cpp
         printing/printing.cpp
