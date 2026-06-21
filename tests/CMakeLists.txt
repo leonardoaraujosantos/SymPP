@@ -48,6 +48,7 @@ target_sources(sympp_tests
         geometry/geometry_test.cpp
         logic/logic_test.cpp
         physics/physics_test.cpp
+        physics/physics_quantum_test.cpp
         stats/stats_test.cpp
         tensor/tensor_test.cpp
         vector/vector_calculus_test.cpp

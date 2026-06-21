@@ -368,6 +368,42 @@ def handle(req):
             return {"ok": True, "result": bool(valid)}
         return {"ok": False, "error": "BadFn", "detail": f"unknown logic fn: {fn!r}"}
 
+    # --- Physics (cross-check Wigner symbols, hydrogen, QHO, spin) ---
+    if op == "physics":
+        fn = req["fn"]
+        S_ = sympy.sympify
+        if fn == "wigner_3j":
+            from sympy.physics.wigner import wigner_3j as _w3
+            v = _w3(*[S_(req[k]) for k in ("j1", "j2", "j3", "m1", "m2", "m3")])
+            return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "wigner_6j":
+            from sympy.physics.wigner import wigner_6j as _w6
+            v = _w6(*[S_(req[k]) for k in ("j1", "j2", "j3", "j4", "j5", "j6")])
+            return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "clebsch_gordan":
+            from sympy.physics.wigner import clebsch_gordan as _cg
+            v = _cg(*[S_(req[k]) for k in ("j1", "j2", "j3", "m1", "m2", "m3")])
+            return {"ok": True, "result": str(sympy.sympify(v))}
+        if fn == "hydrogen_E":
+            from sympy.physics.hydrogen import E_nl
+            return {"ok": True, "result": str(E_nl(S_(req["n"]), S_(req["Z"])))}
+        if fn == "hydrogen_R":
+            from sympy.physics.hydrogen import R_nl
+            r = sympy.Symbol("r")
+            v = R_nl(int(req["n"]), int(req["l"]), r, S_(req["Z"]))
+            return {"ok": True, "result": str(sympy.simplify(v))}
+        if fn == "qho_E":
+            from sympy.physics.qho_1d import E_n
+            from sympy.physics.quantum.constants import hbar
+            v = E_n(int(req["n"]), sympy.Symbol("omega")).subs(hbar, 1)
+            return {"ok": True, "result": str(v)}
+        if fn == "qho_psi":
+            from sympy.physics.qho_1d import psi_n
+            from sympy.physics.quantum.constants import hbar
+            v = psi_n(int(req["n"]), sympy.Symbol("x"), 1, 1).subs(hbar, 1)
+            return {"ok": True, "result": str(sympy.simplify(v))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown physics fn: {fn!r}"}
+
     # --- Number theory (cross-check factorint/divisors/igcdex/jacobi) ---
     if op == "ntheory":
         fn = req["fn"]
