@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1566%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1597%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1566 tests / 5555 assertions  all passing
+1597 tests / 5835 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -372,8 +372,18 @@ and fails on any *new* divergence outside the whitelisted intentional set.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
   constants with exact post-2019-redef values, affine
   temperature conversion.
-- **Code generation** — C / C++ / Fortran / LaTeX / Octave
-  printers + function emission.
+- **Code generation** — C / C++ / Fortran / LaTeX / Octave printers + function
+  emission, a 2D ASCII `pretty()` printer (stacked fractions, superscript
+  powers, radicals), and **`lambdify`** — compile an expression to a native
+  `std::function<double(...)>` (portable closure backend, plus an optional LLVM
+  ORC-JIT backend `lambdify_jit` for hot numeric loops).
+- **Logic & boolean algebra** — `bool_and`/`bool_or`/`bool_not` (+ xor/implies/
+  equivalent) connectives with `satisfiable`, `to_cnf`/`to_dnf`, and
+  `simplify_logic` (Quine–McCluskey minimization).
+- **Number theory** — `factorint` (Pollard rho), `divisors`, `igcdex`,
+  `jacobi_symbol`, `continued_fraction`, `n_order`, `primitive_root`,
+  `sqrt_mod`, plus classical orthogonal polynomials (Legendre, Chebyshev,
+  Hermite, Laguerre) and `rewrite(target)` (trig/hyperbolic ↔ exp).
 - **MATLAB facade** — `sympp::matlab::*` namespace with `syms`,
   `sym(string)` / `str2sym` (parser-routed), `assume` /
   `assumeAlso` / `refresh`, `dsolve` / `linsolve` / `nsolve` /

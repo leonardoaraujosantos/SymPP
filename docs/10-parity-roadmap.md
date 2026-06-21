@@ -23,6 +23,12 @@ demand with cost.
   `hermite`, `laguerre` (recurrence-based, oracle-validated to degree 8).
 - **`rewrite(target)`** — trig/hyperbolic ↔ `exp` and tan/cot/sec/csc → sin/cos,
   value-preserving across the tree (numerically certified vs SymPy).
+- **Logic & boolean algebra** — And/Or/Not (+xor/implies/equivalent),
+  `satisfiable`, `to_cnf`/`to_dnf`, `simplify_logic` (Quine–McCluskey).
+- **Full 2D pretty-print** — block-layout `pretty()` (stacked fractions,
+  superscript powers, radicals) matching SymPy's ASCII output.
+- **`lambdify` LLVM ORC-JIT backend** — `lambdify_jit` compiles to native code
+  (optional, auto-on when LLVM is found).
 
 ## How to read effort vs. session-size
 
@@ -38,7 +44,7 @@ gains.
 
 | Item | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
-| `lambdify` LLVM-JIT backend | `utilities.lambdify` | 3 wk | High | Interpreter backend shipped; JIT is the perf tier |
+| ✅ `lambdify` LLVM-JIT backend | `utilities.lambdify` | — | shipped (`core/lambdify_llvm.hpp`, optional/auto-on) |
 | Meijer-G integration | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand; unlocks special-fn integrals |
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
@@ -46,7 +52,7 @@ gains.
 | Berlekamp–Zassenhaus + Hensel lifting | `polys/factortools.py` | 2 wk | Medium | Robust univariate factoring over ℤ |
 | Symbolic SVD | `matrices/` | 2 wk | Medium | Needs eigendecomposition of AᵀA |
 | General Jordan form (chains > 2) | `matrices/eigen.py` | 1 wk | Medium | Filtration algorithm; eigenvalue-limited |
-| Full 2D pretty-print layout | `printing/pretty` | 1 wk | Medium | ⚡ partial `pretty()` exists; extend incrementally |
+| ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
 | Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | High | Most stages shipped; remaining `0·∞` divergent-exp subclass |
 | F4/F5 Gröbner, sparse matrix, full polynomial domain tower, full Lie classifier, Pantelides DAE, full SAT-`ask` | various | ~15 wk | Low | Performance / edge-case depth |
 | Non-commutative *algebra* (`Mul` ordering) | `core/mul` | 2–3 wk | Low–Med | The `commutative` *predicate* already ships |
@@ -77,7 +83,7 @@ gains.
 | Special integral functions (`Ei,Si,Ci,Shi,Chi,fresnel,expint`) | `special.error_functions` | 1 wk | Medium | ⚡ enums exist; add eval/series |
 | Orthogonal polynomials (Legendre, Chebyshev, …) | `special.polynomials` | — | — | ✅ shipped (`functions/orthopolys.hpp`) |
 | `rewrite(target)` cross-cutting API (exp↔trig…) | core | — | — | ✅ shipped (`core/rewrite.hpp`); extend with more targets |
-| Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | 2 wk | Medium | Also feeds fuller SAT-`ask` |
+| ✅ Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | — | shipped (`logic/logic.hpp`) |
 | LaTeX parser (round-trip) | `parsing.latex` | 2 wk | Medium | Input ergonomics |
 | Discrete (FFT/NTT/convolution/Möbius) | `discrete` | 2 wk | Low–Med | |
 | DomainMatrix (fast poly-domain matrices) | `polys.matrices` | 3 wk | Medium | Order-of-magnitude speedups |
