@@ -1,6 +1,7 @@
 #include <sympp/functions/ntheory.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 
@@ -8,6 +9,7 @@
 
 #include <sympp/core/basic.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/core/type_id.hpp>
 
 namespace sympp {
@@ -73,6 +75,53 @@ namespace {
     }
     std::sort(primes.begin(), primes.end());
     return primes;
+}
+
+// Distinct prime factors of m (> 0).
+[[nodiscard]] std::vector<mpz_class> distinct_primes(const mpz_class& m) {
+    auto all = prime_factors(m);
+    all.erase(std::unique(all.begin(), all.end()), all.end());
+    return all;
+}
+
+// Euler's totient φ(m) for m > 0.
+[[nodiscard]] mpz_class euler_phi(const mpz_class& m) {
+    if (m == 1) return mpz_class(1);
+    mpz_class phi = m;
+    for (const mpz_class& p : distinct_primes(m)) phi = phi / p * (p - 1);
+    return phi;
+}
+
+[[nodiscard]] mpz_class mod_pow(const mpz_class& base, const mpz_class& exp,
+                                const mpz_class& mod) {
+    mpz_class r;
+    mpz_powm(r.get_mpz_t(), base.get_mpz_t(), exp.get_mpz_t(), mod.get_mpz_t());
+    return r;
+}
+
+[[nodiscard]] mpz_class gcd_mpz(const mpz_class& a, const mpz_class& b) {
+    mpz_class g;
+    mpz_gcd(g.get_mpz_t(), a.get_mpz_t(), b.get_mpz_t());
+    return g;
+}
+
+// Multiplicative order of a modulo n, given gcd(a, n) = 1.
+[[nodiscard]] mpz_class order_mod(const mpz_class& a, const mpz_class& n) {
+    mpz_class o = euler_phi(n);
+    for (const mpz_class& q : distinct_primes(o)) {
+        while (o % q == 0 && mod_pow(a, o / q, n) == 1) o /= q;
+    }
+    return o;
+}
+
+// Does (ℤ/nℤ)* admit a primitive root? (n = 2, 4, pᵏ, or 2·pᵏ, p odd prime.)
+[[nodiscard]] bool has_primitive_root(const mpz_class& n) {
+    if (n == 2 || n == 4) return true;
+    mpz_class m = n;
+    if (m % 2 == 0) m /= 2;
+    if (m % 2 == 0) return false;             // divisible by 4 ⇒ no
+    auto ps = distinct_primes(m);
+    return m > 1 && ps.size() == 1 && ps[0] != 2;  // m is an odd prime power
 }
 
 }  // namespace
@@ -143,6 +192,83 @@ Expr jacobi_symbol(const Expr& a, const Expr& n) {
         throw std::invalid_argument("jacobi_symbol: n must be a positive odd integer");
     }
     return make<Integer>(mpz_class(mpz_jacobi(za.get_mpz_t(), zn.get_mpz_t())));
+}
+
+std::vector<Expr> continued_fraction(const Expr& x) {
+    mpz_class p, q;
+    if (x && x->type_id() == TypeId::Integer) {
+        p = static_cast<const Integer&>(*x).value();
+        q = 1;
+    } else if (x && x->type_id() == TypeId::Rational) {
+        const mpq_class& r = static_cast<const Rational&>(*x).value();
+        p = r.get_num();
+        q = r.get_den();  // canonical: q > 0
+    } else {
+        throw std::invalid_argument("continued_fraction: rational argument required");
+    }
+    std::vector<Expr> out;
+    while (q != 0) {
+        mpz_class a, rem;
+        mpz_fdiv_qr(a.get_mpz_t(), rem.get_mpz_t(), p.get_mpz_t(), q.get_mpz_t());
+        out.push_back(make<Integer>(a));
+        p = q;
+        q = rem;
+    }
+    return out;
+}
+
+Expr n_order(const Expr& a, const Expr& n) {
+    const mpz_class& za = as_int(a, "n_order");
+    const mpz_class& zn = as_int(n, "n_order");
+    if (zn <= 0) throw std::invalid_argument("n_order: n must be positive");
+    mpz_class am = ((za % zn) + zn) % zn;
+    if (gcd_mpz(am, zn) != 1) {
+        throw std::invalid_argument("n_order: a and n must be coprime");
+    }
+    return make<Integer>(order_mod(am, zn));
+}
+
+std::optional<Expr> primitive_root(const Expr& n) {
+    const mpz_class& zn = as_int(n, "primitive_root");
+    if (zn < 2) throw std::invalid_argument("primitive_root: n must be > 1");
+    if (!has_primitive_root(zn)) return std::nullopt;
+    mpz_class phi = euler_phi(zn);
+    for (mpz_class g = 1; g < zn; ++g) {
+        if (gcd_mpz(g, zn) != 1) continue;
+        if (order_mod(g, zn) == phi) return make<Integer>(g);
+    }
+    return std::nullopt;  // unreachable when has_primitive_root() is true
+}
+
+std::optional<Expr> sqrt_mod(const Expr& a, const Expr& p) {
+    const mpz_class& za = as_int(a, "sqrt_mod");
+    const mpz_class& zp = as_int(p, "sqrt_mod");
+    if (zp < 2 || !is_prime_mpz(zp)) {
+        throw std::invalid_argument("sqrt_mod: p must be prime");
+    }
+    mpz_class am = ((za % zp) + zp) % zp;
+    if (am == 0) return make<Integer>(0);
+    if (zp == 2) return make<Integer>(am);  // am == 1
+    if (mod_pow(am, (zp - 1) / 2, zp) != 1) return std::nullopt;  // non-residue
+    if (zp % 4 == 3) return make<Integer>(mod_pow(am, (zp + 1) / 4, zp));
+    // Tonelli–Shanks for p ≡ 1 (mod 4).
+    mpz_class q = zp - 1, s = 0;
+    while (q % 2 == 0) { q /= 2; ++s; }
+    mpz_class z = 2;
+    while (mod_pow(z, (zp - 1) / 2, zp) != zp - 1) ++z;  // a quadratic non-residue
+    mpz_class m = s, c = mod_pow(z, q, zp), t = mod_pow(am, q, zp);
+    mpz_class r = mod_pow(am, (q + 1) / 2, zp);
+    while (t != 1) {
+        mpz_class i = 0, t2 = t;
+        while (t2 != 1) { t2 = (t2 * t2) % zp; ++i; }
+        mpz_class b = c;
+        for (mpz_class j = 0; j < m - i - 1; ++j) b = (b * b) % zp;
+        m = i;
+        c = (b * b) % zp;
+        t = (t * c) % zp;
+        r = (r * b) % zp;
+    }
+    return make<Integer>(r);
 }
 
 }  // namespace sympp

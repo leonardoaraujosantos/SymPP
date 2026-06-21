@@ -209,6 +209,20 @@ def handle(req):
         if fn == "jacobi":
             v = int(sympy.jacobi_symbol(int(req["a"]), int(req["n"])))
             return {"ok": True, "result": str(v)}
+        if fn == "continued_fraction":
+            cf = sympy.continued_fraction(sympy.sympify(req["n"]))
+            return {"ok": True, "result": ",".join(str(x) for x in cf)}
+        if fn == "n_order":
+            from sympy.ntheory import n_order as _no
+            return {"ok": True, "result": str(int(_no(int(req["a"]), int(req["n"]))))}
+        if fn == "primitive_root":
+            from sympy.ntheory import primitive_root as _pr
+            v = _pr(int(req["n"]))
+            return {"ok": True, "result": "None" if v is None else str(int(v))}
+        if fn == "sqrt_mod":
+            from sympy.ntheory import sqrt_mod as _sm
+            v = _sm(int(req["a"]), int(req["n"]))
+            return {"ok": True, "result": "None" if v is None else str(int(v))}
         return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
 
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}

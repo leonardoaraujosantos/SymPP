@@ -8,6 +8,7 @@
 // Reference: sympy/ntheory/{factor_,residue_ntheory}.py — factorint, divisors,
 //            igcdex, jacobi_symbol.
 
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -32,5 +33,22 @@ namespace sympp {
 
 // Jacobi symbol (a / n) for an odd n > 0; returns −1, 0 or 1.
 [[nodiscard]] SYMPP_EXPORT Expr jacobi_symbol(const Expr& a, const Expr& n);
+
+// Simple continued-fraction expansion of a rational (or integer) as a list of
+// partial quotients [a0; a1, a2, …] (floor convention, so negatives match
+// SymPy). Finite for every rational.
+[[nodiscard]] SYMPP_EXPORT std::vector<Expr> continued_fraction(const Expr& x);
+
+// Multiplicative order of a modulo n — the least k > 0 with a^k ≡ 1 (mod n).
+// Requires gcd(a, n) = 1 (throws otherwise).
+[[nodiscard]] SYMPP_EXPORT Expr n_order(const Expr& a, const Expr& n);
+
+// Smallest primitive root modulo n (n > 1), or std::nullopt when none exists
+// (i.e. n is not 2, 4, pᵏ or 2·pᵏ for an odd prime p).
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> primitive_root(const Expr& n);
+
+// A square root of a modulo a prime p — some r with r² ≡ a (mod p) — or
+// std::nullopt when a is a non-residue. p must be prime (throws otherwise).
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> sqrt_mod(const Expr& a, const Expr& p);
 
 }  // namespace sympp

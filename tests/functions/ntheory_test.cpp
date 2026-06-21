@@ -8,8 +8,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <optional>
+
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/rational.hpp>
 #include <sympp/functions/ntheory.hpp>
 
 #include "oracle/oracle.hpp"
@@ -86,6 +89,60 @@ TEST_CASE("jacobi_symbol matches SymPy", "[ntheory][oracle]") {
                 oracle_nt({{"fn", "jacobi"},
                            {"a", std::to_string(a)},
                            {"n", std::to_string(n)}}));
+    }
+}
+
+TEST_CASE("continued_fraction matches SymPy", "[ntheory][oracle]") {
+    auto cf_str = [](const Expr& x) {
+        std::string s;
+        bool first = true;
+        for (const auto& a : continued_fraction(x)) {
+            if (!first) s += ",";
+            first = false;
+            s += a->str();
+        }
+        return s;
+    };
+    REQUIRE(cf_str(rational(415, 93)) ==
+            oracle_nt({{"fn", "continued_fraction"}, {"n", "415/93"}}));
+    REQUIRE(cf_str(rational(-7, 3)) ==
+            oracle_nt({{"fn", "continued_fraction"}, {"n", "-7/3"}}));
+    REQUIRE(cf_str(integer(5)) ==
+            oracle_nt({{"fn", "continued_fraction"}, {"n", "5"}}));
+}
+
+TEST_CASE("n_order matches SymPy", "[ntheory][oracle]") {
+    struct AN { long a, n; };
+    for (auto [a, n] : {AN{3, 7}, AN{2, 9}, AN{10, 21}, AN{2, 101}}) {
+        REQUIRE(n_order(integer(a), integer(n))->str() ==
+                oracle_nt({{"fn", "n_order"},
+                           {"a", std::to_string(a)},
+                           {"n", std::to_string(n)}}));
+    }
+}
+
+TEST_CASE("primitive_root matches SymPy", "[ntheory][oracle]") {
+    for (long n : {2, 3, 4, 5, 6, 9, 14, 18, 25, 27, 8, 12, 15, 16}) {
+        auto got = primitive_root(integer(n));
+        std::string s = got.has_value() ? (*got)->str() : "None";
+        REQUIRE(s == oracle_nt({{"fn", "primitive_root"}, {"n", std::to_string(n)}}));
+    }
+}
+
+TEST_CASE("sqrt_mod: existence parity with SymPy and r² ≡ a", "[ntheory][oracle]") {
+    struct AP { long a, p; };
+    for (auto [a, p] : {AP{2, 7}, AP{3, 7}, AP{10, 13}, AP{2, 113}, AP{5, 41}, AP{0, 7}}) {
+        auto got = sqrt_mod(integer(a), integer(p));
+        std::string ref = oracle_nt({{"fn", "sqrt_mod"},
+                                     {"a", std::to_string(a)},
+                                     {"n", std::to_string(p)}});
+        if (ref == "None") {
+            REQUIRE_FALSE(got.has_value());
+        } else {
+            REQUIRE(got.has_value());
+            long r = std::stol((*got)->str());
+            REQUIRE(((r * r) % p + p) % p == ((a % p) + p) % p);
+        }
     }
 }
 
