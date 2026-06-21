@@ -13,6 +13,7 @@ target_sources(sympp_tests
         core/assumptions_test.cpp
         core/satask_test.cpp
         core/rewrite_test.cpp
+        crypto/crypto_test.cpp
         core/lambdify_test.cpp
         core/lambdify_jit_test.cpp
         core/parity_probe.cpp

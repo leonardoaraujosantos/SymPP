@@ -189,6 +189,18 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Cryptography (cross-check RSA against sympy.crypto) ---
+    if op == "crypto":
+        from sympy.crypto.crypto import rsa_private_key, rsa_public_key, encipher_rsa
+        p, q, e = int(req["p"]), int(req["q"]), int(req["e"])
+        fn = req["fn"]
+        if fn == "rsa_d":
+            return {"ok": True, "result": str(int(rsa_private_key(p, q, e)[1]))}
+        if fn == "rsa_encrypt":
+            c = encipher_rsa(int(req["m"]), rsa_public_key(p, q, e))
+            return {"ok": True, "result": str(int(c))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown crypto fn: {fn!r}"}
+
     # --- Vector calculus (grad/div/curl/laplacian via sympy.diff) ---
     if op == "vectorcalc":
         vs = [sympy.Symbol(v) for v in req["vars"]]
