@@ -42,6 +42,7 @@ target_sources(sympp_tests
         functions/trigonometric_test.cpp
         integrals/integrate_test.cpp
         integrals/transforms_test.cpp
+        geometry/geometry_test.cpp
         logic/logic_test.cpp
         matlab/matlab_test.cpp
         matlab/matlab_assumptions_test.cpp

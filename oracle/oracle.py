@@ -189,6 +189,20 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Plane geometry (cross-check distance / area / collinearity) ---
+    if op == "geometry":
+        from sympy import Point, Polygon
+        fn = req["fn"]
+        coords = [sympy.sympify(c) for c in req["coords"]]
+        pts = [Point(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
+        if fn == "distance":
+            return {"ok": True, "result": _to_str(pts[0].distance(pts[1]))}
+        if fn == "polygon_area":
+            return {"ok": True, "result": _to_str(Polygon(*pts).area)}
+        if fn == "collinear":
+            return {"ok": True, "result": bool(Point.is_collinear(*pts))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown geometry fn: {fn!r}"}
+
     # --- 2D pretty printing (ASCII) ---
     if op == "pretty":
         e = _sympify(req["expr"])
