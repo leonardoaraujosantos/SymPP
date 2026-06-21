@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1631%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1640%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1631 tests / 6029 assertions  all passing
+1640 tests / 6211 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -329,7 +329,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`), Padé, Euler-Lagrange, asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
   bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
-  Cardano cubic, Ferrari quartic, `RootOf`, partial fractions, Gröbner basis.
+  polynomial-time **Berlekamp–Zassenhaus** univariate factorization
+  (`factor_zassenhaus`), Cardano cubic, Ferrari quartic, `RootOf`, partial
+  fractions, Gröbner basis, and **DomainMatrix** (fraction-free ℤ/ℚ matrices).
 - **Simplification** — `simplify` orchestrator (anti-bloat-guarded so it never
   returns a form larger than its input) chaining trigsimp (Pythagorean +
   double-angle / power-reduction `(1∓cos2x)/2 → sin²/cos²` / `2sin·cos → sin2x`
@@ -345,7 +347,7 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁(1;2;z), ₂F₁(1,1;2;z), parameter cancellation).
 - **Linear algebra** — det, inverse, eigendecomposition, `singular_values` + full `svd`,
   LU/QR/Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
-  `Matrix::jordan_form()` (chains ≤ 2), `Matrix::exp(t)` matrix
+  `Matrix::jordan_form()` (general chains), `Matrix::exp(t)` matrix
   exponential via Jordan, `MatrixSymbol` expression tree.
 - **Geometry** — `Point2D` / `Line2D` over exact coordinates: distance,
   midpoint, collinearity, triangle/polygon area, slope, intersection,

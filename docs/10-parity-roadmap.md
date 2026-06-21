@@ -41,6 +41,9 @@ demand with cost.
 - **Tensor algebra** — dense tensors: product, contraction, raise/lower.
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 - **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
+- **General Jordan form** — chains of any length (reconstruction-verified).
+- **DomainMatrix** — fraction-free ℤ/ℚ matrices (Bareiss det, rank, rref).
+- **Berlekamp–Zassenhaus** — `factor_zassenhaus` univariate ℤ factoring.
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
@@ -65,9 +68,9 @@ gains.
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
-| Berlekamp–Zassenhaus + Hensel lifting | `polys/factortools.py` | 2 wk | Medium | Robust univariate factoring over ℤ |
+| 🟡 Berlekamp–Zassenhaus | `polys/factortools.py` | — | shipped `factor_zassenhaus` (Berlekamp + large-prime recombination); Hensel lifting (small-prime scaling) still to come |
 | ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |
-| General Jordan form (chains > 2) | `matrices/eigen.py` | 1 wk | Medium | Filtration algorithm; eigenvalue-limited |
+| ✅ General Jordan form (chains > 2) | `matrices/eigen.py` | — | shipped (filtration algorithm; reconstruction-verified) |
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
 | Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | Medium | Most stages shipped; the previously-flagged `0·∞` divergent-exp case (eˣ(e^{1/x}−1)→∞) now evaluates, as do x^{1/x}→1, (1+1/x)ˣ→e. Only a true general mrv-set rewrite for the residual long tail remains |
 | F4/F5 Gröbner, sparse matrix, full polynomial domain tower, full Lie classifier, Pantelides DAE, full SAT-`ask` | various | ~15 wk | Low | Performance / edge-case depth |
@@ -102,7 +105,7 @@ gains.
 | ✅ Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | — | shipped (`logic/logic.hpp`) |
 | ✅ LaTeX parser (round-trip) | `parsing.latex` | — | shipped (`parsing/latex_parser.hpp`) |
 | ✅ Discrete (FFT/NTT/convolution/Möbius) | `discrete` | — | shipped (`discrete/discrete.hpp`) |
-| DomainMatrix (fast poly-domain matrices) | `polys.matrices` | 3 wk | Medium | Order-of-magnitude speedups |
+| ✅ DomainMatrix (fraction-free ℤ/ℚ matrices) | `polys.matrices` | — | shipped (`polys/domain_matrix.hpp`; Bareiss det, rank, rref) |
 | Holonomic fns, algebraic number fields, Galois tools, quaternions, NDim arrays, unification, extra printers (MathML/Rust/Julia), codegen AST/autowrap | various | ~13 wk | Low | |
 
 ---
