@@ -16,8 +16,13 @@ demand with cost.
   `ask`, and an oracle parity guard (`tests/core/parity_probe.cpp`).
 - **`lambdify`** — portable closure-based numeric compiler (interpreter
   backend; the LLVM-JIT variant remains below).
-- **Number theory** — `factorint`, `divisors`, `igcdex`, `jacobi_symbol`
+- **Number theory** — `factorint`, `divisors`, `igcdex`, `jacobi_symbol`,
+  `continued_fraction`, `n_order`, `primitive_root`, `sqrt_mod`
   (GMP-backed, oracle-validated).
+- **Orthogonal polynomials** — `legendre`, `chebyshevt`, `chebyshevu`,
+  `hermite`, `laguerre` (recurrence-based, oracle-validated to degree 8).
+- **`rewrite(target)`** — trig/hyperbolic ↔ `exp` and tan/cot/sec/csc → sin/cos,
+  value-preserving across the tree (numerically certified vs SymPy).
 
 ## How to read effort vs. session-size
 
@@ -56,7 +61,7 @@ gains.
 
 | Module | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
-| Number theory (continued, primitive_root, sqrt_mod, Diophantine) | `ntheory/` | 1.5 wk | High | ⚡ core primitives shipped; extend incrementally |
+| Number theory (Diophantine, CRT, discrete_log, partitions) | `ntheory/` | 1 wk | Medium | core + factorint/primitive_root/sqrt_mod/continued_fraction shipped |
 | Statistics & probability | `stats/` | 3 wk | High | Distributions, pdf/cdf/E/Var |
 | Geometry | `geometry/` | 1 wk | Medium | ⚡ self-contained |
 | Vector calculus & differential geometry | `vector/`, `diffgeom/` | 3 wk | Medium | grad/div/curl, curvature |
@@ -70,8 +75,8 @@ gains.
 | Module | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
 | Special integral functions (`Ei,Si,Ci,Shi,Chi,fresnel,expint`) | `special.error_functions` | 1 wk | Medium | ⚡ enums exist; add eval/series |
-| Orthogonal polynomials (Legendre, Chebyshev, …) | `special.polynomials` | 1.5 wk | Medium | ⚡ |
-| `rewrite(target)` cross-cutting API (exp↔trig…) | core | ~1 wk | Medium | ⚡ notable missing convenience |
+| Orthogonal polynomials (Legendre, Chebyshev, …) | `special.polynomials` | — | — | ✅ shipped (`functions/orthopolys.hpp`) |
+| `rewrite(target)` cross-cutting API (exp↔trig…) | core | — | — | ✅ shipped (`core/rewrite.hpp`); extend with more targets |
 | Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | 2 wk | Medium | Also feeds fuller SAT-`ask` |
 | LaTeX parser (round-trip) | `parsing.latex` | 2 wk | Medium | Input ergonomics |
 | Discrete (FFT/NTT/convolution/Möbius) | `discrete` | 2 wk | Low–Med | |
@@ -84,10 +89,11 @@ gains.
 
 Optimizing impact-per-week, starting with the ⚡ session-sized wins:
 
-1. **Cheap, high-value, session-sized** (⚡): extend number theory
-   (continued fractions, `sqrt_mod`, `primitive_root`), special integral
-   functions eval, orthogonal polynomials, `rewrite(target)`, geometry. Each
-   lands as its own oracle-validated change.
+1. **Cheap, high-value, session-sized** (⚡): *number-theory extensions,
+   orthogonal polynomials and `rewrite(target)` are done.* Remaining quick
+   wins: special integral functions eval (`Ei/Si/Ci`), geometry core
+   (Point/Line/Segment/Polygon), and more `rewrite` targets. Each lands as its
+   own oracle-validated change.
 2. **Flagship algorithm tier**: Meijer-G integration + full `hyperexpand`
    (do together), then the last Gruntz rewrite, then `lambdify` LLVM-JIT.
 3. **Polynomial depth**: Berlekamp–Zassenhaus, then multivariate Wang.
