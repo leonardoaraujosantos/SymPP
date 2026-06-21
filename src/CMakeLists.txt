@@ -28,6 +28,7 @@ target_sources(sympp
         core/queries.cpp
         core/rational.cpp
         core/refine.cpp
+        core/rewrite.cpp
         core/satask.cpp
         core/singletons.cpp
         core/symbol.cpp

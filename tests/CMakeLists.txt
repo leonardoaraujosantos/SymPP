@@ -12,6 +12,7 @@ target_sources(sympp_tests
         core/arithmetic_test.cpp
         core/assumptions_test.cpp
         core/satask_test.cpp
+        core/rewrite_test.cpp
         core/lambdify_test.cpp
         core/parity_probe.cpp
         core/collection_test.cpp
