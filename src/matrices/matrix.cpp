@@ -551,57 +551,113 @@ namespace {
 
 }  // namespace
 
+namespace {
+[[nodiscard]] Matrix matrix_power(const Matrix& m, std::size_t k) {
+    Matrix r = Matrix::identity(m.rows());
+    for (std::size_t i = 0; i < k; ++i) r = r * m;
+    return r;
+}
+// Assemble a matrix whose columns are the given column vectors.
+[[nodiscard]] Matrix columns_to_matrix(const std::vector<Matrix>& cols, std::size_t nrows) {
+    Matrix m = Matrix::zeros(nrows, cols.empty() ? 1 : cols.size());
+    for (std::size_t j = 0; j < cols.size(); ++j) {
+        for (std::size_t i = 0; i < nrows; ++i) m.set(i, j, cols[j].at(i, 0));
+    }
+    return m;
+}
+// Is column vector w linearly independent of the span of `basis`?
+[[nodiscard]] bool independent_of(const std::vector<Matrix>& basis, const Matrix& w) {
+    if (basis.empty()) return !col_is_zero(w);
+    std::size_t n = w.rows();
+    Matrix base = columns_to_matrix(basis, n);
+    std::vector<Matrix> aug = basis;
+    aug.push_back(w);
+    return columns_to_matrix(aug, n).rank() > base.rank();
+}
+}  // namespace
+
 std::pair<Matrix, Matrix> Matrix::jordan_form() const {
     if (!is_square()) {
         throw std::invalid_argument("jordan_form: square matrix required");
     }
-    if (is_diagonalizable()) {
-        // Jordan form of a diagonalizable matrix is just the diagonal form.
-        return diagonalize();
+    if (is_diagonalizable()) return diagonalize();
+
+    std::size_t n = rows_;
+    // Group eigenvalues with their algebraic multiplicities.
+    std::vector<std::pair<Expr, std::size_t>> grouped;
+    for (const auto& v : eigenvals()) {
+        bool merged = false;
+        for (auto& [val, count] : grouped) {
+            if (val == v) { ++count; merged = true; break; }
+        }
+        if (!merged) grouped.emplace_back(v, 1);
     }
-    // Defective case. Currently only the 2×2 single-defective-eigenvalue
-    // shape is supported (chains of length 2). Larger defective matrices
-    // require the general filtration algorithm.
-    if (rows_ != 2) {
-        throw std::runtime_error(
-            "jordan_form: defective n×n with n > 2 not yet supported");
-    }
-    auto evals = eigenvals();
-    if (evals.size() != 2 || !(evals[0] == evals[1])) {
-        throw std::runtime_error(
-            "jordan_form: 2×2 defective expects a repeated eigenvalue");
-    }
-    Expr lambda = evals[0];
-    Matrix K = *this - Matrix::identity(2).scalar_mul(lambda);
-    Matrix K2 = K * K;
-    auto ns_K2 = K2.nullspace();
-    if (ns_K2.size() != 2) {
-        throw std::runtime_error(
-            "jordan_form: unexpected null-space structure on K²");
-    }
-    Matrix v_top = Matrix::zeros(2, 1);
-    bool found_top = false;
-    for (const auto& v : ns_K2) {
-        Matrix Kv = K * v;
-        if (!col_is_zero(Kv)) {
-            v_top = v;
-            found_top = true;
-            break;
+
+    std::vector<std::vector<Matrix>> all_chains;  // each chain: [top, K·top, …, eigenvector]
+    for (const auto& [lambda, mult] : grouped) {
+        Matrix K = *this - Matrix::identity(n).scalar_mul(lambda);
+        // Index p: smallest power whose rank stops dropping.
+        std::size_t p = 1;
+        std::size_t prev = K.rank();
+        while (true) {
+            std::size_t r = matrix_power(K, p + 1).rank();
+            if (r == prev) break;
+            prev = r;
+            ++p;
+        }
+        std::vector<Matrix> collected;  // generalized eigenvectors found so far
+        // Build chains, longest first; lower parts of long chains populate the
+        // shorter levels automatically via `collected`.
+        for (std::size_t k = p; k >= 1; --k) {
+            auto Nk = matrix_power(K, k).nullspace();
+            std::vector<Matrix> base;
+            if (k >= 2) base = matrix_power(K, k - 1).nullspace();  // N_{k-1}
+            base.insert(base.end(), collected.begin(), collected.end());
+            for (const auto& w : Nk) {
+                if (!independent_of(base, w)) continue;
+                std::vector<Matrix> chain;  // top → … → eigenvector
+                Matrix cur = w;
+                for (std::size_t i = 0; i < k; ++i) { chain.push_back(cur); cur = K * cur; }
+                for (const auto& v : chain) collected.push_back(v);
+                base = (k >= 2) ? matrix_power(K, k - 1).nullspace() : std::vector<Matrix>{};
+                base.insert(base.end(), collected.begin(), collected.end());
+                all_chains.push_back(std::move(chain));
+            }
+            if (k == 1) break;  // avoid unsigned wrap
         }
     }
-    if (!found_top) {
-        throw std::runtime_error(
-            "jordan_form: no length-2 chain top found in N(K²)");
+
+    // Assemble P (columns eigenvector→top per chain) and the block-diagonal J.
+    Matrix P = Matrix::zeros(n, n), J = Matrix::zeros(n, n);
+    std::size_t col = 0;
+    for (const auto& chain : all_chains) {
+        std::size_t len = chain.size();
+        for (std::size_t i = 0; i < len; ++i) {
+            const Matrix& v = chain[len - 1 - i];  // eigenvector first
+            for (std::size_t r = 0; r < n; ++r) P.set(r, col + i, v.at(r, 0));
+        }
+        col += len;
     }
-    Matrix v_low = K * v_top;
-    Matrix P(2, 2);
-    P.set(0, 0, v_low.at(0, 0));
-    P.set(1, 0, v_low.at(1, 0));
-    P.set(0, 1, v_top.at(0, 0));
-    P.set(1, 1, v_top.at(1, 0));
-    Matrix J(2, 2);
-    J.set(0, 0, lambda);   J.set(0, 1, S::One());
-    J.set(1, 0, S::Zero()); J.set(1, 1, lambda);
+    // Fill J from the chain structure: each chain is a Jordan block. Recover λ
+    // as (A·eigenvector)/eigenvector via the first nonzero component.
+    col = 0;
+    for (const auto& chain : all_chains) {
+        std::size_t len = chain.size();
+        const Matrix& eig = chain[len - 1];
+        Matrix Ae = (*this) * eig;
+        Expr lam = S::Zero();
+        for (std::size_t r = 0; r < n; ++r) {
+            if (!(simplify(eig.at(r, 0)) == S::Zero())) {
+                lam = simplify(Ae.at(r, 0) * pow(eig.at(r, 0), S::NegativeOne()));
+                break;
+            }
+        }
+        for (std::size_t i = 0; i < len; ++i) {
+            J.set(col + i, col + i, lam);
+            if (i + 1 < len) J.set(col + i, col + i + 1, S::One());
+        }
+        col += len;
+    }
     return {P, J};
 }
 

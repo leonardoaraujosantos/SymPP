@@ -58,6 +58,7 @@ target_sources(sympp_tests
         matlab/matlab_pde_test.cpp
         matlab/matlab_solvers_test.cpp
         matrices/matrix_test.cpp
+        matrices/jordan_general_test.cpp
         matrices/svd_test.cpp
         ode/dsolve_test.cpp
         parsing/parser_test.cpp
