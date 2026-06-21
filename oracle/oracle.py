@@ -189,6 +189,31 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Tensor algebra (cross-check against sympy.tensor.array) ---
+    if op == "tensor":
+        from sympy import Array, tensorproduct, tensorcontraction
+
+        def flatten(a):
+            if hasattr(a, "shape") and a.shape:
+                n = 1
+                for d in a.shape:
+                    n *= d
+                return ";".join(_to_str(x) for x in a.reshape(n))
+            return _to_str(a)
+
+        def build(spec):
+            arr = Array([sympy.sympify(x) for x in spec["data"]])
+            return arr.reshape(*[int(d) for d in spec["shape"]])
+
+        fn = req["fn"]
+        if fn == "contract":
+            res = tensorcontraction(build(req["a"]), tuple(int(x) for x in req["axes"]))
+            return {"ok": True, "result": flatten(res)}
+        if fn == "tensorproduct":
+            res = tensorproduct(build(req["a"]), build(req["b"]))
+            return {"ok": True, "result": flatten(res)}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown tensor fn: {fn!r}"}
+
     # --- Cryptography (cross-check RSA against sympy.crypto) ---
     if op == "crypto":
         from sympy.crypto.crypto import rsa_private_key, rsa_public_key, encipher_rsa

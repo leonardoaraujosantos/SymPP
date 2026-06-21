@@ -57,6 +57,7 @@ target_sources(sympp
         geometry/geometry.cpp
         logic/logic.cpp
         stats/stats.cpp
+        tensor/tensor.cpp
         vector/vector_calculus.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
