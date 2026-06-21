@@ -40,6 +40,7 @@ demand with cost.
   Christoffel/Ricci.
 - **Tensor algebra** — dense tensors: product, contraction, raise/lower.
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
+- **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
@@ -60,7 +61,7 @@ gains.
 | Item | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
 | ✅ `lambdify` LLVM-JIT backend | `utilities.lambdify` | — | shipped (`core/lambdify_llvm.hpp`, optional/auto-on) |
-| Meijer-G integration | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand; unlocks special-fn integrals |
+| Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. NOTE: the classic Meijer-G-reducible definite integrals already evaluate via the existing engine (∫₀^∞ sin x/x = π/2, ∫₀^∞ e^{−x²}cos x = √π·e^{−1/4}/2, ∫₀^∞ 1/(1+x³) = 2√3π/9, …); only the general master-formula method for the long tail remains |
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
@@ -68,7 +69,7 @@ gains.
 | ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |
 | General Jordan form (chains > 2) | `matrices/eigen.py` | 1 wk | Medium | Filtration algorithm; eigenvalue-limited |
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
-| Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | High | Most stages shipped; remaining `0·∞` divergent-exp subclass |
+| Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | Medium | Most stages shipped; the previously-flagged `0·∞` divergent-exp case (eˣ(e^{1/x}−1)→∞) now evaluates, as do x^{1/x}→1, (1+1/x)ˣ→e. Only a true general mrv-set rewrite for the residual long tail remains |
 | F4/F5 Gröbner, sparse matrix, full polynomial domain tower, full Lie classifier, Pantelides DAE, full SAT-`ask` | various | ~15 wk | Low | Performance / edge-case depth |
 | Non-commutative *algebra* (`Mul` ordering) | `core/mul` | 2–3 wk | Low–Med | The `commutative` *predicate* already ships |
 
@@ -100,7 +101,7 @@ gains.
 | `rewrite(target)` cross-cutting API (exp↔trig…) | core | — | — | ✅ shipped (`core/rewrite.hpp`); extend with more targets |
 | ✅ Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | — | shipped (`logic/logic.hpp`) |
 | ✅ LaTeX parser (round-trip) | `parsing.latex` | — | shipped (`parsing/latex_parser.hpp`) |
-| Discrete (FFT/NTT/convolution/Möbius) | `discrete` | 2 wk | Low–Med | |
+| ✅ Discrete (FFT/NTT/convolution/Möbius) | `discrete` | — | shipped (`discrete/discrete.hpp`) |
 | DomainMatrix (fast poly-domain matrices) | `polys.matrices` | 3 wk | Medium | Order-of-magnitude speedups |
 | Holonomic fns, algebraic number fields, Galois tools, quaternions, NDim arrays, unification, extra printers (MathML/Rust/Julia), codegen AST/autowrap | various | ~13 wk | Low | |
 
