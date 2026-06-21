@@ -189,6 +189,32 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Statistics (cross-check moments / density / cdf) ---
+    if op == "stats":
+        import sympy.stats as st
+        params = [sympy.sympify(p) for p in req["params"]]
+        builders = {
+            "normal": lambda: st.Normal("X", params[0], params[1]),
+            "uniform": lambda: st.Uniform("X", params[0], params[1]),
+            "exponential": lambda: st.Exponential("X", params[0]),
+            "bernoulli": lambda: st.Bernoulli("X", params[0]),
+            "binomial": lambda: st.Binomial("X", params[0], params[1]),
+            "poisson": lambda: st.Poisson("X", params[0]),
+        }
+        rv = builders[req["dist"]]()
+        fn = req["fn"]
+        if fn == "E":
+            return {"ok": True, "result": _to_str(sympy.simplify(st.E(rv)))}
+        if fn == "variance":
+            return {"ok": True, "result": _to_str(sympy.simplify(st.variance(rv)))}
+        if fn == "density":
+            xv = sympy.sympify(req["x"])
+            return {"ok": True, "result": _to_str(st.density(rv)(xv))}
+        if fn == "cdf":
+            xv = sympy.sympify(req["x"])
+            return {"ok": True, "result": _to_str(st.cdf(rv)(xv))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown stats fn: {fn!r}"}
+
     # --- Plane geometry (cross-check distance / area / collinearity) ---
     if op == "geometry":
         from sympy import Point, Polygon

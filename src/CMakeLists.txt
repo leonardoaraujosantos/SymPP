@@ -55,6 +55,7 @@ target_sources(sympp
         functions/special.cpp
         geometry/geometry.cpp
         logic/logic.cpp
+        stats/stats.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
         integrals/quadrature.cpp
