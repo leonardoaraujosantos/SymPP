@@ -71,6 +71,69 @@ private:
     std::size_t hash_;
 };
 
+// ----- Logical connectives ---------------------------------------------------
+// And / Or / Not over Boolean operands. All report TypeId::Boolean (like the
+// True/False atoms), so they flow through the existing system without a new
+// TypeId. Use the bool_* factories below — they auto-evaluate.
+
+class SYMPP_EXPORT BoolNot final : public Basic {
+public:
+    explicit BoolNot(Expr arg);
+    [[nodiscard]] TypeId type_id() const noexcept override { return TypeId::Boolean; }
+    [[nodiscard]] std::size_t hash() const noexcept override { return hash_; }
+    [[nodiscard]] std::span<const Expr> args() const noexcept override { return args_; }
+    [[nodiscard]] bool equals(const Basic& other) const noexcept override;
+    [[nodiscard]] std::string str() const override;
+    [[nodiscard]] const Expr& operand() const noexcept { return args_[0]; }
+
+private:
+    Expr args_[1];
+    std::size_t hash_;
+};
+
+class SYMPP_EXPORT BoolAnd final : public Basic {
+public:
+    explicit BoolAnd(std::vector<Expr> args);
+    [[nodiscard]] TypeId type_id() const noexcept override { return TypeId::Boolean; }
+    [[nodiscard]] std::size_t hash() const noexcept override { return hash_; }
+    [[nodiscard]] std::span<const Expr> args() const noexcept override { return args_; }
+    [[nodiscard]] bool equals(const Basic& other) const noexcept override;
+    [[nodiscard]] std::string str() const override;
+
+private:
+    std::vector<Expr> args_;
+    std::size_t hash_;
+};
+
+class SYMPP_EXPORT BoolOr final : public Basic {
+public:
+    explicit BoolOr(std::vector<Expr> args);
+    [[nodiscard]] TypeId type_id() const noexcept override { return TypeId::Boolean; }
+    [[nodiscard]] std::size_t hash() const noexcept override { return hash_; }
+    [[nodiscard]] std::span<const Expr> args() const noexcept override { return args_; }
+    [[nodiscard]] bool equals(const Basic& other) const noexcept override;
+    [[nodiscard]] std::string str() const override;
+
+private:
+    std::vector<Expr> args_;
+    std::size_t hash_;
+};
+
+// Auto-evaluating connective factories.
+[[nodiscard]] SYMPP_EXPORT Expr bool_not(const Expr& a);
+[[nodiscard]] SYMPP_EXPORT Expr bool_and(std::vector<Expr> args);
+[[nodiscard]] SYMPP_EXPORT Expr bool_and(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr bool_or(std::vector<Expr> args);
+[[nodiscard]] SYMPP_EXPORT Expr bool_or(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr bool_xor(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr implies(const Expr& a, const Expr& b);
+[[nodiscard]] SYMPP_EXPORT Expr equivalent(const Expr& a, const Expr& b);
+
+// Connective classification (the connectives all share TypeId::Boolean).
+[[nodiscard]] SYMPP_EXPORT bool is_bool_not(const Expr& e) noexcept;
+[[nodiscard]] SYMPP_EXPORT bool is_bool_and(const Expr& e) noexcept;
+[[nodiscard]] SYMPP_EXPORT bool is_bool_or(const Expr& e) noexcept;
+
 // ----- Factories -------------------------------------------------------------
 
 [[nodiscard]] SYMPP_EXPORT Expr eq(const Expr& a, const Expr& b);

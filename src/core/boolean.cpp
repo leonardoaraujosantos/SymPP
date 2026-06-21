@@ -1,8 +1,10 @@
 #include <sympp/core/boolean.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include <gmpxx.h>
 #include <mpfr.h>
@@ -159,6 +161,144 @@ namespace {
 }
 
 }  // namespace
+
+// ----- Logical connectives ---------------------------------------------------
+
+bool is_bool_not(const Expr& e) noexcept {
+    return e && dynamic_cast<const BoolNot*>(e.get()) != nullptr;
+}
+bool is_bool_and(const Expr& e) noexcept {
+    return e && dynamic_cast<const BoolAnd*>(e.get()) != nullptr;
+}
+bool is_bool_or(const Expr& e) noexcept {
+    return e && dynamic_cast<const BoolOr*>(e.get()) != nullptr;
+}
+
+namespace {
+[[nodiscard]] std::string paren_if_compound(const Expr& e) {
+    if (is_bool_and(e) || is_bool_or(e)) return "(" + e->str() + ")";
+    return e->str();
+}
+[[nodiscard]] std::string join_ops(const std::vector<Expr>& xs, const char* sep) {
+    std::string s;
+    for (std::size_t i = 0; i < xs.size(); ++i) {
+        if (i) s += sep;
+        s += paren_if_compound(xs[i]);
+    }
+    return s;
+}
+}  // namespace
+
+BoolNot::BoolNot(Expr arg) : args_{std::move(arg)} {
+    hash_ = hash_combine(0xC0DE'0741ULL, args_[0]->hash());
+}
+bool BoolNot::equals(const Basic& other) const noexcept {
+    const auto* p = dynamic_cast<const BoolNot*>(&other);
+    return p && args_[0]->equals(*p->args_[0]);
+}
+std::string BoolNot::str() const { return "~" + paren_if_compound(args_[0]); }
+
+BoolAnd::BoolAnd(std::vector<Expr> args) : args_(std::move(args)) {
+    std::size_t h = 0xA0DD'0011ULL;
+    for (const auto& x : args_) h = hash_combine(h, x->hash());
+    hash_ = h;
+}
+bool BoolAnd::equals(const Basic& other) const noexcept {
+    const auto* p = dynamic_cast<const BoolAnd*>(&other);
+    if (!p || p->args_.size() != args_.size()) return false;
+    for (std::size_t i = 0; i < args_.size(); ++i) {
+        if (!args_[i]->equals(*p->args_[i])) return false;
+    }
+    return true;
+}
+std::string BoolAnd::str() const { return join_ops(args_, " & "); }
+
+BoolOr::BoolOr(std::vector<Expr> args) : args_(std::move(args)) {
+    std::size_t h = 0x0011'0022ULL;
+    for (const auto& x : args_) h = hash_combine(h, x->hash());
+    hash_ = h;
+}
+bool BoolOr::equals(const Basic& other) const noexcept {
+    const auto* p = dynamic_cast<const BoolOr*>(&other);
+    if (!p || p->args_.size() != args_.size()) return false;
+    for (std::size_t i = 0; i < args_.size(); ++i) {
+        if (!args_[i]->equals(*p->args_[i])) return false;
+    }
+    return true;
+}
+std::string BoolOr::str() const { return join_ops(args_, " | "); }
+
+namespace {
+// Sort + de-duplicate operands by their printed form (canonical, stable).
+void canonicalize(std::vector<Expr>& xs) {
+    std::sort(xs.begin(), xs.end(),
+              [](const Expr& a, const Expr& b) { return a->str() < b->str(); });
+    xs.erase(std::unique(xs.begin(), xs.end(),
+                         [](const Expr& a, const Expr& b) { return a->equals(*b); }),
+             xs.end());
+}
+[[nodiscard]] bool contains_str(const std::vector<Expr>& xs, const std::string& s) {
+    for (const auto& x : xs) if (x->str() == s) return true;
+    return false;
+}
+}  // namespace
+
+Expr bool_not(const Expr& a) {
+    if (is_boolean_true(a)) return S::False();
+    if (is_boolean_false(a)) return S::True();
+    if (is_bool_not(a)) return static_cast<const BoolNot&>(*a).operand();
+    return make<BoolNot>(a);
+}
+
+Expr bool_and(std::vector<Expr> args) {
+    std::vector<Expr> flat;
+    for (auto& a : args) {
+        if (is_boolean_true(a)) continue;            // identity
+        if (is_boolean_false(a)) return S::False();  // annihilator
+        if (is_bool_and(a)) {
+            for (const auto& sub : a->args()) flat.push_back(sub);
+        } else {
+            flat.push_back(a);
+        }
+    }
+    canonicalize(flat);
+    for (const auto& x : flat) {                      // x ∧ ¬x = False
+        if (contains_str(flat, bool_not(x)->str())) return S::False();
+    }
+    if (flat.empty()) return S::True();
+    if (flat.size() == 1) return flat[0];
+    return make<BoolAnd>(std::move(flat));
+}
+Expr bool_and(const Expr& a, const Expr& b) { return bool_and(std::vector<Expr>{a, b}); }
+
+Expr bool_or(std::vector<Expr> args) {
+    std::vector<Expr> flat;
+    for (auto& a : args) {
+        if (is_boolean_false(a)) continue;          // identity
+        if (is_boolean_true(a)) return S::True();   // annihilator
+        if (is_bool_or(a)) {
+            for (const auto& sub : a->args()) flat.push_back(sub);
+        } else {
+            flat.push_back(a);
+        }
+    }
+    canonicalize(flat);
+    for (const auto& x : flat) {                     // x ∨ ¬x = True
+        if (contains_str(flat, bool_not(x)->str())) return S::True();
+    }
+    if (flat.empty()) return S::False();
+    if (flat.size() == 1) return flat[0];
+    return make<BoolOr>(std::move(flat));
+}
+Expr bool_or(const Expr& a, const Expr& b) { return bool_or(std::vector<Expr>{a, b}); }
+
+Expr bool_xor(const Expr& a, const Expr& b) {
+    return bool_or(bool_and(a, bool_not(b)), bool_and(bool_not(a), b));
+}
+Expr implies(const Expr& a, const Expr& b) { return bool_or(bool_not(a), b); }
+Expr equivalent(const Expr& a, const Expr& b) {
+    return bool_or(bool_and(a, b), bool_and(bool_not(a), bool_not(b)));
+}
 
 Expr eq(const Expr& a, const Expr& b) { return build_rel(RelKind::Eq, a, b); }
 Expr ne(const Expr& a, const Expr& b) { return build_rel(RelKind::Ne, a, b); }

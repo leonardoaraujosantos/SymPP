@@ -189,6 +189,19 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Propositional logic (cross-check satisfiable / equivalence) ---
+    if op == "logic":
+        from sympy.logic import satisfiable as _sat
+        fn = req["fn"]
+        if fn == "satisfiable":
+            return {"ok": True, "result": bool(_sat(_sympify(req["expr"])))}
+        if fn == "equivalent":
+            a = _sympify(req["a"])
+            b = _sympify(req["b"])
+            valid = _sat(sympy.Not(sympy.Equivalent(a, b))) is False
+            return {"ok": True, "result": bool(valid)}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown logic fn: {fn!r}"}
+
     # --- Number theory (cross-check factorint/divisors/igcdex/jacobi) ---
     if op == "ntheory":
         fn = req["fn"]

@@ -52,6 +52,7 @@ target_sources(sympp
         functions/ntheory.cpp
         functions/orthopolys.cpp
         functions/special.cpp
+        logic/logic.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
         integrals/quadrature.cpp
