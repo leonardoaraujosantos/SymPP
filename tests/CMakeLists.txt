@@ -29,6 +29,7 @@ target_sources(sympp_tests
         core/undefined_function_test.cpp
         functions/combinatorial_test.cpp
         functions/ntheory_test.cpp
+        functions/orthopolys_test.cpp
         functions/exponential_test.cpp
         functions/hyperbolic_test.cpp
         functions/hypergeometric_test.cpp
