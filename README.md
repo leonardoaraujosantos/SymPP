@@ -396,6 +396,7 @@ and fails on any *new* divergence outside the whitelisted intentional set.
 - [docs/07-coding-standards.md](docs/07-coding-standards.md)
 - [docs/08-tutorial.md](docs/08-tutorial.md) — **worked examples**
 - [docs/09-known-issues.md](docs/09-known-issues.md) — SymPy-parity bug log
+- [docs/10-parity-roadmap.md](docs/10-parity-roadmap.md) — forward plan for the remaining SymPy-parity work
 - [openspec/](openspec/) — spec-driven change specs (see
   `openspec/changes/` and `openspec/specs/`; `openspec list`)
 
