@@ -1,6 +1,8 @@
 #include <sympp/matrices/matrix.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -11,6 +13,7 @@
 #include <sympp/core/expand.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/polys/poly.hpp>
+#include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
@@ -385,6 +388,30 @@ std::vector<Expr> Matrix::eigenvals() const {
     Expr cp = charpoly(lam);
     Poly p(expand(cp), lam);
     return p.roots();
+}
+
+std::vector<Expr> Matrix::singular_values() const {
+    // The eigenvalues of Aᴴ·A are the squared singular values (σ² ≥ 0).
+    Matrix gram = conjugate_transpose() * (*this);
+    std::vector<Expr> squared = gram.eigenvals();
+    std::vector<Expr> sv;
+    sv.reserve(squared.size());
+    for (const auto& s2 : squared) sv.push_back(simplify(sqrt(s2)));
+
+    // Numeric value of an expression, if it evaluates to a real Float.
+    auto numeric = [](const Expr& e) -> std::optional<double> {
+        Expr f = evalf(e, 30);
+        if (f && f->type_id() == TypeId::Float) {
+            return mpfr_get_d(static_cast<const Float&>(*f).value(), MPFR_RNDN);
+        }
+        return std::nullopt;
+    };
+    // Descending order (matching SymPy) when the values are numeric.
+    std::stable_sort(sv.begin(), sv.end(), [&](const Expr& a, const Expr& b) {
+        auto na = numeric(a), nb = numeric(b);
+        return na.has_value() && nb.has_value() && *na > *nb;
+    });
+    return sv;
 }
 
 std::vector<std::pair<Expr, std::vector<Matrix>>>

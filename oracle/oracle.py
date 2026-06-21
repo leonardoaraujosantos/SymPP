@@ -189,6 +189,15 @@ def handle(req):
         except Exception as ex:
             return {"ok": False, "error": type(ex).__name__, "detail": str(ex)}
 
+    # --- Matrix (cross-check singular values) ---
+    if op == "matrix":
+        rows = [[sympy.sympify(c) for c in row] for row in req["rows"]]
+        M = sympy.Matrix(rows)
+        if req["fn"] == "singular_values":
+            return {"ok": True,
+                    "result": ";".join(_to_str(s) for s in M.singular_values())}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown matrix fn: {req['fn']!r}"}
+
     # --- Statistics (cross-check moments / density / cdf) ---
     if op == "stats":
         import sympy.stats as st

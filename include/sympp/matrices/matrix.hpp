@@ -89,6 +89,12 @@ public:
     // them; degree-5+ irreducible parts contribute lazy CRootOf entries.
     [[nodiscard]] std::vector<Expr> eigenvals() const;
 
+    // Singular values in descending order — the square roots of the eigenvalues
+    // of Aᴴ·A (with multiplicity). Symbolic; requires those eigenvalues to be
+    // computable (closed-form roots of the characteristic polynomial).
+    // Reference: sympy/matrices/matrices.py::singular_values.
+    [[nodiscard]] std::vector<Expr> singular_values() const;
+
     // Eigenvectors. Returns a list of (eigenvalue, basis_of_eigenspace)
     // pairs. Each basis is a list of column-vector Matrices.
     [[nodiscard]] std::vector<std::pair<Expr, std::vector<Matrix>>>
