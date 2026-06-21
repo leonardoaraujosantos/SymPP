@@ -56,6 +56,7 @@ target_sources(sympp
         functions/special.cpp
         geometry/geometry.cpp
         logic/logic.cpp
+        physics/physics.cpp
         stats/stats.cpp
         tensor/tensor.cpp
         vector/vector_calculus.cpp
