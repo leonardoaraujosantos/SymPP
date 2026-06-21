@@ -414,6 +414,56 @@ std::vector<Expr> Matrix::singular_values() const {
     return sv;
 }
 
+std::tuple<Matrix, Matrix, Matrix> Matrix::svd() const {
+    const Matrix& A = *this;
+    std::size_t m = rows_, n = cols_;
+    Matrix G = A.conjugate_transpose() * A;  // n×n, symmetric PSD
+
+    auto dot = [](const Matrix& a, const Matrix& b) {
+        Expr s = S::Zero();
+        for (std::size_t i = 0; i < a.rows(); ++i) s = s + a.at(i, 0) * b.at(i, 0);
+        return simplify(s);
+    };
+    auto numeric = [](const Expr& e) -> double {
+        Expr f = evalf(e, 30);
+        if (f && f->type_id() == TypeId::Float) {
+            return mpfr_get_d(static_cast<const Float&>(*f).value(), MPFR_RNDN);
+        }
+        return 0.0;
+    };
+
+    struct SV { Expr sigma; Matrix v; double approx; };
+    std::vector<SV> items;
+    for (auto& [lam, basis] : G.eigenvects()) {
+        if (simplify(lam) == S::Zero()) continue;  // zero σ ⇒ skip (economy SVD)
+        std::vector<Matrix> ortho;                 // Gram-Schmidt the eigenspace
+        for (Matrix w : basis) {
+            for (const auto& q : ortho) w = w - q.scalar_mul(dot(q, w));
+            Expr nrm2 = dot(w, w);
+            if (simplify(nrm2) == S::Zero()) continue;
+            Matrix qn = w.scalar_mul(pow(sqrt(nrm2), integer(-1)));
+            for (std::size_t i = 0; i < qn.rows(); ++i) qn.set(i, 0, simplify(qn.at(i, 0)));
+            ortho.push_back(std::move(qn));
+        }
+        Expr sigma = simplify(sqrt(lam));
+        double a = numeric(sigma);
+        for (auto& q : ortho) items.push_back({sigma, q, a});
+    }
+    std::stable_sort(items.begin(), items.end(),
+                     [](const SV& a, const SV& b) { return a.approx > b.approx; });
+
+    std::size_t r = items.size();
+    Matrix U = Matrix::zeros(m, r), Sigma = Matrix::zeros(r, r), V = Matrix::zeros(n, r);
+    for (std::size_t j = 0; j < r; ++j) {
+        for (std::size_t i = 0; i < n; ++i) V.set(i, j, items[j].v.at(i, 0));
+        Sigma.set(j, j, items[j].sigma);
+        Matrix Av = A * items[j].v;  // m×1
+        Expr inv = pow(items[j].sigma, integer(-1));
+        for (std::size_t i = 0; i < m; ++i) U.set(i, j, simplify(mul(Av.at(i, 0), inv)));
+    }
+    return {U, Sigma, V};
+}
+
 std::vector<std::pair<Expr, std::vector<Matrix>>>
 Matrix::eigenvects() const {
     if (!is_square()) {

@@ -60,3 +60,30 @@ TEST_CASE("singular values: diagonal and known cases", "[matrix][svd]") {
     REQUIRE(sv[0] == integer(5));  // descending
     REQUIRE(sv[1] == integer(2));
 }
+
+TEST_CASE("full SVD reconstructs A = U S Vᵀ", "[matrix][svd][oracle]") {
+    auto reconstructs = [](const Matrix& A) {
+        auto [U, S, V] = A.svd();
+        Matrix R = U * S * V.transpose();
+        REQUIRE(R.rows() == A.rows());
+        REQUIRE(R.cols() == A.cols());
+        for (std::size_t i = 0; i < A.rows(); ++i) {
+            for (std::size_t j = 0; j < A.cols(); ++j) {
+                if (!sympp::testing::Oracle::instance().equivalent(R.at(i, j)->str(),
+                                                                   A.at(i, j)->str())) {
+                    return false;
+                }
+            }
+        }
+        // S is diagonal with descending positive entries.
+        for (std::size_t k = 0; k + 1 < S.rows(); ++k) {
+            REQUIRE(S.at(k, k + 1) == integer(0));
+        }
+        return true;
+    };
+
+    REQUIRE(reconstructs(Matrix{{integer(3), integer(0)}, {integer(0), integer(4)}}));
+    REQUIRE(reconstructs(Matrix{{integer(2), integer(1)}, {integer(1), integer(2)}}));
+    REQUIRE(reconstructs(Matrix{{integer(1), integer(1)}, {integer(0), integer(1)}}));
+    REQUIRE(reconstructs(Matrix{{integer(1), integer(2)}, {integer(2), integer(4)}}));  // rank 1
+}

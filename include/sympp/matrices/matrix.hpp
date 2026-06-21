@@ -95,6 +95,14 @@ public:
     // Reference: sympy/matrices/matrices.py::singular_values.
     [[nodiscard]] std::vector<Expr> singular_values() const;
 
+    // Economy singular value decomposition A = U · Σ · Vᵀ, returned as the
+    // tuple (U, S, V): U is m×r with orthonormal columns, S is the r×r diagonal
+    // of positive singular values (descending), V is n×r with orthonormal
+    // columns, where r = rank(A). Built from the eigendecomposition of AᵀA with
+    // Gram–Schmidt orthonormalization; requires those eigenvalues to be
+    // computable. Reference: sympy/matrices/decompositions.py.
+    [[nodiscard]] std::tuple<Matrix, Matrix, Matrix> svd() const;
+
     // Eigenvectors. Returns a list of (eigenvalue, basis_of_eigenspace)
     // pairs. Each basis is a list of column-vector Matrices.
     [[nodiscard]] std::vector<std::pair<Expr, std::vector<Matrix>>>
