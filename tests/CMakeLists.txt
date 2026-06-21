@@ -14,6 +14,7 @@ target_sources(sympp_tests
         core/satask_test.cpp
         core/rewrite_test.cpp
         core/lambdify_test.cpp
+        core/lambdify_jit_test.cpp
         core/parity_probe.cpp
         core/collection_test.cpp
         core/expand_test.cpp

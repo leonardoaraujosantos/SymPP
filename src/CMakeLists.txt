@@ -20,6 +20,7 @@ target_sources(sympp
         core/infinity.cpp
         core/integer.cpp
         core/lambdify.cpp
+        core/lambdify_llvm.cpp
         core/mul.cpp
         core/number_arith.cpp
         core/number_symbol.cpp
@@ -174,6 +175,21 @@ target_link_libraries(sympp
         SymPP::warnings
         SymPP::sanitizers
 )
+
+# Optional LLVM ORC-JIT backend for lambdify. Enabled automatically when LLVM
+# is found; the core/lambdify_llvm.cpp source is always compiled (it provides a
+# throwing stub when the JIT is unavailable, so the symbol always exists).
+find_package(LLVM CONFIG QUIET)
+option(SYMPP_ENABLE_LLVM_JIT "Build the lambdify LLVM ORC-JIT backend" ${LLVM_FOUND})
+if(SYMPP_ENABLE_LLVM_JIT AND LLVM_FOUND)
+    message(STATUS "  LLVM JIT:             ${LLVM_PACKAGE_VERSION} (lambdify backend ON)")
+    llvm_map_components_to_libnames(SYMPP_LLVM_LIBS core orcjit native support executionengine)
+    target_include_directories(sympp SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+    target_compile_definitions(sympp PRIVATE SYMPP_HAVE_LLVM_JIT ${LLVM_DEFINITIONS})
+    target_link_libraries(sympp PRIVATE ${SYMPP_LLVM_LIBS})
+else()
+    message(STATUS "  LLVM JIT:             not found (lambdify falls back to interpreter)")
+endif()
 
 set_target_properties(sympp PROPERTIES
     VERSION ${PROJECT_VERSION}
