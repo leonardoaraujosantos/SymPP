@@ -183,4 +183,47 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr coshint(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr polylog(const Expr& s, const Expr& z);
 
+// ----- Fresnel integrals & generalized exponential integral ------------------
+
+class SYMPP_EXPORT Fresnels final : public Function {
+public:
+    explicit Fresnels(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Fresnels;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "fresnels"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Fresnelc final : public Function {
+public:
+    explicit Fresnelc(Expr arg);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Fresnelc;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "fresnelc"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] std::optional<bool> ask(AssumptionKey k) const noexcept override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+class SYMPP_EXPORT Expint final : public Function {
+public:
+    Expint(Expr nu, Expr z);
+    [[nodiscard]] FunctionId function_id() const noexcept override {
+        return FunctionId::Expint;
+    }
+    [[nodiscard]] std::string_view name() const noexcept override { return "expint"; }
+    [[nodiscard]] Expr rebuild(std::vector<Expr> new_args) const override;
+    [[nodiscard]] Expr diff_arg(std::size_t i) const override;
+};
+
+// Fresnel sine/cosine integrals S(x) = ∫₀ˣ sin(πt²/2) dt, C(x) similarly.
+[[nodiscard]] SYMPP_EXPORT Expr fresnels(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr fresnelc(const Expr& arg);
+// Generalized exponential integral Eₙ(z) = ∫₁^∞ e^{−z t} / tⁿ dt.
+[[nodiscard]] SYMPP_EXPORT Expr expint(const Expr& nu, const Expr& z);
+
 }  // namespace sympp

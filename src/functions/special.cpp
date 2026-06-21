@@ -7,6 +7,7 @@
 #include <mpfr.h>
 
 #include <sympp/core/add.hpp>
+#include <sympp/core/add.hpp>
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/infinity.hpp>
@@ -512,6 +513,83 @@ Expr polylog(const Expr& s, const Expr& z) {
         }
     }
     return make<Polylog>(s, z);
+}
+
+// ----- Fresnel integrals & generalized exponential integral ------------------
+
+namespace {
+// π·x²/2 — the Fresnel phase.
+[[nodiscard]] Expr fresnel_phase(const Expr& x) {
+    return mul(mul(rational(1, 2), S::Pi()), pow(x, integer(2)));
+}
+}  // namespace
+
+Fresnels::Fresnels(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Fresnels);
+}
+Expr Fresnels::rebuild(std::vector<Expr> new_args) const { return fresnels(new_args[0]); }
+std::optional<bool> Fresnels::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Fresnels::diff_arg(std::size_t /*i*/) const {
+    return sin(fresnel_phase(args_[0]));  // S'(x) = sin(πx²/2)
+}
+
+Expr fresnels(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    if (arg->type_id() == TypeId::Infinity) return S::Half();
+    if (arg->type_id() == TypeId::NegativeInfinity) return rational(-1, 2);
+    if (auto p = strip_neg(arg); p.has_value()) {  // odd
+        return mul(S::NegativeOne(), fresnels(*p));
+    }
+    return make<Fresnels>(arg);
+}
+
+Fresnelc::Fresnelc(Expr arg) : Function(std::vector<Expr>{std::move(arg)}) {
+    compute_hash(FunctionId::Fresnelc);
+}
+Expr Fresnelc::rebuild(std::vector<Expr> new_args) const { return fresnelc(new_args[0]); }
+std::optional<bool> Fresnelc::ask(AssumptionKey k) const noexcept {
+    if (k == AssumptionKey::Real && is_real(args_[0]) == true) return true;
+    return std::nullopt;
+}
+Expr Fresnelc::diff_arg(std::size_t /*i*/) const {
+    return cos(fresnel_phase(args_[0]));  // C'(x) = cos(πx²/2)
+}
+
+Expr fresnelc(const Expr& arg) {
+    if (arg == S::Zero()) return S::Zero();
+    if (arg->type_id() == TypeId::Infinity) return S::Half();
+    if (arg->type_id() == TypeId::NegativeInfinity) return rational(-1, 2);
+    if (auto p = strip_neg(arg); p.has_value()) {  // odd
+        return mul(S::NegativeOne(), fresnelc(*p));
+    }
+    return make<Fresnelc>(arg);
+}
+
+Expint::Expint(Expr nu, Expr z)
+    : Function(std::vector<Expr>{std::move(nu), std::move(z)}) {
+    compute_hash(FunctionId::Expint);
+}
+Expr Expint::rebuild(std::vector<Expr> new_args) const {
+    return expint(new_args[0], new_args[1]);
+}
+Expr Expint::diff_arg(std::size_t i) const {
+    // d/dz Eₙ(z) = −E_{n−1}(z); the order-derivative (i==0) is non-elementary.
+    if (i == 1) {
+        return mul(S::NegativeOne(),
+                   expint(add(args_[0], S::NegativeOne()), args_[1]));
+    }
+    return S::Zero();
+}
+
+Expr expint(const Expr& nu, const Expr& z) {
+    if (nu == S::Zero()) {  // E₀(z) = e^{−z}/z
+        return mul(exp(mul(S::NegativeOne(), z)), pow(z, S::NegativeOne()));
+    }
+    if (z->type_id() == TypeId::Infinity) return S::Zero();  // Eₙ(∞) = 0
+    return make<Expint>(nu, z);
 }
 
 }  // namespace sympp

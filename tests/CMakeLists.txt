@@ -39,6 +39,7 @@ target_sources(sympp_tests
         functions/inverse_trig_test.cpp
         functions/miscellaneous_test.cpp
         functions/special_test.cpp
+        functions/special_integrals_test.cpp
         functions/trigonometric_test.cpp
         integrals/integrate_test.cpp
         integrals/transforms_test.cpp
