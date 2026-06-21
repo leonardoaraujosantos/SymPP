@@ -40,6 +40,10 @@ demand with cost.
   Christoffel/Ricci.
 - **Tensor algebra** — dense tensors: product, contraction, raise/lower.
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
+- **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
+- **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
+- **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
+  conjugate momentum.
 
 ## How to read effort vs. session-size
 
@@ -61,7 +65,7 @@ gains.
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
 | Berlekamp–Zassenhaus + Hensel lifting | `polys/factortools.py` | 2 wk | Medium | Robust univariate factoring over ℤ |
-| Symbolic SVD | `matrices/` | 1 wk | Medium | `singular_values()` ✅ shipped; full U·Σ·Vᴴ factorization remains |
+| ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |
 | General Jordan form (chains > 2) | `matrices/eigen.py` | 1 wk | Medium | Filtration algorithm; eigenvalue-limited |
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
 | Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | High | Most stages shipped; remaining `0·∞` divergent-exp subclass |
@@ -85,7 +89,7 @@ gains.
 | ✅ Tensor algebra (dense) | `tensor/` | — | shipped (`tensor/tensor.hpp`; product/contraction/raise/lower) |
 | Combinatorics & group theory | `combinatorics/` | 3 wk | Medium | Permutations, finite groups |
 | ✅ Cryptography (RSA/DH/ElGamal) | `crypto/` | — | shipped (`crypto/crypto.hpp`); ECC remains |
-| Physics (mechanics, quantum, optics) | `physics/*` | 4 wk each | Medium | Large, niche submodules |
+| 🟡 Physics (mechanics, quantum, optics) | `physics/*` | 4 wk each | Medium | core shipped (`physics/physics.hpp`: commutators/Pauli/ladder, ABCD optics, conjugate momentum); full submodules remain |
 
 ## Category D — modules outside the original 0–24 plan
 
@@ -95,7 +99,7 @@ gains.
 | Orthogonal polynomials (Legendre, Chebyshev, …) | `special.polynomials` | — | — | ✅ shipped (`functions/orthopolys.hpp`) |
 | `rewrite(target)` cross-cutting API (exp↔trig…) | core | — | — | ✅ shipped (`core/rewrite.hpp`); extend with more targets |
 | ✅ Logic & boolean algebra (`satisfiable`, `simplify_logic`) | `logic` | — | shipped (`logic/logic.hpp`) |
-| LaTeX parser (round-trip) | `parsing.latex` | 2 wk | Medium | Input ergonomics |
+| ✅ LaTeX parser (round-trip) | `parsing.latex` | — | shipped (`parsing/latex_parser.hpp`) |
 | Discrete (FFT/NTT/convolution/Möbius) | `discrete` | 2 wk | Low–Med | |
 | DomainMatrix (fast poly-domain matrices) | `polys.matrices` | 3 wk | Medium | Order-of-magnitude speedups |
 | Holonomic fns, algebraic number fields, Galois tools, quaternions, NDim arrays, unification, extra printers (MathML/Rust/Julia), codegen AST/autowrap | various | ~13 wk | Low | |
