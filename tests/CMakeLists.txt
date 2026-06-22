@@ -48,6 +48,7 @@ target_sources(sympp_tests
         integrals/integrate_test.cpp
         integrals/transforms_test.cpp
         integrals/meijerint_test.cpp
+        integrals/hankel_test.cpp
         geometry/geometry_test.cpp
         logic/logic_test.cpp
         physics/physics_test.cpp

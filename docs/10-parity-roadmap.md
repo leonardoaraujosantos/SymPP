@@ -51,6 +51,8 @@ demand with cost.
 - **Combinatorics & group theory** — permutations, permutation groups, standard
   groups, integer partitions.
 - **Number-theory extensions** — CRT, discrete log, linear Diophantine.
+- **Hankel transform** — `hankel_transform` (order-ν, table-driven; Bessel-enabled).
+- **Meijer-G product convolution** — `meijerg_convolution`, ∫₀^∞ G₁·G₂ via Mellin–Parseval, wired into `integrate`.
 - **Bessel functions** — besselj/bessely/besseli/besselk (special values, ±1/2
   elementary closed forms, derivative recurrences, parser registration).
 - **Meijer-G engine** — generic-case Slater reduction (Phase 1), Mellin-transform

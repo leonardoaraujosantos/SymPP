@@ -1161,4 +1161,70 @@ Expr cosine_transform(const Expr& f, const Expr& t, const Expr& w) {
     return function_symbol("CosineTransform")(f, t, w);
 }
 
+namespace {
+// Match e^{−a·r²} (a free of r); return a on success.
+[[nodiscard]] std::optional<Expr> match_gaussian(const Expr& f, const Expr& r) {
+    if (f->type_id() != TypeId::Function) return std::nullopt;
+    const auto& fn = static_cast<const Function&>(*f);
+    if (fn.function_id() != FunctionId::Exp || fn.args().size() != 1) return std::nullopt;
+    Expr q = simplify(mul(fn.args()[0], pow(pow(r, integer(2)), integer(-1))));  // arg/r²
+    if (has(q, r)) return std::nullopt;
+    return mul(S::NegativeOne(), q);  // a = −(arg/r²)
+}
+}  // namespace
+
+Expr hankel_transform(const Expr& f, const Expr& r, const Expr& k, const Expr& nu) {
+    // Linearity.
+    if (f->type_id() == TypeId::Add) {
+        std::vector<Expr> terms;
+        for (const auto& a : f->args()) terms.push_back(hankel_transform(a, r, k, nu));
+        return add(std::move(terms));
+    }
+    if (f->type_id() == TypeId::Mul) {
+        std::vector<Expr> consts, rest;
+        for (const auto& a : f->args()) (has(a, r) ? rest : consts).push_back(a);
+        if (!consts.empty() && !rest.empty()) {
+            return mul(mul(consts), hankel_transform(mul(rest), r, k, nu));
+        }
+    }
+    const bool nu0 = (nu == S::Zero());
+    const bool nu1 = (nu == integer(1));
+    Expr k2 = pow(k, integer(2));
+
+    // 1/r,  ν=0  →  1/k.
+    if (nu0 && f->type_id() == TypeId::Pow && f->args()[0] == r &&
+        f->args()[1] == integer(-1)) {
+        return pow(k, integer(-1));
+    }
+    // e^{−a·r}:  ν=0 → a/(a²+k²)^{3/2},  ν=1 → k/(a²+k²)^{3/2}.
+    if (auto a = match_exp_neg(f, r)) {
+        Expr denom = pow(pow(*a, integer(2)) + k2, rational(3, 2));
+        if (nu0) return mul(*a, pow(denom, integer(-1)));
+        if (nu1) return mul(k, pow(denom, integer(-1)));
+    }
+    // e^{−a·r²},  ν=0  →  e^{−k²/(4a)}/(2a).
+    if (auto a = match_gaussian(f, r)) {
+        if (nu0) {
+            Expr e = exp(mul(S::NegativeOne(), mul(k2, pow(mul(integer(4), *a), integer(-1)))));
+            return mul(e, pow(mul(integer(2), *a), integer(-1)));
+        }
+    }
+    // r·e^{−a·r²},  ν=1  →  k·e^{−k²/(4a)}/(4a²).
+    if (nu1 && f->type_id() == TypeId::Mul) {
+        std::vector<Expr> rest;
+        bool has_r = false;
+        std::optional<Expr> a;
+        for (const auto& fac : f->args()) {
+            if (fac == r && !has_r) { has_r = true; continue; }
+            if (auto ga = match_gaussian(fac, r); ga && !a) { a = ga; continue; }
+            rest.push_back(fac);
+        }
+        if (has_r && a && rest.empty()) {
+            Expr e = exp(mul(S::NegativeOne(), mul(k2, pow(mul(integer(4), *a), integer(-1)))));
+            return mul(k, mul(e, pow(mul(integer(4), pow(*a, integer(2))), integer(-1))));
+        }
+    }
+    return function_symbol("HankelTransform")(std::vector<Expr>{f, r, k, nu});
+}
+
 }  // namespace sympp

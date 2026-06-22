@@ -93,4 +93,11 @@ namespace sympp {
                                                    const Expr& t,
                                                    const Expr& w);
 
+// ---- Hankel transform of order ν ------------------------------------------
+// F_ν(k) = ∫₀^∞ f(r)·J_ν(k·r)·r dr. Table-driven for the common decaying
+// kernels (e^{−a·r}, e^{−a·r²}, 1/r, r·e^{−a·r²}); other inputs return an
+// unevaluated HankelTransform node. Enabled by the Bessel-function family.
+[[nodiscard]] SYMPP_EXPORT Expr hankel_transform(const Expr& f, const Expr& r,
+                                                 const Expr& k, const Expr& nu);
+
 }  // namespace sympp
