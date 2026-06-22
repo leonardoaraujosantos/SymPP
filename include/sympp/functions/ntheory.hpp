@@ -85,6 +85,12 @@ struct DiophantineLinear {
 [[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>> sum_of_two_squares(
     const Expr& n);
 
+// Represent n ≥ 0 as a² + b² + c² with 0 ≤ a ≤ b ≤ c (a ternary quadratic form),
+// or std::nullopt when impossible — by Legendre's three-square theorem exactly
+// when n = 4ᵃ·(8b+7).
+[[nodiscard]] SYMPP_EXPORT std::optional<std::vector<Expr>> sum_of_three_squares(
+    const Expr& n);
+
 // Represent n ≥ 0 as a² + b² + c² + d² with a ≥ b ≥ c ≥ d ≥ 0 (Lagrange's
 // four-square theorem — always possible). std::nullopt only when n < 0.
 [[nodiscard]] SYMPP_EXPORT std::optional<std::vector<Expr>> sum_of_four_squares(

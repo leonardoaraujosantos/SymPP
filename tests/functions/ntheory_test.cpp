@@ -289,3 +289,24 @@ TEST_CASE("sum_of_four_squares: always reconstructs n (Lagrange)", "[ntheory]") 
     }
     REQUIRE_FALSE(sum_of_four_squares(integer(-1)).has_value());
 }
+
+TEST_CASE("sum_of_three_squares: ternary quadratic / Legendre theorem", "[ntheory]") {
+    auto ok = [&](long n) {
+        auto r = sum_of_three_squares(integer(n));
+        REQUIRE(r.has_value());
+        REQUIRE(r->size() == 3);
+        long s = 0, prev = -1;
+        for (const auto& e : *r) {
+            long v = std::stol(e->str());
+            s += v * v;
+            REQUIRE(v >= prev);  // sorted a ≤ b ≤ c
+            prev = v;
+        }
+        REQUIRE(s == n);
+    };
+    for (long n : {0, 1, 2, 3, 25, 30, 99, 1000}) ok(n);
+    // Legendre impossibility: n = 4^a(8b+7) → 7, 15, 23, 28, 112.
+    for (long n : {7, 15, 23, 28, 112}) {
+        REQUIRE_FALSE(sum_of_three_squares(integer(n)).has_value());
+    }
+}

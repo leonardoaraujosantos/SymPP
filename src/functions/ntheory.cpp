@@ -413,6 +413,30 @@ std::optional<std::pair<Expr, Expr>> sum_of_two_squares(const Expr& n) {
     return std::nullopt;
 }
 
+std::optional<std::vector<Expr>> sum_of_three_squares(const Expr& n) {
+    mpz_class zn = as_int(n, "sum_of_three_squares");
+    if (zn < 0) return std::nullopt;
+    // Legendre: impossible iff n = 4ᵃ·(8b+7).
+    {
+        mpz_class t = zn;
+        while (t > 0 && t % 4 == 0) t /= 4;
+        if (t % 8 == 7) return std::nullopt;
+    }
+    // Brute search with 0 ≤ a ≤ b ≤ c (guaranteed to succeed by the test above).
+    for (mpz_class a = 0; 3 * a * a <= zn; ++a) {
+        for (mpz_class b = a; a * a + 2 * b * b <= zn; ++b) {
+            mpz_class r = zn - a * a - b * b;
+            mpz_class c;
+            mpz_sqrt(c.get_mpz_t(), r.get_mpz_t());
+            if (c >= b && c * c == r) {
+                return std::vector<Expr>{make<Integer>(a), make<Integer>(b),
+                                         make<Integer>(c)};
+            }
+        }
+    }
+    return std::nullopt;  // unreachable when the Legendre test passed
+}
+
 std::optional<std::vector<Expr>> sum_of_four_squares(const Expr& n) {
     mpz_class zn = as_int(n, "sum_of_four_squares");
     if (zn < 0) return std::nullopt;
