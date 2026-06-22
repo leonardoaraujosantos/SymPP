@@ -58,7 +58,7 @@ demand with cost.
 - **Meijer-G engine** — generic-case Slater reduction (Phase 1), Mellin-transform
   definite integration (Phase 3), function→Meijer-G recognition (Phase 4), and
   the **confluent G^{2,0}_{0,2} → modified Bessel K** closed form (Phase 2);
-  OpenSpec `add-meijerg-slater-engine`. Remaining: the two-G `∫G₁·G₂` convolution.
+  OpenSpec `add-meijerg-slater-engine`, plus the two-G `∫G₁·G₂` Mellin–Parseval convolution. The Meijer-G engine is now feature-complete for the common cases.
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
@@ -79,9 +79,9 @@ gains.
 | Item | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
 | ✅ `lambdify` LLVM-JIT backend | `utilities.lambdify` | — | shipped (`core/lambdify_llvm.hpp`, optional/auto-on) |
-| 🟡 Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. **Mellin master formula shipped** (OpenSpec `add-meijerg-slater-engine`, Phase 3+4): `meijerg_mellin_transform`, `meijerg_integrate_0_inf`, function→Meijer-G recognition (`to_meijerg`), so `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)` routes through Meijer-G. Classic reducible integrals already evaluated via the heuristic engine. Remaining: grow the recognition table (trig/Bessel/erf), product `∫G₁·G₂` convolution, and general `integrate(…,0,∞)` dispatch |
+| 🟡 Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. **Mellin master formula shipped** (OpenSpec `add-meijerg-slater-engine`, Phase 3+4): `meijerg_mellin_transform`, `meijerg_integrate_0_inf`, function→Meijer-G recognition (`to_meijerg`), so `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)` routes through Meijer-G. Recognition table (exp/sin/cos via η·xᶜ → Gaussian/Dirichlet/Fresnel), product `∫G₁·G₂` convolution, and general `integrate(…,0,∞)` dispatch all shipped. Remaining: erf-core table growth |
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
-| 🟡 Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms. **Phase 1 shipped** (OpenSpec `add-meijerg-slater-engine`): generic-case Slater reduction `meijerg → Σ z^{b_k}·pFq`, wired into `hyperexpand` (G^{1,1}_{1,1}→1/(z+1), G^{2,0}_{0,2}→√π(cosh−sinh)(2√z), …). Remaining: confluent/log case, Mellin–Barnes definite integration, function→Meijer-G recognition |
+| 🟡 Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms. **Phase 1 shipped** (OpenSpec `add-meijerg-slater-engine`): generic-case Slater reduction `meijerg → Σ z^{b_k}·pFq`, wired into `hyperexpand` (G^{1,1}_{1,1}→1/(z+1), G^{2,0}_{0,2}→√π(cosh−sinh)(2√z), …). confluent→Bessel-K, Mellin–Barnes definite integration, and function→Meijer-G recognition all shipped |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
 | ✅ Berlekamp–Zassenhaus | `polys/factortools.py` | — | shipped `factor_zassenhaus` — Berlekamp mod a small prime, **multifactor Hensel lifting** to a prime power above the Landau–Mignotte bound, then recombination |
 | ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |
