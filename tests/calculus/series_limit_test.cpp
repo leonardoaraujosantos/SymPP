@@ -3191,6 +3191,27 @@ TEST_CASE("limit: small-angle substitution and the Gruntz oscillation (LIMIT-SMA
     REQUIRE(limit(mul(x, sin(x)), x, oo)->type_id() == TypeId::NaN);
 }
 
+// LIMIT-TERMINATION-1: deeply nested exp/log towers make the heuristic rewrite
+// search branch into tens of thousands of sub-queries. Memoization plus a
+// deterministic work budget guarantee limit() always *terminates* (returning an
+// honest nan when the general Gruntz MRV-set rewrite — deferred — would be needed)
+// instead of running unboundedly. This case previously hung indefinitely.
+TEST_CASE("limit: deep exp/log tower terminates (LIMIT-TERMINATION-1)",
+          "[6][limit][gruntz][termination]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto E = [&](const Expr& a) { return exp(a); };
+    // log(eˣ + log(x·e^{x·eˣ})) / eˣ — a three-level tower that floods L'Hôpital.
+    Expr tower = mul(x, E(mul(x, E(x))));
+    Expr e = mul(log(add(E(x), log(tower))), pow(E(x), integer(-1)));
+    Expr r = limit(e, x, oo);          // must return (not hang)
+    REQUIRE(r != nullptr);             // a determinate value or an honest nan
+    // The well-conditioned sub-towers still resolve correctly — the budget only
+    // bites the pathological full form, leaving the working cases untouched.
+    REQUIRE(limit(mul(pow(x, integer(-1)), log(mul(x, E(x)))), x, oo) == S::One());  // →1
+    REQUIRE(is_infinity(limit(log(add(E(x), log(tower))), x, oo)));                  // →∞
+}
+
 // LIMIT-HYPERBOLIC-1: combinations of sinh/cosh/tanh/coth at ±∞, where the closed
 // forms hide an exponential cancellation. Rewriting each hyperbolic of a diverging
 // argument to its eᵘ definition exposes it: sinh u + cosh u = eᵘ, cosh u − sinh u =

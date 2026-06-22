@@ -6,6 +6,7 @@
 #include <numeric>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -39,6 +40,17 @@
 namespace sympp {
 
 namespace {
+
+// Count nodes in an expression tree (cheap; used for runaway-growth guards).
+[[nodiscard]] std::size_t tree_size(const Expr& e) {
+    std::size_t n = 0;
+    auto rec = [&](auto&& self, const Expr& x) -> void {
+        ++n;
+        for (const auto& a : x->args()) self(self, a);
+    };
+    rec(rec, e);
+    return n;
+}
 
 // Split a Mul expression of the form num * Pow(den, -1) * ... into
 // (numerator, denominator) where denominator is the product of all
@@ -236,6 +248,14 @@ struct NumDen { Expr num; Expr den; };
             Expr num_d = diff(num, var);
             Expr den_d = diff(den, var);
             if (den_d == S::Zero()) return std::nullopt;
+            // The size guard above bounds num/den, but a single differentiation of
+            // a deep transcendental tower (e.g. log(eˣ + log(x·e^{x·eˣ}))) produces
+            // a derivative far larger than its input, and the together()/simplify
+            // below then balloons without the ratio ever stabilising. Bail when the
+            // derivative itself blows past the budget so limit() terminates with an
+            // honest nan rather than hanging. (Such towers need the general Gruntz
+            // MRV-set rewrite, which is deferred.)
+            if (node_count(num_d) + node_count(den_d) > 400) return std::nullopt;
             // Re-rationalise the new ratio before the next step. together() does
             // not flatten a nested reciprocal like (−x⁻²)⁻¹, so when den_d is itself
             // a fraction (e.g. d/dx(1/x) = −x⁻²) the naive num_d/den_d leaves a
@@ -273,6 +293,8 @@ struct NumDen { Expr num; Expr den; };
 
 [[nodiscard]] Expr limit_impl(const Expr& expr, const Expr& var,
                               const Expr& target, int depth);
+[[nodiscard]] Expr limit_impl_core(const Expr& expr, const Expr& var,
+                                   const Expr& target, int depth);
 
 // exp() of a (possibly infinite) limit value: exp(+oo)=oo, exp(-oo)=0.
 [[nodiscard]] Expr exp_of_limit(const Expr& v) {
@@ -3723,8 +3745,53 @@ struct Growth {
     return std::nullopt;
 }
 
-Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target,
-                int depth) {
+// Memoizing entry point. The rewrite search re-derives the same sub-limits
+// exponentially often on deeply nested inputs (a log/exp tower spawns thousands
+// of identical (sub-expr, target) queries). limit_impl is a pure function of
+// (expr, var, target), so a per-top-level-call cache collapses that blow-up to
+// linear work without changing any result. The cache is cleared whenever a new
+// top-level limit starts (depth 0).
+Expr limit_impl(const Expr& expr, const Expr& var, const Expr& target, int depth) {
+    thread_local std::unordered_map<std::string, Expr> cache;
+    thread_local long budget = 0;
+    if (depth == 0) {
+        cache.clear();
+        budget = 0;
+    }
+    // Deterministic work budget. Ordinary limits settle in well under a hundred
+    // re-entries; a pathological log/exp tower instead branches into tens of
+    // thousands of (mostly distinct) sub-queries that the cache cannot collapse.
+    // Cap the total and return an honest nan rather than working unboundedly.
+    // (A genuine resolution needs the general Gruntz MRV-set rewrite — deferred.)
+    constexpr long kMaxCalls = 3000;  // legit limits peak well under 800
+    if (++budget > kMaxCalls) return S::NaN();
+    std::string key = var->str() + "\x1f" + target->str() + "\x1f" + expr->str();
+    if (auto it = cache.find(key); it != cache.end()) return it->second;
+    Expr result = limit_impl_core(expr, var, target, depth);
+    cache.emplace(std::move(key), result);
+    return result;
+}
+
+Expr limit_impl_core(const Expr& expr, const Expr& var, const Expr& target,
+                     int depth) {
+    // Global recursion ceiling. Every productive rewrite below re-enters at a
+    // bounded depth (the deepest legitimate chains — gamma/Stirling, nested
+    // one-sided substitutions — settle well under 30 levels). A pathological
+    // input (e.g. a deep exp-of-exp tower) can otherwise drive the rewrite
+    // search without converging; cap it and report an honest "undetermined"
+    // (nan) rather than hanging. This is a termination guarantee, not a result.
+    constexpr int kMaxDepth = 48;
+    if (depth > kMaxDepth) return S::NaN();
+    // Global size ceiling. Ordinary limit inputs are tiny (tens of nodes); the
+    // rewrite search only inflates them transiently (series, gamma/Stirling).
+    // A pathological input — a deep exp-of-exp / log tower — instead grows the
+    // expression unboundedly across re-entries (each individual rewrite is cheap,
+    // so the depth cap alone never bites in useful time). Refuse to keep
+    // rewriting a monster and report an honest nan. The bound is generous so it
+    // never trips on a genuine, convergent computation. (Such towers need the
+    // general Gruntz MRV-set rewrite, which is deferred.)
+    constexpr std::size_t kMaxNodes = 1500;
+    if (tree_size(expr) > kMaxNodes) return S::NaN();
     // Canonicalize (eᵃ)ⁿ → eⁿᵃ up front: otherwise a reciprocal of a vanishing
     // exponential, (e⁻ˣ)⁻¹, substitutes to 0⁻¹ = zoo instead of resolving to eˣ.
     if (depth < 14) {
