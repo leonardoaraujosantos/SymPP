@@ -5,8 +5,9 @@
 // divisor_count/sigma, primepi, fibonacci, …) already in <functions/
 // combinatorial.hpp>.
 //
-// Reference: sympy/ntheory/{factor_,residue_ntheory}.py — factorint, divisors,
-//            igcdex, jacobi_symbol.
+// Reference: sympy/ntheory/{factor_,residue_ntheory,modular}.py and
+//            sympy/solvers/diophantine — factorint, divisors, igcdex,
+//            jacobi_symbol, crt, discrete_log, diop_linear.
 
 #include <optional>
 #include <tuple>
@@ -50,5 +51,28 @@ namespace sympp {
 // A square root of a modulo a prime p — some r with r² ≡ a (mod p) — or
 // std::nullopt when a is a non-residue. p must be prime (throws otherwise).
 [[nodiscard]] SYMPP_EXPORT std::optional<Expr> sqrt_mod(const Expr& a, const Expr& p);
+
+// Chinese Remainder Theorem. Solve x ≡ residues[i] (mod moduli[i]) by pairwise
+// combination. Returns (x, M) with M = lcm(moduli) and 0 ≤ x < M, or
+// std::nullopt when the congruences are inconsistent. Moduli (all > 0) need not
+// be pairwise coprime; sizes must match.
+[[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>> crt(
+    const std::vector<Expr>& moduli, const std::vector<Expr>& residues);
+
+// Discrete logarithm: the least non-negative x with bˣ ≡ a (mod n), or
+// std::nullopt when no such x exists. Baby-step/giant-step, O(√n).
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> discrete_log(const Expr& n, const Expr& a,
+                                                            const Expr& b);
+
+// Linear Diophantine equation a·x + b·y = c over ℤ. Parametric solution family
+// x = x0 + dx·t, y = y0 + dy·t for integer t.
+struct DiophantineLinear {
+    Expr x0, y0, dx, dy;
+};
+// Returns the parametric family, or std::nullopt when gcd(a, b) ∤ c (and so
+// there is no integer solution). The a = b = 0 case requires c = 0.
+[[nodiscard]] SYMPP_EXPORT std::optional<DiophantineLinear> diop_linear(const Expr& a,
+                                                                        const Expr& b,
+                                                                        const Expr& c);
 
 }  // namespace sympp

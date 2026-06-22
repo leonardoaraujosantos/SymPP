@@ -151,3 +151,85 @@ TEST_CASE("ntheory error handling", "[ntheory]") {
     REQUIRE_THROWS(jacobi_symbol(integer(3), integer(8)));   // even modulus
     REQUIRE_THROWS(jacobi_symbol(integer(3), integer(-5)));  // nonpositive
 }
+
+// ----- Number-theory extensions: CRT, discrete_log, linear Diophantine -------
+
+TEST_CASE("crt matches SymPy", "[ntheory][oracle]") {
+    auto check = [&](std::vector<long> mods, std::vector<long> res) {
+        std::vector<Expr> m, r;
+        nlohmann::json jm = nlohmann::json::array(), jr = nlohmann::json::array();
+        for (long v : mods) { m.push_back(integer(v)); jm.push_back(v); }
+        for (long v : res) { r.push_back(integer(v)); jr.push_back(v); }
+        auto got = crt(m, r);
+        nlohmann::json req = {{"op", "ntheory"}, {"fn", "crt"}, {"moduli", jm}, {"residues", jr}};
+        auto resp = sympp::testing::Oracle::instance().send(req);
+        REQUIRE(resp.ok);
+        std::string want = resp.result_str();
+        if (want == "None") {
+            REQUIRE_FALSE(got.has_value());
+        } else {
+            REQUIRE(got.has_value());
+            REQUIRE(got->first->str() + "," + got->second->str() == want);
+        }
+    };
+    check({3, 5, 7}, {2, 3, 2});   // (23, 105)
+    check({4, 6}, {0, 2});          // (8, 12) — non-coprime, consistent
+    check({6, 10}, {2, 3});         // None — inconsistent
+    check({11, 13, 17}, {5, 7, 9});
+    check({9, 12}, {3, 6});         // gcd 3 divides (6-3) → consistent
+}
+
+TEST_CASE("crt: solution satisfies every congruence", "[ntheory]") {
+    auto sol = crt({integer(3), integer(5), integer(7)}, {integer(2), integer(3), integer(2)});
+    REQUIRE(sol.has_value());
+    REQUIRE(sol->first == integer(23));
+    REQUIRE(sol->second == integer(105));
+}
+
+TEST_CASE("discrete_log matches SymPy", "[ntheory][oracle]") {
+    auto check = [&](long n, long a, long b) {
+        auto got = discrete_log(integer(n), integer(a), integer(b));
+        std::string want = oracle_nt({{"fn", "discrete_log"}, {"n", std::to_string(n)},
+                                      {"a", std::to_string(a)}, {"b", std::to_string(b)}});
+        if (want == "None") {
+            REQUIRE_FALSE(got.has_value());
+        } else {
+            REQUIRE(got.has_value());
+            REQUIRE(got.value()->str() == want);
+        }
+    };
+    check(41, 15, 7);   // 3
+    check(23, 10, 5);   // 3
+    check(101, 1, 2);   // 0 (b⁰ = 1)
+    check(1009, 17, 11);
+}
+
+TEST_CASE("discrete_log: bˣ ≡ a holds for the returned x", "[ntheory]") {
+    auto x = discrete_log(integer(41), integer(15), integer(7));
+    REQUIRE(x.has_value());
+    REQUIRE(x.value() == integer(3));  // 7³ = 343 ≡ 15 (mod 41)
+}
+
+TEST_CASE("diop_linear: parametric family solves a·x + b·y = c", "[ntheory]") {
+    auto solves = [&](long a, long b, long c) {
+        auto s = diop_linear(integer(a), integer(b), integer(c));
+        REQUIRE(s.has_value());
+        long x0 = std::stol(s->x0->str()), y0 = std::stol(s->y0->str());
+        long dx = std::stol(s->dx->str()), dy = std::stol(s->dy->str());
+        for (long t : {-3L, -1L, 0L, 1L, 4L, 10L}) {
+            REQUIRE(a * (x0 + dx * t) + b * (y0 + dy * t) == c);
+        }
+    };
+    solves(2, 3, 5);
+    solves(4, 6, 8);
+    solves(12, 8, 20);
+    solves(-7, 5, 1);
+    solves(0, 3, 9);
+
+    // No solution when gcd(a, b) does not divide c.
+    REQUIRE_FALSE(diop_linear(integer(2), integer(4), integer(5)).has_value());
+    REQUIRE_FALSE(diop_linear(integer(6), integer(9), integer(2)).has_value());
+    // 0 = c ≠ 0 is unsolvable; 0 = 0 is trivially solvable.
+    REQUIRE_FALSE(diop_linear(integer(0), integer(0), integer(4)).has_value());
+    REQUIRE(diop_linear(integer(0), integer(0), integer(0)).has_value());
+}

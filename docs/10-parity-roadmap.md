@@ -89,7 +89,7 @@ gains.
 
 | Module | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
-| Number theory (Diophantine, CRT, discrete_log, partitions) | `ntheory/` | 1 wk | Medium | core + factorint/primitive_root/sqrt_mod/continued_fraction shipped |
+| 🟡 Number theory (CRT, discrete_log, linear Diophantine, partitions) | `ntheory/` | — | shipped: factorint/divisors/igcdex/jacobi/continued_fraction/n_order/primitive_root/sqrt_mod, **CRT** (`crt`), **discrete log** (`discrete_log`), **linear Diophantine** (`diop_linear`), and integer partitions (in `combinatorics`). Remaining: general (non-linear) Diophantine — Pell, sum-of-squares, ternary quadratics |
 | ✅ Statistics & probability (core distributions) | `stats/` | — | shipped (`stats/stats.hpp`); extend w/ more distributions, sampling |
 | ✅ Geometry (Point/Line/Polygon) | `geometry/` | — | shipped (`geometry/geometry.hpp`) |
 | ✅ Vector calculus & differential geometry | `vector/`, `diffgeom/` | — | shipped (`vector/vector_calculus.hpp`; grad/div/curl/laplacian + Christoffel/Ricci) |

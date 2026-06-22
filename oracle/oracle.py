@@ -473,6 +473,20 @@ def handle(req):
             from sympy.ntheory import sqrt_mod as _sm
             v = _sm(int(req["a"]), int(req["n"]))
             return {"ok": True, "result": "None" if v is None else str(int(v))}
+        if fn == "crt":
+            from sympy.ntheory.modular import crt as _crt
+            m = [int(x) for x in req["moduli"]]
+            v = [int(x) for x in req["residues"]]
+            res = _crt(m, v)
+            return {"ok": True,
+                    "result": "None" if res is None else f"{int(res[0])},{int(res[1])}"}
+        if fn == "discrete_log":
+            from sympy.ntheory.residue_ntheory import discrete_log as _dl
+            try:
+                v = _dl(int(req["n"]), int(req["a"]), int(req["b"]))
+                return {"ok": True, "result": str(int(v))}
+            except ValueError:
+                return {"ok": True, "result": "None"}
         return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
 
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}

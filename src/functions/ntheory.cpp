@@ -1,8 +1,10 @@
 #include <sympp/functions/ntheory.hpp>
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 #include <gmpxx.h>
@@ -269,6 +271,104 @@ std::optional<Expr> sqrt_mod(const Expr& a, const Expr& p) {
         r = (r * b) % zp;
     }
     return make<Integer>(r);
+}
+
+// ----- Chinese Remainder Theorem ---------------------------------------------
+
+std::optional<std::pair<Expr, Expr>> crt(const std::vector<Expr>& moduli,
+                                         const std::vector<Expr>& residues) {
+    if (moduli.size() != residues.size()) {
+        throw std::invalid_argument("crt: moduli and residues must have equal length");
+    }
+    if (moduli.empty()) return std::make_pair(integer(0), integer(1));
+
+    // Fold the congruences pairwise: combine (x ≡ r mod M) with (x ≡ rᵢ mod mᵢ).
+    mpz_class M = 1, r = 0;
+    for (std::size_t i = 0; i < moduli.size(); ++i) {
+        mpz_class mi = as_int(moduli[i], "crt");
+        if (mi <= 0) throw std::invalid_argument("crt: moduli must be positive");
+        mpz_class ri = ((as_int(residues[i], "crt") % mi) + mi) % mi;
+
+        mpz_class g, p, q;  // g = gcd(M, mi) = p·M + q·mi
+        mpz_gcdext(g.get_mpz_t(), p.get_mpz_t(), q.get_mpz_t(), M.get_mpz_t(), mi.get_mpz_t());
+        mpz_class diff = ri - r;
+        if (diff % g != 0) return std::nullopt;  // inconsistent
+
+        mpz_class lcm = M / g * mi;
+        // x = r + M·p·(diff/g)  (mod lcm).
+        mpz_class x = r + M * p % lcm * (diff / g) % lcm;
+        r = ((x % lcm) + lcm) % lcm;
+        M = lcm;
+    }
+    return std::make_pair(make<Integer>(r), make<Integer>(M));
+}
+
+// ----- Discrete logarithm (baby-step / giant-step) ---------------------------
+
+std::optional<Expr> discrete_log(const Expr& n, const Expr& a, const Expr& b) {
+    mpz_class zn = as_int(n, "discrete_log");
+    if (zn <= 1) throw std::invalid_argument("discrete_log: modulus must be > 1");
+    mpz_class za = ((as_int(a, "discrete_log") % zn) + zn) % zn;
+    mpz_class zb = ((as_int(b, "discrete_log") % zn) + zn) % zn;
+
+    if (za == 1) return make<Integer>(mpz_class(0));  // b⁰ ≡ 1
+
+    mpz_class m;  // m = ceil(√n)
+    mpz_sqrt(m.get_mpz_t(), zn.get_mpz_t());
+    m += 1;
+
+    // Baby steps: first occurrence of bʲ for j in [0, m).
+    std::map<mpz_class, mpz_class> table;
+    mpz_class e = 1;
+    for (mpz_class j = 0; j < m; ++j) {
+        if (table.find(e) == table.end()) table.emplace(e, j);
+        e = (e * zb) % zn;
+    }
+
+    // Giant steps: factor = b^(−m) mod n; scan a·factorⁱ for i in [0, m).
+    mpz_class bm;
+    mpz_powm(bm.get_mpz_t(), zb.get_mpz_t(), m.get_mpz_t(), zn.get_mpz_t());
+    mpz_class factor;
+    if (mpz_invert(factor.get_mpz_t(), bm.get_mpz_t(), zn.get_mpz_t()) == 0) {
+        // b not invertible mod n: fall back to a direct bounded scan.
+        mpz_class val = 1;
+        for (mpz_class x = 0; x < zn; ++x) {
+            if (val == za) return make<Integer>(x);
+            val = (val * zb) % zn;
+        }
+        return std::nullopt;
+    }
+    mpz_class gamma = za;
+    for (mpz_class i = 0; i < m; ++i) {
+        auto it = table.find(gamma);
+        if (it != table.end()) return make<Integer>(i * m + it->second);
+        gamma = (gamma * factor) % zn;
+    }
+    return std::nullopt;
+}
+
+// ----- Linear Diophantine ----------------------------------------------------
+
+std::optional<DiophantineLinear> diop_linear(const Expr& a, const Expr& b, const Expr& c) {
+    mpz_class za = as_int(a, "diop_linear");
+    mpz_class zb = as_int(b, "diop_linear");
+    mpz_class zc = as_int(c, "diop_linear");
+
+    if (za == 0 && zb == 0) {
+        if (zc != 0) return std::nullopt;  // 0 = c ≠ 0
+        return DiophantineLinear{integer(0), integer(0), integer(0), integer(0)};
+    }
+
+    // g = gcd(a, b) = x·a + y·b.
+    mpz_class g, x, y;
+    mpz_gcdext(g.get_mpz_t(), x.get_mpz_t(), y.get_mpz_t(), za.get_mpz_t(), zb.get_mpz_t());
+    if (zc % g != 0) return std::nullopt;  // no integer solution
+
+    mpz_class k = zc / g;
+    mpz_class x0 = x * k, y0 = y * k;        // particular solution
+    mpz_class dx = zb / g, dy = -(za / g);   // homogeneous step
+    return DiophantineLinear{make<Integer>(x0), make<Integer>(y0), make<Integer>(dx),
+                             make<Integer>(dy)};
 }
 
 }  // namespace sympp

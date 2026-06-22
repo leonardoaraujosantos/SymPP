@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1666%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1671%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1666 tests / 6509 assertions  all passing
+1671 tests / 6579 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -417,8 +417,11 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `simplify_logic` (Quine–McCluskey minimization).
 - **Number theory** — `factorint` (Pollard rho), `divisors`, `igcdex`,
   `jacobi_symbol`, `continued_fraction`, `n_order`, `primitive_root`,
-  `sqrt_mod`, plus classical orthogonal polynomials (Legendre, Chebyshev,
-  Hermite, Laguerre) and `rewrite(target)` (trig/hyperbolic ↔ exp).
+  `sqrt_mod`, the **Chinese Remainder Theorem** (`crt`, non-coprime moduli),
+  **discrete logarithm** (`discrete_log`, baby-step/giant-step) and **linear
+  Diophantine** solving (`diop_linear`), plus classical orthogonal polynomials
+  (Legendre, Chebyshev, Hermite, Laguerre) and `rewrite(target)`
+  (trig/hyperbolic ↔ exp).
 - **MATLAB facade** — `sympp::matlab::*` namespace with `syms`,
   `sym(string)` / `str2sym` (parser-routed), `assume` /
   `assumeAlso` / `refresh`, `dsolve` / `linsolve` / `nsolve` /
