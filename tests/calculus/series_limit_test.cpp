@@ -3383,6 +3383,33 @@ TEST_CASE("limit: log of a sum with a logarithmic-rate dominant term (LIMIT-LOGS
     REQUIRE(limit(log(add(lx, llx)), x, oo) == oo);
 }
 
+// LIMIT-MRV-VALUES-1: the most-rapidly-varying / dominant-summand machinery
+// returns exact values across mixed polynomial / exponential / logarithmic rate
+// sums (not just the special bases of LIMIT-LOGSUMEXP-1). Each is the leading-
+// rate reading log(Σ tᵢ)/g → log(t*)/g; all match SymPy. (The residual gap is
+// only the pathological deep exp-of-exp towers — see LIMIT-TERMINATION-1 — which
+// await the full Gruntz MRV-set rewrite.)
+TEST_CASE("limit: dominant-summand MRV values across mixed rates (LIMIT-MRV-VALUES-1)",
+          "[6][limit][infinity][gruntz][regression]") {
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    auto E = [&](const Expr& a) { return exp(a); };
+    auto over = [&](const Expr& a, const Expr& b) {
+        return mul(a, pow(b, integer(-1)));
+    };
+    // Exponential dominates a polynomial: log(x² + eˣ)/x → 1.
+    REQUIRE(limit(over(log(add(pow(x, integer(2)), E(x))), x), x, oo) == S::One());
+    // Exponential dominates a cubic: log(eˣ + x³)/x → 1.
+    REQUIRE(limit(over(log(add(E(x), pow(x, integer(3)))), x), x, oo) == S::One());
+    // Linear vs exponential: log(x + eˣ)/x → 1.
+    REQUIRE(limit(over(log(add(x, E(x))), x), x, oo) == S::One());
+    // Polynomial-degree reading: log(x² + x)/log(x) → 2.
+    REQUIRE(limit(over(log(add(pow(x, integer(2)), x)), log(x)), x, oo)
+            == integer(2));
+    // Nested-log dominant against a faster log: log(log log x + log x)/log x → 0.
+    REQUIRE(limit(over(log(add(log(log(x)), log(x))), log(x)), x, oo) == S::Zero());
+}
+
 // LIMIT-LOGEXPSUM-1: log of an exponential-dominated sum that also carries
 // polynomial terms — log(x + eˣ), log(x³ + 5eˣ) — extracts the dominant exponent:
 // log(Σ) = e_dom + log(1 + residual/e^{e_dom}). Previously the polynomial summand
