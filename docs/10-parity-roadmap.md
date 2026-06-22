@@ -51,10 +51,12 @@ demand with cost.
 - **Combinatorics & group theory** — permutations, permutation groups, standard
   groups, integer partitions.
 - **Number-theory extensions** — CRT, discrete log, linear Diophantine.
+- **Bessel functions** — besselj/bessely/besseli/besselk (special values, ±1/2
+  elementary closed forms, derivative recurrences, parser registration).
 - **Meijer-G engine** — generic-case Slater reduction (Phase 1), Mellin-transform
-  definite integration (Phase 3), and function→Meijer-G recognition (Phase 4);
-  OpenSpec `add-meijerg-slater-engine`. (Phase 2 confluent cases are
-  Bessel-valued — left opaque, matching SymPy.)
+  definite integration (Phase 3), function→Meijer-G recognition (Phase 4), and
+  the **confluent G^{2,0}_{0,2} → modified Bessel K** closed form (Phase 2);
+  OpenSpec `add-meijerg-slater-engine`. Remaining: the two-G `∫G₁·G₂` convolution.
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
