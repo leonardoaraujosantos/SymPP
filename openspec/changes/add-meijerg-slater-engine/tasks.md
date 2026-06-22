@@ -15,11 +15,28 @@ increment on `main`. Only Phase 1 is implemented in the first session.
   two-pole sinh/cosh, and the confluent-case-left-opaque guard
 - [x] 1.6 Docs: header comment, README, parity roadmap
 
-## Phase 2 — confluent / logarithmic case (later session)
+## Phase 2 — confluent / logarithmic case
 
-- [ ] 2.1 Detect integer-spaced lower parameters; group into pole clusters
-- [ ] 2.2 Derivative-of-Gamma (digamma) expansion producing `log`-carrying terms
-- [ ] 2.3 Tests vs SymPy for Bessel-Y / log-bearing Meijer-G
+Reassessed: the confluent (integer-spaced lower parameter) Meijer-G functions are
+**special-function-valued** (modified Bessel `K`, Bessel `Y`, …), not elementary.
+SymPy's own `hyperexpand` likewise returns these Meijer-G nodes **unchanged**, so
+SymPP is already at parity by detecting the confluent case and leaving it opaque
+(Phase 1 guard, tested). A true closed form requires first introducing the
+Bessel-family special functions as represented objects.
+
+- [x] 2.1 Detect integer-spaced lower parameters and leave the node opaque
+  (matches SymPy; tested in Phase 1)
+- [ ] 2.2 Bessel-family special functions as prerequisite (separate initiative)
+- [ ] 2.3 Confluent → Bessel closed forms (after 2.2)
+
+## Phase 4 — function → Meijer-G recognition
+
+- [x] 4.1 `to_meijerg(f, var)` starter table (eᵍ, varᵃ·e^{−var}, 1/(1+var)),
+  round-tripping through `hyperexpand`
+- [x] 4.2 `meijerg_integrate_0_inf_of(f, var)` — ∫₀^∞ via recognition + Mellin
+  (e.g. ∫₀^∞ xᵃe^{−x} = Γ(a+1))
+- [ ] 4.3 Grow the table (trig/Bessel/error functions) and dispatch the general
+  `integrate(..., 0, ∞)` through it
 
 ## Phase 3 — Mellin–Barnes definite integration
 

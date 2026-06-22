@@ -51,8 +51,10 @@ demand with cost.
 - **Combinatorics & group theory** — permutations, permutation groups, standard
   groups, integer partitions.
 - **Number-theory extensions** — CRT, discrete log, linear Diophantine.
-- **Meijer-G engine, Phase 1** — generic-case Slater reduction into
-  hypergeometrics (OpenSpec `add-meijerg-slater-engine`).
+- **Meijer-G engine** — generic-case Slater reduction (Phase 1), Mellin-transform
+  definite integration (Phase 3), and function→Meijer-G recognition (Phase 4);
+  OpenSpec `add-meijerg-slater-engine`. (Phase 2 confluent cases are
+  Bessel-valued — left opaque, matching SymPy.)
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
@@ -73,7 +75,7 @@ gains.
 | Item | SymPy ref | Effort | Priority | Notes |
 |---|---|---|---|---|
 | ✅ `lambdify` LLVM-JIT backend | `utilities.lambdify` | — | shipped (`core/lambdify_llvm.hpp`, optional/auto-on) |
-| Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. NOTE: the classic Meijer-G-reducible definite integrals already evaluate via the existing engine (∫₀^∞ sin x/x = π/2, ∫₀^∞ e^{−x²}cos x = √π·e^{−1/4}/2, ∫₀^∞ 1/(1+x³) = 2√3π/9, …); only the general master-formula method for the long tail remains |
+| 🟡 Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. **Mellin master formula shipped** (OpenSpec `add-meijerg-slater-engine`, Phase 3+4): `meijerg_mellin_transform`, `meijerg_integrate_0_inf`, function→Meijer-G recognition (`to_meijerg`), so `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)` routes through Meijer-G. Classic reducible integrals already evaluated via the heuristic engine. Remaining: grow the recognition table (trig/Bessel/erf), product `∫G₁·G₂` convolution, and general `integrate(…,0,∞)` dispatch |
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
 | 🟡 Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms. **Phase 1 shipped** (OpenSpec `add-meijerg-slater-engine`): generic-case Slater reduction `meijerg → Σ z^{b_k}·pFq`, wired into `hyperexpand` (G^{1,1}_{1,1}→1/(z+1), G^{2,0}_{0,2}→√π(cosh−sinh)(2√z), …). Remaining: confluent/log case, Mellin–Barnes definite integration, function→Meijer-G recognition |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |

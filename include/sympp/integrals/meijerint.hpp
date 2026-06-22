@@ -32,4 +32,20 @@ namespace sympp {
 [[nodiscard]] SYMPP_EXPORT std::optional<Expr> meijerg_integrate_0_inf(const Expr& G,
                                                                        const Expr& var);
 
+// Recognize a function as a Meijer-G (starter table — grown over time):
+//
+//   e^{g}                 → G^{1,0}_{0,1}([],[],[0],[], −g)
+//   var^a · e^{−var}      → G^{1,0}_{0,1}([],[],[a],[], var)   (a free of var)
+//   1/(1+var)             → G^{1,1}_{1,1}([0],[],[0],[], var)
+//
+// Returns std::nullopt when no entry matches. `hyperexpand(to_meijerg(f))`
+// reproduces `f` for every recognized form.
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> to_meijerg(const Expr& f, const Expr& var);
+
+// ∫₀^∞ f dvar via the Meijer-G route: recognize f (to_meijerg) then apply the
+// Mellin master formula. Returns std::nullopt when f is not recognized or the
+// integral diverges.
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> meijerg_integrate_0_inf_of(const Expr& f,
+                                                                          const Expr& var);
+
 }  // namespace sympp

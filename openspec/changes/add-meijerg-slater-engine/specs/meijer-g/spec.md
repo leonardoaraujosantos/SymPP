@@ -43,3 +43,35 @@ Meijer-G node SHALL be left unevaluated rather than returning a wrong value.
 - **WHEN** a Meijer-G whose lower parameters `b₁…b_m` contain two values
   differing by an integer is passed to `hyperexpand`
 - **THEN** the Meijer-G node is returned unchanged (no wrong closed form)
+
+### Requirement: Meijer-G Mellin transform and definite integral
+
+SymPP SHALL provide the Mellin transform of a Meijer-G as the Gamma-ratio master
+formula, and the definite integral `∫₀^∞` as that transform at `s = 1`, rejecting
+divergent (Gamma-pole) results and non-Meijer / non-`η·var` inputs.
+
+#### Scenario: Mellin transform
+- **WHEN** `meijerg_mellin_transform(G^{1,0}_{0,1}([],[],[1/2],[], x), x, s)` is evaluated
+- **THEN** the result is `Γ(s + 1/2)` (matching `sympy.mellin_transform`)
+
+#### Scenario: Convergent definite integral
+- **WHEN** `meijerg_integrate_0_inf(G^{1,0}_{0,1}([],[],[1/2],[], x), x)` is evaluated
+- **THEN** the result is `√π/2`
+
+#### Scenario: Divergent integral rejected
+- **WHEN** `meijerg_integrate_0_inf(G^{1,1}_{1,1}([0],[],[0],[], x), x)` is evaluated
+- **THEN** no value is returned (`std::nullopt`), since `∫₀^∞ 1/(1+x) dx` diverges
+
+### Requirement: Function-to-Meijer-G recognition
+
+SymPP SHALL recognize a starter table of elementary functions as Meijer-G forms
+such that `hyperexpand(to_meijerg(f)) = f`, and route `∫₀^∞ f dx` through the
+Mellin master formula for recognized `f`.
+
+#### Scenario: Recognition round-trips
+- **WHEN** `hyperexpand(to_meijerg(x²·e^{−x}, x))` is evaluated
+- **THEN** the result is `x²·e^{−x}`
+
+#### Scenario: Gamma integral via Meijer-G
+- **WHEN** `meijerg_integrate_0_inf_of(xᵃ·e^{−x}, x)` is evaluated
+- **THEN** the result is `Γ(a + 1)`

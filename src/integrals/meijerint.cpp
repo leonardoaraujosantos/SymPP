@@ -13,6 +13,7 @@
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/combinatorial.hpp>  // gamma
+#include <sympp/functions/hypergeometric.hpp>  // meijerg
 #include <sympp/simplify/simplify.hpp>
 
 namespace sympp {
@@ -89,6 +90,73 @@ std::optional<Expr> meijerg_integrate_0_inf(const Expr& G, const Expr& var) {
         return std::nullopt;
     }
     return v;
+}
+
+namespace {
+[[nodiscard]] bool is_exp(const Expr& e) {
+    return e->type_id() == TypeId::Function &&
+           static_cast<const Function&>(*e).function_id() == FunctionId::Exp;
+}
+// Match var^a with `a` free of var; on success set a_out and return true.
+[[nodiscard]] bool match_power_of(const Expr& e, const Expr& var, Expr& a_out) {
+    if (e == var) {
+        a_out = S::One();
+        return true;
+    }
+    if (e->type_id() == TypeId::Pow && e->args()[0] == var && !has(e->args()[1], var)) {
+        a_out = e->args()[1];
+        return true;
+    }
+    return false;
+}
+}  // namespace
+
+std::optional<Expr> to_meijerg(const Expr& f, const Expr& var) {
+    if (!has(f, var)) return std::nullopt;
+
+    // e^{g}  →  G^{1,0}_{0,1}([],[],[0],[], −g).
+    if (is_exp(f)) {
+        Expr g = f->args()[0];
+        return meijerg({}, {}, {integer(0)}, {}, mul(integer(-1), g));
+    }
+
+    // 1/(1+var)  →  G^{1,1}_{1,1}([0],[],[0],[], var).
+    if (f->type_id() == TypeId::Pow && f->args()[1] == integer(-1)) {
+        Expr base = simplify(f->args()[0] - var);  // base == 1 + var ?
+        if (base == S::One()) {
+            return meijerg({integer(0)}, {}, {integer(0)}, {}, var);
+        }
+    }
+
+    // var^a · e^{−var}  →  G^{1,0}_{0,1}([],[],[a],[], var).
+    if (f->type_id() == TypeId::Mul) {
+        Expr a_exp;
+        bool have_pow = false, have_exp = false;
+        for (const auto& factor : f->args()) {
+            Expr a;
+            if (!have_pow && match_power_of(factor, var, a)) {
+                a_exp = a;
+                have_pow = true;
+            } else if (!have_exp && is_exp(factor) &&
+                       simplify(factor->args()[0] + var) == S::Zero()) {
+                have_exp = true;  // exp(−var)
+            } else {
+                have_pow = have_exp = false;  // an unexpected factor → bail
+                break;
+            }
+        }
+        if (have_pow && have_exp) {
+            return meijerg({}, {}, {a_exp}, {}, var);
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<Expr> meijerg_integrate_0_inf_of(const Expr& f, const Expr& var) {
+    auto g = to_meijerg(f, var);
+    if (!g) return std::nullopt;
+    return meijerg_integrate_0_inf(*g, var);
 }
 
 }  // namespace sympp

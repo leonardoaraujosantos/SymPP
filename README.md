@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1673%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1678%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1673 tests / 6585 assertions  all passing
+1678 tests / 6617 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -345,7 +345,12 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   (`sign(x)·|x| → x`, `|x|·|y| → |x·y|`), `log(√x) → ½log x`, radsimp, sqrtdenest,
   combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators
   (incl. nested compound fractions `1/(1+1/x) → x/(x+1)`),
-  `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁(1;2;z), ₂F₁(1,1;2;z), parameter cancellation).
+  `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁/₂F₁ closed forms incl. radical-argument
+  cosh/sinh/erf/atanh/asin forms, parameter cancellation, and **Meijer-G via
+  Slater's theorem** — generic case).
+- **Meijer-G engine** (`sympp::integrals/meijerint`) — Mellin transform of a
+  Meijer-G (Gamma-ratio master formula), `∫₀^∞` via the transform at s=1, and a
+  function→Meijer-G recognition table; e.g. `∫₀^∞ xᵃ·e⁻ˣ dx = Γ(a+1)`.
 - **Linear algebra** — det, inverse, eigendecomposition, `singular_values` + full `svd`,
   LU/QR/Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
   `Matrix::jordan_form()` (general chains), `Matrix::exp(t)` matrix

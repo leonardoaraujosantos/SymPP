@@ -9,8 +9,11 @@
 #include <sympp/core/operators.hpp>
 #include <sympp/core/rational.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hypergeometric.hpp>
+#include <sympp/functions/trigonometric.hpp>
 #include <sympp/integrals/meijerint.hpp>
+#include <sympp/simplify/hyperexpand.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -70,4 +73,48 @@ TEST_CASE("meijerint: divergent and non-Meijer inputs are rejected", "[meijerint
     REQUIRE_FALSE(
         meijerg_integrate_0_inf(meijerg({}, {}, {integer(0)}, {}, pow(x, integer(2))), x)
             .has_value());
+}
+
+// ----- Phase 4: function → Meijer-G recognition ------------------------------
+
+TEST_CASE("meijerint: to_meijerg round-trips through hyperexpand", "[meijerint][oracle]") {
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto& o = oracle();
+    auto roundtrip = [&](const Expr& f, const char* expected) {
+        auto g = to_meijerg(f, x);
+        REQUIRE(g.has_value());
+        REQUIRE(o.equivalent(hyperexpand(*g)->str(), expected));
+    };
+    roundtrip(exp(mul(integer(-1), x)), "exp(-x)");          // e^{−x}
+    roundtrip(exp(mul(integer(-2), x)), "exp(-2*x)");        // e^{−2x}
+    roundtrip(mul(pow(x, integer(2)), exp(mul(integer(-1), x))),
+              "x**2*exp(-x)");                                // x²·e^{−x}
+    roundtrip(mul(pow(x, a), exp(mul(integer(-1), x))),
+              "x**a*exp(-x)");                                // xᵃ·e^{−x}
+    roundtrip(pow(integer(1) + x, integer(-1)), "1/(1 + x)");  // 1/(1+x)
+
+    // Unrecognized → nullopt.
+    REQUIRE_FALSE(to_meijerg(sin(x), x).has_value());
+}
+
+TEST_CASE("meijerint: ∫₀^∞ f dx via recognition equals SymPy", "[meijerint][oracle]") {
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto& o = oracle();
+
+    // ∫₀^∞ e^{−x} dx = 1.
+    auto i1 = meijerg_integrate_0_inf_of(exp(mul(integer(-1), x)), x);
+    REQUIRE(i1.has_value());
+    REQUIRE(o.equivalent((*i1)->str(), "1"));
+
+    // ∫₀^∞ x²·e^{−x} dx = Γ(3) = 2.
+    auto i2 = meijerg_integrate_0_inf_of(mul(pow(x, integer(2)), exp(mul(integer(-1), x))), x);
+    REQUIRE(i2.has_value());
+    REQUIRE(o.equivalent((*i2)->str(), "2"));
+
+    // ∫₀^∞ xᵃ·e^{−x} dx = Γ(a+1)  (the Gamma function from Meijer-G).
+    auto ia = meijerg_integrate_0_inf_of(mul(pow(x, a), exp(mul(integer(-1), x))), x);
+    REQUIRE(ia.has_value());
+    REQUIRE(o.equivalent((*ia)->str(), "gamma(a + 1)"));
 }
