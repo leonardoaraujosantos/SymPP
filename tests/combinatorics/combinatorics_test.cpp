@@ -117,3 +117,60 @@ TEST_CASE("integer partitions: counts match SymPy", "[combinatorics][oracle]") {
         }
     }
 }
+
+// ----- Group actions: orbits & Pólya/Burnside enumeration --------------------
+
+namespace {
+nlohmann::json gens_of(const cb::PermutationGroup& g) {
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& p : g.generators()) arr.push_back(p.array_form());
+    return arr;
+}
+std::string orbits_str(const cb::PermutationGroup& g) {
+    std::string s;
+    bool first_o = true;
+    for (const auto& o : cb::orbits(g)) {
+        if (!first_o) s += ";";
+        first_o = false;
+        bool first = true;
+        for (int v : o) {
+            if (!first) s += ",";
+            first = false;
+            s += std::to_string(v);
+        }
+    }
+    return s;
+}
+}  // namespace
+
+TEST_CASE("group orbits match SymPy", "[combinatorics][oracle]") {
+    auto check = [&](const cb::PermutationGroup& g, const std::string& name) {
+        INFO(name);
+        REQUIRE(orbits_str(g) == comb_oracle({{"fn", "orbits"}, {"gens", gens_of(g)}}));
+    };
+    check(cb::cyclic_group(4), "C4");
+    check(cb::dihedral_group(5), "D5");
+    check(cb::symmetric_group(4), "S4");
+    // A group acting with two orbits: ⟨(0 1)(2 3 4)⟩.
+    cb::PermutationGroup mixed({cb::Permutation({1, 0, 3, 4, 2})});
+    check(mixed, "(01)(234)");
+    REQUIRE(cb::orbit(cb::cyclic_group(4), 0) == std::vector<int>{0, 1, 2, 3});
+}
+
+TEST_CASE("Pólya/Burnside coloring counts match SymPy", "[combinatorics][oracle]") {
+    auto check = [&](const cb::PermutationGroup& g, int k, const std::string& name) {
+        INFO(name);
+        REQUIRE(cb::colorings_count(g, k)->str() ==
+                comb_oracle({{"fn", "burnside"}, {"gens", gens_of(g)}, {"k", std::to_string(k)}}));
+    };
+    // Necklaces (cyclic) and bracelets (dihedral) — classic Burnside counts.
+    check(cb::cyclic_group(4), 2, "C4 k=2");   // 6 binary necklaces
+    check(cb::cyclic_group(4), 3, "C4 k=3");   // 24
+    check(cb::cyclic_group(6), 2, "C6 k=2");   // 14
+    check(cb::dihedral_group(4), 2, "D4 k=2"); // 6 binary bracelets
+    check(cb::symmetric_group(3), 2, "S3 k=2");
+    check(cb::dihedral_group(5), 3, "D5 k=3");
+
+    // Spot value: 6 binary necklaces of length 4.
+    REQUIRE(cb::colorings_count(cb::cyclic_group(4), 2) == integer(6));
+}

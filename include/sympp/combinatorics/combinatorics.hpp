@@ -70,6 +70,16 @@ private:
     int degree_;
 };
 
+// ----- Group actions: orbits & Pólya/Burnside enumeration --------------------
+// Orbit of `point` under the group, ascending.
+[[nodiscard]] SYMPP_EXPORT std::vector<int> orbit(const PermutationGroup& g, int point);
+// Orbits partitioning {0, …, degree−1} (each ascending; by least element).
+[[nodiscard]] SYMPP_EXPORT std::vector<std::vector<int>> orbits(const PermutationGroup& g);
+// Number of distinct colorings of the `degree` points with `k` colors up to the
+// group action — Burnside's lemma / Pólya: (1/|G|)·Σ_{g∈G} k^{cycles(g)}, where
+// cycles(g) counts every disjoint cycle including fixed points.
+[[nodiscard]] SYMPP_EXPORT Expr colorings_count(const PermutationGroup& g, int k);
+
 // ----- Standard groups -------------------------------------------------------
 [[nodiscard]] SYMPP_EXPORT PermutationGroup symmetric_group(int n);    // Sₙ, order n!
 [[nodiscard]] SYMPP_EXPORT PermutationGroup cyclic_group(int n);       // Cₙ, order n

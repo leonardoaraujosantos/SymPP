@@ -388,6 +388,20 @@ def handle(req):
         if fn == "partition":
             from sympy.functions.combinatorial.numbers import partition
             return {"ok": True, "result": str(partition(int(req["n"])))}
+        if fn == "orbits":
+            from sympy.combinatorics import Permutation, PermutationGroup
+            gens = [Permutation(list(g)) for g in req["gens"]]
+            os = sorted(sorted(int(x) for x in o) for o in PermutationGroup(gens).orbits())
+            return {"ok": True, "result": ";".join(",".join(str(x) for x in o) for o in os)}
+        if fn == "burnside":
+            from sympy.combinatorics import Permutation, PermutationGroup
+            gens = [Permutation(list(g)) for g in req["gens"]]
+            G = PermutationGroup(gens); k = int(req["k"])
+            def ncyc(g):
+                moved = sum(len(c) for c in g.cyclic_form)
+                return len(g.cyclic_form) + (g.size - moved)
+            v = sum(k ** ncyc(g) for g in G.elements) // G.order()
+            return {"ok": True, "result": str(int(v))}
         return {"ok": False, "error": "BadFn", "detail": f"unknown combinatorics fn: {fn!r}"}
 
     # --- Physics (cross-check Wigner symbols, hydrogen, QHO, spin) ---

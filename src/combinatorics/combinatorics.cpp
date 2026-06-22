@@ -152,6 +152,68 @@ bool PermutationGroup::is_abelian() const {
     return true;
 }
 
+// ----- Group actions: orbits & Pólya/Burnside enumeration --------------------
+
+std::vector<int> orbit(const PermutationGroup& g, int point) {
+    std::set<int> seen{point};
+    std::vector<int> frontier{point};
+    while (!frontier.empty()) {
+        std::vector<int> next;
+        for (int p : frontier) {
+            for (const auto& gen : g.generators()) {
+                int q = gen.apply(p);
+                if (seen.insert(q).second) next.push_back(q);
+            }
+        }
+        frontier = std::move(next);
+    }
+    return std::vector<int>(seen.begin(), seen.end());  // std::set is ordered
+}
+
+std::vector<std::vector<int>> orbits(const PermutationGroup& g) {
+    std::vector<std::vector<int>> result;
+    std::vector<bool> placed(static_cast<std::size_t>(g.degree()), false);
+    for (int p = 0; p < g.degree(); ++p) {
+        if (placed[static_cast<std::size_t>(p)]) continue;
+        auto o = orbit(g, p);
+        for (int q : o) placed[static_cast<std::size_t>(q)] = true;
+        result.push_back(std::move(o));
+    }
+    return result;
+}
+
+namespace {
+// Number of disjoint cycles of `p`, counting fixed points as 1-cycles.
+[[nodiscard]] int total_cycles(const Permutation& p) {
+    int cycles = 0;
+    std::vector<bool> visited(static_cast<std::size_t>(p.size()), false);
+    for (int i = 0; i < p.size(); ++i) {
+        if (visited[static_cast<std::size_t>(i)]) continue;
+        ++cycles;
+        int j = i;
+        while (!visited[static_cast<std::size_t>(j)]) {
+            visited[static_cast<std::size_t>(j)] = true;
+            j = p.apply(j);
+        }
+    }
+    return cycles;
+}
+}  // namespace
+
+Expr colorings_count(const PermutationGroup& g, int k) {
+    if (k < 0) throw std::invalid_argument("colorings_count: k must be non-negative");
+    // Σ_{g∈G} k^{cycles(g)}, then divide by |G| (Burnside guarantees divisibility).
+    mpz_class total = 0;
+    auto elems = g.elements();
+    for (const auto& e : elems) {
+        mpz_class term;
+        mpz_pow_ui(term.get_mpz_t(), mpz_class(k).get_mpz_t(),
+                   static_cast<unsigned long>(total_cycles(e)));
+        total += term;
+    }
+    return make<Integer>(total / static_cast<long>(elems.size()));
+}
+
 // ----- Standard groups -------------------------------------------------------
 
 PermutationGroup symmetric_group(int n) {
