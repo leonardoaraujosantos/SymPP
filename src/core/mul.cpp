@@ -103,7 +103,57 @@ struct BaseExp {
     return {e, S::One()};
 }
 
+[[nodiscard]] bool is_noncommutative(const Expr& e) {
+    return is_commutative(e) == std::optional<bool>{false};
+}
+
 }  // namespace
+
+// Order-preserving product for an operand list containing a non-commutative
+// factor. Commutative factors (numbers and commuting symbols) all commute past
+// the operators, so they are pulled into a leading coefficient via the ordinary
+// commutative `mul`; the non-commutative factors keep their original order, with
+// adjacent equal bases merged into powers (A·A → A²). Only reached when at least
+// one factor is non-commutative, so the commutative fast path is untouched.
+[[nodiscard]] Expr mul_noncommutative(std::vector<Expr> flat) {
+    std::vector<Expr> comm;  // numbers + commutative symbolic factors
+    std::vector<Expr> nc;    // non-commutative factors, order preserved
+    for (auto& a : flat) {
+        if (a == S::Zero()) return S::Zero();
+        if (is_noncommutative(a)) nc.push_back(std::move(a));
+        else comm.push_back(std::move(a));
+    }
+    // Merge adjacent equal bases in the non-commutative run.
+    std::vector<Expr> nc_merged;
+    for (auto& f : nc) {
+        if (!nc_merged.empty()) {
+            auto prev = as_base_exp(nc_merged.back());
+            auto cur = as_base_exp(f);
+            if (prev.base == cur.base) {
+                nc_merged.back() = pow(prev.base, add(prev.exp, cur.exp));
+                continue;
+            }
+        }
+        nc_merged.push_back(std::move(f));
+    }
+    // Commutative coefficient via the ordinary path (no NC factor present there).
+    Expr coeff = comm.empty() ? S::One() : mul(std::move(comm));
+    if (coeff == S::Zero()) return S::Zero();
+
+    std::vector<Expr> out;
+    if (!(coeff == S::One())) {
+        if (coeff->type_id() == TypeId::Mul) {
+            for (const auto& f : coeff->args()) out.push_back(f);  // flatten coeff
+        } else {
+            out.push_back(std::move(coeff));
+        }
+    }
+    for (auto& f : nc_merged) out.push_back(std::move(f));
+
+    if (out.empty()) return S::One();
+    if (out.size() == 1) return std::move(out[0]);
+    return make<Mul>(std::move(out));
+}
 
 Mul::Mul(std::vector<Expr> args) : args_(std::move(args)) {
     compute_hash();
@@ -340,6 +390,14 @@ Expr mul(std::vector<Expr> args) {
     std::vector<Expr> flat;
     flat.reserve(args.size());
     for (auto& a : args) flatten_into(a, flat);
+
+    // ---- Step 1a: non-commutative product (order-preserving) ----
+    // The commutative pipeline below sorts and cross-groups factors, which would
+    // corrupt operator order (A·B ≠ B·A). Divert to the order-preserving handler
+    // whenever a non-commutative factor is present; otherwise fall through.
+    if (std::any_of(flat.begin(), flat.end(), is_noncommutative)) {
+        return mul_noncommutative(std::move(flat));
+    }
 
     // ---- Step 1b: infinity / nan pre-pass ----
     // An infinity factor makes the product an infinity whose sign is the

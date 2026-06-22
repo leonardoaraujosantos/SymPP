@@ -196,3 +196,29 @@ TEST_CASE("commutative: default true; non-commutative is structural", "[commutat
     REQUIRE(is_commutative(mul(c, integer(3))) == true);
     REQUIRE(is_commutative(pow(c, integer(2)) + integer(1)) == true);
 }
+
+TEST_CASE("commutative: Mul preserves non-commutative operator order",
+          "[commutative][mul]") {
+    auto A = symbol("A", AssumptionMask{}.set_commutative(false));
+    auto B = symbol("B", AssumptionMask{}.set_commutative(false));
+    auto x = symbol("x");  // commutative
+
+    // A·B ≠ B·A (the whole point of non-commutativity).
+    REQUIRE_FALSE(mul(A, B) == mul(B, A));
+    // …but each is stable: A·B always builds the same node.
+    REQUIRE(mul(A, B) == mul(A, B));
+
+    // Repeated adjacent factors still merge into a power: A·A = A².
+    REQUIRE(mul(A, A) == pow(A, integer(2)));
+    // A·B·A keeps all three (the two A's are not adjacent, cannot merge).
+    REQUIRE(mul({A, B, A}) == mul({A, B, A}));
+    REQUIRE_FALSE(mul({A, B, A}) == mul({A, A, B}));
+
+    // Commutative factors (numbers, commuting symbols) fold/commute freely while
+    // the operator order is preserved: 2·A·3·B = 6·A·B, and x·A = A·x.
+    REQUIRE(mul({integer(2), A, integer(3), B}) == mul({integer(6), A, B}));
+    REQUIRE(mul(x, A) == mul(A, x));
+
+    // Ordinary commutative multiplication is unaffected (still canonicalized).
+    REQUIRE(mul(symbol("p"), symbol("q")) == mul(symbol("q"), symbol("p")));
+}

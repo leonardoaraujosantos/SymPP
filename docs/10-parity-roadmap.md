@@ -85,7 +85,7 @@ gains.
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
 | Last Gruntz mrv-set rewrite | `series/gruntz.py` | 1 wk | Medium | Most stages shipped; the previously-flagged `0·∞` divergent-exp case (eˣ(e^{1/x}−1)→∞) now evaluates, as do x^{1/x}→1, (1+1/x)ˣ→e. **Practical MRV-set values are covered** — the dominant-summand split resolves mixed polynomial/exp/log-rate sums exactly (log(x²+eˣ)/x→1, log(x²+x)/log x→2, nested-log sums…; see LIMIT-MRV-VALUES-1 / LIMIT-LOGSUMDOM-1). **Termination is guaranteed** — the search is memoized and bounded by a work budget, so deeply nested exp-of-exp towers return an honest nan instead of hanging. Only the *exact value* of those pathological towers needs the full mrv-set comparability algorithm |
 | F4/F5 Gröbner, sparse matrix, full polynomial domain tower, full Lie classifier, Pantelides DAE, full SAT-`ask` | various | ~15 wk | Low | Performance / edge-case depth |
-| Non-commutative *algebra* (`Mul` ordering) | `core/mul` | 2–3 wk | Low–Med | The `commutative` *predicate* already ships |
+| ✅ Non-commutative *algebra* (`Mul` ordering) | `core/mul` | — | shipped: `mul` preserves non-commutative operator order (A·B ≠ B·A), folds commutative factors into a leading coefficient, merges adjacent equal bases (A·A → A²); commutative fast path untouched |
 
 ## Category B — release engineering (Phase 16 → v1.0)
 
