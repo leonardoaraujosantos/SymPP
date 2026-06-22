@@ -54,6 +54,29 @@ TEST_CASE("Zassenhaus factorization matches SymPy", "[zassenhaus][oracle]") {
     check_factors(expand(pow(x - integer(1), integer(3))), x);
 }
 
+// Higher-degree / larger-coefficient inputs whose Landau–Mignotte modulus needs
+// several Hensel-lift steps from a small prime (p^l ≫ p) before recombination.
+TEST_CASE("Zassenhaus: Hensel lifting on larger inputs", "[zassenhaus][oracle][hensel]") {
+    auto x = symbol("x");
+    auto X = [&](int k) { return pow(x, integer(k)); };
+    // (x²+1)(x²+2)(x²+3): three irreducible quadratics, coefficients up to 11.
+    check_factors(expand(mul(mul(X(2) + integer(1), X(2) + integer(2)), X(2) + integer(3))), x);
+    // (x²+x+1)(x²−x+1)(x²+1) = x⁶+x⁴+x²+1 region — distinct cyclotomic factors.
+    check_factors(expand(mul(mul(X(2) + x + integer(1), X(2) - x + integer(1)),
+                             X(2) + integer(1))),
+                  x);
+    // x⁸ − 1: splits into (x−1)(x+1)(x²+1)(x⁴+1).
+    check_factors(X(8) - integer(1), x);
+    // (3x²+2)(x³−x+5): large leading/content interplay, degree 5.
+    check_factors(expand(mul(integer(3) * X(2) + integer(2), X(3) - x + integer(5))), x);
+    // (x²−2x+3)² · (x+4): repeated irreducible quadratic with multiplicity.
+    check_factors(expand(mul(pow(X(2) - integer(2) * x + integer(3), integer(2)),
+                             x + integer(4))),
+                  x);
+    // x¹⁰ − 1: ten-th cyclotomic split, exercises a wider recombination search.
+    check_factors(X(10) - integer(1), x);
+}
+
 TEST_CASE("Zassenhaus: irreducible stays whole", "[zassenhaus]") {
     auto x = symbol("x");
     auto facs = factor_zassenhaus(pow(x, integer(2)) - integer(2), x);  // irreducible over ℤ

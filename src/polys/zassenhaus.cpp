@@ -119,6 +119,104 @@ void trim(Z& a) {
     return d;
 }
 
+// --- integer (non-modular) polynomial arithmetic, used by Hensel lifting ------
+[[nodiscard]] Z mul_z(const Z& a, const Z& b) {
+    if (is_zero(a) || is_zero(b)) return {mpz_class(0)};
+    Z r(a.size() + b.size() - 1, mpz_class(0));
+    for (std::size_t i = 0; i < a.size(); ++i)
+        for (std::size_t j = 0; j < b.size(); ++j) r[i + j] += a[i] * b[j];
+    trim(r);
+    return r;
+}
+[[nodiscard]] Z sub_z(const Z& a, const Z& b) {
+    Z r(std::max(a.size(), b.size()), mpz_class(0));
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] += a[i];
+    for (std::size_t i = 0; i < b.size(); ++i) r[i] -= b[i];
+    trim(r);
+    return r;
+}
+// Reduce coefficients to the symmetric residue system modulo m: (−m/2, m/2].
+[[nodiscard]] Z trunc_sym(Z a, const mpz_class& m) {
+    for (auto& c : a) {
+        c = mod(c, m);
+        if (2 * c > m) c -= m;
+    }
+    trim(a);
+    return a;
+}
+
+// Extended Euclid in F_p[x]: returns g = gcd and s, t with s·a + t·b ≡ g (mod p).
+struct GcdEx {
+    Z g, s, t;
+};
+[[nodiscard]] GcdEx gcdex_mod(Z a, Z b, const mpz_class& p) {
+    Z old_r = modp(std::move(a), p), r = modp(std::move(b), p);
+    Z old_s = {mpz_class(1)}, s = {mpz_class(0)};
+    Z old_t = {mpz_class(0)}, t = {mpz_class(1)};
+    while (!is_zero(r)) {
+        Z q = div_mod(old_r, r, p);
+        Z nr = sub_mod(old_r, mul_mod(q, r, p), p);
+        old_r = std::move(r);
+        r = std::move(nr);
+        Z ns = sub_mod(old_s, mul_mod(q, s, p), p);
+        old_s = std::move(s);
+        s = std::move(ns);
+        Z nt = sub_mod(old_t, mul_mod(q, t, p), p);
+        old_t = std::move(t);
+        t = std::move(nt);
+    }
+    return {old_r, old_s, old_t};
+}
+
+// Inverse of `a` in F_p[x]/(u) (assumes gcd(a,u)=1 mod p).
+[[nodiscard]] Z inverse_mod_poly(const Z& a, const Z& u, const mpz_class& p) {
+    GcdEx g = gcdex_mod(a, u, p);          // g.g is a nonzero constant
+    mpz_class cinv = inv_mod(g.g[0], p);   // make it 1
+    Z inv = g.s;
+    for (auto& c : inv) c = mod(c * cinv, p);
+    return rem_mod(inv, u, p);
+}
+
+// Linear multifactor Hensel lifting of a MONIC target.
+// Given F monic with F ≡ ∏ uᵢ (mod p), the uᵢ monic and pairwise coprime mod p,
+// return monic Uᵢ ≡ uᵢ (mod p) with ∏ Uᵢ ≡ F (mod pˡ).
+[[nodiscard]] std::vector<Z> hensel_lift_monic(const Z& F, const std::vector<Z>& u,
+                                               const mpz_class& p, long l) {
+    std::size_t r = u.size();
+    // Cofactor inverses cᵢ = (∏_{k≠i} u_k)⁻¹ mod uᵢ, computed once over F_p.
+    std::vector<Z> c(r);
+    for (std::size_t i = 0; i < r; ++i) {
+        Z w = {mpz_class(1)};
+        for (std::size_t k = 0; k < r; ++k)
+            if (k != i) w = rem_mod(mul_mod(w, u[k], p), u[i], p);
+        c[i] = inverse_mod_poly(w, u[i], p);
+    }
+    std::vector<Z> U(u.begin(), u.end());  // current lift, integer coefficients
+    mpz_class pj = p;                       // pʲ at step j
+    for (long step = 1; step < l; ++step) {
+        Z prod = {mpz_class(1)};
+        for (const auto& Ui : U) prod = mul_z(prod, Ui);
+        Z err = sub_z(F, prod);             // divisible by pʲ
+        for (auto& e : err) e /= pj;        // E_full / pʲ
+        Z E = modp(err, p);
+        if (is_zero(E)) {                   // already exact to higher precision
+            pj *= p;
+            continue;
+        }
+        for (std::size_t i = 0; i < r; ++i) {
+            Z delta = rem_mod(mul_mod(E, c[i], p), u[i], p);  // deg < deg uᵢ
+            for (std::size_t k = 0; k < delta.size(); ++k) {
+                if (k >= U[i].size()) U[i].resize(k + 1, mpz_class(0));
+                U[i][k] += pj * delta[k];
+            }
+        }
+        pj *= p;
+    }
+    mpz_class M = pj;  // = pˡ
+    for (auto& Ui : U) Ui = trunc_sym(std::move(Ui), M);
+    return U;
+}
+
 // --- Berlekamp factorization of a monic squarefree poly mod prime p ----------
 [[nodiscard]] Z x_pow_p(const Z& f, const mpz_class& p) {
     Z base = {mpz_class(0), mpz_class(1)}, result = {mpz_class(1)};
@@ -265,9 +363,9 @@ void make_primitive(Z& a) {
     return e;
 }
 
-// Factor a squarefree primitive integer polynomial into irreducibles over ℤ,
-// using Berlekamp modulo a prime above the Landau–Mignotte coefficient bound
-// (so symmetric residues recover the true integer factors without lifting).
+// Factor a squarefree primitive integer polynomial into irreducibles over ℤ:
+// Berlekamp modulo a *small* prime, Hensel-lift the factorization to a prime
+// power above the Landau–Mignotte bound, then recombine over symmetric residues.
 [[nodiscard]] std::vector<Z> zz_factor_sqf(const Z& f) {
     long n = degree(f);
     if (n <= 1) return {f};
@@ -284,7 +382,8 @@ void make_primitive(Z& a) {
     mpz_class bound = binom * (norm + abs(lc));      // |coeff| of any factor
     mpz_class target = 2 * abs(lc) * bound + 1;       // symmetric-residue range
 
-    mpz_class p = target;
+    // Smallest prime p with lc ≢ 0 and f squarefree mod p — keeps Berlekamp cheap.
+    mpz_class p = 1;
     Z fp;
     for (;;) {
         mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
@@ -295,8 +394,18 @@ void make_primitive(Z& a) {
     std::vector<Z> modfac = berlekamp(fp, p);
     if (modfac.size() == 1) return {f};
 
+    // Lift the mod-p factorization to mod M = pˡ with pˡ ≥ target.
+    long l = 1;
+    mpz_class M = p;
+    while (M < target) { M *= p; ++l; }
+    if (l > 1) {
+        mpz_class lc_inv = inv_mod(mod(lc, M), M);
+        Z target_monic = trunc_sym(mul_z({lc_inv}, f), M);  // ≡ lc⁻¹·f, monic mod M
+        modfac = hensel_lift_monic(target_monic, modfac, p, l);
+    }
+
     auto symm = [&](Z a) {
-        for (auto& c : a) { c = mod(c, p); if (2 * c > p) c -= p; }
+        for (auto& c : a) { c = mod(c, M); if (2 * c > M) c -= M; }
         trim(a);
         return a;
     };
@@ -313,7 +422,7 @@ void make_primitive(Z& a) {
         std::function<bool(std::size_t, std::size_t)> rec = [&](std::size_t start, std::size_t need) {
             if (need == 0) {
                 Z cand = {remaining.back()};  // lc(remaining) · ∏ chosen
-                for (std::size_t i : idx) cand = mul_mod(cand, modfac[i], p);
+                for (std::size_t i : idx) cand = mul_mod(cand, modfac[i], M);
                 cand = symm(cand);
                 make_primitive(cand);
                 Z quo;

@@ -71,7 +71,7 @@ gains.
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
 | Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
-| 🟡 Berlekamp–Zassenhaus | `polys/factortools.py` | — | shipped `factor_zassenhaus` (Berlekamp + large-prime recombination); Hensel lifting (small-prime scaling) still to come |
+| ✅ Berlekamp–Zassenhaus | `polys/factortools.py` | — | shipped `factor_zassenhaus` — Berlekamp mod a small prime, **multifactor Hensel lifting** to a prime power above the Landau–Mignotte bound, then recombination |
 | ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |
 | ✅ General Jordan form (chains > 2) | `matrices/eigen.py` | — | shipped (filtration algorithm; reconstruction-verified) |
 | ✅ Full 2D pretty-print layout | `printing/pretty` | — | shipped (block-layout `pretty()`) |
