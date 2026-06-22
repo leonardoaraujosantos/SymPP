@@ -1,5 +1,6 @@
 #include <sympp/integrals/integrate.hpp>
 #include <sympp/integrals/meijerint.hpp>
+#include <sympp/simplify/hyperexpand.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -4406,6 +4407,30 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) return std::nullopt;
     if (auto r = meijerg_integrate_0_inf(expr, var)) return r;       // bare Meijer-G
     if (auto r = meijerg_integrate_0_inf_of(expr, var)) return r;    // recognized function
+
+    // Product of two Meijer-G factors → Mellin convolution, accepted only when it
+    // hyperexpands to a closed form (no residual Meijer-G left).
+    auto is_meijerg = [](const Expr& e) {
+        return e->type_id() == TypeId::Function &&
+               static_cast<const Function&>(*e).function_id() == FunctionId::MeijerG;
+    };
+    auto has_meijerg = [&](auto&& self, const Expr& e) -> bool {
+        if (is_meijerg(e)) return true;
+        for (const auto& a : e->args())
+            if (self(self, a)) return true;
+        return false;
+    };
+    if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> gs;
+        for (const auto& f : expr->args())
+            if (is_meijerg(f)) gs.push_back(f);
+        if (gs.size() == 2) {
+            if (auto conv = meijerg_convolution(gs[0], gs[1], var)) {
+                Expr v = simplify(hyperexpand(*conv));
+                if (!has_meijerg(has_meijerg, v)) return v;  // only if fully reduced
+            }
+        }
+    }
     return std::nullopt;
 }
 

@@ -17,6 +17,7 @@
 #include <sympp/integrals/meijerint.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/simplify/hyperexpand.hpp>
+#include <sympp/simplify/simplify.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -178,4 +179,30 @@ TEST_CASE("meijerint: divergent oscillatory integrals are not (wrongly) valued",
     REQUIRE_FALSE(meijerg_integrate_0_inf_of(cos(x), x).has_value());
     // ∫₀^∞ x·sin(x) also diverges.
     REQUIRE_FALSE(meijerg_integrate_0_inf_of(mul(x, sin(x)), x).has_value());
+}
+
+// ----- Product convolution ∫₀^∞ G₁·G₂ (Mellin–Parseval) ----------------------
+
+TEST_CASE("meijerint: Meijer-G product convolution ∫₀^∞ G₁·G₂",
+          "[meijerint][oracle][integrate]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto& o = oracle();
+    auto eG = [&](const Expr& eta) {  // e^{−η·x} = G^{1,0}_{0,1}([],[],[0],[], η·x)
+        return meijerg({}, {}, {integer(0)}, {}, mul(eta, x));
+    };
+
+    // ∫₀^∞ e^{−x}·e^{−x} dx = 1/2 via convolution + hyperexpand.
+    auto c1 = meijerg_convolution(eG(integer(1)), eG(integer(1)), x);
+    REQUIRE(c1.has_value());
+    REQUIRE(o.equivalent(simplify(hyperexpand(*c1))->str(), "1/2"));
+
+    // ∫₀^∞ e^{−x}·e^{−2x} dx = 1/3.
+    auto c2 = meijerg_convolution(eG(integer(1)), eG(integer(2)), x);
+    REQUIRE(c2.has_value());
+    REQUIRE(o.equivalent(simplify(hyperexpand(*c2))->str(), "1/3"));
+
+    // Wired through the general integrate(): a bare Meijer-G product.
+    REQUIRE(o.equivalent(integrate(eG(integer(1)) * eG(integer(3)), x, S::Zero(), oo)->str(),
+                         "1/4"));  // ∫ e^{−x}e^{−3x} = ∫ e^{−4x} = 1/4
 }

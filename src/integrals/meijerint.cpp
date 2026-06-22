@@ -309,6 +309,32 @@ struct RecForm {
 
 }  // namespace
 
+std::optional<Expr> meijerg_convolution(const Expr& G1, const Expr& G2, const Expr& var) {
+    MGData f = parse_meijerg(G1, var);
+    MGData g = parse_meijerg(G2, var);
+    if (!f.ok || !g.ok) return std::nullopt;
+
+    auto neg = [](const std::vector<Expr>& v) {
+        std::vector<Expr> r;
+        r.reserve(v.size());
+        for (const auto& e : v) r.push_back(mul(integer(-1), e));
+        return r;
+    };
+    auto cat = [](std::vector<Expr> a, std::vector<Expr> b) {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
+    };
+    // Mellin–Parseval: f's parameters keep their place; g contributes the
+    // negated complementary lists (upper↔lower swapped).
+    std::vector<Expr> an = cat(f.an, neg(g.bm));
+    std::vector<Expr> ar = cat(f.ap_rest, neg(g.bq_rest));
+    std::vector<Expr> bm = cat(f.bm, neg(g.an));
+    std::vector<Expr> br = cat(f.bq_rest, neg(g.ap_rest));
+    Expr arg = simplify(mul(f.eta, pow(g.eta, integer(-1))));  // η/ω
+    Expr conv = meijerg(an, ar, bm, br, arg);
+    return simplify(mul(pow(g.eta, integer(-1)), conv));  // (1/ω)·G
+}
+
 std::optional<Expr> meijerg_integrate_0_inf_of(const Expr& f, const Expr& var) {
     RecForm r = recognize_form(f, var);
     if (!r.ok || !converges(r)) return std::nullopt;

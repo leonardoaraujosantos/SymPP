@@ -44,7 +44,7 @@ Bessel-family special functions as represented objects.
 - [x] 3.1 Mellin transform `M[G(η·x)](s)` master formula (`meijerg_mellin_transform`)
 - [x] 3.2 `∫₀^∞ G(η·x) dx` = transform at s=1, with convergence guard
   (`meijerg_integrate_0_inf`)
-- [ ] 3.3 Product `∫₀^∞ G₁·G₂` convolution (later)
+- [x] 3.3 Product `∫₀^∞ G₁·G₂` convolution (Mellin–Parseval, `meijerg_convolution`)
 - [x] 3.4 Wire into the general `integrate(expr, var, 0, ∞)` (Meijer-G rule, with an
   η>0 convergence guard so generic-scale integrals stay unevaluated)
 

@@ -48,4 +48,13 @@ namespace sympp {
 [[nodiscard]] SYMPP_EXPORT std::optional<Expr> meijerg_integrate_0_inf_of(const Expr& f,
                                                                           const Expr& var);
 
+// Mellin convolution — the value of ∫₀^∞ G₁(η·var)·G₂(ω·var) dvar as a single
+// Meijer-G in η/ω (Mellin–Parseval). The parameter lists interleave both inputs'
+// parameters (with the second G's contributed with a sign flip). Returns
+// std::nullopt unless both arguments are Meijer-G nodes with argument η·var.
+// Apply `hyperexpand` to the result to reach a closed form when one exists.
+[[nodiscard]] SYMPP_EXPORT std::optional<Expr> meijerg_convolution(const Expr& G1,
+                                                                   const Expr& G2,
+                                                                   const Expr& var);
+
 }  // namespace sympp
