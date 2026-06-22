@@ -64,6 +64,7 @@ target_sources(sympp
         vector/vector_calculus.cpp
         functions/trigonometric.cpp
         integrals/integrate.cpp
+        integrals/meijerint.cpp
         integrals/quadrature.cpp
         integrals/transforms.cpp
         matrices/matrix.cpp
@@ -140,6 +141,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/special.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/trigonometric.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/integrals/integrate.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/integrals/meijerint.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/integrals/quadrature.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/integrals/transforms.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/matrices/matrix.hpp

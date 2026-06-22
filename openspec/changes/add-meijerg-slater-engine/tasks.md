@@ -21,11 +21,13 @@ increment on `main`. Only Phase 1 is implemented in the first session.
 - [ ] 2.2 Derivative-of-Gamma (digamma) expansion producing `log`-carrying terms
 - [ ] 2.3 Tests vs SymPy for Bessel-Y / log-bearing Meijer-G
 
-## Phase 3 — Mellin–Barnes definite integration (later session)
+## Phase 3 — Mellin–Barnes definite integration
 
-- [ ] 3.1 `∫₀^∞ G(ax) dx` master formula
-- [ ] 3.2 Product `∫₀^∞ G₁·G₂` convolution
-- [ ] 3.3 Wire into `integrate` for the `meijerint` family
+- [x] 3.1 Mellin transform `M[G(η·x)](s)` master formula (`meijerg_mellin_transform`)
+- [x] 3.2 `∫₀^∞ G(η·x) dx` = transform at s=1, with convergence guard
+  (`meijerg_integrate_0_inf`)
+- [ ] 3.3 Product `∫₀^∞ G₁·G₂` convolution (later)
+- [ ] 3.4 Wire into `integrate` for the `meijerint` family (paired with Phase 4)
 
 ## Phase 4 — function → Meijer-G recognition (later session)
 
