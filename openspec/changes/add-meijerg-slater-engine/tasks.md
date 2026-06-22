@@ -36,7 +36,9 @@ Bessel-family special functions as represented objects.
 - [x] 4.2 `meijerg_integrate_0_inf_of(f, var)` — ∫₀^∞ via recognition + Mellin
   (e.g. ∫₀^∞ xᵃe^{−x} = Γ(a+1))
 - [x] 4.3a Dispatch the general `integrate(..., 0, ∞)` through Meijer-G (done in 3.4)
-- [ ] 4.3b Grow the table (trig/Bessel/error functions, `η·xᶜ` arguments)
+- [x] 4.3b `η·xᶜ` substitution + exp/sin/cos table → Gaussian / Dirichlet / Fresnel
+  integrals, with per-core convergence guards (oscillatory strip)
+- [ ] 4.3c erf / Bessel cores (need the Bessel special-function family first)
 
 ## Phase 3 — Mellin–Barnes definite integration
 

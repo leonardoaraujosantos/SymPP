@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1679%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1681%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1679 tests / 6621 assertions  all passing
+1681 tests / 6631 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -350,7 +350,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   Slater's theorem** — generic case).
 - **Meijer-G engine** (`sympp::integrals/meijerint`) — Mellin transform of a
   Meijer-G (Gamma-ratio master formula), `∫₀^∞` via the transform at s=1, and a
-  function→Meijer-G recognition table; e.g. `∫₀^∞ xᵃ·e⁻ˣ dx = Γ(a+1)`.
+  function→Meijer-G recognition with the η·xᶜ substitution, wired into
+  `integrate(·,0,∞)` — Gaussian `∫₀^∞ e⁻ˣ² = √π/2`, Dirichlet `∫₀^∞ sin x/x = π/2`,
+  Fresnel `∫₀^∞ cos x² = √(2π)/4`, `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)`.
 - **Linear algebra** — det, inverse, eigendecomposition, `singular_values` + full `svd`,
   LU/QR/Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
   `Matrix::jordan_form()` (general chains), `Matrix::exp(t)` matrix

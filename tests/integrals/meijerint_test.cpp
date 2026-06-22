@@ -145,3 +145,37 @@ TEST_CASE("integrate: ∫₀^∞ routes a Meijer-G through the Mellin formula",
         integrate(mul(pow(x, a), exp(mul(integer(-1), x))), x, S::Zero(), oo)->str(),
         "gamma(a + 1)"));
 }
+
+// ----- Table growth: ∫₀^∞ G(η·xᶜ) via the substitution (Gaussian/Dirichlet/Fresnel)
+
+TEST_CASE("integrate: classic ∫₀^∞ via Meijer-G η·xᶜ substitution",
+          "[meijerint][oracle][integrate]") {
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto& o = oracle();
+    auto I = [&](const Expr& f) { return integrate(f, x, S::Zero(), oo)->str(); };
+
+    // Gaussian: ∫₀^∞ e^{−x²} = √π/2,  ∫₀^∞ x·e^{−x²} = 1/2,  ∫₀^∞ x²·e^{−x²} = √π/4.
+    REQUIRE(o.equivalent(I(exp(mul(integer(-1), pow(x, integer(2))))), "sqrt(pi)/2"));
+    REQUIRE(o.equivalent(I(mul(x, exp(mul(integer(-1), pow(x, integer(2)))))), "1/2"));
+    REQUIRE(o.equivalent(I(mul(pow(x, integer(2)), exp(mul(integer(-1), pow(x, integer(2)))))),
+                         "sqrt(pi)/4"));
+    // Dirichlet: ∫₀^∞ sin(x)/x = π/2.
+    REQUIRE(o.equivalent(I(mul(sin(x), pow(x, integer(-1)))), "pi/2"));
+    // Fresnel: ∫₀^∞ cos(x²) = ∫₀^∞ sin(x²) = √(2π)/4.
+    REQUIRE(o.equivalent(I(cos(pow(x, integer(2)))), "sqrt(2)*sqrt(pi)/4"));
+    REQUIRE(o.equivalent(I(sin(pow(x, integer(2)))), "sqrt(2)*sqrt(pi)/4"));
+    // Scaled Gaussian: ∫₀^∞ e^{−2x²} = √(2π)/4 = sqrt(2*pi)/4.
+    REQUIRE(o.equivalent(I(exp(mul(integer(-2), pow(x, integer(2))))), "sqrt(2)*sqrt(pi)/4"));
+}
+
+TEST_CASE("meijerint: divergent oscillatory integrals are not (wrongly) valued",
+          "[meijerint]") {
+    auto x = symbol("x");
+    // ∫₀^∞ sin(x) and ∫₀^∞ cos(x) diverge (oscillate) — the Meijer-G route must
+    // abstain (strip condition fails), so the recognizer returns nullopt.
+    REQUIRE_FALSE(meijerg_integrate_0_inf_of(sin(x), x).has_value());
+    REQUIRE_FALSE(meijerg_integrate_0_inf_of(cos(x), x).has_value());
+    // ∫₀^∞ x·sin(x) also diverges.
+    REQUIRE_FALSE(meijerg_integrate_0_inf_of(mul(x, sin(x)), x).has_value());
+}

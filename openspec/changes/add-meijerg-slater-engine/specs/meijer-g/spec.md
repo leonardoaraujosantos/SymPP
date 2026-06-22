@@ -94,3 +94,28 @@ unevaluated when convergence depends on an unknown sign.
 #### Scenario: Unknown-sign scale stays unevaluated
 - **WHEN** `integrate(e^{−a·x}, x, 0, ∞)` is evaluated for a generic `a` (sign unknown)
 - **THEN** the result is an unevaluated `Integral`, not `1/a`
+
+### Requirement: Power-argument definite integration
+
+SymPP SHALL evaluate `∫₀^∞ C·xᵈ·core(var) dx` for `core ∈ {exp, sin, cos}` with a
+monomial argument `k·varᵉ` via the substitution
+`∫₀^∞ C·xᵈ·G(η·xᶜ) dx = C·(1/c)·M_G((1+d)/c)`, gated by a convergence test: the
+scale MUST be positive, and for oscillatory cores the strip
+`−1 < (d+1)/e < 1` (sin) / `0 < (d+1)/e < 1` (cos) MUST hold. This routes the
+Gaussian, Dirichlet and Fresnel integrals through Meijer-G.
+
+#### Scenario: Gaussian integral
+- **WHEN** `integrate(e^{−x²}, x, 0, ∞)` is evaluated
+- **THEN** the result is `√π/2` (and `∫ x·e^{−x²} = 1/2`, `∫ x²·e^{−x²} = √π/4`)
+
+#### Scenario: Dirichlet integral
+- **WHEN** `integrate(sin(x)/x, x, 0, ∞)` is evaluated
+- **THEN** the result is `π/2`
+
+#### Scenario: Fresnel integrals
+- **WHEN** `integrate(cos(x²), x, 0, ∞)` and `integrate(sin(x²), x, 0, ∞)` are evaluated
+- **THEN** both are `√(2π)/4`
+
+#### Scenario: Divergent oscillatory integral rejected
+- **WHEN** `integrate(sin(x), x, 0, ∞)` is evaluated (oscillates, no limit)
+- **THEN** the Meijer-G route abstains (strip condition fails), not returning a value
