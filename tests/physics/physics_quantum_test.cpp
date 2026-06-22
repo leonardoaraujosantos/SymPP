@@ -263,3 +263,34 @@ TEST_CASE("second quantization: fermionic anticommutation relations",
         }
     }
 }
+
+// ----- Lagrangian mechanics framework ----------------------------------------
+
+TEST_CASE("mechanics: Lagrangian equations of motion", "[physics][mechanics]") {
+    auto& o = oracle();
+    auto t = symbol("t");
+    auto m = symbol("m"), k = symbol("k");
+
+    // 1-DOF harmonic oscillator: L = ½m·v² − ½k·q².  EOM: −k·q − m·a = 0.
+    {
+        auto q = symbol("q"), v = symbol("v"), a = symbol("a");
+        Expr L = mul(rational(1, 2), mul(m, pow(v, integer(2)))) -
+                 mul(rational(1, 2), mul(k, pow(q, integer(2))));
+        auto eom = ph::lagrange_equations(L, {q}, {v}, {a}, t);
+        REQUIRE(eom.size() == 1);
+        REQUIRE(o.equivalent(eom[0]->str(), "-k*q - m*a"));
+    }
+
+    // 2-DOF: L = ½m(v₁²+v₂²) − ½k(q₁²+q₂²). Each EOM: −k·qᵢ − m·aᵢ.
+    {
+        auto q1 = symbol("q1"), q2 = symbol("q2");
+        auto v1 = symbol("v1"), v2 = symbol("v2");
+        auto a1 = symbol("a1"), a2 = symbol("a2");
+        Expr T = mul(rational(1, 2), mul(m, pow(v1, integer(2)) + pow(v2, integer(2))));
+        Expr V = mul(rational(1, 2), mul(k, pow(q1, integer(2)) + pow(q2, integer(2))));
+        auto eom = ph::lagrange_equations(T - V, {q1, q2}, {v1, v2}, {a1, a2}, t);
+        REQUIRE(eom.size() == 2);
+        REQUIRE(o.equivalent(eom[0]->str(), "-k*q1 - m*a1"));
+        REQUIRE(o.equivalent(eom[1]->str(), "-k*q2 - m*a2"));
+    }
+}

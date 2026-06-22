@@ -126,4 +126,14 @@ namespace sympp::physics {
 //   H = p·q̇ − L,  with p = ∂L/∂q̇  (returned in terms of q̇).
 [[nodiscard]] SYMPP_EXPORT Expr hamiltonian(const Expr& lagrangian, const Expr& velocity);
 
+// Lagrangian mechanics: equations of motion for a system with generalized
+// coordinates q[i], velocities qdot[i], accelerations qddot[i] and time t. The
+// Lagrangian L is written in those symbols; for each coordinate the returned
+// expression is the Euler–Lagrange LHS  ∂L/∂qᵢ − D_t(∂L/∂q̇ᵢ)  (set = 0 for the
+// EOM), where D_t is the total time derivative
+//   D_t f = ∂f/∂t + Σⱼ (∂f/∂qⱼ)·q̇ⱼ + Σⱼ (∂f/∂q̇ⱼ)·q̈ⱼ.
+[[nodiscard]] SYMPP_EXPORT std::vector<Expr> lagrange_equations(
+    const Expr& lagrangian, const std::vector<Expr>& q, const std::vector<Expr>& qdot,
+    const std::vector<Expr>& qddot, const Expr& t);
+
 }  // namespace sympp::physics

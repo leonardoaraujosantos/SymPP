@@ -15,6 +15,7 @@
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/orthopolys.hpp>
+#include <sympp/simplify/simplify.hpp>
 
 namespace sympp::physics {
 
@@ -170,6 +171,29 @@ Expr conjugate_momentum(const Expr& lagrangian, const Expr& velocity) {
 Expr hamiltonian(const Expr& lagrangian, const Expr& velocity) {
     Expr p = conjugate_momentum(lagrangian, velocity);  // p = ∂L/∂q̇
     return mul(p, velocity) - lagrangian;               // H = p·q̇ − L
+}
+
+std::vector<Expr> lagrange_equations(const Expr& L, const std::vector<Expr>& q,
+                                     const std::vector<Expr>& qdot,
+                                     const std::vector<Expr>& qddot, const Expr& t) {
+    const std::size_t dof = q.size();
+    if (qdot.size() != dof || qddot.size() != dof) {
+        throw std::invalid_argument("lagrange_equations: coordinate/velocity/accel "
+                                    "lists must have equal length");
+    }
+    std::vector<Expr> eom;
+    eom.reserve(dof);
+    for (std::size_t i = 0; i < dof; ++i) {
+        Expr p = diff(L, qdot[i]);  // generalized momentum pᵢ = ∂L/∂q̇ᵢ
+        // Total time derivative D_t pᵢ via the chain rule over all coordinates.
+        Expr dt_p = diff(p, t);
+        for (std::size_t j = 0; j < dof; ++j) {
+            dt_p = add(dt_p, mul(diff(p, q[j]), qdot[j]));
+            dt_p = add(dt_p, mul(diff(p, qdot[j]), qddot[j]));
+        }
+        eom.push_back(simplify(diff(L, q[i]) - dt_p));  // ∂L/∂qᵢ − D_t pᵢ
+    }
+    return eom;
 }
 
 // ----- Second quantization: fermionic ladder operators -----------------------

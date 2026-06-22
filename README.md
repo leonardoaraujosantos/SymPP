@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1690%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1691%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1690 tests / 6818 assertions  all passing
+1691 tests / 6823 assertions  all passing
 672 cases (2724 assertions) oracle-validated against SymPy
 14 of 15 phases shipped
 ```
@@ -384,8 +384,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   Clebsch–Gordan** coupling coefficients, **Dirac γ-matrices**), atomic
   (hydrogen energies & radial wavefunctions, 1D
   harmonic-oscillator energies & wavefunctions), geometric optics (ABCD ray
-  matrices + Gaussian-beam `q` propagation), and classical mechanics
-  (conjugate momentum, Hamiltonian via Legendre transform).
+  matrices + Gaussian-beam `q` propagation), **quantum computing** (qubit gates H/S/T/CNOT, Bell states, bra-ket),
+  **second quantization** (Jordan-Wigner fermionic operators), and classical
+  mechanics (conjugate momentum, Hamiltonian, multi-coordinate Lagrangian EOM).
 - **LaTeX parser** — `parse_latex` turns LaTeX math back into an `Expr`
   (inverse of `printing::latex`).
 - **Discrete transforms** (`sympp::discrete`) — `fft`/`ifft` (exact DFT),
