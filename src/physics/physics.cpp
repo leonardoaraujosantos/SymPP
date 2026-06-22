@@ -172,6 +172,30 @@ Expr hamiltonian(const Expr& lagrangian, const Expr& velocity) {
     return mul(p, velocity) - lagrangian;               // H = p·q̇ − L
 }
 
+// ----- Second quantization: fermionic ladder operators -----------------------
+
+Matrix fermion_annihilation(std::size_t p, std::size_t n) {
+    if (p >= n) throw std::invalid_argument("fermion_annihilation: mode index out of range");
+    Matrix Z = pauli_z();
+    Matrix sigma_minus{{integer(0), integer(1)}, {integer(0), integer(0)}};  // σ⁻
+    Matrix I2 = Matrix::identity(2);
+    // Build Z^{⊗p} ⊗ σ⁻ ⊗ I^{⊗(n−p−1)} left-to-right.
+    Matrix result{{integer(1)}};  // 1×1 identity seed for the Kronecker fold
+    for (std::size_t i = 0; i < n; ++i) {
+        const Matrix& factor = (i < p) ? Z : (i == p) ? sigma_minus : I2;
+        result = kronecker_product(result, factor);
+    }
+    return result;
+}
+
+Matrix fermion_creation(std::size_t p, std::size_t n) {
+    return fermion_annihilation(p, n).conjugate_transpose();
+}
+
+Matrix fermion_number(std::size_t p, std::size_t n) {
+    return fermion_creation(p, n) * fermion_annihilation(p, n);
+}
+
 // ----- Angular momentum / spin -----------------------------------------------
 
 namespace {

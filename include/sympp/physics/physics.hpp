@@ -38,6 +38,16 @@ namespace sympp::physics {
 [[nodiscard]] SYMPP_EXPORT Matrix creation_operator(std::size_t n);
 [[nodiscard]] SYMPP_EXPORT Matrix number_operator(std::size_t n);
 
+// ----- Second quantization: fermionic ladder operators -----------------------
+// Jordan–Wigner representation of fermionic mode `p` (0-based) among `n` modes
+// on the 2ⁿ-dimensional Fock space: c_p = Z⊗…⊗Z⊗σ⁻⊗I⊗…⊗I (p copies of Z).
+// These satisfy the canonical anticommutation relations exactly (finite-dim):
+//   {c_p, c_q†} = δ_pq·I,  {c_p, c_q} = 0,  c_p² = 0.
+[[nodiscard]] SYMPP_EXPORT Matrix fermion_annihilation(std::size_t p, std::size_t n);
+[[nodiscard]] SYMPP_EXPORT Matrix fermion_creation(std::size_t p, std::size_t n);
+// Occupation-number operator nₚ = c_p†·c_p (eigenvalues 0/1).
+[[nodiscard]] SYMPP_EXPORT Matrix fermion_number(std::size_t p, std::size_t n);
+
 // ----- Angular momentum / spin (in units of ℏ) -------------------------------
 // Spin-j matrix representations in the standard basis |j,m⟩ ordered
 // m = j, j−1, …, −j (SymPy's convention). j may be integer or half-integer.

@@ -235,3 +235,31 @@ TEST_CASE("qubit: CNOT and the Bell state", "[physics][quantum][qubit]") {
     // The Bell state is normalized.
     REQUIRE(simplify(ph::braket(bell, bell)) == integer(1));
 }
+
+// ----- Second quantization: fermionic CAR ------------------------------------
+
+TEST_CASE("second quantization: fermionic anticommutation relations",
+          "[physics][quantum][secondquant]") {
+    const std::size_t n = 3;  // 3 modes → 8-dim Fock space
+    auto I8 = Matrix::identity(8);
+    auto Z8 = Matrix::zeros(8, 8);
+    for (std::size_t p = 0; p < n; ++p) {
+        auto cp = ph::fermion_annihilation(p, n);
+        auto cpd = ph::fermion_creation(p, n);
+        // c_p² = 0 (Pauli exclusion).
+        REQUIRE(mat_equiv(cp * cp, Z8));
+        // {c_p, c_p†} = I.
+        REQUIRE(mat_equiv(ph::anticommutator(cp, cpd), I8));
+        // Number operator is a 0/1 projector: nₚ² = nₚ.
+        auto np = ph::fermion_number(p, n);
+        REQUIRE(mat_equiv(np * np, np));
+        for (std::size_t q = 0; q < n; ++q) {
+            if (q == p) continue;
+            auto cq = ph::fermion_annihilation(q, n);
+            auto cqd = ph::fermion_creation(q, n);
+            // {c_p, c_q} = 0 and {c_p, c_q†} = 0 for p ≠ q.
+            REQUIRE(mat_equiv(ph::anticommutator(cp, cq), Z8));
+            REQUIRE(mat_equiv(ph::anticommutator(cp, cqd), Z8));
+        }
+    }
+}
