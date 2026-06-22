@@ -233,3 +233,59 @@ TEST_CASE("diop_linear: parametric family solves a·x + b·y = c", "[ntheory]") 
     REQUIRE_FALSE(diop_linear(integer(0), integer(0), integer(4)).has_value());
     REQUIRE(diop_linear(integer(0), integer(0), integer(0)).has_value());
 }
+
+// ----- Pell equation and sums of squares -------------------------------------
+
+TEST_CASE("diop_pell matches SymPy", "[ntheory][oracle]") {
+    auto check = [&](long D) {
+        auto got = diop_pell(integer(D));
+        std::string want = oracle_nt({{"fn", "pell"}, {"D", std::to_string(D)}});
+        if (want == "None") {
+            REQUIRE_FALSE(got.has_value());
+        } else {
+            REQUIRE(got.has_value());
+            REQUIRE(got->first->str() + "," + got->second->str() == want);
+            // And it really solves x² − D·y² = 1.
+            REQUIRE(sympp::testing::Oracle::instance().equivalent(
+                "(" + got->first->str() + ")**2 - " + std::to_string(D) + "*(" +
+                    got->second->str() + ")**2",
+                "1"));
+        }
+    };
+    for (long D : {2, 3, 5, 6, 7, 13, 61}) check(D);
+    REQUIRE_FALSE(diop_pell(integer(9)).has_value());   // perfect square
+    REQUIRE_FALSE(diop_pell(integer(0)).has_value());
+}
+
+TEST_CASE("sum_of_two_squares: reconstructs n or reports impossible",
+          "[ntheory]") {
+    auto ok = [&](long n) {
+        auto r = sum_of_two_squares(integer(n));
+        REQUIRE(r.has_value());
+        long a = std::stol(r->first->str()), b = std::stol(r->second->str());
+        REQUIRE(a * a + b * b == n);
+        REQUIRE(a <= b);
+    };
+    for (long n : {0, 1, 2, 5, 25, 50, 100, 130, 1105}) ok(n);
+    // 3, 7, 21 (= 3·7) have a prime ≡ 3 (mod 4) to an odd power → impossible.
+    REQUIRE_FALSE(sum_of_two_squares(integer(3)).has_value());
+    REQUIRE_FALSE(sum_of_two_squares(integer(7)).has_value());
+    REQUIRE_FALSE(sum_of_two_squares(integer(21)).has_value());
+}
+
+TEST_CASE("sum_of_four_squares: always reconstructs n (Lagrange)", "[ntheory]") {
+    for (long n : {0, 1, 3, 7, 23, 50, 100, 310, 999}) {
+        auto r = sum_of_four_squares(integer(n));
+        REQUIRE(r.has_value());
+        REQUIRE(r->size() == 4);
+        long s = 0, prev = 1L << 30;
+        for (const auto& e : *r) {
+            long v = std::stol(e->str());
+            s += v * v;
+            REQUIRE(v <= prev);  // sorted a ≥ b ≥ c ≥ d
+            prev = v;
+        }
+        REQUIRE(s == n);
+    }
+    REQUIRE_FALSE(sum_of_four_squares(integer(-1)).has_value());
+}

@@ -487,6 +487,11 @@ def handle(req):
                 return {"ok": True, "result": str(int(v))}
             except ValueError:
                 return {"ok": True, "result": "None"}
+        if fn == "pell":
+            from sympy.solvers.diophantine.diophantine import diop_DN
+            sols = diop_DN(int(req["D"]), 1)
+            return {"ok": True,
+                    "result": "None" if not sols else f"{int(sols[0][0])},{int(sols[0][1])}"}
         return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
 
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}

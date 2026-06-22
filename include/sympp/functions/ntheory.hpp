@@ -75,4 +75,19 @@ struct DiophantineLinear {
                                                                         const Expr& b,
                                                                         const Expr& c);
 
+// Fundamental solution (x, y) with x, y > 0 of the Pell equation x² − D·y² = 1,
+// found from the continued-fraction expansion of √D. std::nullopt when D ≤ 0 or
+// D is a perfect square (only the trivial (±1, 0)).
+[[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>> diop_pell(const Expr& D);
+
+// Represent n as a² + b² with 0 ≤ a ≤ b, or std::nullopt when impossible (some
+// prime ≡ 3 (mod 4) divides n to an odd power).
+[[nodiscard]] SYMPP_EXPORT std::optional<std::pair<Expr, Expr>> sum_of_two_squares(
+    const Expr& n);
+
+// Represent n ≥ 0 as a² + b² + c² + d² with a ≥ b ≥ c ≥ d ≥ 0 (Lagrange's
+// four-square theorem — always possible). std::nullopt only when n < 0.
+[[nodiscard]] SYMPP_EXPORT std::optional<std::vector<Expr>> sum_of_four_squares(
+    const Expr& n);
+
 }  // namespace sympp

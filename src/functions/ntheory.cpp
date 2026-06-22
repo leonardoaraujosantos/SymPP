@@ -371,4 +371,75 @@ std::optional<DiophantineLinear> diop_linear(const Expr& a, const Expr& b, const
                              make<Integer>(dy)};
 }
 
+// ----- Pell equation x² − D·y² = 1 -------------------------------------------
+
+std::optional<std::pair<Expr, Expr>> diop_pell(const Expr& D) {
+    mpz_class d = as_int(D, "diop_pell");
+    if (d <= 0) return std::nullopt;
+    mpz_class a0;
+    mpz_sqrt(a0.get_mpz_t(), d.get_mpz_t());
+    if (a0 * a0 == d) return std::nullopt;  // perfect square → no nontrivial solution
+
+    // Convergents h/k of the continued fraction of √D; the first with
+    // h² − D·k² = 1 is the fundamental solution.
+    mpz_class m = 0, q = 1, a = a0;
+    mpz_class hp = a0, hpp = 1, kp = 1, kpp = 0;
+    while (hp * hp - d * kp * kp != 1) {
+        m = q * a - m;
+        q = (d - m * m) / q;
+        a = (a0 + m) / q;
+        mpz_class h = a * hp + hpp;
+        hpp = hp;
+        hp = h;
+        mpz_class k = a * kp + kpp;
+        kpp = kp;
+        kp = k;
+    }
+    return std::make_pair(make<Integer>(hp), make<Integer>(kp));
+}
+
+// ----- Sums of squares -------------------------------------------------------
+
+std::optional<std::pair<Expr, Expr>> sum_of_two_squares(const Expr& n) {
+    mpz_class zn = as_int(n, "sum_of_two_squares");
+    if (zn < 0) return std::nullopt;
+    // a ≤ b ⇒ 2a² ≤ n; test whether n − a² is a perfect square.
+    for (mpz_class a = 0; 2 * a * a <= zn; ++a) {
+        mpz_class r = zn - a * a;
+        mpz_class b;
+        mpz_sqrt(b.get_mpz_t(), r.get_mpz_t());
+        if (b * b == r) return std::make_pair(make<Integer>(a), make<Integer>(b));
+    }
+    return std::nullopt;
+}
+
+std::optional<std::vector<Expr>> sum_of_four_squares(const Expr& n) {
+    mpz_class zn = as_int(n, "sum_of_four_squares");
+    if (zn < 0) return std::nullopt;
+    // Greedy descent: pick a, b (a ≥ b) then a two-square rep of the remainder.
+    mpz_class amax;
+    mpz_sqrt(amax.get_mpz_t(), zn.get_mpz_t());
+    for (mpz_class a = amax; a >= 0; --a) {
+        mpz_class r1 = zn - a * a;
+        mpz_class bmax;
+        mpz_sqrt(bmax.get_mpz_t(), r1.get_mpz_t());
+        if (bmax > a) bmax = a;  // keep b ≤ a
+        for (mpz_class b = bmax; b >= 0; --b) {
+            mpz_class r2 = r1 - b * b;
+            // Two-square rep of r2 with both ≤ b (so the quadruple is sorted).
+            for (mpz_class c = b; 2 * c * c >= r2 && c >= 0; --c) {
+                mpz_class r3 = r2 - c * c;
+                if (r3 < 0) continue;
+                mpz_class dd;
+                mpz_sqrt(dd.get_mpz_t(), r3.get_mpz_t());
+                if (dd * dd == r3 && dd <= c) {
+                    return std::vector<Expr>{make<Integer>(a), make<Integer>(b),
+                                             make<Integer>(c), make<Integer>(dd)};
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace sympp
