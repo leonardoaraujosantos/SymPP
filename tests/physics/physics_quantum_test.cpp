@@ -196,3 +196,42 @@ TEST_CASE("optics: refraction and Gaussian-beam propagation", "[physics][optics]
     Expr out = ph::gaussian_beam_q(ph::abcd_free_space(d), q);
     REQUIRE(oracle().equivalent(out->str(), (q + d)->str()));
 }
+
+// ----- Quantum computing: qubit states & gates -------------------------------
+
+TEST_CASE("qubit: gate identities and bra-ket orthonormality",
+          "[physics][quantum][qubit]") {
+    auto I2 = Matrix::identity(2);
+    // H is its own inverse: H² = I.
+    REQUIRE(mat_equiv(ph::gate_hadamard() * ph::gate_hadamard(), I2));
+    // S² = Z, T² = S.
+    REQUIRE(mat_equiv(ph::gate_phase() * ph::gate_phase(), ph::pauli_z()));
+    REQUIRE(mat_equiv(ph::gate_t() * ph::gate_t(), ph::gate_phase()));
+    // X|0⟩ = |1⟩, X|1⟩ = |0⟩.
+    REQUIRE(mat_equiv(ph::pauli_x() * ph::ket0(), ph::ket1()));
+    REQUIRE(mat_equiv(ph::pauli_x() * ph::ket1(), ph::ket0()));
+    // Orthonormal computational basis.
+    REQUIRE(simplify(ph::braket(ph::ket0(), ph::ket0())) == integer(1));
+    REQUIRE(simplify(ph::braket(ph::ket0(), ph::ket1())) == S::Zero());
+    // H|0⟩ is normalized: ⟨ψ|ψ⟩ = 1.
+    Matrix psi = ph::gate_hadamard() * ph::ket0();
+    REQUIRE(simplify(ph::braket(psi, psi)) == integer(1));
+}
+
+TEST_CASE("qubit: CNOT and the Bell state", "[physics][quantum][qubit]") {
+    // CNOT|10⟩ = |11⟩, CNOT|00⟩ = |00⟩.
+    REQUIRE(mat_equiv(ph::gate_cnot() * ph::qubit_state({1, 0}),
+                      ph::qubit_state({1, 1})));
+    REQUIRE(mat_equiv(ph::gate_cnot() * ph::qubit_state({0, 0}),
+                      ph::qubit_state({0, 0})));
+
+    // Bell state: CNOT·(H⊗I)|00⟩ = (|00⟩ + |11⟩)/√2.
+    Matrix HxI = kronecker_product(ph::gate_hadamard(), Matrix::identity(2));
+    Matrix bell = ph::gate_cnot() * (HxI * ph::qubit_state({0, 0}));
+    Expr inv_sqrt2 = pow(integer(2), rational(-1, 2));
+    Matrix expected =
+        (ph::qubit_state({0, 0}) + ph::qubit_state({1, 1})).scalar_mul(inv_sqrt2);
+    REQUIRE(mat_equiv(bell, expected));
+    // The Bell state is normalized.
+    REQUIRE(simplify(ph::braket(bell, bell)) == integer(1));
+}

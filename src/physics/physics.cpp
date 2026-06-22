@@ -95,6 +95,50 @@ Matrix number_operator(std::size_t n) {
     return N;
 }
 
+// ----- Quantum computing -----------------------------------------------------
+
+Matrix ket0() { return Matrix{{integer(1)}, {integer(0)}}; }
+Matrix ket1() { return Matrix{{integer(0)}, {integer(1)}}; }
+
+Matrix qubit_state(const std::vector<int>& bits) {
+    if (bits.empty()) throw std::invalid_argument("qubit_state: need at least one qubit");
+    Matrix state = (bits[0] == 0) ? ket0() : ket1();
+    for (std::size_t i = 1; i < bits.size(); ++i) {
+        state = kronecker_product(state, bits[i] == 0 ? ket0() : ket1());
+    }
+    return state;
+}
+
+Matrix gate_hadamard() {
+    Expr s = rational(1, 2);  // 1/√2 = (1/2)^{1/2}
+    Expr inv_sqrt2 = pow(integer(2), rational(-1, 2));
+    (void)s;
+    return Matrix{{inv_sqrt2, inv_sqrt2}, {inv_sqrt2, mul(integer(-1), inv_sqrt2)}};
+}
+
+Matrix gate_phase() {  // S = diag(1, i)
+    return Matrix{{integer(1), integer(0)}, {integer(0), S::I()}};
+}
+
+Matrix gate_t() {  // T = diag(1, e^{iπ/4})
+    Expr ph = exp(mul(S::I(), mul(rational(1, 4), S::Pi())));
+    return Matrix{{integer(1), integer(0)}, {integer(0), ph}};
+}
+
+Matrix gate_cnot() {
+    Expr o = integer(0), l = integer(1);
+    // Basis |00>,|01>,|10>,|11>: flip the second qubit when the first is 1.
+    return Matrix{{l, o, o, o}, {o, l, o, o}, {o, o, o, l}, {o, o, l, o}};
+}
+
+Expr braket(const Matrix& a, const Matrix& b) {
+    Matrix inner = a.conjugate_transpose() * b;  // (1×n)·(n×1) → 1×1
+    if (inner.rows() != 1 || inner.cols() != 1) {
+        throw std::invalid_argument("braket: arguments must be kets of equal dimension");
+    }
+    return inner.at(0, 0);
+}
+
 Matrix abcd_free_space(const Expr& d) {
     return Matrix{{integer(1), d}, {integer(0), integer(1)}};
 }

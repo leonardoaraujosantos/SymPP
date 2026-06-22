@@ -19,6 +19,7 @@
 // Reference: sympy/physics/{quantum,hydrogen,qho_1d,wigner,optics,mechanics}.
 
 #include <cstddef>
+#include <vector>
 
 #include <sympp/core/api.hpp>
 #include <sympp/fwd.hpp>
@@ -81,6 +82,21 @@ namespace sympp::physics {
 [[nodiscard]] SYMPP_EXPORT Expr qho_energy(const Expr& n, const Expr& omega);  // (n+½)ω
 // Stationary-state wavefunction ψ_n(x) in natural units (m=ω=ℏ=1).
 [[nodiscard]] SYMPP_EXPORT Expr qho_wavefunction(int n, const Expr& x);
+
+// ----- Quantum computing (qubit states & gates) ------------------------------
+// Computational-basis kets |0⟩, |1⟩ as 2×1 column vectors.
+[[nodiscard]] SYMPP_EXPORT Matrix ket0();
+[[nodiscard]] SYMPP_EXPORT Matrix ket1();
+// n-qubit computational basis state |bits[0] bits[1] …⟩ (each 0/1), big-endian.
+[[nodiscard]] SYMPP_EXPORT Matrix qubit_state(const std::vector<int>& bits);
+// Single-qubit gates. (Pauli X/Y/Z above double as the bit/phase-flip gates.)
+[[nodiscard]] SYMPP_EXPORT Matrix gate_hadamard();   // H
+[[nodiscard]] SYMPP_EXPORT Matrix gate_phase();      // S = diag(1, i)
+[[nodiscard]] SYMPP_EXPORT Matrix gate_t();          // T = diag(1, e^{iπ/4})
+// Two-qubit controlled-NOT (control = first/most-significant qubit).
+[[nodiscard]] SYMPP_EXPORT Matrix gate_cnot();
+// Inner product ⟨a|b⟩ = a†·b for two kets of equal dimension (scalar).
+[[nodiscard]] SYMPP_EXPORT Expr braket(const Matrix& a, const Matrix& b);
 
 // ----- Geometric optics (ABCD ray-transfer matrices) -------------------------
 [[nodiscard]] SYMPP_EXPORT Matrix abcd_free_space(const Expr& distance);
