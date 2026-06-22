@@ -32,6 +32,7 @@ target_sources(sympp_tests
         core/symbol_test.cpp
         core/traversal_test.cpp
         core/undefined_function_test.cpp
+        functions/bessel_test.cpp
         functions/combinatorial_test.cpp
         functions/ntheory_test.cpp
         functions/orthopolys_test.cpp

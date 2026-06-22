@@ -47,6 +47,7 @@ target_sources(sympp
         calculus/pade.cpp
         calculus/series.cpp
         calculus/summation.cpp
+        functions/bessel.cpp
         functions/combinatorial.cpp
         functions/exponential.cpp
         functions/hyperbolic.cpp
@@ -132,6 +133,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/pade.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/series.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/summation.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/bessel.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/combinatorial.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/exponential.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/hyperbolic.hpp

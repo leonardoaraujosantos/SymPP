@@ -18,6 +18,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/undefined_function.hpp>
+#include <sympp/functions/bessel.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
@@ -205,6 +206,10 @@ using TwoArgFn = Expr (*)(const Expr&, const Expr&);
         {"polygamma", &polygamma},
         {"lowergamma", &lowergamma},
         {"uppergamma", &uppergamma},
+        {"besselj", &besselj},
+        {"bessely", &bessely},
+        {"besseli", &besseli},
+        {"besselk", &besselk},
         {"harmonic", static_cast<TwoArgFn>(&harmonic)},  // generalized Hₙ⁽ᵐ⁾
         {"divisor_sigma", static_cast<TwoArgFn>(&divisor_sigma)},  // σ_k(n)
     };

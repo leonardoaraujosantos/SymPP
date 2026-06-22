@@ -43,6 +43,7 @@
 #include <sympp/calculus/pade.hpp>
 #include <sympp/calculus/series.hpp>
 #include <sympp/calculus/summation.hpp>
+#include <sympp/functions/bessel.hpp>
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
