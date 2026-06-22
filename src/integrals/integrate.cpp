@@ -1,4 +1,5 @@
 #include <sympp/integrals/integrate.hpp>
+#include <sympp/integrals/meijerint.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -4397,6 +4398,17 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// ∫₀^∞ via the Meijer-G Mellin master formula — handles a bare Meijer-G
+// integrand directly, and a function recognized as a Meijer-G (to_meijerg).
+// Only the [0, ∞) interval is in scope; divergent results are rejected upstream.
+[[nodiscard]] std::optional<Expr> try_meijerg_integral(const Expr& expr, const Expr& var,
+                                                       const Expr& lower, const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) return std::nullopt;
+    if (auto r = meijerg_integrate_0_inf(expr, var)) return r;       // bare Meijer-G
+    if (auto r = meijerg_integrate_0_inf_of(expr, var)) return r;    // recognized function
+    return std::nullopt;
+}
+
 }  // namespace
 
 Expr integrate(const Expr& expr, const Expr& var,
@@ -4418,6 +4430,9 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_sinh_integral(expr, var, lower, upper)) return *r;
     // ∫₀^∞ log(1+c·x²)/x² = π·√c for c > 0. Non-elementary antiderivative.
     if (auto r = try_log1px2_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ of a Meijer-G (or a function recognized as one) via the Mellin master
+    // formula — covers a bare meijerg integrand the antiderivative path can't.
+    if (auto r = try_meijerg_integral(expr, var, lower, upper)) return *r;
     auto antider = integrate(expr, var);
     // An integrand with abs/sign has no elementary antiderivative (the marker can
     // be buried in a sum, e.g. ∫(|x|+x²) = Integral(|x|,x) + x³/3), but is

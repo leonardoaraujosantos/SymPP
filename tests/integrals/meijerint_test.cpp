@@ -11,8 +11,11 @@
 #include <sympp/core/symbol.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hypergeometric.hpp>
+#include <sympp/core/singletons.hpp>
 #include <sympp/functions/trigonometric.hpp>
+#include <sympp/integrals/integrate.hpp>
 #include <sympp/integrals/meijerint.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/simplify/hyperexpand.hpp>
 
 #include "oracle/oracle.hpp"
@@ -117,4 +120,28 @@ TEST_CASE("meijerint: ∫₀^∞ f dx via recognition equals SymPy", "[meijerint
     auto ia = meijerg_integrate_0_inf_of(mul(pow(x, a), exp(mul(integer(-1), x))), x);
     REQUIRE(ia.has_value());
     REQUIRE(o.equivalent((*ia)->str(), "gamma(a + 1)"));
+}
+
+// ----- Wired into the general integrate(expr, var, 0, oo) ---------------------
+
+TEST_CASE("integrate: ∫₀^∞ routes a Meijer-G through the Mellin formula",
+          "[meijerint][oracle][integrate]") {
+    auto x = symbol("x");
+    auto a = symbol("a");
+    auto oo = S::Infinity();
+    auto& o = oracle();
+
+    // A bare Meijer-G integrand — only reachable via the Meijer-G wiring.
+    REQUIRE(o.equivalent(
+        integrate(meijerg({}, {}, {integer(0)}, {}, x), x, S::Zero(), oo)->str(), "1"));
+    REQUIRE(o.equivalent(
+        integrate(meijerg({}, {}, {rational(1, 2)}, {}, x), x, S::Zero(), oo)->str(),
+        "sqrt(pi)/2"));
+    // x²·e^{−x} and xᵃ·e^{−x} via the general integrate definite path.
+    REQUIRE(o.equivalent(
+        integrate(mul(pow(x, integer(2)), exp(mul(integer(-1), x))), x, S::Zero(), oo)->str(),
+        "2"));
+    REQUIRE(o.equivalent(
+        integrate(mul(pow(x, a), exp(mul(integer(-1), x))), x, S::Zero(), oo)->str(),
+        "gamma(a + 1)"));
 }

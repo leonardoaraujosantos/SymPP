@@ -35,8 +35,8 @@ Bessel-family special functions as represented objects.
   round-tripping through `hyperexpand`
 - [x] 4.2 `meijerg_integrate_0_inf_of(f, var)` — ∫₀^∞ via recognition + Mellin
   (e.g. ∫₀^∞ xᵃe^{−x} = Γ(a+1))
-- [ ] 4.3 Grow the table (trig/Bessel/error functions) and dispatch the general
-  `integrate(..., 0, ∞)` through it
+- [x] 4.3a Dispatch the general `integrate(..., 0, ∞)` through Meijer-G (done in 3.4)
+- [ ] 4.3b Grow the table (trig/Bessel/error functions, `η·xᶜ` arguments)
 
 ## Phase 3 — Mellin–Barnes definite integration
 
@@ -44,7 +44,8 @@ Bessel-family special functions as represented objects.
 - [x] 3.2 `∫₀^∞ G(η·x) dx` = transform at s=1, with convergence guard
   (`meijerg_integrate_0_inf`)
 - [ ] 3.3 Product `∫₀^∞ G₁·G₂` convolution (later)
-- [ ] 3.4 Wire into `integrate` for the `meijerint` family (paired with Phase 4)
+- [x] 3.4 Wire into the general `integrate(expr, var, 0, ∞)` (Meijer-G rule, with an
+  η>0 convergence guard so generic-scale integrals stay unevaluated)
 
 ## Phase 4 — function → Meijer-G recognition (later session)
 

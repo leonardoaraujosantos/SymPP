@@ -9,6 +9,7 @@
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
+#include <sympp/core/queries.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
@@ -81,6 +82,14 @@ std::optional<Expr> meijerg_mellin_transform(const Expr& G, const Expr& var, con
 }
 
 std::optional<Expr> meijerg_integrate_0_inf(const Expr& G, const Expr& var) {
+    // Convergence at the +∞ end needs the exponential-decay scale η > 0. If the
+    // scale's sign is unknown (e.g. ∫₀^∞ e^{−a·x} with generic a), abstain so the
+    // caller can keep the integral unevaluated rather than return a value that is
+    // only valid for η > 0. (The 0-end divergence is caught by the Gamma-pole
+    // guard below.)
+    MGData d = parse_meijerg(G, var);
+    if (!d.ok || is_positive(d.eta) != std::optional<bool>{true}) return std::nullopt;
+
     auto mt = meijerg_mellin_transform(G, var, S::One());  // transform at s = 1
     if (!mt) return std::nullopt;
     Expr v = simplify(*mt);

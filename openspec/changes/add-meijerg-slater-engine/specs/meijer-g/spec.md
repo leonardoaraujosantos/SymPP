@@ -75,3 +75,22 @@ Mellin master formula for recognized `f`.
 #### Scenario: Gamma integral via Meijer-G
 - **WHEN** `meijerg_integrate_0_inf_of(xᵃ·e^{−x}, x)` is evaluated
 - **THEN** the result is `Γ(a + 1)`
+
+### Requirement: General integrate dispatches ∫₀^∞ through Meijer-G
+
+The general `integrate(expr, var, 0, ∞)` SHALL route a Meijer-G integrand — or a
+function recognized as one — through the Mellin master formula, but only when the
+exponential-decay scale `η` is provably positive, leaving the integral
+unevaluated when convergence depends on an unknown sign.
+
+#### Scenario: Bare Meijer-G through the general integrator
+- **WHEN** `integrate(G^{1,0}_{0,1}([],[],[1/2],[], x), x, 0, ∞)` is evaluated
+- **THEN** the result is `√π/2`
+
+#### Scenario: Recognized function through the general integrator
+- **WHEN** `integrate(xᵃ·e^{−x}, x, 0, ∞)` is evaluated
+- **THEN** the result is `Γ(a + 1)`
+
+#### Scenario: Unknown-sign scale stays unevaluated
+- **WHEN** `integrate(e^{−a·x}, x, 0, ∞)` is evaluated for a generic `a` (sign unknown)
+- **THEN** the result is an unevaluated `Integral`, not `1/a`
