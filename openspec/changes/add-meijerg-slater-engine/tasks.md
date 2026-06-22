@@ -24,10 +24,9 @@ SymPP is already at parity by detecting the confluent case and leaving it opaque
 (Phase 1 guard, tested). A true closed form requires first introducing the
 Bessel-family special functions as represented objects.
 
-- [x] 2.1 Detect integer-spaced lower parameters and leave the node opaque
-  (matches SymPy; tested in Phase 1)
-- [ ] 2.2 Bessel-family special functions as prerequisite (separate initiative)
-- [ ] 2.3 Confluent → Bessel closed forms (after 2.2)
+- [x] 2.1 Detect integer-spaced lower parameters
+- [x] 2.2 Bessel-family special functions (besselj/y/i/k) — shipped
+- [x] 2.3 Confluent G^{2,0}_{0,2} → 2·z^{(b1+b2)/2}·K_{b1−b2}(2√z) closed form
 
 ## Phase 4 — function → Meijer-G recognition
 

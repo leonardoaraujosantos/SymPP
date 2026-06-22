@@ -154,12 +154,19 @@ TEST_CASE("hyperexpand: Meijer-G generic Slater reduction matches SymPy",
         "sqrt(pi)*cosh(2*sqrt(z)) - sqrt(pi)*sinh(2*sqrt(z))"));
 }
 
-TEST_CASE("hyperexpand: Meijer-G confluent case is left unevaluated",
-          "[5][hyperexpand][meijerg]") {
+TEST_CASE("hyperexpand: confluent Meijer-G → modified Bessel K",
+          "[5][hyperexpand][meijerg][oracle]") {
+    auto& oracle = Oracle::instance();
     auto z = symbol("z");
-    // Lower parameters 0 and 1 differ by an integer → generic Slater does not
-    // apply; the node must be returned unchanged (not a wrong closed form).
-    auto g = meijerg({}, {}, {integer(0), integer(1)}, {}, z);
+    // G^{2,0}_{0,2}(z|;;b1,b2) with b1-b2 ∈ ℤ = 2·z^{(b1+b2)/2}·K_{b1-b2}(2√z).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(meijerg({}, {}, {integer(0), integer(0)}, {}, z))->str(),
+        "2*besselk(0, 2*sqrt(z))"));
+    REQUIRE(oracle.equivalent(
+        hyperexpand(meijerg({}, {}, {integer(1), integer(0)}, {}, z))->str(),
+        "2*sqrt(z)*besselk(1, 2*sqrt(z))"));
+    // A genuinely non-reducible confluent shape (not G^{2,0}_{0,2}) stays opaque.
+    auto g = meijerg({integer(1)}, {}, {integer(0), integer(1)}, {}, z);
     REQUIRE(hyperexpand(g) == g);
 }
 

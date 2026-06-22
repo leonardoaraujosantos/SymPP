@@ -19,6 +19,7 @@
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/hypergeometric.hpp>
+#include <sympp/functions/bessel.hpp>
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
@@ -76,6 +77,16 @@ namespace {
     A.insert(A.end(), ap_rest.begin(), ap_rest.end());
     std::vector<Expr> B = bm;                       // b₁…b_q
     B.insert(B.end(), bq_rest.begin(), bq_rest.end());
+
+    // Confluent G^{2,0}_{0,2}(z|;;b₁,b₂) with b₁−b₂ ∈ ℤ — the generic Slater form
+    // breaks (repeated poles), but the closed form is a modified Bessel K:
+    //   G^{2,0}_{0,2}(z) = 2·z^{(b₁+b₂)/2}·K_{b₁−b₂}(2√z).
+    if (n == 0 && p == 0 && m == 2 && q == 2 &&
+        (bm[0] - bm[1])->type_id() == TypeId::Integer) {
+        Expr order = bm[0] - bm[1];
+        Expr expo = mul(rational(1, 2), add(bm[0], bm[1]));
+        return mul(integer(2), mul(pow(z, expo), besselk(order, mul(integer(2), sqrt(z)))));
+    }
 
     // Generic guard: no two lower poles b₁…b_m may differ by an integer.
     for (std::size_t i = 0; i < bm.size(); ++i)
