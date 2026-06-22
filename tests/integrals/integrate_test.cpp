@@ -3474,3 +3474,38 @@ TEST_CASE("integrate: Risch DE for rational·exp (RISCH-EXP-1)",
         integrate(mul(mul(x, E(x)), pow(x + integer(1), integer(-2))), x)->str(),
         "exp(x)/(x + 1)"));
 }
+
+// RISCH-LOG-1: logarithmic-extension integration. The u = log(x) substitution
+// reduces a rational function of log(x) (with the 1/x kernel) to a rational-
+// function integral, which the engine solves completely — the logarithmic case
+// of the Risch algorithm. Each elementary case is verified by differentiation;
+// genuinely non-elementary cases stay unevaluated, matching SymPy.
+TEST_CASE("integrate: logarithmic-extension Risch (RISCH-LOG-1)",
+          "[7][integrate][risch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto L = [&](const Expr& a) { return log(a); };
+    auto dv = [&](const Expr& a, const Expr& b) { return mul(a, pow(b, integer(-1))); };
+    auto solves = [&](const Expr& f) {
+        Expr F = integrate(f, x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);
+        REQUIRE(oracle.equivalent("diff(" + F->str() + ", x)", f->str()));
+    };
+    // Rational functions of log(x) over the 1/x kernel — fully solved.
+    solves(dv(integer(1), mul(x, integer(1) + pow(L(x), integer(2)))));  // → atan(log x)
+    solves(dv(integer(1), mul(x, pow(L(x), integer(2)) - integer(1))));   // atanh-type
+    solves(dv(L(x), mul(x, integer(1) + pow(L(x), integer(2)))));         // ½log(log²x+1)
+    solves(dv(integer(1), mul(x, pow(L(x), integer(2)))));                // −1/log x
+    solves(dv(L(x) - integer(1), mul(x, pow(L(x), integer(2)))));         // 1/log x + log log x
+    solves(dv(integer(1), mul(x, mul(L(x), L(x) + integer(1)))));         // partial fractions
+    solves(dv(integer(1), mul(x, integer(1) + L(x))));                    // log(1+log x)
+    // Nested logarithmic tower.
+    solves(dv(integer(1), mul(mul(x, L(x)), L(L(x)))));                   // → log log log x
+
+    // Boundary: genuinely non-elementary log integrals stay unevaluated (as in SymPy).
+    auto unevaluated = [&](const Expr& f) {
+        REQUIRE(integrate(f, x)->str().find("Integral") != std::string::npos);
+    };
+    unevaluated(dv(L(x), pow(x, integer(2)) + integer(1)));  // dilog/Ti₂
+    unevaluated(dv(integer(1), x + L(x)));                    // 1/(x+log x)
+}
