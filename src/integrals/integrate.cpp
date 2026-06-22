@@ -25,6 +25,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/matrices/matrix.hpp>
 #include <sympp/core/traversal.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/core/undefined_function.hpp>
@@ -586,6 +587,128 @@ struct IntegrateDepthGuard {
     return result;
 }
 
+namespace {
+
+// Split together(R) into (numer, denom) Exprs by collecting negative-power factors.
+[[nodiscard]] std::pair<Expr, Expr> split_fraction(const Expr& R) {
+    Expr t = together(R);
+    Expr num = S::One(), den = S::One();
+    auto handle = [&](const Expr& f) {
+        if (f->type_id() == TypeId::Pow) {
+            const Expr& e = f->args()[1];
+            if (e->type_id() == TypeId::Integer &&
+                static_cast<const Integer&>(*e).value() < 0) {
+                den = mul(den, pow(f->args()[0], mul(integer(-1), e)));
+                return;
+            }
+        }
+        num = mul(num, f);
+    };
+    if (t->type_id() == TypeId::Mul) {
+        for (const auto& f : t->args()) handle(f);
+    } else {
+        handle(t);
+    }
+    return {num, den};
+}
+
+// Risch differential equation for one exponential extension: integrate
+// R(x)·e^{a·x} (R rational, a a nonzero constant) by solving Q' + a·Q = R for a
+// rational Q = U/gcd(V,V') (V = denom R) via undetermined coefficients, giving
+// ∫ = Q·e^{a·x}. Returns nullopt when no rational Q exists (the heuristic
+// by-parts path then handles the elementary-by-parts cases, or it stays
+// unevaluated). Closes e.g. ∫ x·eˣ/(x+1)² = eˣ/(x+1).
+[[nodiscard]] std::optional<Expr> try_risch_exp(const Expr& expr, const Expr& var) {
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr a;
+    bool have_exp = false;
+    std::vector<Expr> rest;
+    for (const auto& f : factors) {
+        if (f->type_id() == TypeId::Function &&
+            static_cast<const Function&>(*f).function_id() == FunctionId::Exp) {
+            Expr g = f->args()[0];
+            Expr coeff = simplify(mul(g, pow(var, integer(-1))));  // a = arg/x
+            if (have_exp || has(coeff, var)) return std::nullopt;   // ≤1 exp, linear arg
+            a = coeff;
+            have_exp = true;
+        } else {
+            rest.push_back(f);
+        }
+    }
+    if (!have_exp || a == S::Zero()) return std::nullopt;
+    Expr R = rest.empty() ? Expr{S::One()} : mul(rest);
+    if (!is_rational_in(R, var)) return std::nullopt;
+
+    auto [N, V] = split_fraction(R);
+    Poly Vp(expand(V), var), Np(expand(N), var);
+    Expr D = gcd(Vp, Vp.diff()).as_expr();  // denominator of Q = ∏ pᵢ^{kᵢ−1}
+
+    long dU = static_cast<long>(Np.degree()) +
+              static_cast<long>(Poly(expand(D), var).degree()) + 1;
+    if (dU < 0 || dU > 40) return std::nullopt;  // keep the linear system bounded
+
+    // U = Σ c_i·xⁱ with fresh unknowns; Q = U/D.
+    std::vector<Expr> cs;
+    Expr U = S::Zero();
+    for (long i = 0; i <= dU; ++i) {
+        Expr c = symbol("__risch_c" + std::to_string(i));
+        cs.push_back(c);
+        U = add(U, mul(c, pow(var, integer(i))));
+    }
+    Expr Q = mul(U, pow(D, integer(-1)));
+    Expr residual = add(diff(Q, var), add(mul(a, Q), mul(integer(-1), R)));
+    auto [rnum, rden] = split_fraction(residual);
+    (void)rden;
+    Poly rp(expand(rnum), var);  // must vanish identically → each coeff = 0
+
+    // Build the linear system A·c = b from the coefficient equations.
+    const auto& eqs = rp.coeffs();
+    std::size_t nunk = cs.size();
+    std::vector<std::vector<Expr>> aug;  // (num eqs) × (nunk+1) augmented matrix
+    for (const auto& eqc : eqs) {
+        std::vector<Expr> row;
+        row.reserve(nunk + 1);
+        for (const auto& c : cs) row.push_back(simplify(diff(eqc, c)));  // coeff of c
+        // constant term = eqc with all c → 0; RHS b = −const.
+        Expr cterm = eqc;
+        for (const auto& c : cs) cterm = subs(cterm, c, S::Zero());
+        row.push_back(mul(integer(-1), simplify(cterm)));
+        aug.push_back(std::move(row));
+    }
+    if (aug.empty()) return std::nullopt;
+
+    Matrix M(aug.size(), nunk + 1);
+    for (std::size_t i = 0; i < aug.size(); ++i)
+        for (std::size_t j = 0; j <= nunk; ++j) M.set(i, j, aug[i][j]);
+    auto [rref, pivots] = M.rref();
+
+    // Consistency: a pivot in the last column means 0 = nonzero → no solution.
+    for (std::size_t pc : pivots)
+        if (pc == nunk) return std::nullopt;
+
+    // Read each unknown from its pivot row (free unknowns default to 0).
+    std::vector<Expr> sol(nunk, S::Zero());
+    for (std::size_t r = 0; r < pivots.size(); ++r) {
+        std::size_t pc = pivots[r];
+        if (pc < nunk) sol[pc] = rref.at(r, nunk);
+    }
+    // Substitute the solution into Q.
+    Expr Qsol = Q;
+    for (std::size_t i = 0; i < nunk; ++i) Qsol = subs(Qsol, cs[i], sol[i]);
+    Qsol = simplify(Qsol);
+    Expr result = simplify(mul(Qsol, exp(mul(a, var))));
+    // Verify by differentiation — only accept a genuinely-correct antiderivative.
+    if (simplify(diff(result, var) - expr) == S::Zero()) return result;
+    return std::nullopt;
+}
+
+}  // namespace
+
 Expr integrate(const Expr& expr, const Expr& var) {
     if (!expr || !var) return S::Zero();
 
@@ -706,6 +829,11 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_powexp_lowergamma(expr, var); r.has_value()) {
+        return *r;
+    }
+    // Risch differential equation for R(x)·e^{a·x} before by-parts: catches the
+    // rational-times-exp cases (repeated poles) where by-parts does not terminate.
+    if (auto r = try_risch_exp(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_integration_by_parts(expr, var); r.has_value()) {

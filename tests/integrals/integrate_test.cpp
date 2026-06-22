@@ -3449,3 +3449,28 @@ TEST_CASE("integrate: ∫₀^∞ x^(s-1)·e^{-cx} = Γ(s)/c^s (INT-GAMMA-1)",
     REQUIRE(integrate(pow(x, integer(3)) * ecx(2), x, zero, oo)
             == rational(3, 8));
 }
+
+// RISCH-EXP-1: the Risch differential equation for R(x)·e^{a·x} closes
+// rational-times-exponential integrals where by-parts does not terminate.
+TEST_CASE("integrate: Risch DE for rational·exp (RISCH-EXP-1)",
+          "[7][integrate][risch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto E = [&](const Expr& g) { return exp(g); };
+    // Each result must differentiate back to the integrand (oracle-checked).
+    auto check = [&](const Expr& integrand) {
+        Expr F = integrate(integrand, x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);  // actually solved
+        REQUIRE(oracle.equivalent("diff(" + F->str() + ", x)", integrand->str()));
+    };
+    // ∫ x·eˣ/(x+1)² = eˣ/(x+1) — the classic Risch case.
+    check(mul(mul(x, E(x)), pow(x + integer(1), integer(-2))));
+    // ∫ eˣ·(x−1)/(x+1)³  (rational·exp, repeated pole).
+    check(mul(E(x), mul(x - integer(1), pow(x + integer(1), integer(-3)))));
+    // ∫ (x²·e^{2x})/(x+1)²  (scaled exponent a=2).
+    check(mul(pow(x, integer(2)), mul(E(mul(integer(2), x)), pow(x + integer(1), integer(-2)))));
+    // Sanity: the headline result is exactly eˣ/(x+1).
+    REQUIRE(oracle.equivalent(
+        integrate(mul(mul(x, E(x)), pow(x + integer(1), integer(-2))), x)->str(),
+        "exp(x)/(x + 1)"));
+}
