@@ -91,6 +91,42 @@ TEST_CASE("hyperexpand: ₂F₁(1, 1; 2; z) = -log(1 - z)/z",
     REQUIRE(oracle.equivalent(out->str(), "-log(1 - z)/z"));
 }
 
+TEST_CASE("hyperexpand: ₀F₁ radical-argument closed forms",
+          "[5][hyperexpand][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+    // ₀F₁(; 1/2; z) = cosh(2√z).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {rational(1, 2)}, z))->str(), "cosh(2*sqrt(z))"));
+    // ₀F₁(; 3/2; z) = sinh(2√z)/(2√z).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {rational(3, 2)}, z))->str(),
+        "sinh(2*sqrt(z))/(2*sqrt(z))"));
+}
+
+TEST_CASE("hyperexpand: ₁F₁(1; 3/2; z) = √π·eᶻ·erf(√z)/(2√z)",
+          "[5][hyperexpand][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({integer(1)}, {rational(3, 2)}, z))->str(),
+        "sqrt(pi)*exp(z)*erf(sqrt(z))/(2*sqrt(z))"));
+}
+
+TEST_CASE("hyperexpand: ₂F₁ radical-argument closed forms",
+          "[5][hyperexpand][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+    // ₂F₁(1/2, 1; 3/2; z) = atanh(√z)/√z.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({rational(1, 2), integer(1)}, {rational(3, 2)}, z))->str(),
+        "atanh(sqrt(z))/sqrt(z)"));
+    // ₂F₁(1/2, 1/2; 3/2; z) = asin(√z)/√z.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({rational(1, 2), rational(1, 2)}, {rational(3, 2)}, z))->str(),
+        "asin(sqrt(z))/sqrt(z)"));
+}
+
 TEST_CASE("hyperexpand: leaves unrecognized hyper alone",
           "[5][hyperexpand]") {
     auto a = symbol("a");

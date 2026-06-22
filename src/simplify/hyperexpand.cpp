@@ -16,7 +16,10 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
 #include <sympp/functions/exponential.hpp>
+#include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/hypergeometric.hpp>
+#include <sympp/functions/miscellaneous.hpp>
+#include <sympp/functions/special.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
 namespace sympp {
@@ -66,14 +69,14 @@ namespace {
     Expr one = S::One();
     Expr two = integer(2);
 
-    // ₀F₁ family (p == 0, q == 1).
+    Expr sqz = sqrt(z);  // √z, used by the radical-argument closed forms below
+
+    // ₀F₁ family (p == 0, q == 1): ₀F₁(; b; z) = Σ zᵏ/((b)ₖ k!).
     if (p == 0 && q == 1) {
-        // ₀F₁(; 1/2; −z²/4) = cos(z) — match by setting w := -z*4 and
-        // checking arg-shape. Simpler: introduce y so z == −y²/4 ↔ y² == −4z.
-        // We don't currently invert that, so we recognize the canonical
-        // input form ₀F₁(; 1/2; w) = cosh(√w) / 1 and ₀F₁(; 3/2; w) =
-        // sinh(√w) / √w. The caller usually supplies the form below.
-        // We don't ship those here to avoid Sqrt-with-branch surprises.
+        // ₀F₁(; 1/2; z) = cosh(2√z).
+        if (b[0] == half) return cosh(mul(two, sqz));
+        // ₀F₁(; 3/2; z) = sinh(2√z)/(2√z).
+        if (b[0] == threehalf) return sinh(mul(two, sqz)) / mul(two, sqz);
     }
 
     // ₁F₁(a; b; z) family (p == 1, q == 1).
@@ -82,29 +85,26 @@ namespace {
         if (a[0] == one && b[0] == two) {
             return (exp(z) - one) / z;
         }
+        // ₁F₁(1; 3/2; z) = √π·eᶻ·erf(√z) / (2√z).
+        if (a[0] == one && b[0] == threehalf) {
+            return mul(sqrt(S::Pi()), mul(exp(z), erf(sqz))) / mul(two, sqz);
+        }
     }
 
     // ₂F₁ family (p == 2, q == 1).
     if (p == 2 && q == 1) {
-        // ₂F₁(1, 1; 2; −z) = log(1 + z)/z      (so input z↦z')
-        // ₂F₁(1, 1; 2; z')  = −log(1 − z')/z'.
+        // ₂F₁(1, 1; 2; z) = −log(1 − z)/z.
         if (both_match(a, {one, one}) && b[0] == two) {
             return -log(one - z) / z;
         }
-        // ₂F₁(1/2, 1; 3/2; w) = arctan(√w) / √w  on the "w = z²" reading
-        // is what users want for compact closed forms. We instead
-        // recognize the form most callers produce, which is z² already
-        // wrapped: ₂F₁(1/2, 1; 3/2; -z²) = arctan(z)/z, but only when
-        // z is recognizable as -y²; that requires structural unwrapping
-        // we skip here. A safer rewrite that always fires:
-        //
-        //   ₂F₁(1/2, 1; 3/2; w) = arctan(√w) / √w
-        //
-        // is left for a follow-up.
+        // ₂F₁(1/2, 1; 3/2; z) = atanh(√z)/√z   (→ arctan(y)/y when z = −y²).
         if (both_match(a, {half, one}) && b[0] == threehalf) {
-            // No safe closed form without sqrt-of-arg gymnastics.
+            return atanh(sqz) / sqz;
         }
-        // ₂F₁(1/2, 1/2; 3/2; w) = arcsin(√w) / √w — same caveat.
+        // ₂F₁(1/2, 1/2; 3/2; z) = asin(√z)/√z  (→ arcsinh(y)/y when z = −y²).
+        if (both_match(a, {half, half}) && b[0] == threehalf) {
+            return asin(sqz) / sqz;
+        }
     }
 
     return std::nullopt;

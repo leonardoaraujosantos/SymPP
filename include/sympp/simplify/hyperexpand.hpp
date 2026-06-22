@@ -9,13 +9,13 @@
 //
 //   ₀F₀(z)              = exp(z)                        ← already at construction
 //   ₁F₀(a; ; z)         = (1 − z)^(−a)                  ← already at construction
-//   ₀F₁(; 1/2; −z²/4)   = cos(z)
-//   ₀F₁(; 3/2; −z²/4)   = sin(z) / z
+//   ₀F₁(; 1/2; z)       = cosh(2√z)
+//   ₀F₁(; 3/2; z)       = sinh(2√z) / (2√z)
 //   ₁F₁(1; 2; z)        = (e^z − 1) / z
-//   ₂F₁(1, 1; 2; −z)    = log(1 + z) / z
+//   ₁F₁(1; 3/2; z)      = √π·e^z·erf(√z) / (2√z)
 //   ₂F₁(1, 1; 2; z)     = −log(1 − z) / z
-//   ₂F₁(1/2, 1; 3/2; −z²) = arctan(z) / z
-//   ₂F₁(1/2, 1/2; 3/2; z²) = arcsin(z) / z
+//   ₂F₁(1/2, 1; 3/2; z)   = atanh(√z) / √z   (→ arctan(y)/y at z = −y²)
+//   ₂F₁(1/2, 1/2; 3/2; z) = asin(√z) / √z    (→ arcsinh(y)/y at z = −y²)
 //   ₂F₁(a, b; b; z)     = (1 − z)^(−a)                   ← via cancellation in factory
 //
 // Walks the tree recursively so embedded `hyper(...)` nodes inside
