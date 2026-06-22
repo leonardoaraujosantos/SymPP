@@ -94,7 +94,7 @@ gains.
 | ✅ Geometry (Point/Line/Polygon) | `geometry/` | — | shipped (`geometry/geometry.hpp`) |
 | ✅ Vector calculus & differential geometry | `vector/`, `diffgeom/` | — | shipped (`vector/vector_calculus.hpp`; grad/div/curl/laplacian + Christoffel/Ricci) |
 | ✅ Tensor algebra (dense) | `tensor/` | — | shipped (`tensor/tensor.hpp`; product/contraction/raise/lower) |
-| Combinatorics & group theory | `combinatorics/` | 3 wk | Medium | Permutations, finite groups |
+| 🟡 Combinatorics & group theory | `combinatorics/` | — | shipped (`combinatorics/combinatorics.hpp`): permutations (compose/inverse/sign/order/cyclic form), permutation groups (closure/order/membership/abelian), S/C/D/A standard groups, integer partitions. Remaining: Sylow/Schreier–Sims fast group algorithms, Polýa enumeration |
 | ✅ Cryptography (RSA/DH/ElGamal/ECC) | `crypto/` | — | shipped (`crypto/crypto.hpp`): RSA, Diffie–Hellman, ElGamal, and **elliptic curves over 𝔽ₚ** (group law, scalar mul, ECDH, ECDSA) |
 | 🟡 Physics (mechanics, quantum, optics) | `physics/*` | 2 wk each | Medium | shipped (`physics/physics.hpp`): commutators/Pauli/ladder, **arbitrary-spin operators (Jx/Jy/Jz/J±/J²)**, **Wigner 3-j/6-j/9-j, Racah W, Gaunt + Clebsch–Gordan**, **Dirac γ-matrices**, **hydrogen E/R_nl**, **QHO E/ψ_n**, ABCD + Gaussian-beam optics, conjugate momentum + Hamiltonian. Remaining: second quantization, full continuum/relativistic mechanics, unit-bearing quantum states |
 

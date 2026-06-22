@@ -13,6 +13,7 @@ target_sources(sympp_tests
         core/assumptions_test.cpp
         core/satask_test.cpp
         core/rewrite_test.cpp
+        combinatorics/combinatorics_test.cpp
         crypto/crypto_test.cpp
         discrete/discrete_test.cpp
         core/lambdify_test.cpp

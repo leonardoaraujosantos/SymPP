@@ -368,6 +368,28 @@ def handle(req):
             return {"ok": True, "result": bool(valid)}
         return {"ok": False, "error": "BadFn", "detail": f"unknown logic fn: {fn!r}"}
 
+    # --- Combinatorics & group theory ---
+    if op == "combinatorics":
+        fn = req["fn"]
+        if fn == "group_order":
+            from sympy.combinatorics import Permutation, PermutationGroup
+            gens = [Permutation(list(g)) for g in req["gens"]]
+            return {"ok": True, "result": str(PermutationGroup(gens).order())}
+        if fn == "is_abelian":
+            from sympy.combinatorics import Permutation, PermutationGroup
+            gens = [Permutation(list(g)) for g in req["gens"]]
+            return {"ok": True, "result": bool(PermutationGroup(gens).is_abelian)}
+        if fn == "perm_sign":
+            from sympy.combinatorics import Permutation
+            return {"ok": True, "result": str(Permutation(list(req["p"])).signature())}
+        if fn == "perm_order":
+            from sympy.combinatorics import Permutation
+            return {"ok": True, "result": str(Permutation(list(req["p"])).order())}
+        if fn == "partition":
+            from sympy.functions.combinatorial.numbers import partition
+            return {"ok": True, "result": str(partition(int(req["n"])))}
+        return {"ok": False, "error": "BadFn", "detail": f"unknown combinatorics fn: {fn!r}"}
+
     # --- Physics (cross-check Wigner symbols, hydrogen, QHO, spin) ---
     if op == "physics":
         fn = req["fn"]

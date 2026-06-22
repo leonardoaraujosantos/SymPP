@@ -30,6 +30,7 @@ target_sources(sympp
         core/rational.cpp
         core/refine.cpp
         core/rewrite.cpp
+        combinatorics/combinatorics.cpp
         crypto/crypto.cpp
         discrete/discrete.cpp
         core/satask.cpp
@@ -155,6 +156,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/printing/printing.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/rootof.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/combinatorics/combinatorics.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/sets/sets.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/hyperexpand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/simplify.hpp
