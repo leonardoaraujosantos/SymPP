@@ -480,7 +480,19 @@ target_link_libraries(your_target PRIVATE SymPP::sympp)
 `SymPPConfig.cmake` and the per-target export are installed by the
 build's install rules. A worked consumer build (with `demo.cpp` +
 `CMakeLists.txt`) lives in the CI workflow's `find_package consumer
-build` step.
+build` step. A [`vcpkg.json`](vcpkg.json) manifest is also provided for
+manifest-mode vcpkg consumers.
+
+### Benchmarks
+
+A dependency-free wall-clock harness times representative operations
+(build/diff/expand/factor/simplify/integrate/limit/solve/det):
+
+```bash
+cmake -S . -B build -DSYMPP_BUILD_BENCHMARKS=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target sympp_bench -j
+./build/benchmarks/sympp_bench
+```
 
 ## License
 

@@ -138,6 +138,10 @@ if(SYMPP_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
+if(SYMPP_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
 # -----------------------------------------------------------------------------
 # Install / find_package(SymPP) machinery
 # -----------------------------------------------------------------------------

@@ -83,7 +83,7 @@ gains.
 
 | Item | Effort | Priority | Notes |
 |---|---|---|---|
-| Benchmarks, doxygen API docs, vcpkg/Conan packaging, v1.0 tag | 4–6 wk | High | Mostly process/CI, not algorithmic; adoption-readiness |
+| Benchmarks, doxygen API docs, vcpkg/Conan packaging, v1.0 tag | 3–5 wk | High | Mostly process/CI, not algorithmic; adoption-readiness. **Shipped:** `find_package`/install/export, a dependency-free benchmark harness (`SYMPP_BUILD_BENCHMARKS` → `sympp_bench`), and a `vcpkg.json` manifest. **Remaining:** Doxygen API-doc generation, Conan recipe, and the v1.0 tag |
 
 ## Category C — new modules (no MATLAB analogue)
 

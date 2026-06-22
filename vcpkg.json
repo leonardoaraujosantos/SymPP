@@ -1,0 +1,18 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "sympp",
+  "version": "0.5.0",
+  "description": "Modern C++20 symbolic mathematics library — a clean-room port of SymPy algorithms with SymPy wired in as the validation oracle.",
+  "homepage": "https://github.com/leonardoaraujosantos/SymPP",
+  "license": "BSD-3-Clause",
+  "supports": "linux | osx",
+  "dependencies": [
+    "gmp",
+    "mpfr"
+  ],
+  "features": {
+    "test": {
+      "description": "Build the oracle-validated test suite (requires Python 3 with SymPy at configure time)"
+    }
+  }
+}
