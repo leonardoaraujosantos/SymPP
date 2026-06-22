@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-06-22
+goal: Build a real Meijer-G evaluation engine (Slater's theorem → hypergeometric
+  reduction, then closed forms) across several sessions, replacing the opaque
+  Meijer-G placeholder.

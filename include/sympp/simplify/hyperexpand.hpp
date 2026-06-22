@@ -22,9 +22,12 @@
 // Mul/Add/Pow/Function are rewritten too. Anything not matching the
 // table is returned unchanged.
 //
-// Meijer-G expansion is currently a no-op (full Slater-theorem
-// implementation is deferred-deep — it is the largest single piece of
-// SymPy's `hyperexpand.py` we haven't ported).
+// Meijer-G expansion uses Slater's theorem in the generic lower-parameter
+// case (no two of b₁…b_m differ by an integer): the G-function is rewritten
+// as Σ_k A_k·z^{b_k}·pF_{q−1}(…) and each hypergeometric is then expanded by
+// the table above — so e.g. G^{1,1}_{1,1} → 1/(z+1), G^{2,0}_{0,2} →
+// √π(cosh−sinh)(2√z). The confluent (integer-spaced) case and Mellin–Barnes
+// definite integration remain staged work (OpenSpec: add-meijerg-slater-engine).
 //
 // Reference: sympy/simplify/hyperexpand.py — `hyperexpand`,
 // `_check_hyper`, the lookup tables `formulae` and `meijerg_formulae`.

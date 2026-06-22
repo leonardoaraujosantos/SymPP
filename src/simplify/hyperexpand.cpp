@@ -15,6 +15,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/hyperbolic.hpp>
 #include <sympp/functions/hypergeometric.hpp>
@@ -30,6 +31,83 @@ namespace {
     if (e->type_id() != TypeId::Function) return false;
     const auto& fn = static_cast<const Function&>(*e);
     return fn.function_id() == FunctionId::Hyper;
+}
+
+[[nodiscard]] bool is_meijerg(const Expr& e) {
+    if (e->type_id() != TypeId::Function) return false;
+    return static_cast<const Function&>(*e).function_id() == FunctionId::MeijerG;
+}
+
+[[nodiscard]] long parse_count(const Expr& e) {
+    if (e->type_id() != TypeId::Integer) return -1;
+    return static_cast<const Integer&>(*e).value().get_si();
+}
+
+// Reduce a Meijer-G node to a sum of hypergeometric functions via Slater's
+// theorem, in the generic lower-parameter case (no two of b₁…b_m differ by an
+// integer). Returns std::nullopt — leaving the node opaque — for the confluent
+// case or a malformed/empty-lower-set node.
+//
+//   G^{m,n}_{p,q}(z) = Σ_{k=1}^{m} A_k·z^{b_k}·pF_{q−1}(1+b_k−a ; 1+b_k−b' ; σz)
+//   A_k = Π_{j≠k}Γ(b_j−b_k)·Π_{j≤n}Γ(1+b_k−a_j)
+//         / [ Π_{j>m}Γ(1+b_k−b_j)·Π_{j>n}Γ(a_j−b_k) ],   σ = (−1)^{p−m−n}
+[[nodiscard]] std::optional<Expr> meijerg_to_hyper(const Expr& e) {
+    if (!is_meijerg(e)) return std::nullopt;
+    const auto& a = e->args();
+    long n = parse_count(a[0]);    // |an|   (numerator, first group)
+    long pr = parse_count(a[1]);   // |ap_rest|
+    long m = parse_count(a[2]);    // |bm|   (denominator poles)
+    long qr = parse_count(a[3]);   // |bq_rest|
+    if (n < 0 || pr < 0 || m < 1 || qr < 0) return std::nullopt;  // m≥1 (else empty sum)
+    long p = n + pr, q = m + qr;
+
+    auto slice = [&](std::size_t start, long count) {
+        return std::vector<Expr>(a.begin() + static_cast<std::ptrdiff_t>(start),
+                                 a.begin() + static_cast<std::ptrdiff_t>(start) + count);
+    };
+    std::size_t off = 4;
+    std::vector<Expr> an = slice(off, n);          off += static_cast<std::size_t>(n);
+    std::vector<Expr> ap_rest = slice(off, pr);    off += static_cast<std::size_t>(pr);
+    std::vector<Expr> bm = slice(off, m);          off += static_cast<std::size_t>(m);
+    std::vector<Expr> bq_rest = slice(off, qr);
+    Expr z = a.back();
+
+    std::vector<Expr> A = an;                       // a₁…aₚ
+    A.insert(A.end(), ap_rest.begin(), ap_rest.end());
+    std::vector<Expr> B = bm;                       // b₁…b_q
+    B.insert(B.end(), bq_rest.begin(), bq_rest.end());
+
+    // Generic guard: no two lower poles b₁…b_m may differ by an integer.
+    for (std::size_t i = 0; i < bm.size(); ++i)
+        for (std::size_t j = i + 1; j < bm.size(); ++j)
+            if ((bm[i] - bm[j])->type_id() == TypeId::Integer) return std::nullopt;
+
+    Expr one = S::One();
+    bool neg = (((p - m - n) % 2) != 0);           // σ = (−1)^{p−m−n}
+    Expr w = neg ? mul(integer(-1), z) : z;
+
+    Expr result = S::Zero();
+    for (long k = 0; k < m; ++k) {
+        const Expr& bk = B[static_cast<std::size_t>(k)];
+        Expr num = one, den = one;
+        for (long j = 0; j < m; ++j)
+            if (j != k) num = mul(num, gamma(B[static_cast<std::size_t>(j)] - bk));
+        for (long j = 0; j < n; ++j)
+            num = mul(num, gamma(one + bk - A[static_cast<std::size_t>(j)]));
+        for (long j = m; j < q; ++j)
+            den = mul(den, gamma(one + bk - B[static_cast<std::size_t>(j)]));
+        for (long j = n; j < p; ++j)
+            den = mul(den, gamma(A[static_cast<std::size_t>(j)] - bk));
+        Expr coeff = mul(num, pow(den, integer(-1)));
+
+        std::vector<Expr> top, bottom;
+        for (long j = 0; j < p; ++j) top.push_back(one + bk - A[static_cast<std::size_t>(j)]);
+        for (long j = 0; j < q; ++j)
+            if (j != k) bottom.push_back(one + bk - B[static_cast<std::size_t>(j)]);
+
+        result = add(result, mul(coeff, mul(pow(z, bk), hyper(top, bottom, w))));
+    }
+    return result;
 }
 
 [[nodiscard]] bool both_match(const std::vector<Expr>& v,
@@ -112,6 +190,8 @@ namespace {
 
 [[nodiscard]] Expr apply_recursive(const Expr& e) {
     if (!e) return e;
+    // Meijer-G: reduce to a hypergeometric sum first, then expand that.
+    if (auto mg = meijerg_to_hyper(e)) return apply_recursive(*mg);
     auto args = e->args();
     if (args.empty()) {
         if (auto r = rewrite_hyper_node(e); r) return *r;

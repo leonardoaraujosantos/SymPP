@@ -47,6 +47,12 @@ demand with cost.
 - **Physics quantum/atomic** — arbitrary-spin operators, Wigner 3-j/6-j/9-j,
   Racah W, Gaunt + Clebsch–Gordan, Dirac γ-matrices, hydrogen & QHO
   energies/wavefunctions, Hamiltonian, Gaussian-beam optics.
+- **ECC** — elliptic curves over 𝔽ₚ (group law, scalar mul, ECDH, ECDSA).
+- **Combinatorics & group theory** — permutations, permutation groups, standard
+  groups, integer partitions.
+- **Number-theory extensions** — CRT, discrete log, linear Diophantine.
+- **Meijer-G engine, Phase 1** — generic-case Slater reduction into
+  hypergeometrics (OpenSpec `add-meijerg-slater-engine`).
 - **Full SVD** — `Matrix::svd()` (U·Σ·Vᵀ), reconstruction-verified.
 - **LaTeX parser** — `parse_latex`, round-trips with the LaTeX printer.
 - **Physics core** — quantum (commutators/Pauli/ladder), ABCD optics,
@@ -69,7 +75,7 @@ gains.
 | ✅ `lambdify` LLVM-JIT backend | `utilities.lambdify` | — | shipped (`core/lambdify_llvm.hpp`, optional/auto-on) |
 | Meijer-G integration (general method) | `integrals/meijerint.py` | 3 wk | High | Pairs with full hyperexpand. NOTE: the classic Meijer-G-reducible definite integrals already evaluate via the existing engine (∫₀^∞ sin x/x = π/2, ∫₀^∞ e^{−x²}cos x = √π·e^{−1/4}/2, ∫₀^∞ 1/(1+x³) = 2√3π/9, …); only the general master-formula method for the long tail remains |
 | Full Risch transcendental integration | `integrals/risch.py` | 4 wk | Medium | Closes the remaining unsolved elementary integrals |
-| Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms |
+| 🟡 Full Slater/Meijer-G `hyperexpand` | `simplify/hyperexpand.py` | 2 wk | Medium | General hypergeometric closed forms. **Phase 1 shipped** (OpenSpec `add-meijerg-slater-engine`): generic-case Slater reduction `meijerg → Σ z^{b_k}·pFq`, wired into `hyperexpand` (G^{1,1}_{1,1}→1/(z+1), G^{2,0}_{0,2}→√π(cosh−sinh)(2√z), …). Remaining: confluent/log case, Mellin–Barnes definite integration, function→Meijer-G recognition |
 | Multivariate `Poly` + Wang factorization | `polys/` | 3 wk | Medium | Multivariate factoring |
 | ✅ Berlekamp–Zassenhaus | `polys/factortools.py` | — | shipped `factor_zassenhaus` — Berlekamp mod a small prime, **multifactor Hensel lifting** to a prime power above the Landau–Mignotte bound, then recombination |
 | ✅ Symbolic SVD | `matrices/` | — | shipped — `singular_values()` and full `svd()` (U·Σ·Vᵀ) |

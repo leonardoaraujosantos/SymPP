@@ -127,6 +127,42 @@ TEST_CASE("hyperexpand: ₂F₁ radical-argument closed forms",
         "asin(sqrt(z))/sqrt(z)"));
 }
 
+// ----- Meijer-G via Slater's theorem (generic case) -------------------------
+
+TEST_CASE("hyperexpand: Meijer-G generic Slater reduction matches SymPy",
+          "[5][hyperexpand][meijerg][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+    auto half = rational(1, 2);
+    auto E = [&](const std::vector<Expr>& an, const std::vector<Expr>& ar,
+                 const std::vector<Expr>& bm, const std::vector<Expr>& br) {
+        return hyperexpand(meijerg(an, ar, bm, br, z));
+    };
+    // G^{1,0}_{0,1}([], [], [0], []) = e^{-z}.
+    REQUIRE(oracle.equivalent(E({}, {}, {integer(0)}, {})->str(), "exp(-z)"));
+    // G^{1,0}_{0,1} with b = 1/2  →  √z·e^{-z}.
+    REQUIRE(oracle.equivalent(E({}, {}, {half}, {})->str(), "sqrt(z)*exp(-z)"));
+    // G^{1,1}_{1,1}([0], [], [0], []) = 1/(z+1).
+    REQUIRE(oracle.equivalent(E({integer(0)}, {}, {integer(0)}, {})->str(),
+                              "1/(z + 1)"));
+    // G^{1,1}_{1,1}([1/2], [], [0], []) = √π/√(z+1).
+    REQUIRE(oracle.equivalent(E({half}, {}, {integer(0)}, {})->str(),
+                              "sqrt(pi)/sqrt(z + 1)"));
+    // G^{2,0}_{0,2}([], [], [0, 1/2], []) = √π·(cosh − sinh)(2√z).
+    REQUIRE(oracle.equivalent(
+        E({}, {}, {integer(0), half}, {})->str(),
+        "sqrt(pi)*cosh(2*sqrt(z)) - sqrt(pi)*sinh(2*sqrt(z))"));
+}
+
+TEST_CASE("hyperexpand: Meijer-G confluent case is left unevaluated",
+          "[5][hyperexpand][meijerg]") {
+    auto z = symbol("z");
+    // Lower parameters 0 and 1 differ by an integer → generic Slater does not
+    // apply; the node must be returned unchanged (not a wrong closed form).
+    auto g = meijerg({}, {}, {integer(0), integer(1)}, {}, z);
+    REQUIRE(hyperexpand(g) == g);
+}
+
 TEST_CASE("hyperexpand: leaves unrecognized hyper alone",
           "[5][hyperexpand]") {
     auto a = symbol("a");
