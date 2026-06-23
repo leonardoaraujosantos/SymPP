@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1708 tests / 7084 assertions  all passing
+1711 tests / 7113 assertions  all passing
 740 cases (3599 assertions) oracle-validated against SymPy
 15 of 15 phases shipped (v1.0)
 ```
@@ -23,9 +23,11 @@ algorithms with SymPy itself wired in as the validation oracle.
 On textbook-shaped inputs (calculus, algebra, transforms, solvers, sets)
 SymPP and SymPy are now effectively interchangeable. The remaining gaps are the
 deepest research-grade algorithms — the full Risch tower recursion (the
-exponential differential equation and logarithmic extension already ship), full
-Gruntz comparability (termination + practical MRV values already ship), and Wang
-multivariate factorization — plus the deeper tiers of a few large modules. See
+exponential differential equation, logarithmic extension, and generalized-
+exponential self-derivative tower already ship), full Gruntz comparability
+(termination + practical MRV values already ship), and higher-degree multivariate
+Wang factorization (bivariate already ships) — plus the deeper tiers of a few
+large modules. See
 [docs/04-roadmap.md](docs/04-roadmap.md#how-far-are-we-from-sympy) and
 [docs/10-parity-roadmap.md](docs/10-parity-roadmap.md) for the breakdown.
 
