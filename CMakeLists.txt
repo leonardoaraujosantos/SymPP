@@ -4,7 +4,10 @@ project(SymPP
     VERSION 1.0.0
     DESCRIPTION "Modern C++ symbolic mathematics library"
     HOMEPAGE_URL "https://github.com/leonardoaraujosantos/SymPP"
-    LANGUAGES CXX
+    # C is enabled so that find_package(LLVM CONFIG) — whose FindFFI/FindTerminfo
+    # modules run check_c_source_compiles at configure time — works on runners
+    # where LLVM is installed. SymPP itself is pure C++.
+    LANGUAGES CXX C
 )
 
 # -----------------------------------------------------------------------------

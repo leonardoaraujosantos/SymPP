@@ -203,10 +203,9 @@ enum class CoreKind { Exp, Sin, Cos };
     bool seen_var = false;
     std::vector<Expr> factors;
     if (arg->type_id() == TypeId::Mul) {
-        auto a = arg->args();
-        factors.assign(a.begin(), a.end());
+        for (const auto& f : arg->args()) factors.push_back(f);
     } else {
-        factors = {arg};
+        factors.push_back(arg);
     }
     for (const auto& f : factors) {
         if (!has(f, var)) {
@@ -244,10 +243,9 @@ struct RecForm {
     bool have_core = false;
     std::vector<Expr> factors;
     if (f->type_id() == TypeId::Mul) {
-        auto a = f->args();
-        factors.assign(a.begin(), a.end());
+        for (const auto& fac : f->args()) factors.push_back(fac);
     } else {
-        factors = {f};
+        factors.push_back(f);
     }
     for (const auto& fac : factors) {
         if (!has(fac, var)) {
