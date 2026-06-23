@@ -3475,6 +3475,36 @@ TEST_CASE("integrate: Risch DE for rational·exp (RISCH-EXP-1)",
         "exp(x)/(x + 1)"));
 }
 
+// RISCH-POWEXP-1: generalized-exponential self-derivative tower. A power
+// a(x)^{b(x)} with the variable in the exponent is a true exponential
+// e^{b·log a}; its derivative is g'·a^b with g = b·log a. When the integrand is
+// a constant multiple of that derivative, ∫ = the power itself. The chain-rule
+// recognizer misses these because the exponential is a Pow node, not exp(...).
+TEST_CASE("integrate: generalized-exponential tower (RISCH-POWEXP-1)",
+          "[7][integrate][risch][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto L = [&](const Expr& a) { return log(a); };
+    auto check = [&](const Expr& integrand, const char* expected) {
+        Expr F = integrate(integrand, x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);  // actually solved
+        REQUIRE(oracle.equivalent("diff(" + F->str() + ", x)", integrand->str()));
+        REQUIRE(oracle.equivalent(F->str(), expected));
+    };
+    // ∫ (1 + log x)·x^x = x^x   (x^x = e^{x·log x}, g' = 1 + log x).
+    check(mul(integer(1) + L(x), pow(x, x)), "x**x");
+    // ∫ 2·(1 + log x)·x^{2x} = x^{2x}  (constant multiple of the derivative).
+    check(mul(mul(integer(2), pow(x, mul(integer(2), x))), integer(1) + L(x)),
+          "x**(2*x)");
+    // ∫ (2x·log x + x)·x^{x²} = x^{x²}  (nested tower, g = x²·log x).
+    check(mul(add(mul(mul(integer(2), x), L(x)), x), pow(x, pow(x, integer(2)))),
+          "x**(x**2)");
+    // Boundary: x^x alone is non-elementary — stays unevaluated (as in SymPy).
+    REQUIRE(integrate(pow(x, x), x)->str().find("Integral") != std::string::npos);
+    // Sanity: plain powers are untouched by this path — ∫ x² = x³/3.
+    REQUIRE(oracle.equivalent(integrate(pow(x, integer(2)), x)->str(), "x**3/3"));
+}
+
 // RISCH-LOG-1: logarithmic-extension integration. The u = log(x) substitution
 // reduces a rational function of log(x) (with the 1/x kernel) to a rational-
 // function integral, which the engine solves completely — the logarithmic case

@@ -331,6 +331,10 @@ namespace {
 [[nodiscard]] std::optional<Expr> try_exp_substitution(const Expr& expr,
                                                        const Expr& var);
 
+// Generalized-exponential self-derivative ∫ c·g'(x)·a(x)^{b(x)} = c·a(x)^{b(x)}.
+[[nodiscard]] std::optional<Expr> try_pow_exp_substitution(const Expr& expr,
+                                                           const Expr& var);
+
 // Substitution u = log(x) (x = eᵘ, dx = eᵘ du) for an integrand built from
 // log(var): replaces log(var)→u and the remaining bare var→eᵘ, leaving ∫f(u)·eᵘ du
 // in u. Closes ∫cos(log x), ∫sin(log x), ∫log(log x)/x, ∫cos(2·log x), …
@@ -799,6 +803,9 @@ Expr integrate(const Expr& expr, const Expr& var) {
         return *r;
     }
     if (auto r = try_heurisch(expr, var); r.has_value()) {
+        return *r;
+    }
+    if (auto r = try_pow_exp_substitution(expr, var); r.has_value()) {
         return *r;
     }
     if (auto r = try_exp_substitution(expr, var); r.has_value()) {
@@ -1342,6 +1349,42 @@ std::optional<Expr> try_log_substitution(const Expr& expr, const Expr& var) {
     Expr anti = integrate(integrand_u, u);
     if (is_integral_marker(anti)) return std::nullopt;
     return simplify(subs(anti, u, logx));
+}
+
+std::optional<Expr> try_pow_exp_substitution(const Expr& expr, const Expr& var) {
+    // ∫ c·g'(x)·a(x)^{b(x)} dx = c·a(x)^{b(x)}. A generalized power P = a^b with
+    // the variable in the exponent (b depends on var) is a true exponential
+    // P = exp(g), g = b·log(a), with (P)' = g'·P. So if the integrand is a
+    // var-free constant multiple of g'·P — i.e. expr/(g'·P) collapses to a
+    // constant c — the antiderivative is c·P. The chain-rule recognizer
+    // (try_heurisch) misses this because P is a Pow node, not an exp(...) node,
+    // so x^x = e^{x·log x} is never rewritten into exponential form.
+    // Closes ∫(1 + log x)·x^x = x^x and the like.
+    std::vector<Expr> powers;
+    auto consider = [&](const Expr& e) {
+        if (e->type_id() != TypeId::Pow) return;
+        if (!depends_on(e->args()[1], var)) return;  // need var in the exponent
+        powers.push_back(e);
+    };
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) consider(f);
+    } else {
+        consider(expr);
+    }
+    for (const auto& P : powers) {
+        const Expr& a = P->args()[0];
+        const Expr& b = P->args()[1];
+        if (!depends_on(a, var) && !depends_on(b, var)) continue;
+        Expr g = mul(b, log(a));
+        Expr gp = simplify(diff(g, var));
+        if (gp == S::Zero()) continue;
+        Expr ratio = simplify(mul(expr, pow(mul(gp, P), integer(-1))));
+        if (depends_on(ratio, var)) continue;
+        Expr result = mul(ratio, P);
+        // Exact by construction, but verify to reject any simplify mishaps.
+        if (simplify(diff(result, var) - expr) == S::Zero()) return result;
+    }
+    return std::nullopt;
 }
 
 std::optional<Expr> try_exp_substitution(const Expr& expr, const Expr& var) {
