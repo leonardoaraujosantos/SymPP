@@ -310,3 +310,45 @@ TEST_CASE("sum_of_three_squares: ternary quadratic / Legendre theorem", "[ntheor
         REQUIRE_FALSE(sum_of_three_squares(integer(n)).has_value());
     }
 }
+
+// ----- Quadratic residues, Legendre symbol, Carmichael λ ---------------------
+
+TEST_CASE("legendre_symbol matches SymPy", "[ntheory][oracle]") {
+    auto check = [&](long a, long p) {
+        REQUIRE(legendre_symbol(integer(a), integer(p))->str() ==
+                oracle_nt({{"fn", "legendre"}, {"a", std::to_string(a)},
+                           {"p", std::to_string(p)}}));
+    };
+    check(3, 7);
+    check(2, 7);
+    check(1, 7);
+    check(7, 7);  // 0
+    check(10, 13);
+    check(5, 11);
+}
+
+TEST_CASE("quadratic residues and is_quadratic_residue", "[ntheory][oracle]") {
+    auto qr_str = [&](long n) {
+        std::string s;
+        bool first = true;
+        for (const auto& v : quadratic_residues(integer(n))) {
+            if (!first) s += ",";
+            first = false;
+            s += v->str();
+        }
+        return s;
+    };
+    for (long n : {7, 8, 12, 15}) {
+        REQUIRE(qr_str(n) == oracle_nt({{"fn", "quad_residues"}, {"n", std::to_string(n)}}));
+    }
+    REQUIRE(is_quadratic_residue(integer(2), integer(7)));        // 3²=2 mod 7
+    REQUIRE_FALSE(is_quadratic_residue(integer(3), integer(7)));  // 3 ∉ {0,1,2,4}
+    REQUIRE(is_quadratic_residue(integer(4), integer(15)));
+}
+
+TEST_CASE("reduced_totient (Carmichael λ) matches SymPy", "[ntheory][oracle]") {
+    for (long n : {1, 2, 4, 8, 12, 15, 36, 100, 561}) {
+        REQUIRE(reduced_totient(integer(n))->str() ==
+                oracle_nt({{"fn", "reduced_totient"}, {"n", std::to_string(n)}}));
+    }
+}

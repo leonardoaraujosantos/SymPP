@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -92,6 +93,13 @@ namespace {
     mpz_class phi = m;
     for (const mpz_class& p : distinct_primes(m)) phi = phi / p * (p - 1);
     return phi;
+}
+
+// Non-negative remainder x mod m (m > 0).
+[[nodiscard]] mpz_class mod(const mpz_class& x, const mpz_class& m) {
+    mpz_class r = x % m;
+    if (r < 0) r += m;
+    return r;
 }
 
 [[nodiscard]] mpz_class mod_pow(const mpz_class& base, const mpz_class& exp,
@@ -369,6 +377,70 @@ std::optional<DiophantineLinear> diop_linear(const Expr& a, const Expr& b, const
     mpz_class dx = zb / g, dy = -(za / g);   // homogeneous step
     return DiophantineLinear{make<Integer>(x0), make<Integer>(y0), make<Integer>(dx),
                              make<Integer>(dy)};
+}
+
+// ----- Quadratic residues, Legendre symbol, Carmichael λ ---------------------
+
+Expr legendre_symbol(const Expr& a, const Expr& p) {
+    mpz_class zp = as_int(p, "legendre_symbol");
+    if (zp <= 2 || zp % 2 == 0 || !is_prime_mpz(zp)) {
+        throw std::invalid_argument("legendre_symbol: p must be an odd prime");
+    }
+    mpz_class za = mod(as_int(a, "legendre_symbol"), zp);
+    if (za == 0) return integer(0);
+    mpz_class r = mod_pow(za, (zp - 1) / 2, zp);  // Euler's criterion
+    return r == 1 ? integer(1) : integer(-1);
+}
+
+bool is_quadratic_residue(const Expr& a, const Expr& n) {
+    mpz_class zn = as_int(n, "is_quadratic_residue");
+    if (zn <= 0) throw std::invalid_argument("is_quadratic_residue: n must be positive");
+    mpz_class za = mod(as_int(a, "is_quadratic_residue"), zn);
+    for (mpz_class x = 0; x <= zn / 2; ++x) {
+        if (mod(x * x, zn) == za) return true;
+    }
+    return false;
+}
+
+std::vector<Expr> quadratic_residues(const Expr& n) {
+    mpz_class zn = as_int(n, "quadratic_residues");
+    if (zn <= 0) throw std::invalid_argument("quadratic_residues: n must be positive");
+    std::set<mpz_class> qr;
+    for (mpz_class x = 0; x <= zn / 2; ++x) qr.insert(mod(x * x, zn));
+    std::vector<Expr> out;
+    for (const auto& v : qr) out.push_back(make<Integer>(v));  // std::set is ordered
+    return out;
+}
+
+Expr reduced_totient(const Expr& n) {
+    mpz_class zn = as_int(n, "reduced_totient");
+    if (zn <= 0) throw std::invalid_argument("reduced_totient: n must be positive");
+    if (zn == 1) return integer(1);
+    auto lcm = [](mpz_class a, mpz_class b) {
+        if (a == 0) return b;
+        mpz_class g;
+        mpz_gcd(g.get_mpz_t(), a.get_mpz_t(), b.get_mpz_t());
+        return mpz_class(a / g * b);
+    };
+    mpz_class result = 1;
+    // λ over each prime power in the factorization.
+    for (const auto& [pe, ee] : factorint(n)) {
+        mpz_class pp = as_int(pe, "reduced_totient");
+        long e = as_int(ee, "reduced_totient").get_si();
+        mpz_class lam;
+        if (pp == 2) {
+            lam = (e == 1) ? mpz_class(1)
+                  : (e == 2)
+                      ? mpz_class(2)
+                      : mpz_class(mpz_class(1) << static_cast<mp_bitcnt_t>(e - 2));
+        } else {
+            mpz_class pe_pow;
+            mpz_pow_ui(pe_pow.get_mpz_t(), pp.get_mpz_t(), static_cast<unsigned long>(e - 1));
+            lam = pe_pow * (pp - 1);  // p^{e−1}(p−1)
+        }
+        result = lcm(result, lam);
+    }
+    return make<Integer>(result);
 }
 
 // ----- Pell equation x² − D·y² = 1 -------------------------------------------

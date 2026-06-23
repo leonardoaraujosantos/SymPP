@@ -75,6 +75,21 @@ struct DiophantineLinear {
                                                                         const Expr& b,
                                                                         const Expr& c);
 
+// Legendre symbol (a / p) for an odd prime p (throws if p is not an odd prime):
+// 0 if p | a, +1 if a is a quadratic residue mod p, −1 otherwise.
+[[nodiscard]] SYMPP_EXPORT Expr legendre_symbol(const Expr& a, const Expr& p);
+
+// Whether a is a quadratic residue modulo n (some x with x² ≡ a (mod n)).
+[[nodiscard]] SYMPP_EXPORT bool is_quadratic_residue(const Expr& a, const Expr& n);
+
+// The quadratic residues modulo n — the distinct values x² mod n, ascending.
+[[nodiscard]] SYMPP_EXPORT std::vector<Expr> quadratic_residues(const Expr& n);
+
+// Carmichael / reduced totient λ(n): the least k with aᵏ ≡ 1 (mod n) for every a
+// coprime to n. λ(n) = lcm over prime powers (λ(2)=1, λ(4)=2, λ(2ᵉ)=2^{e−2} for
+// e≥3, λ(pᵉ)=p^{e−1}(p−1) for odd p).
+[[nodiscard]] SYMPP_EXPORT Expr reduced_totient(const Expr& n);
+
 // Fundamental solution (x, y) with x, y > 0 of the Pell equation x² − D·y² = 1,
 // found from the continued-fraction expansion of √D. std::nullopt when D ≤ 0 or
 // D is a perfect square (only the trivial (±1, 0)).

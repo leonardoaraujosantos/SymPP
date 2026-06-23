@@ -506,6 +506,16 @@ def handle(req):
             sols = diop_DN(int(req["D"]), 1)
             return {"ok": True,
                     "result": "None" if not sols else f"{int(sols[0][0])},{int(sols[0][1])}"}
+        if fn == "legendre":
+            from sympy import legendre_symbol
+            return {"ok": True, "result": str(int(legendre_symbol(int(req["a"]), int(req["p"]))))}
+        if fn == "quad_residues":
+            from sympy.ntheory.residue_ntheory import quadratic_residues
+            qr = quadratic_residues(int(req["n"]))
+            return {"ok": True, "result": ",".join(str(int(x)) for x in qr)}
+        if fn == "reduced_totient":
+            from sympy.functions.combinatorial.numbers import reduced_totient
+            return {"ok": True, "result": str(int(reduced_totient(int(req["n"]))))}
         return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
 
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}
