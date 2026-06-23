@@ -946,6 +946,10 @@ namespace {
 
 }  // namespace
 
+// Bivariate Wang-style factorization (content extraction + quadratic-in-var via
+// a perfect-square discriminant), defined after as_numer_denom below.
+[[nodiscard]] std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var);
+
 Expr factor(const Expr& expr, const Expr& var) {
     Poly f(expr, var);
     // factor_list (square-free + rational-root + Kronecker) is defined only
@@ -955,6 +959,7 @@ Expr factor(const Expr& expr, const Expr& var) {
     // factorization is tracked separately.
     if (!poly_coeffs_as_mpq(f)) {
         if (auto h = factor_homogeneous_bivariate(expr, var)) return *h;
+        if (auto w = factor_multivariate(expr, var)) return *w;
         return expr;
     }
     auto fl = factor_list(f);
@@ -1108,6 +1113,155 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
 }
 
 }  // namespace
+
+// Perfect-square root of a univariate polynomial d(y) over ℚ: returns s with
+// s² == d, or nullopt. Greedy top-down coefficient solve, then verified.
+[[nodiscard]] static std::optional<Expr> perfect_square_poly(const Expr& d, const Expr& y) {
+    if (expand(d) == S::Zero()) return S::Zero();  // disc = 0 → repeated root
+    Poly dp(expand(d), y);
+    long n = static_cast<long>(dp.degree());
+    if (n % 2 != 0) return std::nullopt;
+    long m = n / 2;
+    const auto& dc = dp.coeffs();
+    auto at = [&](long i) -> std::optional<mpq_class> {
+        if (i < 0 || i >= static_cast<long>(dc.size())) return mpq_class(0);
+        return coeff_as_mpq(dc[static_cast<std::size_t>(i)]);
+    };
+    auto lead = at(n);
+    if (!lead || sgn(*lead) <= 0) return std::nullopt;
+    // leading coefficient must be a perfect rational square
+    mpz_class sn, sd;
+    if (!mpz_perfect_square_p(lead->get_num().get_mpz_t()) ||
+        !mpz_perfect_square_p(lead->get_den().get_mpz_t())) {
+        return std::nullopt;
+    }
+    mpz_sqrt(sn.get_mpz_t(), lead->get_num().get_mpz_t());
+    mpz_sqrt(sd.get_mpz_t(), lead->get_den().get_mpz_t());
+    std::vector<mpq_class> s(static_cast<std::size_t>(m) + 1, mpq_class(0));
+    s[static_cast<std::size_t>(m)] = mpq_class(sn, sd);
+    for (long k = m - 1; k >= 0; --k) {
+        mpq_class known = 0;
+        for (long i = k + 1; i < m; ++i) {
+            long j = m + k - i;
+            if (j >= 0 && j <= m) known += s[static_cast<std::size_t>(i)] * s[static_cast<std::size_t>(j)];
+        }
+        auto dval = at(m + k);
+        if (!dval) return std::nullopt;
+        mpq_class sk = (*dval - known) / (2 * s[static_cast<std::size_t>(m)]);
+        sk.canonicalize();
+        s[static_cast<std::size_t>(k)] = sk;
+    }
+    Expr se = S::Zero();
+    for (long k = 0; k <= m; ++k) {
+        if (s[static_cast<std::size_t>(k)] == 0) continue;
+        Expr c = mpq_to_expr(s[static_cast<std::size_t>(k)]);
+        se = add(se, k == 0 ? c : mul(c, pow(y, integer(k))));
+    }
+    if (!(expand(add(mul(se, se), mul(integer(-1), expand(d)))) == S::Zero())) return std::nullopt;
+    return se;
+}
+
+// Rational content (gcd of numerators / lcm of denominators) of a polynomial's
+// numeric coefficients, always positive.
+[[nodiscard]] static mpq_class numeric_content(const Expr& e) {
+    Expr ex = expand(e);
+    std::vector<Expr> terms;
+    if (ex->type_id() == TypeId::Add) {
+        for (const auto& t : ex->args()) terms.push_back(t);
+    } else {
+        terms.push_back(ex);
+    }
+    mpz_class g = 0, l = 1;
+    for (const auto& t : terms) {
+        mpq_class c = 1;
+        if (t->type_id() == TypeId::Mul) {
+            for (const auto& f : t->args()) {
+                if (auto q = coeff_as_mpq(f)) c *= *q;
+            }
+        } else if (auto q = coeff_as_mpq(t)) {
+            c = *q;
+        }
+        mpz_gcd(g.get_mpz_t(), g.get_mpz_t(), c.get_num().get_mpz_t());
+        mpz_lcm(l.get_mpz_t(), l.get_mpz_t(), c.get_den().get_mpz_t());
+    }
+    if (g == 0) return mpq_class(1);
+    mpq_class r(g, l);
+    r.canonicalize();
+    return r;
+}
+
+std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
+    // Restrict to bivariate: exactly one other free symbol y.
+    Expr y;
+    int others = 0;
+    for (const auto& s : free_symbols(expr)) {
+        if (!(s == var)) {
+            y = s;
+            ++others;
+        }
+    }
+    if (others != 1) return std::nullopt;
+
+    Expr ex = expand(expr);  // normalize so (x+1)²-style inputs parse as polynomials
+    Poly f(ex, var);
+    if (f.degree() < 1) return std::nullopt;
+    const auto& cs = f.coeffs();
+
+    // Content = gcd of the var-coefficients as polynomials in y; primitive part
+    // = the original with that content divided out of each coefficient.
+    Poly cont(cs[0], y);
+    for (std::size_t i = 1; i < cs.size(); ++i) cont = gcd(cont, Poly(cs[i], y));
+    Expr cont_e = cont.as_expr();
+    std::vector<Expr> ppc;
+    ppc.reserve(cs.size());
+    for (const auto& c : cs) ppc.push_back((Poly(c, y) / cont).as_expr());
+    Poly pp(ppc, var);
+    Expr pp_e = pp.as_expr();
+
+    // Factor the primitive part — currently the quadratic-in-var case.
+    Expr pp_factored = pp_e;
+    if (f.degree() == 2) {
+        Expr a = ppc[2], b = ppc[1], c = ppc[0];
+        Expr disc = expand(add(mul(b, b), mul(integer(-4), mul(a, c))));
+        if (auto sopt = perfect_square_poly(disc, y)) {
+            const Expr& srt = *sopt;
+            // roots (−b±s)/(2a); clear each to an integer-polynomial linear factor.
+            Expr lead = a;  // accumulates a / (den₁·den₂)
+            std::vector<Expr> lin;
+            for (int sign : {+1, -1}) {
+                Expr num = add(mul(integer(-1), b), mul(integer(sign), srt));  // −b ± s
+                Expr root = cancel(mul(num, pow(mul(integer(2), a), integer(-1))));  // (−b±s)/(2a)
+                NumerDenom nd = as_numer_denom(root);
+                Expr factor_lin = expand(add(mul(nd.denom, var), mul(integer(-1), nd.numer)));
+                mpq_class k = numeric_content(factor_lin);  // pull numeric content into lead
+                if (!(k == 1)) {
+                    factor_lin = expand(mul(factor_lin, mpq_to_expr(mpq_class(k.get_den(), k.get_num()))));
+                    lead = mul(lead, mpq_to_expr(k));
+                }
+                lin.push_back(factor_lin);
+                lead = mul(lead, pow(nd.denom, integer(-1)));
+            }
+            Expr cand = cancel(mul(lead, mul(lin[0], lin[1])));
+            if (expand(add(cand, mul(integer(-1), pp_e))) == S::Zero()) {
+                Expr lead_s = cancel(lead);
+                std::vector<Expr> parts;
+                if (!(lead_s == S::One())) parts.push_back(lead_s);
+                parts.push_back(lin[0]);
+                parts.push_back(lin[1]);
+                pp_factored = mul(parts);
+            }
+        }
+    }
+
+    std::vector<Expr> out;
+    if (!(cont_e == S::One())) out.push_back(factor(cont_e, y));  // recurse on the content
+    out.push_back(pp_factored);
+    Expr result = mul(out);
+    // Accept only a verified, genuinely-more-factored result.
+    if (!(expand(add(result, mul(integer(-1), ex))) == S::Zero())) return std::nullopt;
+    if (result == expr || result == ex) return std::nullopt;
+    return result;
+}
 
 namespace {
 // Recursive together: combine each Add/Mul/Pow child into a single fraction

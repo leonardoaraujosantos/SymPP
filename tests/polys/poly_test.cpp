@@ -1163,3 +1163,31 @@ TEST_CASE("Poly: diff lowers degree", "[4][poly][diff]") {
     REQUIRE(dp.coeffs()[1] == integer(4));
     REQUIRE(dp.coeffs()[0] == integer(-7));
 }
+
+// WANG-1: bivariate (multivariate) factorization — content extraction plus the
+// quadratic-in-var case via a perfect-square discriminant, with denominator
+// clearing and numeric-content stripping. Each result is verified to expand back
+// to the input and cross-checked against SymPy.
+TEST_CASE("factor: bivariate multivariate factorization (WANG-1)",
+          "[4][polys][factor][wang][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x"), y = symbol("y");
+    auto P = [&](const Expr& b, int e) { return pow(b, integer(e)); };
+    auto check = [&](const Expr& e, const char* expected) {
+        Expr f = factor(e, x);
+        REQUIRE(oracle.equivalent(f->str(), e->str()));         // expands back
+        REQUIRE(oracle.equivalent(f->str(), expected));         // matches SymPy form
+        REQUIRE(f->str() != e->str());                          // actually factored
+    };
+    // Polynomial-in-y coefficients (true multivariate), previously unfactored:
+    check(mul(P(x, 2), P(y, 2)) - integer(1), "(x*y - 1)*(x*y + 1)");   // x²y²−1
+    check(P(x, 2) + mul(x, y) + x + y, "(x + 1)*(x + y)");              // x²+xy+x+y
+    check(P(x + integer(1), 2) - P(y, 2), "(x - y + 1)*(x + y + 1)");   // (x+1)²−y²
+    check(add(mul(P(x, 2), y), add(mul(integer(2), mul(x, y)), y)),
+          "y*(x + 1)**2");                                              // x²y+2xy+y
+    check(mul(x, y) + x + y + integer(1), "(x + 1)*(y + 1)");           // content (y+1)
+
+    // A non-factorable bivariate quadratic stays put (no false factorization).
+    Expr irr = P(x, 2) + mul(x, y) + integer(1);  // x²+xy+1 irreducible over ℚ[y]
+    REQUIRE(factor(irr, x)->str() == irr->str());
+}
