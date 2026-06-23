@@ -1815,7 +1815,10 @@ std::vector<Expr> solve(const Expr& expr, const Expr& var) {
         if (auto tr = solve_trig(expr, var); tr && !tr->empty()) return *tr;
         if (auto tm = solve_trig_reduce(expr, var); tm && !tm->empty())
             return *tm;
-        SetPtr s = solveset(expr, var);
+        // Reals domain: solve()'s abs/transcendental/radical handling returns
+        // real roots (matching SymPy's solve), so don't inherit solveset's
+        // complex default (which would add ±√2·I to |x²−1| = 3, etc.).
+        SetPtr s = solveset(expr, var, reals());
         // Flatten a finite solution set — a FiniteSet, or a Union of finite sets
         // (e.g. solveset(|x−1|−2) = {3} ∪ {−1}). Anything containing a
         // non-finite component (ImageSet, Interval, …) is not a discrete root
@@ -1874,7 +1877,10 @@ Matrix linsolve(const Matrix& A, const Matrix& b) {
 // ----- solveset --------------------------------------------------------------
 
 SetPtr solveset(const Expr& expr, const Expr& var) {
-    return solveset(expr, var, reals());
+    // SymPy's solveset defaults to the complex domain; pass complexes() so
+    // polynomial roots are not filtered to the reals (solveset(x²+1) = {−I, I}).
+    // An explicit reals() domain still drops complex roots.
+    return solveset(expr, var, complexes());
 }
 
 namespace {
@@ -2105,12 +2111,15 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain);
 
 // Internal solveset that can be reentered from the inverter.
 SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain) {
+    auto universal = [](const SetPtr& d) {
+        return d->kind() == SetKind::Reals || d->kind() == SetKind::Complexes;
+    };
     if (auto trig = trig_solveset(expr, var); trig) {
-        if (domain->kind() == SetKind::Reals) return *trig;
+        if (universal(domain)) return *trig;
         return set_intersection(*trig, domain);
     }
     if (auto inv = invert_solveset(expr, var, domain); inv) {
-        if (domain->kind() == SetKind::Reals) return *inv;
+        if (universal(domain)) return *inv;
         return set_intersection(*inv, domain);
     }
     // Polynomial-only fallback. Must NOT call the public solve(), which would

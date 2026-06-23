@@ -194,6 +194,7 @@ std::optional<bool> ImageSet::contains(const Expr& e) const {
 
 SetPtr empty_set() { return std::make_shared<EmptySet>(); }
 SetPtr reals() { return std::make_shared<Reals>(); }
+SetPtr complexes() { return std::make_shared<Complexes>(); }
 SetPtr integers() { return std::make_shared<Integers>(); }
 SetPtr interval(const Expr& lo, const Expr& hi, bool left_open, bool right_open) {
     return std::make_shared<Interval>(lo, hi, left_open, right_open);
@@ -218,6 +219,9 @@ namespace {
 SetPtr set_union(SetPtr a, SetPtr b) {
     if (a->kind() == SetKind::Empty) return b;
     if (b->kind() == SetKind::Empty) return a;
+    // Complexes is the universal domain: C ∪ X = C.
+    if (a->kind() == SetKind::Complexes) return a;
+    if (b->kind() == SetKind::Complexes) return b;
     // Merge two overlapping / adjacent real intervals into one.
     if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
         const auto& ia = static_cast<const Interval&>(*a);
@@ -249,6 +253,9 @@ SetPtr set_intersection(SetPtr a, SetPtr b) {
     if (a->kind() == SetKind::Empty || b->kind() == SetKind::Empty) {
         return empty_set();
     }
+    // Complexes is the universal domain: C ∩ X = X.
+    if (a->kind() == SetKind::Complexes) return b;
+    if (b->kind() == SetKind::Complexes) return a;
     // Intersect two real intervals: [max(los), min(his)].
     if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
         const auto& ia = static_cast<const Interval&>(*a);

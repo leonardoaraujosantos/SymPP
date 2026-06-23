@@ -27,6 +27,7 @@ using SetPtr = std::shared_ptr<const Set>;
 enum class SetKind : std::uint8_t {
     Empty,
     Reals,
+    Complexes,
     Integers,
     Interval,
     FiniteSet,
@@ -63,6 +64,19 @@ public:
     [[nodiscard]] SetKind kind() const noexcept override { return SetKind::Reals; }
     [[nodiscard]] std::string str() const override { return "Reals"; }
     [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+};
+
+// All complex numbers — the universal domain for solveset. Every symbolic
+// expression is taken to be a complex number, so contains() is always true.
+class SYMPP_EXPORT Complexes final : public Set {
+public:
+    [[nodiscard]] SetKind kind() const noexcept override {
+        return SetKind::Complexes;
+    }
+    [[nodiscard]] std::string str() const override { return "Complexes"; }
+    [[nodiscard]] std::optional<bool> contains(const Expr&) const override {
+        return true;
+    }
 };
 
 // All integers.
@@ -193,6 +207,7 @@ private:
 
 [[nodiscard]] SYMPP_EXPORT SetPtr empty_set();
 [[nodiscard]] SYMPP_EXPORT SetPtr reals();
+[[nodiscard]] SYMPP_EXPORT SetPtr complexes();
 [[nodiscard]] SYMPP_EXPORT SetPtr integers();
 [[nodiscard]] SYMPP_EXPORT SetPtr interval(const Expr& lo, const Expr& hi,
                                               bool left_open = false,

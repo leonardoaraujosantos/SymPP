@@ -1206,6 +1206,43 @@ TEST_CASE("solveset: filters via domain",
     REQUIRE(fs->elements()[0] == integer(2));
 }
 
+// SOLVESET-COMPLEX-1: the no-domain solveset defaults to the complex domain
+// (matching SymPy), so a polynomial with complex roots returns them instead of
+// EmptySet. Previously solveset(x²+1) → EmptySet while solveset(x²+x+1)
+// returned its complex roots — an inconsistency. An explicit reals() domain
+// still drops the complex roots.
+TEST_CASE("solveset: complex default domain (SOLVESET-COMPLEX-1)",
+          "[10][solveset]") {
+    auto x = symbol("x");
+    // Membership check on a FiniteSet (order-independent).
+    auto has_all = [](const SetPtr& s, const std::vector<Expr>& want) {
+        if (s->kind() != SetKind::FiniteSet) return false;
+        auto fs = std::static_pointer_cast<const FiniteSet>(s);
+        if (fs->size() != want.size()) return false;
+        for (const auto& w : want) {
+            if (s->contains(w) != std::optional<bool>{true}) return false;
+        }
+        return true;
+    };
+    Expr I = S::I();
+
+    // Default (complex) domain keeps the imaginary roots.
+    REQUIRE(has_all(solveset(pow(x, integer(2)) + integer(1), x),
+                    {I, mul(integer(-1), I)}));
+    REQUIRE(has_all(solveset(pow(x, integer(2)) + integer(4), x),
+                    {mul(integer(2), I), mul(integer(-2), I)}));
+    // A real-rooted polynomial is unaffected.
+    REQUIRE(has_all(solveset(pow(x, integer(2)) - integer(4), x),
+                    {integer(2), integer(-2)}));
+
+    // Explicit reals() domain drops the complex roots → EmptySet,
+    REQUIRE(solveset(pow(x, integer(2)) + integer(1), x, reals())->kind()
+            == SetKind::Empty);
+    // ...but keeps the real ones.
+    REQUIRE(has_all(solveset(pow(x, integer(2)) - integer(4), x, reals()),
+                    {integer(2), integer(-2)}));
+}
+
 // ----- solveset: _invert chain (transcendental) -----------------------------
 
 #include <sympp/functions/hyperbolic.hpp>
