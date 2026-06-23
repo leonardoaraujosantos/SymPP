@@ -13,6 +13,7 @@
 #include <sympp/core/basic.hpp>
 #include <sympp/core/float.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/undefined_function.hpp>
 #include <sympp/core/mul.hpp>
 #include <sympp/core/number.hpp>
 #include <sympp/core/number_arith.hpp>
@@ -1030,6 +1031,49 @@ Expr subfactorial(const Expr& arg) {
         return make<Integer>(std::move(cur));
     }
     return make<Subfactorial>(arg);
+}
+
+Expr bell(const Expr& arg) {
+    // Bell triangle / recurrence B_{m} = Σ_{k=0}^{m−1} C(m−1, k)·B_k.
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_negative() && z.fits_long() && z.to_long() <= 5000) {
+            long n = z.to_long();
+            std::vector<mpz_class> B(static_cast<std::size_t>(n) + 1);
+            B[0] = 1;
+            for (long m = 1; m <= n; ++m) {
+                mpz_class s = 0, c;
+                for (long k = 0; k < m; ++k) {
+                    mpz_bin_uiui(c.get_mpz_t(), static_cast<unsigned long>(m - 1),
+                                 static_cast<unsigned long>(k));
+                    s += c * B[static_cast<std::size_t>(k)];
+                }
+                B[static_cast<std::size_t>(m)] = s;
+            }
+            return make<Integer>(B[static_cast<std::size_t>(n)]);
+        }
+    }
+    return function_symbol("bell")(arg);
+}
+
+Expr tribonacci(const Expr& arg) {
+    if (arg->type_id() == TypeId::Integer) {
+        const auto& z = static_cast<const Integer&>(*arg);
+        if (!z.is_negative() && z.fits_long()) {
+            long n = z.to_long();
+            if (n == 0) return S::Zero();
+            if (n <= 2) return S::One();  // T₁ = T₂ = 1
+            mpz_class a(0), b(1), c(1), d;
+            for (long i = 3; i <= n; ++i) {
+                d = a + b + c;
+                a = b;
+                b = c;
+                c = d;
+            }
+            return make<Integer>(std::move(c));
+        }
+    }
+    return function_symbol("tribonacci")(arg);
 }
 
 // ============================================================================

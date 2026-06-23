@@ -398,6 +398,11 @@ public:
 [[nodiscard]] SYMPP_EXPORT Expr rising_factorial(const Expr& x, const Expr& n);
 [[nodiscard]] SYMPP_EXPORT Expr falling_factorial(const Expr& x, const Expr& n);
 [[nodiscard]] SYMPP_EXPORT Expr subfactorial(const Expr& arg);
+// Bell number Bₙ (number of set partitions of an n-set) and the tribonacci
+// number Tₙ (T₀=0, T₁=T₂=1, Tₙ=Tₙ₋₁+Tₙ₋₂+Tₙ₋₃); evaluated for non-negative
+// integer arguments, symbolic otherwise.
+[[nodiscard]] SYMPP_EXPORT Expr bell(const Expr& arg);
+[[nodiscard]] SYMPP_EXPORT Expr tribonacci(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr gamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr loggamma(const Expr& arg);
 [[nodiscard]] SYMPP_EXPORT Expr polygamma(const Expr& n, const Expr& x);

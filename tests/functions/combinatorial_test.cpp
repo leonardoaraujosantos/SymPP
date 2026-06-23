@@ -866,3 +866,19 @@ TEST_CASE("incomplete gamma: half-integer erf/erfc forms (FUNC-INCGAMMA-HALF-1)"
     REQUIRE(oracle.equivalent(uppergamma(rational(1, 2), integer(0))->str(),
                               "sqrt(pi)"));
 }
+
+TEST_CASE("bell and tribonacci numbers", "[combinatorial]") {
+    // Bell numbers B₀..B₇ = 1,1,2,5,15,52,203,877.
+    long bell_vals[] = {1, 1, 2, 5, 15, 52, 203, 877};
+    for (long n = 0; n < 8; ++n) {
+        REQUIRE(bell(integer(n)) == integer(bell_vals[n]));
+    }
+    REQUIRE(bell(integer(10)) == integer(115975));
+    // Tribonacci T₀..T₈ = 0,1,1,2,4,7,13,24,44.
+    long trib_vals[] = {0, 1, 1, 2, 4, 7, 13, 24, 44};
+    for (long n = 0; n < 9; ++n) {
+        REQUIRE(tribonacci(integer(n)) == integer(trib_vals[n]));
+    }
+    // Symbolic argument stays unevaluated.
+    REQUIRE(bell(symbol("n"))->str().rfind("bell", 0) == 0);
+}
