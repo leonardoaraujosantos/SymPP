@@ -39,6 +39,10 @@ demand with cost.
 - **Vector calculus & differential geometry** — grad/div/curl/laplacian +
   Christoffel/Ricci.
 - **Tensor algebra** — dense tensors: product, contraction, raise/lower.
+- **Symbolic Product (∏)** — `product(expr, var, lo, hi)` closed forms: factorial
+  `∏k=n!`, constant-power, geometric-exponent `∏2^k=2^{n(n+1)/2}`, and
+  polynomial-in-k via Gamma ratios (`∏(k²−1)`, telescoping `∏(k+1)/(k+2)→2/(n+2)`);
+  the concrete counterpart to `summation` (PROD-1/PROD-2).
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 - **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
 - **General Jordan form** — chains of any length (reconstruction-verified).

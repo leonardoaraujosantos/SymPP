@@ -45,6 +45,7 @@ target_sources(sympp
         calculus/limit.cpp
         calculus/order.cpp
         calculus/pade.cpp
+        calculus/product.cpp
         calculus/series.cpp
         calculus/summation.cpp
         functions/bessel.cpp
@@ -131,6 +132,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/limit.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/order.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/pade.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/calculus/product.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/series.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/calculus/summation.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/functions/bessel.hpp

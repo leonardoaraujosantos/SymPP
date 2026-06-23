@@ -127,6 +127,10 @@ summation(pow(n, integer(-2)), n, integer(1), oo);    // → 1/6*pi**2  (Basel)
 summation(pow(n * n + integer(1), integer(-1)),
           n, integer(1), oo);                         // → 1/2*(pi*coth(pi) - 1)
 
+product(n, n, integer(1), symbol("m"));               // → factorial(m)
+product(pow(integer(2), n), n, integer(1),
+        symbol("m"));                                 // → 2**(m*(m+1)/2)
+
 simplify(pow(sin(x), integer(2))
          + pow(cos(x), integer(2)));                  // → 1
 simplify(sin(integer(2) * x)
@@ -331,7 +335,10 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `eˣ·(sin(1/x+e⁻ˣ)−sin(1/x))→1`; size-bounded so it never hangs),
   `summation` (p-series → ζ, exponential/geometric series, telescoping,
   geometric/arithmetic-geometric, irreducible-quadratic
-  `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`), Padé, Euler-Lagrange, asymptotes.
+  `Σ1/(n²+a²) → (π√a²·coth(π√a²)−1)/(2a²)`), `product` (∏ closed forms:
+  `∏k = n!`, `∏2k = 2ⁿ·n!`, `∏2^k = 2^{n(n+1)/2}`, polynomial-in-k via Gamma
+  ratios `∏(k²−1)`, telescoping `∏(k+1)/(k+2) → 2/(n+2)`), Padé, Euler-Lagrange,
+  asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
   bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
   polynomial-time **Berlekamp–Zassenhaus** univariate factorization

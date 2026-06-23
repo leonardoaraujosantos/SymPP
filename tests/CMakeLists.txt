@@ -8,6 +8,7 @@ target_sources(sympp_tests
         oracle/oracle.hpp
         oracle/oracle.cpp
         calculus/diff_test.cpp
+        calculus/product_test.cpp
         calculus/series_limit_test.cpp
         core/arithmetic_test.cpp
         core/assumptions_test.cpp
