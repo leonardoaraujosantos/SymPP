@@ -29,6 +29,8 @@
 #include <sympp/polys/poly.hpp>
 #include <sympp/simplify/simplify.hpp>
 
+#include "gosper.hpp"
+
 namespace sympp {
 
 namespace {
@@ -1542,6 +1544,13 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
                                  S::One(), hi);
         if (!has(shifted, var)) return shifted;
     }
+
+    // Gosper's algorithm: a finite sum of a hypergeometric term (factorials,
+    // binomials, rising factorials, cᵏ, polynomials) that telescopes in closed
+    // form — e.g. Σ k·k! = (n+1)! − 1, the hockey-stick Σ C(k,m) = C(n+1,m+1).
+    // Verified by the rational Gosper identity before acceptance, so it never
+    // returns a wrong value; runs last so the specialized closed forms win.
+    if (auto g = detail::gosper_summation(expr, var, lo, hi)) return *g;
 
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).

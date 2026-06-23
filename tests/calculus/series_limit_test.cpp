@@ -1339,6 +1339,47 @@ TEST_CASE("summation: Σ k from 1 to n → n(n+1)/2", "[6][summation][oracle]") 
     REQUIRE(oracle.equivalent(s->str(), "n*(n+1)/2"));
 }
 
+// SUM-GOSPER-1: Gosper's algorithm for hypergeometric terms — finite sums that
+// telescope in closed form, found via the rational Gosper certificate and
+// verified before acceptance. Closes factorial-numerator and binomial sums the
+// specialized closed forms miss, while leaving genuinely non-summable terms
+// (k!, k²·k!) unevaluated exactly as SymPy does.
+TEST_CASE("summation: Gosper hypergeometric sums (SUM-GOSPER-1)",
+          "[6][summation][gosper][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto I = [](int i) { return integer(i); };
+
+    // Σ_{k=1}^{n} k·k! = (n+1)! − 1.
+    REQUIRE(oracle.equivalent(
+        summation(mul(k, factorial(k)), k, I(1), n)->str(), "factorial(n+1)-1"));
+    // Hockey-stick: Σ_{k=3}^{n} C(k,3) = C(n+1,4).
+    REQUIRE(oracle.equivalent(
+        summation(binomial(k, I(3)), k, I(3), n)->str(), "binomial(n+1,4)"));
+    // Σ_{k=0}^{n} k·2^k = (n−1)·2^(n+1) + 2.
+    REQUIRE(oracle.equivalent(
+        summation(mul(k, pow(I(2), k)), k, I(0), n)->str(),
+        "(n-1)*2**(n+1)+2"));
+    // Numeric check: Σ_{k=1}^{5} k·k! = 719.
+    REQUIRE(oracle.equivalent(
+        summation(mul(k, factorial(k)), k, I(1), I(5))->str(), "719"));
+    // Boundary with a zero term at the lower bound (y = 1/k pole cancels t's
+    // zero): Σ_{k=0}^{n} k·k! still telescopes cleanly.
+    REQUIRE(oracle.equivalent(
+        summation(mul(k, factorial(k)), k, I(0), n)->str(), "factorial(n+1)-1"));
+
+    // Not Gosper-summable → unevaluated (matches SymPy): k!, k²·k!.
+    REQUIRE(summation(factorial(k), k, I(0), n)->str().find("Sum(")
+            != std::string::npos);
+    REQUIRE(summation(mul(mul(k, k), factorial(k)), k, I(1), n)
+                ->str()
+                .find("Sum(") != std::string::npos);
+    // A pole inside the range stays unevaluated, never a bogus closed form.
+    REQUIRE(summation(pow(mul(k, k - I(1)), I(-1)), k, I(1), n)->str().find("Sum(")
+            != std::string::npos);
+}
+
 TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();
