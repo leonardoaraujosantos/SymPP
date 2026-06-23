@@ -43,6 +43,11 @@ demand with cost.
   `∏k=n!`, constant-power, geometric-exponent `∏2^k=2^{n(n+1)/2}`, and
   polynomial-in-k via Gamma ratios (`∏(k²−1)`, telescoping `∏(k+1)/(k+2)→2/(n+2)`);
   the concrete counterpart to `summation` (PROD-1/PROD-2).
+- **Gosper's algorithm** — finite hypergeometric summation (`Σk·k!=(n+1)!−1`,
+  hockey-stick `ΣC(k,3)=C(n+1,4)`, `Σk·2^k`) via term-ratio → Gosper–Petkovšek
+  normal form → certificate solve, gated by the rational Gosper identity and a
+  pole guard; non-summable terms (`k!`, `k²·k!`) stay unevaluated as in SymPy
+  (SUM-GOSPER-1).
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 - **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
 - **General Jordan form** — chains of any length (reconstruction-verified).

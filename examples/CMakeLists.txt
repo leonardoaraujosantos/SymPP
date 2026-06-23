@@ -19,6 +19,8 @@ set(_examples
     03_linear_algebra
     04_solving
     05_codegen
+    06_ode
+    07_pde
 )
 
 foreach(ex IN LISTS _examples)
