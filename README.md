@@ -16,16 +16,18 @@ algorithms with SymPy itself wired in as the validation oracle.
 
 ```
 1705 tests / 7032 assertions  all passing
-672 cases (2724 assertions) oracle-validated against SymPy
-14 of 15 phases shipped
+740 cases (3599 assertions) oracle-validated against SymPy
+15 of 15 phases shipped (v1.0)
 ```
 
 On textbook-shaped inputs (calculus, algebra, transforms, solvers, sets)
-SymPP and SymPy are now effectively interchangeable; the remaining gaps are
-research-grade algorithms (Gruntz limits, full Risch integration, Wang
-multivariate factorization, transcendental `solve`) and whole SymPy modules
-not yet ported. See [docs/04-roadmap.md](docs/04-roadmap.md#how-far-are-we-from-sympy)
-for the multi-metric parity breakdown.
+SymPP and SymPy are now effectively interchangeable. The remaining gaps are the
+deepest research-grade algorithms — the full Risch tower recursion (the
+exponential differential equation and logarithmic extension already ship), full
+Gruntz comparability (termination + practical MRV values already ship), and Wang
+multivariate factorization — plus the deeper tiers of a few large modules. See
+[docs/04-roadmap.md](docs/04-roadmap.md#how-far-are-we-from-sympy) and
+[docs/10-parity-roadmap.md](docs/10-parity-roadmap.md) for the breakdown.
 
 | Phase | Title | Status |
 |---|---|---|
@@ -44,7 +46,7 @@ for the multi-metric parity breakdown.
 | 12 | Units                                  | ✅ |
 | 13 | Code generation                        | 🟡 printers + function emission |
 | 15 | Parser & MATLAB facade                 | ✅ |
-| 16 | Hardening & v1.0                       | 🟡 find_package + install + CI shipped; v1.0 tag pending |
+| 16 | Hardening & v1.0                       | ✅ `find_package`/install/export, vcpkg + Conan packaging, benchmark harness, Doxygen target, CI matrix — **v1.0** |
 
 > Phase 14 (Plotting bridge) was dropped from scope. Plot via the
 > code-gen pipeline or `evalf` / `vpaintegral` numeric output piped
@@ -262,9 +264,10 @@ differences remain, both deliberate (and exercised by the engine): SymPP's
 `±∞` are `nonzero`), and SymPP reports `±∞` as strictly `positive`/`negative`
 (required by the limit engine) where SymPy ties strict sign to finiteness
 (`oo.is_positive` is `False`, only `oo.is_extended_positive` is `True`).
-Non-commutative *algebra* (order-preserving multiplication of non-commuting
-symbols) is the one structural piece left for a later phase; the `commutative`
-predicate itself is supported.
+Non-commutative *algebra* is also supported: `mul` preserves the order of
+non-commuting symbols (`A·B ≠ B·A`, with commutative factors folded into a
+leading coefficient and adjacent equal bases merged, `A·A → A²`), alongside the
+`commutative` predicate.
 
 This parity is **guarded by a test**: `tests/core/parity_probe.cpp` checks
 SymPP's full predicate table over a battery of expressions against a committed
@@ -300,7 +303,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `integrate`
   (table + trig + reciprocal-trig/hyperbolic + parts + arctan/asin/asinh +
   rational incl. improper/linear-denominator + heurisch + Weierstrass
-  half-angle + incomplete-gamma forms `∫xˢ⁻¹e⁻ˣ = γ(s,x)`, `∫₀^∞ xˢ⁻¹e⁻ᶜˣ = Γ(s)/cˢ`;
+  half-angle + the **exponential Risch differential equation** for rational·exp
+  (`∫ x·eˣ/(x+1)² = eˣ/(x+1)`) + incomplete-gamma forms `∫xˢ⁻¹e⁻ˣ = γ(s,x)`,
+  `∫₀^∞ xˢ⁻¹e⁻ᶜˣ = Γ(s)/cˢ`;
   definite integrals evaluate boundaries as limits, so `∫₀^∞ xⁿe^(-x) = n!`),
   `series`, **`limit` with a Gruntz-style leading-term engine** (L'Hôpital +
   composable asymptotic stages: power-as-exp, dominant-term `∞−∞`, power
@@ -348,11 +353,13 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁/₂F₁ closed forms incl. radical-argument
   cosh/sinh/erf/atanh/asin forms, parameter cancellation, and **Meijer-G via
   Slater's theorem** — generic case).
-- **Meijer-G engine** (`sympp::integrals/meijerint`) — Mellin transform of a
-  Meijer-G (Gamma-ratio master formula), `∫₀^∞` via the transform at s=1, and a
-  function→Meijer-G recognition with the η·xᶜ substitution, wired into
-  `integrate(·,0,∞)` — Gaussian `∫₀^∞ e⁻ˣ² = √π/2`, Dirichlet `∫₀^∞ sin x/x = π/2`,
-  Fresnel `∫₀^∞ cos x² = √(2π)/4`, `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)`.
+- **Meijer-G engine** (`sympp::integrals/meijerint`) — generic-case Slater
+  reduction, Mellin transform (Gamma-ratio master formula), `∫₀^∞` via the
+  transform at s=1, function→Meijer-G recognition with the η·xᶜ substitution, the
+  confluent G^{2,0}_{0,2} → modified Bessel K closed form, and the two-G
+  `∫₀^∞ G₁·G₂` Mellin–Parseval convolution — wired into `integrate(·,0,∞)`:
+  Gaussian `∫₀^∞ e⁻ˣ² = √π/2`, Dirichlet `∫₀^∞ sin x/x = π/2`, Fresnel
+  `∫₀^∞ cos x² = √(2π)/4`, `∫₀^∞ xᵃe⁻ˣ = Γ(a+1)`.
 - **Linear algebra** — det, inverse, eigendecomposition, `singular_values` + full `svd`,
   LU/QR/Cholesky, rref / rank / nullspace, jacobian/hessian/wronskian,
   `Matrix::jordan_form()` (general chains), `Matrix::exp(t)` matrix
@@ -413,8 +420,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   rule `L{t·cos t} = (s²−1)/(s²+1)²`) and inverse Laplace
   (incl. completed-square quadratics `1/((s+1)²+1) → e^(-t)sin t`, linear
   numerators, and repeated irreducible quadratics
-  `1/(s²+1)² → (sin t − t·cos t)/2`), Fourier, Mellin, Z, sine/cosine —
-  forward and inverse, table-driven with linearity.
+  `1/(s²+1)² → (sin t − t·cos t)/2`), Fourier, Mellin, Z, sine/cosine, and the
+  **Hankel** transform (order-ν, Bessel-enabled) — forward and inverse,
+  table-driven with linearity.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
   constants with exact post-2019-redef values, affine
   temperature conversion.
@@ -427,20 +435,22 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   equivalent) connectives with `satisfiable`, `to_cnf`/`to_dnf`, and
   `simplify_logic` (Quine–McCluskey minimization).
 - **Number theory** — `factorint` (Pollard rho), `divisors`, `igcdex`,
-  `jacobi_symbol`, `continued_fraction`, `n_order`, `primitive_root`,
-  `sqrt_mod`, the **Chinese Remainder Theorem** (`crt`, non-coprime moduli),
-  **discrete logarithm** (`discrete_log`, baby-step/giant-step) and **linear
-  Diophantine** (`diop_linear`), **Pell** (`diop_pell`), and **sums of
-  two/three/four squares**, plus classical orthogonal polynomials
-  (Legendre, Chebyshev, Hermite, Laguerre) and `rewrite(target)`
-  (trig/hyperbolic ↔ exp).
+  `jacobi_symbol`/`legendre_symbol`, `continued_fraction`, `n_order`,
+  `primitive_root`, `sqrt_mod`, quadratic residues (`quadratic_residues`,
+  `is_quadratic_residue`), Carmichael λ (`reduced_totient`),
+  `nextprime`/`prevprime`/`primorial`/`multiplicity`, the **Chinese Remainder
+  Theorem** (`crt`, non-coprime moduli), **discrete logarithm** (`discrete_log`,
+  baby-step/giant-step), **linear Diophantine** (`diop_linear`), **Pell**
+  (`diop_pell`), and **sums of two/three/four squares**, plus classical
+  orthogonal polynomials (Legendre, Chebyshev, Hermite, Laguerre), `bell` /
+  `tribonacci` numbers, and `rewrite(target)` (trig/hyperbolic ↔ exp).
 - **MATLAB facade** — `sympp::matlab::*` namespace with `syms`,
   `sym(string)` / `str2sym` (parser-routed), `assume` /
   `assumeAlso` / `refresh`, `dsolve` / `linsolve` / `nsolve` /
   `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy (1.13+) via a long-lived Python
-  subprocess; 670 oracle-validated test cases. New `hyperexpand` op
+  subprocess; 740 oracle-validated test cases. New `hyperexpand` op
   cross-validates SymPP's hypergeometric rewrites against SymPy's
   reference implementation.
 

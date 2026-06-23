@@ -3,7 +3,11 @@
 All notable changes to SymPP. Format: [Keep a Changelog](https://keepachangelog.com/),
 versioning per [SemVer](https://semver.org/).
 
-## [Unreleased]
+## [1.0.0] — 2026-06-23
+
+First tagged release. 1705 tests / 7032 assertions, 740 oracle-validated against
+SymPy, all passing; 15 of 15 phases shipped. Packaged on three channels (CMake
+`find_package`, vcpkg, Conan) with a benchmark harness, Doxygen target and CI.
 
 ### Added — release engineering & late features
 
@@ -28,9 +32,9 @@ versioning per [SemVer](https://semver.org/).
 - **Other modules**: ECC (ECDH/ECDSA), combinatorics (permutation groups,
   orbits, Pólya/Burnside), LaTeX parser, discrete transforms.
 
-## [0.5.0] — Unreleased
+## [0.5.0] — development baseline (folded into 1.0.0)
 
-First public-readiness release. 14 of 15 phases shipped (Phase 16
+Public-readiness milestone. 14 of 15 phases shipped (Phase 16
 partial — `find_package` install + CI matrix done; v1.0 tag pending),
 parser landed, MATLAB facade extended, examples directory and CI in
 place. 962 tests / 1872 assertions, 307 oracle-validated against

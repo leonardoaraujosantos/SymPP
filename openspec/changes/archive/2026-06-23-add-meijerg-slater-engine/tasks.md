@@ -37,7 +37,8 @@ Bessel-family special functions as represented objects.
 - [x] 4.3a Dispatch the general `integrate(..., 0, ∞)` through Meijer-G (done in 3.4)
 - [x] 4.3b `η·xᶜ` substitution + exp/sin/cos table → Gaussian / Dirichlet / Fresnel
   integrals, with per-core convergence guards (oscillatory strip)
-- [ ] 4.3c erf / Bessel cores (need the Bessel special-function family first)
+- [x] 4.3c Bessel cores — confluent G^{2,0}_{0,2} → modified Bessel K (Phase 2,
+  via the shipped Bessel family); erf-core ∫₀^∞ already covered (ERFC-INT-1)
 
 ## Phase 3 — Mellin–Barnes definite integration
 
@@ -48,7 +49,9 @@ Bessel-family special functions as represented objects.
 - [x] 3.4 Wire into the general `integrate(expr, var, 0, ∞)` (Meijer-G rule, with an
   η>0 convergence guard so generic-scale integrals stay unevaluated)
 
-## Phase 4 — function → Meijer-G recognition (later session)
+## Phase 4 — function → Meijer-G recognition (done; see the section above)
 
-- [ ] 4.1 Rewrite elementary/special functions into Meijer-G form
-- [ ] 4.2 Integrator dispatch through the Meijer-G representation
+- [x] 4.1 Rewrite elementary functions into Meijer-G form (`to_meijerg`,
+  `recognize_form`)
+- [x] 4.2 Integrator dispatch through the Meijer-G representation
+  (`meijerg_integrate_0_inf_of`, wired into `integrate(·,0,∞)`)

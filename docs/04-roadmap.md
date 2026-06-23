@@ -8,8 +8,8 @@ parity.
 
 ## 📍 You are here — next-session pickup
 
-**Current position**: **v0.5 release-candidate.** 14 of 15 phases
-shipped at minimal-viable scope; Phase 16 partial. A sustained
+**Current position**: **v1.0.** 15 of 15 phases shipped; Phase 16
+(hardening, packaging, release) complete. A sustained
 SymPy-parity push has since closed 300+ cross-validated gaps (see
 [docs/09-known-issues.md](09-known-issues.md)) across calculus, simplify,
 solvers, transforms, sets, assumptions, and core. Everyday CAS workflow coverage is now
@@ -29,11 +29,11 @@ Critical path forward: parallelizable.
 
 **Recommended next pickup** (pick one — they're independent):
 
-1. **Finish Phase 16 to ship v0.5 tag** · ~5 wk · **highest priority**
-   - Outstanding: v1.0 tag, doxygen site, benchmark suite vs
-     SymEngine, vcpkg + Conan recipes.
-   - This is the *only* strictly-sequenced work; everything else
-     parallelizes once Phase 16 is done.
+1. **Phase 16 — Hardening & v1.0** · ✅ done
+   - Shipped: `find_package`/install/export, vcpkg + Conan packaging,
+     benchmark harness, Doxygen target, CI matrix, `[1.0.0]` changelog.
+   - The remaining parity work (research cores + deep module tiers) all
+     parallelizes from here.
    - See [Phase 16 — Hardening & v1.0](#phase-16--hardening--v10--) below.
 
 2. **Cat-A: Infinity singletons → Gruntz limit algorithm** · ~3 wk
@@ -72,8 +72,8 @@ oracle-validated against SymPy 1.13+). Run:
 ./build/tests/sympp_tests "[oracle]"   # SymPy cross-validated subset
 ```
 
-**Open `CHANGELOG.md` `[0.5.0] — Unreleased`** is the running list of
-what to mention in the v0.5 release notes when Phase 16 lands.
+**`CHANGELOG.md` `[1.0.0]`** is the released changelog; Phase 16 landed
+(packaging on CMake/vcpkg/Conan, benchmark harness, Doxygen target, CI).
 
 ---
 
@@ -101,7 +101,7 @@ what to mention in the v0.5 release notes when Phase 16 lands.
 | 12 | Units                                  | ✅ shipped |
 | 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
 | 15 | Parser & MATLAB facade                 | ✅ shipped (extension: parsing / assumptions / solvers / ode / pde sub-headers under `sympp::matlab`) |
-| 16 | Hardening & v1.0                       | 🟡 `find_package` + install rules + CI matrix shipped; v1.0 tag + benchmarks pending |
+| 16 | Hardening & v1.0                       | ✅ `find_package`/install/export, vcpkg + Conan, benchmark harness, Doxygen target, CI matrix — **v1.0** |
 
 > **Note**: Phase 14 (Plotting bridge) was dropped from scope.
 > Plotting is downstream of CAS correctness — consumers can pipe
@@ -401,11 +401,12 @@ keyword adapter are real wrappers, and the namespace-shadowing
 forces consumers to make a clean choice (use SymPP API everywhere
 or MATLAB API everywhere) which keeps porting clear.
 
-### Phase 16 — Hardening & v1.0 · ❌
+### Phase 16 — Hardening & v1.0 · ✅
 
-**Status**: Not started. Original scope: cross-port test runs,
-performance benchmarks vs SymEngine, doxygen docs, vcpkg / Conan,
-v1.0 tag. Tractable.
+**Status**: Shipped (v1.0). `find_package`/install/export, vcpkg + Conan
+packaging, a dependency-free benchmark harness (`sympp_bench`), a Doxygen
+API-doc target (`SYMPP_BUILD_DOCS`), and the CI matrix are all in place;
+the CHANGELOG carries the `[1.0.0]` release notes.
 
 ---
 

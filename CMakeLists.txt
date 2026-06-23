@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(SymPP
-    VERSION 0.5.0
+    VERSION 1.0.0
     DESCRIPTION "Modern C++ symbolic mathematics library"
     HOMEPAGE_URL "https://github.com/leonardoaraujosantos/SymPP"
     LANGUAGES CXX
