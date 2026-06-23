@@ -379,6 +379,46 @@ std::optional<DiophantineLinear> diop_linear(const Expr& a, const Expr& b, const
                              make<Integer>(dy)};
 }
 
+// ----- Prime navigation & multiplicity ---------------------------------------
+
+Expr nextprime(const Expr& n) {
+    mpz_class r;
+    mpz_nextprime(r.get_mpz_t(), as_int(n, "nextprime").get_mpz_t());
+    return make<Integer>(std::move(r));
+}
+
+Expr prevprime(const Expr& n) {
+    mpz_class zn = as_int(n, "prevprime");
+    if (zn <= 2) throw std::invalid_argument("prevprime: no prime below n for n <= 2");
+    for (mpz_class c = zn - 1; c >= 2; --c) {
+        if (is_prime_mpz(c)) return make<Integer>(c);
+    }
+    throw std::invalid_argument("prevprime: no prime found");  // unreachable
+}
+
+Expr primorial(const Expr& n) {
+    long count = as_int(n, "primorial").get_si();
+    if (count < 1) throw std::invalid_argument("primorial: n must be >= 1");
+    mpz_class prod = 1, p = 1;
+    for (long i = 0; i < count; ++i) {
+        mpz_nextprime(p.get_mpz_t(), p.get_mpz_t());
+        prod *= p;
+    }
+    return make<Integer>(std::move(prod));
+}
+
+Expr multiplicity(const Expr& p, const Expr& n) {
+    mpz_class zp = as_int(p, "multiplicity");
+    mpz_class zn = as_int(n, "multiplicity");
+    if (zp <= 1 || zn == 0) throw std::invalid_argument("multiplicity: need p > 1, n != 0");
+    long k = 0;
+    while (zn % zp == 0) {
+        zn /= zp;
+        ++k;
+    }
+    return integer(k);
+}
+
 // ----- Quadratic residues, Legendre symbol, Carmichael λ ---------------------
 
 Expr legendre_symbol(const Expr& a, const Expr& p) {

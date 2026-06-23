@@ -10,10 +10,16 @@
 
 #include <optional>
 
+#include <sympp/core/infinity.hpp>
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
+#include <sympp/core/singletons.hpp>
+#include <sympp/core/symbol.hpp>
 #include <sympp/functions/ntheory.hpp>
+#include <sympp/functions/special.hpp>
+#include <sympp/integrals/integrate.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -351,4 +357,40 @@ TEST_CASE("reduced_totient (Carmichael λ) matches SymPy", "[ntheory][oracle]") 
         REQUIRE(reduced_totient(integer(n))->str() ==
                 oracle_nt({{"fn", "reduced_totient"}, {"n", std::to_string(n)}}));
     }
+}
+
+TEST_CASE("prime navigation & multiplicity match SymPy", "[ntheory][oracle]") {
+    auto one = [&](const char* fn, const char* key, long v) {
+        return oracle_nt({{"fn", fn}, {key, std::to_string(v)}});
+    };
+    for (long n : {1, 2, 10, 100, 1000, 7919}) {
+        REQUIRE(nextprime(integer(n))->str() == one("nextprime", "n", n));
+    }
+    for (long n : {3, 4, 100, 1000}) {
+        REQUIRE(prevprime(integer(n))->str() == one("prevprime", "n", n));
+    }
+    for (long n : {1, 2, 5, 8}) {
+        REQUIRE(primorial(integer(n))->str() == one("primorial", "n", n));  // 2310 at n=5
+    }
+    auto m = [&](long p, long n) {
+        REQUIRE(multiplicity(integer(p), integer(n))->str() ==
+                oracle_nt({{"fn", "multiplicity"}, {"p", std::to_string(p)},
+                           {"n", std::to_string(n)}}));
+    };
+    m(2, 40);
+    m(3, 54);
+    m(5, 1000);
+    m(7, 13);  // 0
+}
+
+// ERFC-INT-1: ∫₀^∞ xᵈ·erfc(a·x) dx is already handled — lock in the coverage.
+TEST_CASE("integrate: ∫₀^∞ erfc closed forms (ERFC-INT-1)", "[ntheory][integrate][oracle]") {
+    auto& o = sympp::testing::Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto I = [&](const Expr& f) { return integrate(f, x, S::Zero(), oo)->str(); };
+    REQUIRE(o.equivalent(I(erfc(x)), "1/sqrt(pi)"));
+    REQUIRE(o.equivalent(I(mul(x, erfc(x))), "1/4"));
+    REQUIRE(o.equivalent(I(mul(pow(x, integer(2)), erfc(x))), "1/(3*sqrt(pi))"));
+    REQUIRE(o.equivalent(I(erfc(mul(integer(2), x))), "1/(2*sqrt(pi))"));
 }

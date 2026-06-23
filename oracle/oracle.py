@@ -516,6 +516,15 @@ def handle(req):
         if fn == "reduced_totient":
             from sympy.functions.combinatorial.numbers import reduced_totient
             return {"ok": True, "result": str(int(reduced_totient(int(req["n"]))))}
+        if fn == "nextprime":
+            return {"ok": True, "result": str(int(sympy.nextprime(int(req["n"]))))}
+        if fn == "prevprime":
+            return {"ok": True, "result": str(int(sympy.prevprime(int(req["n"]))))}
+        if fn == "primorial":
+            return {"ok": True, "result": str(int(sympy.primorial(int(req["n"]))))}
+        if fn == "multiplicity":
+            from sympy.ntheory import multiplicity as _mult
+            return {"ok": True, "result": str(int(_mult(int(req["p"]), int(req["n"]))))}
         return {"ok": False, "error": "BadFn", "detail": f"unknown ntheory fn: {fn!r}"}
 
     return {"ok": False, "error": "UnknownOp", "detail": f"unknown op: {op!r}"}

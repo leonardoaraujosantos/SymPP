@@ -75,6 +75,13 @@ struct DiophantineLinear {
                                                                         const Expr& b,
                                                                         const Expr& c);
 
+// Smallest prime strictly greater than n / largest prime strictly less than n
+// (prev requires n > 2). The multiplicity of p in n is the largest k with pᵏ | n.
+[[nodiscard]] SYMPP_EXPORT Expr nextprime(const Expr& n);
+[[nodiscard]] SYMPP_EXPORT Expr prevprime(const Expr& n);
+[[nodiscard]] SYMPP_EXPORT Expr primorial(const Expr& n);  // product of the first n primes
+[[nodiscard]] SYMPP_EXPORT Expr multiplicity(const Expr& p, const Expr& n);
+
 // Legendre symbol (a / p) for an odd prime p (throws if p is not an odd prime):
 // 0 if p | a, +1 if a is a quadratic residue mod p, −1 otherwise.
 [[nodiscard]] SYMPP_EXPORT Expr legendre_symbol(const Expr& a, const Expr& p);
