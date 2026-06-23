@@ -174,3 +174,24 @@ TEST_CASE("Pólya/Burnside coloring counts match SymPy", "[combinatorics][oracle
     // Spot value: 6 binary necklaces of length 4.
     REQUIRE(cb::colorings_count(cb::cyclic_group(4), 2) == integer(6));
 }
+
+// BSGS-1: Schreier–Sims gives correct order/membership for LARGE groups that the
+// BFS closure cannot enumerate (S₁₂ has 479 001 600 elements).
+TEST_CASE("permutation groups: Schreier–Sims order & membership (large groups)",
+          "[combinatorics][oracle][bsgs]") {
+    auto fact = [](long n) { long f = 1; for (long i = 2; i <= n; ++i) f *= i; return f; };
+    for (long n : {6, 8, 10, 12}) {
+        REQUIRE(cb::symmetric_group(static_cast<int>(n)).order() == fact(n));        // n!
+        REQUIRE(cb::alternating_group(static_cast<int>(n)).order() == fact(n) / 2);  // n!/2
+        REQUIRE(cb::cyclic_group(static_cast<int>(n)).order() == n);
+        REQUIRE(cb::dihedral_group(static_cast<int>(n)).order() == 2 * n);
+    }
+    // Cross-check a couple against SymPy's own group order.
+    check_group(cb::symmetric_group(7), "S7");
+    check_group(cb::alternating_group(6), "A6");
+
+    // Membership by sifting in A₈ (8! / 2 = 20160 elements): even ✓, odd ✗.
+    auto a8 = cb::alternating_group(8);
+    REQUIRE(a8.contains(cb::Permutation({1, 2, 0, 3, 4, 5, 6, 7})));        // (0 1 2) even
+    REQUIRE_FALSE(a8.contains(cb::Permutation({1, 0, 2, 3, 4, 5, 6, 7})));  // (0 1) odd
+}

@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1705%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1706%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,7 +15,7 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1705 tests / 7032 assertions  all passing
+1706 tests / 7058 assertions  all passing
 740 cases (3599 assertions) oracle-validated against SymPy
 15 of 15 phases shipped (v1.0)
 ```
@@ -378,8 +378,8 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   **elliptic-curve** primitives over 𝔽ₚ (point group law, scalar multiplication,
   ECDH, ECDSA sign/verify), plus modular exponentiation/inverse.
 - **Combinatorics & group theory** (`sympp::combinatorics`) — permutations
-  (composition, inverse, sign, order, cyclic form), permutation groups
-  (closure, order, membership, abelian test), the standard symmetric / cyclic /
+  (composition, inverse, sign, order, cyclic form), permutation groups with a **Schreier–Sims BSGS** (fast order &
+  membership for large groups — S₁₂ in milliseconds — plus abelian test), the standard symmetric / cyclic /
   dihedral / alternating groups, **group orbits** and **Pólya/Burnside**
   coloring counts (`colorings_count`), and integer partitions (`partition_count`).
 - **Bessel functions** — `besselj`/`bessely`/`besseli`/`besselk` (special

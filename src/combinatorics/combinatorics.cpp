@@ -133,13 +133,98 @@ std::vector<Permutation> PermutationGroup::elements() const {
     return result;
 }
 
-long PermutationGroup::order() const { return static_cast<long>(elements().size()); }
+namespace {
+
+// One level of a Schreier–Sims stabilizer chain: a base point and the
+// transversal (coset representatives) of its orbit under the level's generators.
+struct ChainLevel {
+    int base;
+    std::map<int, Permutation> transversal;  // x ↦ rep r with r(base) = x
+};
+
+// Orbit of `base` under `gens` with a Schreier transversal (left-action,
+// r(base) = x), built breadth-first.
+[[nodiscard]] std::map<int, Permutation> orbit_transversal(int base,
+                                                           const std::vector<Permutation>& gens,
+                                                           int deg) {
+    std::map<int, Permutation> t;
+    t.emplace(base, Permutation::identity(deg));
+    std::vector<int> queue{base};
+    for (std::size_t qi = 0; qi < queue.size(); ++qi) {
+        int x = queue[qi];
+        for (const auto& g : gens) {
+            int y = g.apply(x);
+            if (t.find(y) == t.end()) {
+                t.emplace(y, g.compose(t.at(x)));  // g ∘ rep_x sends base → y
+                queue.push_back(y);
+            }
+        }
+    }
+    return t;
+}
+
+// Schreier generators of the stabilizer of `base`: T[xˢ]⁻¹ ∘ s ∘ T[x] for every
+// orbit point x and generator s (each fixes `base`); deduplicated, identities
+// dropped. By Schreier's lemma these generate the full point stabilizer.
+[[nodiscard]] std::vector<Permutation> schreier_generators(
+    int base, const std::vector<Permutation>& gens, const std::map<int, Permutation>& t) {
+    std::set<std::vector<int>> seen;
+    std::vector<Permutation> out;
+    for (const auto& [x, ux] : t) {
+        for (const auto& s : gens) {
+            Permutation g = s.compose(ux);
+            Permutation sg = t.at(g.apply(base)).inverse().compose(g);
+            if (sg.is_identity()) continue;
+            if (seen.insert(sg.array_form()).second) out.push_back(sg);
+        }
+    }
+    return out;
+}
+
+// Build the full stabilizer chain (Schreier–Sims). Each level stabilizes all
+// previous base points; the product of the orbit sizes is |G|.
+[[nodiscard]] std::vector<ChainLevel> build_chain(std::vector<Permutation> gens, int deg) {
+    std::vector<ChainLevel> chain;
+    while (true) {
+        int base = -1;  // least point moved by some current generator
+        for (const auto& g : gens) {
+            for (int i = 0; i < deg; ++i) {
+                if (g.apply(i) != i) {
+                    base = (base < 0) ? i : std::min(base, i);
+                    break;
+                }
+            }
+        }
+        if (base < 0) break;  // trivial — chain complete
+        auto t = orbit_transversal(base, gens, deg);
+        gens = schreier_generators(base, gens, t);
+        chain.push_back({base, std::move(t)});
+    }
+    return chain;
+}
+
+}  // namespace
+
+long PermutationGroup::order() const {
+    long ord = 1;  // |G| = ∏ orbit sizes along the stabilizer chain
+    for (const auto& level : build_chain(gens_, degree_)) {
+        ord *= static_cast<long>(level.transversal.size());
+    }
+    return ord;
+}
 
 bool PermutationGroup::contains(const Permutation& p) const {
     if (p.size() != degree_) return false;
-    for (const auto& e : elements())
-        if (e == p) return true;
-    return false;
+    // Sift p through the chain: strip a coset rep at each level; in the group iff
+    // the residue is the identity.
+    Permutation residue = p;
+    for (const auto& level : build_chain(gens_, degree_)) {
+        int x = residue.apply(level.base);
+        auto it = level.transversal.find(x);
+        if (it == level.transversal.end()) return false;  // base point not in orbit
+        residue = it->second.inverse().compose(residue);   // T[x]⁻¹ ∘ residue fixes base
+    }
+    return residue.is_identity();
 }
 
 bool PermutationGroup::is_abelian() const {
