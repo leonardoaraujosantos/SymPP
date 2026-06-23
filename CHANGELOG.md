@@ -3,6 +3,31 @@
 All notable changes to SymPP. Format: [Keep a Changelog](https://keepachangelog.com/),
 versioning per [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added — release engineering & late features
+
+- **Packaging**: Conan 2 recipe (`conanfile.py`) alongside the existing
+  `vcpkg.json`; optional Doxygen API-doc target (`-DSYMPP_BUILD_DOCS=ON` →
+  `sympp_docs`); dependency-free benchmark harness (`sympp_bench`).
+- **Meijer-G engine**: generic Slater reduction, Mellin-transform `∫₀^∞`,
+  function recognition with the η·xᶜ substitution (Gaussian/Dirichlet/Fresnel),
+  confluent → modified Bessel K, and the two-G `∫G₁·G₂` Mellin–Parseval
+  convolution.
+- **Special functions**: Bessel `besselj/bessely/besseli/besselk`; Hankel
+  transform; Bell and tribonacci numbers.
+- **Number theory**: CRT, discrete log, linear Diophantine, Pell, sums of
+  two/three/four squares, Legendre symbol, quadratic residues, Carmichael λ,
+  `nextprime`/`prevprime`/`primorial`/`multiplicity`.
+- **Algebra/calculus**: Berlekamp–Zassenhaus with Hensel lifting, general
+  Jordan form, full SVD, DomainMatrix, non-commutative `Mul`, exponential Risch
+  differential equation, Gruntz termination guarantee.
+- **Physics**: arbitrary-spin operators, Wigner 3-j/6-j/9-j, Racah, Gaunt,
+  Dirac matrices, hydrogen/QHO states, qubit gates, Jordan–Wigner fermions,
+  multi-coordinate Lagrangian EOM.
+- **Other modules**: ECC (ECDH/ECDSA), combinatorics (permutation groups,
+  orbits, Pólya/Burnside), LaTeX parser, discrete transforms.
+
 ## [0.5.0] — Unreleased
 
 First public-readiness release. 14 of 15 phases shipped (Phase 16

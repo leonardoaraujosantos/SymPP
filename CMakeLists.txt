@@ -14,6 +14,7 @@ option(SYMPP_BUILD_SHARED       "Build shared library"           ON)
 option(SYMPP_BUILD_TESTS        "Build test suite"               ON)
 option(SYMPP_BUILD_EXAMPLES     "Build examples"                 OFF)
 option(SYMPP_BUILD_BENCHMARKS   "Build benchmarks"               OFF)
+option(SYMPP_BUILD_DOCS         "Build Doxygen API documentation" OFF)
 option(SYMPP_ENABLE_ASAN        "Enable AddressSanitizer"        OFF)
 option(SYMPP_ENABLE_UBSAN       "Enable UndefinedBehaviorSanitizer" OFF)
 option(SYMPP_WARNINGS_AS_ERRORS "Treat warnings as errors"       ON)
@@ -140,6 +141,26 @@ endif()
 
 if(SYMPP_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
+endif()
+
+# API documentation (Doxygen). Off by default; a no-op unless both the option is
+# set and Doxygen is installed, so it never breaks a normal configure.
+if(SYMPP_BUILD_DOCS)
+    find_package(Doxygen)
+    if(DOXYGEN_FOUND)
+        set(DOXYGEN_GENERATE_HTML YES)
+        set(DOXYGEN_EXTRACT_ALL YES)
+        set(DOXYGEN_EXTRACT_STATIC YES)
+        set(DOXYGEN_JAVADOC_AUTOBRIEF YES)
+        set(DOXYGEN_PROJECT_BRIEF "C++20 symbolic mathematics (SymPy-parity)")
+        set(DOXYGEN_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/docs)
+        doxygen_add_docs(sympp_docs
+            ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/README.md
+            COMMENT "Generating SymPP API documentation")
+        message(STATUS "  Docs target:          sympp_docs (Doxygen ${DOXYGEN_VERSION})")
+    else()
+        message(WARNING "SYMPP_BUILD_DOCS=ON but Doxygen was not found — skipping docs")
+    endif()
 endif()
 
 # -----------------------------------------------------------------------------

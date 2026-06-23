@@ -500,8 +500,16 @@ target_link_libraries(your_target PRIVATE SymPP::sympp)
 `SymPPConfig.cmake` and the per-target export are installed by the
 build's install rules. A worked consumer build (with `demo.cpp` +
 `CMakeLists.txt`) lives in the CI workflow's `find_package consumer
-build` step. A [`vcpkg.json`](vcpkg.json) manifest is also provided for
-manifest-mode vcpkg consumers.
+build` step. Package manifests are provided for both
+[`vcpkg.json`](vcpkg.json) (manifest-mode vcpkg) and
+[`conanfile.py`](conanfile.py) (Conan 2).
+
+### API documentation
+
+```bash
+cmake -S . -B build -DSYMPP_BUILD_DOCS=ON
+cmake --build build --target sympp_docs   # requires Doxygen; output in build/docs/html
+```
 
 ### Benchmarks
 
