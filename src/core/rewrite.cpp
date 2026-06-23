@@ -12,6 +12,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/type_id.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
 
@@ -70,6 +71,55 @@ struct ExpForms {
     }
 }
 
+// factorial / binomial / (rising|falling) factorial → Γ:
+//   n!                    = Γ(n+1)
+//   C(n,k)                = Γ(n+1) / (Γ(k+1)·Γ(n−k+1))
+//   RisingFactorial(x,n)  = Γ(x+n) / Γ(x)
+//   FallingFactorial(x,n) = Γ(x+1) / Γ(x−n+1)
+[[nodiscard]] std::optional<Expr> to_gamma(FunctionId id,
+                                           const std::vector<Expr>& a) {
+    if (id == FunctionId::Factorial && a.size() == 1) {
+        return gamma(a[0] + integer(1));
+    }
+    if (id == FunctionId::Binomial && a.size() == 2) {
+        return mul(gamma(a[0] + integer(1)),
+                   recip(mul(gamma(a[1] + integer(1)),
+                             gamma(a[0] - a[1] + integer(1)))));
+    }
+    if (id == FunctionId::RisingFactorial && a.size() == 2) {
+        return mul(gamma(a[0] + a[1]), recip(gamma(a[0])));
+    }
+    if (id == FunctionId::FallingFactorial && a.size() == 2) {
+        return mul(gamma(a[0] + integer(1)),
+                   recip(gamma(a[0] - a[1] + integer(1))));
+    }
+    return std::nullopt;
+}
+
+// Γ / binomial / (rising|falling) factorial → factorial:
+//   Γ(z)                  = (z−1)!
+//   C(n,k)                = n! / (k!·(n−k)!)
+//   RisingFactorial(x,n)  = (x+n−1)! / (x−1)!
+//   FallingFactorial(x,n) = x! / (x−n)!
+[[nodiscard]] std::optional<Expr> to_factorial(FunctionId id,
+                                               const std::vector<Expr>& a) {
+    if (id == FunctionId::Gamma && a.size() == 1) {
+        return factorial(a[0] - integer(1));
+    }
+    if (id == FunctionId::Binomial && a.size() == 2) {
+        return mul(factorial(a[0]),
+                   recip(mul(factorial(a[1]), factorial(a[0] - a[1]))));
+    }
+    if (id == FunctionId::RisingFactorial && a.size() == 2) {
+        return mul(factorial(a[0] + a[1] - integer(1)),
+                   recip(factorial(a[0] - integer(1))));
+    }
+    if (id == FunctionId::FallingFactorial && a.size() == 2) {
+        return mul(factorial(a[0]), recip(factorial(a[0] - a[1])));
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] Expr rw(const Expr& e, RewriteTarget target) {
     if (!e) return e;
     switch (e->type_id()) {
@@ -89,12 +139,23 @@ struct ExpForms {
             const auto& fn = static_cast<const Function&>(*e);
             std::vector<Expr> new_args;
             for (const auto& a : fn.args()) new_args.push_back(rw(a, target));
-            if (new_args.size() == 1) {
-                auto t = (target == RewriteTarget::Exp)
-                             ? to_exp(fn.function_id(), new_args[0])
-                             : to_sincos(fn.function_id(), new_args[0]);
-                if (t.has_value()) return *t;
+            const FunctionId id = fn.function_id();
+            std::optional<Expr> t;
+            switch (target) {
+                case RewriteTarget::Exp:
+                    if (new_args.size() == 1) t = to_exp(id, new_args[0]);
+                    break;
+                case RewriteTarget::SinCos:
+                    if (new_args.size() == 1) t = to_sincos(id, new_args[0]);
+                    break;
+                case RewriteTarget::Gamma:
+                    t = to_gamma(id, new_args);
+                    break;
+                case RewriteTarget::Factorial:
+                    t = to_factorial(id, new_args);
+                    break;
             }
+            if (t.has_value()) return *t;
             return fn.rebuild(std::move(new_args));
         }
         default:

@@ -11,9 +11,11 @@
 #include <sympp/core/rewrite.hpp>
 #include <sympp/core/symbol.hpp>
 #include <sympp/core/traversal.hpp>
+#include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/functions/hyperbolic.hpp>
+#include <sympp/core/pow.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -56,6 +58,45 @@ TEST_CASE("rewrite to SinCos preserves value (vs SymPy)", "[rewrite][oracle]") {
                           tan(x) + sec(x)}) {
         REQUIRE(value_preserved(rewrite(e, RewriteTarget::SinCos), e));
     }
+}
+
+// REWRITE-GAMMA-1: factorial / binomial / rising / falling factorial ⇄ Γ.
+// Each rewrite must be value-equivalent to the original (oracle-checked) and
+// land on the expected SymPy spelling.
+TEST_CASE("rewrite to Gamma / Factorial (REWRITE-GAMMA-1)",
+          "[rewrite][gamma][oracle]") {
+    auto& oracle = sympp::testing::Oracle::instance();
+    auto n = symbol("n");
+    auto k = symbol("k");
+    auto x = symbol("x");
+    auto z = symbol("z");
+    auto eq = [&](const Expr& got, const std::string& sympy) {
+        REQUIRE(oracle.equivalent(got->str(), sympy));
+    };
+
+    // → Γ
+    eq(rewrite(factorial(n), RewriteTarget::Gamma), "gamma(n+1)");
+    eq(rewrite(binomial(n, k), RewriteTarget::Gamma),
+       "gamma(n+1)/(gamma(k+1)*gamma(n-k+1))");
+    eq(rewrite(rising_factorial(x, n), RewriteTarget::Gamma),
+       "gamma(x+n)/gamma(x)");
+    eq(rewrite(falling_factorial(x, n), RewriteTarget::Gamma),
+       "gamma(x+1)/gamma(x-n+1)");
+    // Nested inside another operator.
+    eq(rewrite(pow(factorial(n), integer(-1)), RewriteTarget::Gamma),
+       "1/gamma(n+1)");
+
+    // → factorial
+    eq(rewrite(gamma(z), RewriteTarget::Factorial), "factorial(z-1)");
+    eq(rewrite(binomial(n, k), RewriteTarget::Factorial),
+       "factorial(n)/(factorial(k)*factorial(n-k))");
+    eq(rewrite(rising_factorial(x, n), RewriteTarget::Factorial),
+       "factorial(x+n-1)/factorial(x-1)");
+
+    // Round-trip n! → Γ → n! preserves value.
+    Expr round = rewrite(rewrite(factorial(n), RewriteTarget::Gamma),
+                         RewriteTarget::Factorial);
+    REQUIRE(oracle.equivalent(round->str(), "factorial(n)"));
 }
 
 TEST_CASE("rewrite leaves untargeted nodes intact", "[rewrite]") {
