@@ -64,6 +64,10 @@ public:
     [[nodiscard]] long order() const;                         // |G|
     [[nodiscard]] bool contains(const Permutation& p) const;
     [[nodiscard]] bool is_abelian() const;
+    // Transitive: the action on {0, …, degree−1} has a single orbit.
+    [[nodiscard]] bool is_transitive() const;
+    // Whether this group is a subgroup of `other` (every generator lies in it).
+    [[nodiscard]] bool is_subgroup(const PermutationGroup& other) const;
 
 private:
     std::vector<Permutation> gens_;

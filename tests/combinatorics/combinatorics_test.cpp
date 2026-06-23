@@ -195,3 +195,21 @@ TEST_CASE("permutation groups: Schreier–Sims order & membership (large groups)
     REQUIRE(a8.contains(cb::Permutation({1, 2, 0, 3, 4, 5, 6, 7})));        // (0 1 2) even
     REQUIRE_FALSE(a8.contains(cb::Permutation({1, 0, 2, 3, 4, 5, 6, 7})));  // (0 1) odd
 }
+
+TEST_CASE("permutation groups: transitivity and subgroup tests", "[combinatorics]") {
+    // Sₙ, Aₙ, Cₙ, Dₙ are all transitive on {0..n-1}.
+    REQUIRE(cb::symmetric_group(4).is_transitive());
+    REQUIRE(cb::alternating_group(4).is_transitive());
+    REQUIRE(cb::cyclic_group(5).is_transitive());
+    REQUIRE(cb::dihedral_group(4).is_transitive());
+    // ⟨(0 1)⟩ on 4 points fixes 2 and 3 → not transitive.
+    REQUIRE_FALSE(cb::PermutationGroup({cb::Permutation({1, 0, 2, 3})}).is_transitive());
+
+    // Subgroup relations: Aₙ ≤ Sₙ, Cₙ ≤ Dₙ ≤ Sₙ, but Sₙ ⋬ Aₙ.
+    REQUIRE(cb::alternating_group(4).is_subgroup(cb::symmetric_group(4)));
+    REQUIRE(cb::cyclic_group(5).is_subgroup(cb::dihedral_group(5)));
+    REQUIRE(cb::dihedral_group(5).is_subgroup(cb::symmetric_group(5)));
+    REQUIRE_FALSE(cb::symmetric_group(4).is_subgroup(cb::alternating_group(4)));
+    // A4 is a subgroup of itself; the trivial group is a subgroup of anything.
+    REQUIRE(cb::alternating_group(4).is_subgroup(cb::alternating_group(4)));
+}

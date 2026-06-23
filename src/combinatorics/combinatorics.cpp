@@ -227,6 +227,17 @@ bool PermutationGroup::contains(const Permutation& p) const {
     return residue.is_identity();
 }
 
+bool PermutationGroup::is_transitive() const {
+    return static_cast<int>(orbit(*this, 0).size()) == degree_;
+}
+
+bool PermutationGroup::is_subgroup(const PermutationGroup& other) const {
+    if (degree_ != other.degree_) return false;
+    for (const auto& g : gens_)
+        if (!other.contains(g)) return false;
+    return true;
+}
+
 bool PermutationGroup::is_abelian() const {
     // Abelian iff every pair of generators commutes.
     for (std::size_t i = 0; i < gens_.size(); ++i) {
