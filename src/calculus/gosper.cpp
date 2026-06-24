@@ -407,6 +407,13 @@ std::optional<Expr> gosper_summation(const Expr& t, const Expr& var,
     if (hi->type_id() == TypeId::Infinity || lo->type_id() == TypeId::Infinity) {
         return std::nullopt;  // Gosper handles finite ranges
     }
+    // Gosper works over ℚ on a term univariate in var. A summand carrying any
+    // other symbol (a parameter, e.g. binomial(n, k)) would drive Petkovšek's
+    // symbolic gcd / root finding into a blow-up — bail and let Zeilberger take
+    // the parametric case.
+    for (const auto& s : free_symbols(t)) {
+        if (!(s == var)) return std::nullopt;
+    }
     if (has_pole_in_range(t, var, lo)) return std::nullopt;
     auto ratio = hyper_ratio(t, var);
     if (!ratio) return std::nullopt;

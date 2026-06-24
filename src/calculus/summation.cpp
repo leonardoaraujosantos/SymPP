@@ -30,6 +30,7 @@
 #include <sympp/simplify/simplify.hpp>
 
 #include "gosper.hpp"
+#include "zeilberger.hpp"
 
 namespace sympp {
 
@@ -1551,6 +1552,13 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     // Verified by the rational Gosper identity before acceptance, so it never
     // returns a wrong value; runs last so the specialized closed forms win.
     if (auto g = detail::gosper_summation(expr, var, lo, hi)) return *g;
+
+    // Zeilberger creative telescoping: a parametric sum Σ_k F(n,k) whose value
+    // S(n) satisfies a first-order recurrence — e.g. Σ k²·C(n,k) = n(n+1)2^(n−2),
+    // Σ C(n,k)/(k+1) = (2^(n+1)−1)/(n+1). The recurrence is discovered by exact
+    // fitting over many integer n and the closed form is verified on held-out
+    // points before acceptance.
+    if (auto z = detail::zeilberger_summation(expr, var, lo, hi)) return *z;
 
     // No closed form found — return the unevaluated Sum marker rather than the
     // bare summand (Σ 1/k² must not collapse to 1/k²).

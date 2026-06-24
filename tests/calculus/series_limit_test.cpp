@@ -1380,6 +1380,40 @@ TEST_CASE("summation: Gosper hypergeometric sums (SUM-GOSPER-1)",
             != std::string::npos);
 }
 
+// SUM-ZEILBERGER-1: creative telescoping for parametric binomial sums whose
+// value S(n) satisfies a first-order recurrence. The recurrence is discovered
+// by exact fitting over many integer n and the closed form is verified on
+// held-out points before acceptance. Sums that are only higher-order
+// P-recursive (Franel Σ C(n,k)³) are left unevaluated, matching SymPy.
+TEST_CASE("summation: Zeilberger parametric binomial sums (SUM-ZEILBERGER-1)",
+          "[6][summation][zeilberger][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto I = [](int i) { return integer(i); };
+    auto C = [&](const Expr& a, const Expr& b) { return binomial(a, b); };
+
+    // Σ_{k=0}^{n} k²·C(n,k) = n(n+1)·2^(n−2).
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(k, I(2)), C(n, k)), k, I(0), n)->str(),
+        "n*(n+1)*2**(n-2)"));
+    // Σ_{k=0}^{n} k³·C(n,k) = n²(n+3)·2^(n−3).
+    REQUIRE(oracle.equivalent(
+        summation(mul(pow(k, I(3)), C(n, k)), k, I(0), n)->str(),
+        "n**2*(n+3)*2**(n-3)"));
+    // Σ_{k=0}^{n} C(2n,2k) = 2^(2n−1) (even-index bisection).
+    REQUIRE(oracle.equivalent(
+        summation(C(mul(I(2), n), mul(I(2), k)), k, I(0), n)->str(),
+        "2**(2*n-1)"));
+    // The plain binomial theorem still closes via the dedicated handler.
+    REQUIRE(oracle.equivalent(summation(C(n, k), k, I(0), n)->str(), "2**n"));
+
+    // Franel numbers Σ C(n,k)³ are order-2 P-recursive → no first-order closed
+    // form; left unevaluated (as SymPy does).
+    REQUIRE(summation(pow(C(n, k), I(3)), k, I(0), n)->str().find("Sum(")
+            != std::string::npos);
+}
+
 TEST_CASE("summation: Σ k² from 1 to n → n(n+1)(2n+1)/6",
           "[6][summation][oracle]") {
     auto& oracle = Oracle::instance();

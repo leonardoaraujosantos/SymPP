@@ -45,6 +45,7 @@ target_sources(sympp
         calculus/limit.cpp
         calculus/order.cpp
         calculus/gosper.cpp
+        calculus/zeilberger.cpp
         calculus/pade.cpp
         calculus/product.cpp
         calculus/series.cpp
