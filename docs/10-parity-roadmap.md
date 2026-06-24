@@ -48,6 +48,11 @@ demand with cost.
   normal form → certificate solve, gated by the rational Gosper identity and a
   pole guard; non-summable terms (`k!`, `k²·k!`) stay unevaluated as in SymPy
   (SUM-GOSPER-1).
+- **Zeilberger creative telescoping** — parametric binomial sums whose value is
+  first-order P-recursive: `Σ k²·C(n,k)=n(n+1)2^{n−2}`, `Σ k³·C(n,k)`,
+  `Σ C(2n,2k)=2^{2n−1}`, found by exact recurrence discovery + `product()` solve,
+  verified on held-out points; higher-order sums (Franel `Σ C(n,k)³`) stay
+  unevaluated as in SymPy (SUM-ZEILBERGER-1).
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 - **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
 - **General Jordan form** — chains of any length (reconstruction-verified).
