@@ -27,3 +27,8 @@ foreach(ex IN LISTS _examples)
     add_executable(${ex} ${ex}.cpp)
     target_link_libraries(${ex} PRIVATE SymPP::sympp)
 endforeach()
+
+# Engineering-course example series, grouped by subject.
+add_subdirectory(calculus)
+add_subdirectory(algebra)
+add_subdirectory(linear_algebra)
