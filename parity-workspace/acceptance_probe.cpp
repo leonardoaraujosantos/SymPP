@@ -1,5 +1,6 @@
 // Parity acceptance probe for Tier 1 + Tier 2. Prints PASS/FAIL per case and a
 // final "REMAINING=N / TOTAL=M". The completion loop runs until REMAINING=0.
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -72,6 +73,31 @@ static void probe_physics(){
   // Vacuum annihilation a_i|0> = 0.
   MultiModeFockState vac{{0,0}, S::One()};
   want("a0|0>=0 vacuum", apply_annihilation(vac,0).is_zero());
+}
+#endif
+
+#ifdef PROBE_PERF
+// Performance regression for the cyclotomic fast path: factor(x^N − 1) is
+// decomposed via ∏_{d|N} Φ_d(x) instead of the super-linear Kronecker search,
+// so high-divisor N must complete near-instantly (was >30s for N=60).
+static void probe_perf(){
+  std::cout<<"== PERF cyclotomic factor(x^N-1) ==\n";
+  auto x=symbol("x");
+  auto P=[&](const Expr&b,int e){return pow(b,integer(e));};
+  auto bench=[&](int N){
+    Expr e=expand(P(x,N)-S::One());
+    auto t0=std::chrono::steady_clock::now();
+    Expr g=factor(e,x);
+    auto t1=std::chrono::steady_clock::now();
+    long ms=std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count();
+    std::string label="factor(x^"+std::to_string(N)+"-1) "+std::to_string(ms)+"ms";
+    bool fast = ms < 2000;
+    bool correct = eqv(g->str(), "x**"+std::to_string(N)+"-1");
+    want(label+" <2000ms", fast);
+    want(label+" expands back", correct);
+  };
+  bench(36);
+  bench(60);
 }
 #endif
 

@@ -945,6 +945,79 @@ namespace {
     return std::nullopt;
 }
 
+// ---------------------------------------------------------------------------
+// Cyclotomic decomposition of x^N − 1.
+//
+// x^N − 1 = ∏_{d | N} Φ_d(x), where Φ_d is the d-th cyclotomic polynomial and
+// each Φ_d is irreducible over ℚ. This sidesteps the super-linear Kronecker
+// path for the pure binomial x^N − 1 (factor(x^60−1) becomes instant).
+//
+// Φ_d is built from the standard recurrence
+//   Φ_d(x) = (x^d − 1) / ∏_{e | d, e < d} Φ_e(x)        (exact division),
+// memoized across calls.
+// ---------------------------------------------------------------------------
+
+// Build the Poly x^n − 1 directly (no expansion needed).
+[[nodiscard]] Poly poly_x_pow_minus_one(long n, const Expr& var) {
+    std::vector<Expr> c(static_cast<std::size_t>(n) + 1, S::Zero());
+    c[0] = S::NegativeOne();
+    c[static_cast<std::size_t>(n)] = S::One();
+    return Poly(std::move(c), var);
+}
+
+// Memoized d-th cyclotomic polynomial as a Poly in `var`. The cache key is d;
+// the stored var is irrelevant to the coefficients (all ±integers), so we just
+// reconstruct a Poly in the requested var from cached coefficients.
+[[nodiscard]] const Poly& cyclotomic_poly(long d, const Expr& var) {
+    static std::map<long, std::vector<Expr>> cache;  // d -> coeffs (increasing degree)
+    static std::map<long, Poly> typed;               // d -> Poly in current var
+    // Reuse a typed cache only while the variable matches; otherwise rebuild.
+    auto it = typed.find(d);
+    if (it != typed.end() && it->second.var() == var) return it->second;
+
+    auto build = [&](long dd) -> Poly {
+        if (auto c = cache.find(dd); c != cache.end())
+            return Poly(c->second, var);
+        // Φ_d = (x^d − 1) / ∏_{e|d, e<d} Φ_e.
+        Poly num = poly_x_pow_minus_one(dd, var);
+        Poly denom(std::vector<Expr>{S::One()}, var);  // constant 1
+        for (long e = 1; e < dd; ++e) {
+            if (dd % e == 0) denom = denom * cyclotomic_poly(e, var);
+        }
+        Poly phi = num / denom;
+        cache[dd] = phi.coeffs();
+        return phi;
+    };
+
+    Poly phi = build(d);
+    typed.insert_or_assign(d, phi);
+    return typed.at(d);
+}
+
+// If `f` is exactly x^N − 1 (monic, constant term −1, all interior coeffs 0,
+// N ≥ 1), return ∏_{d|N} Φ_d(x). Otherwise nullopt. Only applied for
+// ℚ-coefficient polynomials by the caller.
+[[nodiscard]] std::optional<Expr> factor_cyclotomic_binomial(const Poly& f) {
+    const std::size_t n = f.degree();
+    if (n < 1) return std::nullopt;
+    const auto& cs = f.coeffs();
+    if (cs.size() != n + 1) return std::nullopt;
+    // Leading coeff 1, constant −1, everything else 0.
+    if (!(cs[n] == S::One())) return std::nullopt;
+    if (!(cs[0] == S::NegativeOne())) return std::nullopt;
+    for (std::size_t i = 1; i < n; ++i)
+        if (!(cs[i] == S::Zero())) return std::nullopt;
+
+    const long N = static_cast<long>(n);
+    std::vector<Expr> terms;
+    for (long d = 1; d <= N; ++d) {
+        if (N % d == 0) terms.push_back(cyclotomic_poly(d, f.var()).as_expr());
+    }
+    if (terms.empty()) return std::nullopt;
+    if (terms.size() == 1) return terms[0];
+    return mul(std::move(terms));
+}
+
 }  // namespace
 
 // Bivariate Wang-style factorization (content extraction; quadratic-in-var via
@@ -964,6 +1037,9 @@ Expr factor(const Expr& expr, const Expr& var) {
         if (auto w = factor_multivariate(expr, var)) return *w;
         return expr;
     }
+    // Fast path: the pure binomial x^N − 1 factors into cyclotomic polynomials
+    // ∏_{d|N} Φ_d(x), avoiding the super-linear Kronecker search for high N.
+    if (auto cyc = factor_cyclotomic_binomial(f)) return *cyc;
     auto fl = factor_list(f);
     std::vector<Expr> terms;
     if (!(fl.content == S::One())) terms.push_back(fl.content);

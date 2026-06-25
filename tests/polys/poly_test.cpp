@@ -15,6 +15,7 @@
 #include <sympp/core/rational.hpp>
 #include <sympp/core/singletons.hpp>
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/type_id.hpp>
 #include <sympp/polys/poly.hpp>
 #include <sympp/polys/rootof.hpp>
 #include <sympp/core/float.hpp>
@@ -1329,4 +1330,49 @@ TEST_CASE("factor: 4-variable (WANG-5)",
     // stays put (no false factorization).
     Expr irr = add({mul(a, b), c, d, integer(1)});  // a·b + c + d + 1
     REQUIRE(factor(irr, a)->str() == irr->str());
+}
+
+// x^N − 1 = ∏_{d|N} Φ_d(x). The pure binomial is detected and decomposed into
+// cyclotomic polynomials (each irreducible over ℚ) instead of being driven
+// through the super-linear Kronecker path — factor(x^60−1) goes from >30s to
+// effectively instant. Each result must expand back to x^N−1, match SymPy's
+// factor, and have exactly τ(N) (number-of-divisors) irreducible factors.
+TEST_CASE("factor: cyclotomic x^N-1 (FACTOR-CYCLO-1)",
+          "[polys][factor][cyclotomic][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+
+    auto divisor_count = [](long N) {
+        long c = 0;
+        for (long d = 1; d <= N; ++d)
+            if (N % d == 0) ++c;
+        return c;
+    };
+
+    for (long N : {6, 12, 30, 60}) {
+        const std::string xN = "x**" + std::to_string(N) + " - 1";
+        Expr e = expand(pow(x, integer(N)) - integer(1));
+        Expr f = factor(e, x);
+
+        // Value-equivalence: factored form expands back to x^N − 1.
+        REQUIRE(oracle.equivalent(f->str(), xN));
+        // Matches SymPy's factorization exactly.
+        auto sympy_factor = oracle.send({{"op", "factor"}, {"expr", xN}});
+        REQUIRE(sympy_factor.ok);
+        REQUIRE(oracle.equivalent(f->str(), sympy_factor.result_str()));
+
+        // Factor count: ∏_{d|N} Φ_d has τ(N) distinct irreducible factors,
+        // each of multiplicity 1. Cross-check against SymPy's factor_list.
+        auto pf = oracle.send({{"op", "polyfactor"},
+                               {"expr", xN},
+                               {"var", "x"}});
+        REQUIRE(pf.ok);
+        REQUIRE(pf.result_str() == std::to_string(divisor_count(N)));
+
+        // Our own factor count from the Mul structure.
+        std::size_t our_count = (f->type_id() == sympp::TypeId::Mul)
+                                    ? f->args().size()
+                                    : 1;
+        REQUIRE(our_count == static_cast<std::size_t>(divisor_count(N)));
+    }
 }
