@@ -215,6 +215,10 @@ namespace {
         if (both_match(a, {one, one}) && b[0] == two) {
             return -log(one - z) / z;
         }
+        // ₂F₁(1/2, 1; 3/2; w²) = atanh(w)/w  (radical-free; before the √z form).
+        if (both_match(a, {half, one}) && b[0] == threehalf) {
+            if (auto w = as_square(z)) return atanh(*w) / *w;
+        }
         // ₂F₁(1/2, 1; 3/2; z) = atanh(√z)/√z   (→ arctan(y)/y when z = −y²).
         if (both_match(a, {half, one}) && b[0] == threehalf) {
             return atanh(sqz) / sqz;

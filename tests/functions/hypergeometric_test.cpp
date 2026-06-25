@@ -171,6 +171,21 @@ TEST_CASE("hyperexpand: elementary pFq forms (HYPER-ELEM-1)",
     //     Bonus: ₀F₁(; 1/2; −z²/4) = cos(z).
     REQUIRE(oracle.equivalent(
         hyperexpand(hyper({}, {half}, arg))->str(), "cos(z)"));
+
+    // (6) ₂F₁(1/2, 1; 3/2; z²) = atanh(z)/z  (radical-free squared argument).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({half, integer(1)}, {threehalf}, pow(z, integer(2))))
+            ->str(),
+        "atanh(z)/z"));
+    //     Parameter order is irrelevant: ₂F₁(1, 1/2; 3/2; z²) = atanh(z)/z.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({integer(1), half}, {threehalf}, pow(z, integer(2))))
+            ->str(),
+        "atanh(z)/z"));
+    //     Generic argument still gives the √z form.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({half, integer(1)}, {threehalf}, z))->str(),
+        "atanh(sqrt(z))/sqrt(z)"));
 }
 
 // ----- Meijer-G via Slater's theorem (generic case) -------------------------
