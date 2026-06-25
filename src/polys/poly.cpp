@@ -1276,6 +1276,232 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
     return std::nullopt;
 }
 
+// ----- multivariate content extraction (general N-variable) ------------------
+
+// Numeric (rational) GCD of two numbers, as an Expr; 0 acts as identity.
+[[nodiscard]] static Expr numeric_gcd_expr(const mpq_class& a, const mpq_class& b) {
+    if (a == 0) return mpq_to_expr(abs(b));
+    if (b == 0) return mpq_to_expr(abs(a));
+    // gcd of two rationals = gcd(num)/lcm(den).
+    mpz_class gn, ld;
+    mpz_gcd(gn.get_mpz_t(), a.get_num().get_mpz_t(), b.get_num().get_mpz_t());
+    mpz_lcm(ld.get_mpz_t(), a.get_den().get_mpz_t(), b.get_den().get_mpz_t());
+    mpq_class r(gn, ld);
+    r.canonicalize();
+    return mpq_to_expr(r);
+}
+
+// Exact division of expression `num` by `den` over the polynomial ring, treating
+// every free symbol as a polynomial variable. Returns the quotient only when the
+// division is exact (verified by re-expansion); otherwise nullopt.
+[[nodiscard]] static std::optional<Expr> mv_exact_div(const Expr& num,
+                                                      const Expr& den) {
+    Expr n = expand(num);
+    Expr d = expand(den);
+    if (d == S::Zero()) return std::nullopt;
+    if (n == S::Zero()) return S::Zero();
+    if (auto qd = coeff_as_mpq(d)) {
+        // Divide every term by the numeric divisor.
+        Expr q = expand(mul(n, mpq_to_expr(mpq_class(qd->get_den(), qd->get_num()))));
+        return q;
+    }
+    // Pick a variable present in the divisor.
+    Expr v;
+    for (const auto& s : free_symbols(d)) { v = s; break; }
+    if (!v) return std::nullopt;
+    try {
+        Poly pn(n, v), pd(d, v);
+        auto [quo, rem] = pn.divmod(pd);
+        if (!rem.is_zero()) return std::nullopt;
+        Expr q = expand(quo.as_expr());
+        if (expand(add(mul(q, d), mul(integer(-1), n))) == S::Zero()) return q;
+        return std::nullopt;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+// GCD of two expressions viewed as multivariate polynomials over ℚ. Recursion is
+// on the variable list: content (GCD of var-coefficients, computed recursively)
+// times the primitive-part GCD (Euclidean in the chosen variable, with each
+// remainder made primitive again to keep coefficients polynomial). The result is
+// returned without a fixed sign/normalization beyond being content-positive; the
+// caller verifies any factorization that uses it. Bounded recursion depth guards
+// against pathological inputs.
+[[nodiscard]] static Expr mv_gcd(const Expr& a_in, const Expr& b_in, int depth);
+
+// Content (GCD of all coefficients) of `p` viewed in variable `v`.
+[[nodiscard]] static Expr mv_content(const Poly& p, int depth) {
+    Expr g = S::Zero();
+    for (const auto& c : p.coeffs()) {
+        if (expand(c) == S::Zero()) continue;
+        g = mv_gcd(g, c, depth + 1);
+    }
+    if (g == S::Zero()) return S::One();
+    return g;
+}
+
+[[nodiscard]] static Expr mv_gcd(const Expr& a_in, const Expr& b_in, int depth) {
+    Expr a = expand(a_in), b = expand(b_in);
+    if (a == S::Zero()) return b == S::Zero() ? S::One() : b;
+    if (b == S::Zero()) return a;
+    if (depth > 8) return S::One();
+    auto qa = coeff_as_mpq(a);
+    auto qb = coeff_as_mpq(b);
+    if (qa && qb) return numeric_gcd_expr(*qa, *qb);
+
+    // Choose a variable common to both; if none is shared the polynomial GCD is
+    // the GCD of their numeric contents (no shared variable can divide both).
+    ExprSet sa, sb;
+    for (const auto& s : free_symbols(a)) sa.insert(s);
+    for (const auto& s : free_symbols(b)) sb.insert(s);
+    Expr v;
+    for (const auto& s : sa) {
+        if (sb.find(s) != sb.end()) { v = s; break; }
+    }
+    if (!v) return numeric_gcd_expr(numeric_content(a), numeric_content(b));
+
+    Poly pa(a, v), pb(b, v);
+    // Contents and primitive parts in v.
+    Expr ca = mv_content(pa, depth), cb = mv_content(pb, depth);
+    Expr cont = mv_gcd(ca, cb, depth + 1);
+    auto ppa_opt = mv_exact_div(a, ca);
+    auto ppb_opt = mv_exact_div(b, cb);
+    if (!ppa_opt || !ppb_opt) return cont;  // fall back to the content GCD
+    Poly ra(*ppa_opt, v), rb(*ppb_opt, v);
+    // Euclidean loop on primitive parts; re-primitivize each remainder so the
+    // symbolic coefficients stay polynomial rather than blowing up as fractions.
+    for (int guard = 0; guard < 64 && !rb.is_zero(); ++guard) {
+        Poly rem = ra % rb;
+        if (rem.is_zero()) { ra = rb; rb = rem; break; }
+        Expr rc = mv_content(rem, depth);
+        if (!(rc == S::One())) {
+            if (auto pr = mv_exact_div(rem.as_expr(), rc)) rem = Poly(*pr, v);
+        }
+        ra = rb;
+        rb = rem;
+    }
+    Expr pp_gcd = ra.degree() == 0 ? S::One() : expand(ra.as_expr());
+    // Strip pp_gcd's own numeric content so it is primitive.
+    mpq_class k = numeric_content(pp_gcd);
+    if (!(k == 1) && k != 0) {
+        if (auto s = mv_exact_div(pp_gcd, mpq_to_expr(k))) pp_gcd = *s;
+    }
+    return expand(mul(cont, pp_gcd));
+}
+
+// Exact polynomial square root over ℚ in any number of variables: returns s with
+// s² == e (s sign-normalized non-negative), or nullopt. Recurses on one variable
+// at a time (a perfect square is a perfect square in each variable), then
+// verifies s² == e by re-expansion so a wrong guess is never returned.
+[[nodiscard]] static std::optional<Expr> mv_sqrt(const Expr& e_in) {
+    Expr e = expand(e_in);
+    if (e == S::Zero()) return S::Zero();
+    if (auto q = coeff_as_mpq(e)) {
+        if (sgn(*q) < 0) return std::nullopt;
+        mpz_class sn, sd;
+        if (!mpz_perfect_square_p(q->get_num().get_mpz_t())
+            || !mpz_perfect_square_p(q->get_den().get_mpz_t()))
+            return std::nullopt;
+        mpz_sqrt(sn.get_mpz_t(), q->get_num().get_mpz_t());
+        mpz_sqrt(sd.get_mpz_t(), q->get_den().get_mpz_t());
+        return mpq_to_expr(mpq_class(sn, sd));
+    }
+    Expr v;
+    for (const auto& s : free_symbols(e)) { v = s; break; }
+    if (!v) return std::nullopt;
+    Poly p(e, v);
+    long n = static_cast<long>(p.degree());
+    if (n % 2 != 0) return std::nullopt;
+    long m = n / 2;
+    const auto& pc = p.coeffs();
+    auto at = [&](long i) -> Expr {
+        if (i < 0 || i >= static_cast<long>(pc.size())) return S::Zero();
+        return pc[static_cast<std::size_t>(i)];
+    };
+    // Leading coefficient must itself be a perfect square (recursively).
+    auto sm_opt = mv_sqrt(at(n));
+    if (!sm_opt) return std::nullopt;
+    std::vector<Expr> s(static_cast<std::size_t>(m) + 1, S::Zero());
+    s[static_cast<std::size_t>(m)] = *sm_opt;
+    Expr two_sm = expand(mul(integer(2), *sm_opt));
+    for (long k = m - 1; k >= 0; --k) {
+        Expr known = S::Zero();
+        for (long i = k + 1; i < m; ++i) {
+            long j = m + k - i;
+            if (j >= 0 && j <= m)
+                known = add(known, mul(s[static_cast<std::size_t>(i)],
+                                       s[static_cast<std::size_t>(j)]));
+        }
+        Expr numerator = expand(add(at(m + k), mul(integer(-1), known)));
+        auto sk = mv_exact_div(numerator, two_sm);
+        if (!sk) return std::nullopt;
+        s[static_cast<std::size_t>(k)] = *sk;
+    }
+    Expr se = S::Zero();
+    for (long k = 0; k <= m; ++k) {
+        if (s[static_cast<std::size_t>(k)] == S::Zero()) continue;
+        Expr ck = s[static_cast<std::size_t>(k)];
+        se = add(se, k == 0 ? ck : mul(ck, pow(v, integer(k))));
+    }
+    if (expand(add(mul(se, se), mul(integer(-1), e))) == S::Zero()) return se;
+    return std::nullopt;
+}
+
+// General multivariate factorization for >2 other variables, covering the two
+// patterns reachable without a full Wang port:
+//   (1) content extraction: P (degree d in var) shares a non-trivial polynomial
+//       factor g(other vars) across all its var-coefficients; pull g out and
+//       factor the primitive part recursively. Handles linear/bilinear forms
+//       like a·b−a·c+b·d−c·d = (b−c)(a+d).
+//   (2) generalized difference of squares: P = A·var² + C with A and −C perfect
+//       squares (as polynomials in the other vars) → (√A·var−√(−C))(√A·var+√(−C)).
+//       Handles x²y²−z²w² = (xy−wz)(xy+wz).
+// Every result is verified to expand back to the input and to be strictly more
+// factored; otherwise nullopt.
+[[nodiscard]] static std::optional<Expr> factor_multivariate_general(
+    const Expr& expr, const Expr& var) {
+    Expr ex = expand(expr);
+    Poly f(ex, var);
+    if (f.degree() < 1) return std::nullopt;
+    const auto& cs = f.coeffs();
+
+    // (1) Content extraction across the var-coefficients.
+    Expr cont = mv_content(f, 0);
+    if (!(cont == S::One()) && !coeff_as_mpq(cont)) {
+        if (auto pp = mv_exact_div(ex, cont)) {
+            Expr cont_f = factor(cont, var);  // recurse on the content (no var inside)
+            Expr pp_f = *pp;
+            // Recurse on the primitive part (may itself factor, e.g. via case 2).
+            if (auto inner = factor_multivariate_general(pp_f, var)) pp_f = *inner;
+            Expr result = mul(cont_f, pp_f);
+            if (expand(add(result, mul(integer(-1), ex))) == S::Zero()
+                && !(result == expr) && !(result == ex)) {
+                return result;
+            }
+        }
+    }
+
+    // (2) Generalized difference of squares: A·var² + C (no linear term).
+    if (f.degree() == 2 && expand(cs[1]) == S::Zero()) {
+        Expr A = cs[2], C = cs[0];
+        Expr negC = expand(mul(integer(-1), C));
+        auto sa = mv_sqrt(A);
+        auto sc = mv_sqrt(negC);
+        if (sa && sc && !(*sa == S::Zero()) && !(*sc == S::Zero())) {
+            Expr l1 = expand(add(mul(*sa, var), mul(integer(-1), *sc)));
+            Expr l2 = expand(add(mul(*sa, var), *sc));
+            Expr result = mul(l1, l2);
+            if (expand(add(result, mul(integer(-1), ex))) == S::Zero()
+                && !(result == expr) && !(result == ex)) {
+                return result;
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
 std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
     // Collect the other free symbols. One other variable y enables the full
     // bivariate path (content extraction + quadratic disc + monomial deflation);
@@ -1285,7 +1511,8 @@ std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
     for (const auto& s : free_symbols(expr)) {
         if (!(s == var)) vars.push_back(s);
     }
-    if (vars.empty() || vars.size() > 2) return std::nullopt;
+    if (vars.empty()) return std::nullopt;
+    if (vars.size() > 2) return factor_multivariate_general(expr, var);
     const bool bivariate = (vars.size() == 1);
     Expr y = bivariate ? vars[0] : Expr{};
 

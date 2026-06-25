@@ -1286,3 +1286,47 @@ TEST_CASE("factor: degree-2 multivariate (WANG-4)",
     Expr irr = add({P(x, 2), mul(x, y), z, integer(1)});  // x² + xy + z + 1
     REQUIRE(factor(irr, x)->str() == irr->str());
 }
+
+// WANG-5: 4-variable factorization. With three other free variables the
+// linear-form / quadratic-disc bivariate paths do not apply, so factor() uses
+// the general multivariate handler:
+//   (1) multivariate CONTENT extraction — when the var-coefficients share a
+//       polynomial factor in the other variables, pull it out and factor it
+//       recursively (handles the linear/bilinear cases below);
+//   (2) generalized difference of squares — A·var² + C with A and −C perfect
+//       squares as polynomials in the other vars (handles x²y² − z²w²).
+// Each result is verified to expand back to the input and cross-checked against
+// SymPy; a polynomial with no such structure stays put.
+TEST_CASE("factor: 4-variable (WANG-5)",
+          "[4][polys][factor][wang][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto a = symbol("a"), b = symbol("b"), c = symbol("c"), d = symbol("d");
+    auto w = symbol("w"), x = symbol("x"), y = symbol("y"), z = symbol("z");
+    auto P = [&](const Expr& bb, int e) { return pow(bb, integer(e)); };
+    auto check = [&](const Expr& e, const Expr& var, const char* expected) {
+        Expr f = factor(e, var);
+        REQUIRE(oracle.equivalent(f->str(), e->str()));   // expands back
+        REQUIRE(oracle.equivalent(f->str(), expected));   // matches SymPy form
+        REQUIRE(f->str() != e->str());                    // actually factored
+    };
+
+    // a·b − a·c + b·d − c·d → (a + d)(b − c) : linear in a, content (b − c).
+    check(add({mul(a, b), mul(integer(-1), mul(a, c)),
+               mul(b, d), mul(integer(-1), mul(c, d))}),
+          a, "(a + d)*(b - c)");
+
+    // w·x + w·y + z·x + z·y → (w + z)(x + y) : linear in w, content (x + y).
+    check(add({mul(w, x), mul(w, y), mul(z, x), mul(z, y)}),
+          w, "(w + z)*(x + y)");
+
+    // x²y² − z²w² → (x·y − w·z)(x·y + w·z) : difference of squares with
+    // composite leading/constant coefficients (perfect squares y² and z²w²).
+    check(add({mul(P(x, 2), P(y, 2)),
+               mul(integer(-1), mul(P(z, 2), P(w, 2)))}),
+          x, "(x*y - w*z)*(x*y + w*z)");
+
+    // A 4-variable polynomial with no shared content and no square structure
+    // stays put (no false factorization).
+    Expr irr = add({mul(a, b), c, d, integer(1)});  // a·b + c + d + 1
+    REQUIRE(factor(irr, a)->str() == irr->str());
+}
