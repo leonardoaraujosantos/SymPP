@@ -10,6 +10,10 @@
 
 #include <sympp/core/basic.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
+#include <sympp/core/symbol.hpp>
 
 namespace sympp::combinatorics {
 
@@ -308,6 +312,69 @@ Expr colorings_count(const PermutationGroup& g, int k) {
         total += term;
     }
     return make<Integer>(total / static_cast<long>(elems.size()));
+}
+
+namespace {
+// Cycle type of `p`: cycle length → number of cycles of that length (fixed points
+// counted as length-1 cycles).
+[[nodiscard]] std::map<int, int> cycle_type(const Permutation& p) {
+    std::map<int, int> type;
+    std::vector<bool> visited(static_cast<std::size_t>(p.size()), false);
+    for (int i = 0; i < p.size(); ++i) {
+        if (visited[static_cast<std::size_t>(i)]) continue;
+        int len = 0;
+        int j = i;
+        while (!visited[static_cast<std::size_t>(j)]) {
+            visited[static_cast<std::size_t>(j)] = true;
+            ++len;
+            j = p.apply(j);
+        }
+        ++type[len];
+    }
+    return type;
+}
+}  // namespace
+
+Expr cycle_index(const PermutationGroup& g) {
+    // Z(G) = (1/|G|)·Σ_{g∈G} ∏_len a_len^{cycles_len(g)}.
+    auto elems = g.elements();
+    Expr sum = make<Integer>(mpz_class(0));
+    for (const auto& e : elems) {
+        Expr monomial = make<Integer>(mpz_class(1));
+        for (const auto& [len, count] : cycle_type(e)) {
+            Expr a = symbol("a" + std::to_string(len));
+            monomial = monomial * pow(a, make<Integer>(mpz_class(count)));
+        }
+        sum = sum + monomial;
+    }
+    return rational(1, static_cast<long>(elems.size())) * sum;
+}
+
+Expr necklaces(int n, int k) {
+    if (n < 1) throw std::invalid_argument("necklaces: n >= 1 required");
+    if (k < 0) throw std::invalid_argument("necklaces: k must be non-negative");
+    // (1/n)·Σ_{d|n} φ(d)·k^{n/d}, divisibility guaranteed; computed exactly.
+    auto totient = [](long m) {
+        long result = m;
+        long t = m;
+        for (long p = 2; p * p <= t; ++p) {
+            if (t % p == 0) {
+                while (t % p == 0) t /= p;
+                result -= result / p;
+            }
+        }
+        if (t > 1) result -= result / t;
+        return result;
+    };
+    mpz_class total = 0;
+    for (long d = 1; d <= n; ++d) {
+        if (n % d != 0) continue;
+        mpz_class term;
+        mpz_pow_ui(term.get_mpz_t(), mpz_class(k).get_mpz_t(),
+                   static_cast<unsigned long>(n / d));
+        total += totient(d) * term;
+    }
+    return make<Integer>(total / static_cast<long>(n));
 }
 
 // ----- Standard groups -------------------------------------------------------

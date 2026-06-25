@@ -392,7 +392,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   (composition, inverse, sign, order, cyclic form), permutation groups with a **Schreier–Sims BSGS** (fast order &
   membership for large groups — S₁₂ in milliseconds — plus abelian test), the standard symmetric / cyclic /
   dihedral / alternating groups, **group orbits** and **Pólya/Burnside**
-  coloring counts (`colorings_count`), and integer partitions (`partition_count`).
+  coloring counts (`colorings_count`), the **Pólya cycle-index polynomial**
+  (`cycle_index`) and the **necklace inventory** (`necklaces`), and integer
+  partitions (`partition_count`).
 - **Bessel functions** — `besselj`/`bessely`/`besseli`/`besselk` (special
   values, ±1/2 elementary closed forms, derivative recurrences).
 - **Special integral functions** — `Ei`, `Si`, `Ci`, `Shi`, `Chi`, the Fresnel

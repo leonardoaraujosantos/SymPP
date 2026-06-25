@@ -84,6 +84,20 @@ private:
 // cycles(g) counts every disjoint cycle including fixed points.
 [[nodiscard]] SYMPP_EXPORT Expr colorings_count(const PermutationGroup& g, int k);
 
+// Pólya cycle-index polynomial Z(G) = (1/|G|)·Σ_{g∈G} ∏_len a_len^{cycles_len(g)},
+// in the indeterminates a_1, a_2, … (symbols "a1", "a2", …), where cycles_len(g)
+// is the number of length-`len` cycles of g (fixed points are 1-cycles). The
+// specialization a_i := k of Z(G) equals colorings_count(g, k). Returned as an
+// Expr (an Add of monomials with a rational leading coefficient).
+//
+// Reference: Pólya enumeration theorem; sympy.combinatorics group cycle structure.
+[[nodiscard]] SYMPP_EXPORT Expr cycle_index(const PermutationGroup& g);
+
+// Number of distinct k-colored necklaces of n beads under the cyclic group Cₙ:
+//   (1/n)·Σ_{d|n} φ(d)·k^{n/d}          (φ = Euler's totient).
+// Equals colorings_count(cyclic_group(n), k). Returned as an Integer Expr.
+[[nodiscard]] SYMPP_EXPORT Expr necklaces(int n, int k);
+
 // ----- Standard groups -------------------------------------------------------
 [[nodiscard]] SYMPP_EXPORT PermutationGroup symmetric_group(int n);    // Sₙ, order n!
 [[nodiscard]] SYMPP_EXPORT PermutationGroup cyclic_group(int n);       // Cₙ, order n

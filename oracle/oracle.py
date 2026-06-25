@@ -402,6 +402,11 @@ def handle(req):
                 return len(g.cyclic_form) + (g.size - moved)
             v = sum(k ** ncyc(g) for g in G.elements) // G.order()
             return {"ok": True, "result": str(int(v))}
+        if fn == "necklaces":
+            from sympy import totient, divisors
+            n = int(req["n"]); k = int(req["k"])
+            v = sum(totient(d) * k ** (n // d) for d in divisors(n)) // n
+            return {"ok": True, "result": str(int(v))}
         return {"ok": False, "error": "BadFn", "detail": f"unknown combinatorics fn: {fn!r}"}
 
     # --- Physics (cross-check Wigner symbols, hydrogen, QHO, spin) ---

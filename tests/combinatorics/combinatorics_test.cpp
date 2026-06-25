@@ -9,6 +9,11 @@
 
 #include <sympp/combinatorics/combinatorics.hpp>
 #include <sympp/core/integer.hpp>
+#include <sympp/core/operators.hpp>
+#include <sympp/core/pow.hpp>
+#include <sympp/core/rational.hpp>
+#include <sympp/core/symbol.hpp>
+#include <sympp/core/traversal.hpp>
 
 #include "oracle/oracle.hpp"
 
@@ -173,6 +178,71 @@ TEST_CASE("Pólya/Burnside coloring counts match SymPy", "[combinatorics][oracle
 
     // Spot value: 6 binary necklaces of length 4.
     REQUIRE(cb::colorings_count(cb::cyclic_group(4), 2) == integer(6));
+}
+
+// ----- Pólya cycle index & necklace inventory --------------------------------
+
+namespace {
+// Specialize Z(G) at a_1 = a_2 = … = k by substituting each indeterminate.
+Expr specialize_cycle_index(Expr z, int degree, int k) {
+    for (int len = 1; len <= degree; ++len) {
+        z = subs(z, symbol("a" + std::to_string(len)), integer(k));
+    }
+    return z;
+}
+}  // namespace
+
+TEST_CASE("Pólya cycle index specializes to Burnside counts", "[combinatorics][oracle]") {
+    // Z(G) with every a_i := k must reproduce colorings_count(g, k).
+    auto check = [&](const cb::PermutationGroup& g, int k, const std::string& name) {
+        INFO(name);
+        Expr z = cb::cycle_index(g);
+        Expr specialized = specialize_cycle_index(z, g.degree(), k);
+        REQUIRE(specialized == cb::colorings_count(g, k));
+        // …and the same value as SymPy's Burnside sum.
+        REQUIRE(specialized->str() ==
+                comb_oracle({{"fn", "burnside"}, {"gens", gens_of(g)}, {"k", std::to_string(k)}}));
+    };
+    for (int k : {2, 3, 4}) {
+        check(cb::cyclic_group(4), k, "C4");
+        check(cb::cyclic_group(6), k, "C6");
+        check(cb::dihedral_group(4), k, "D4");
+        check(cb::dihedral_group(5), k, "D5");
+        check(cb::symmetric_group(3), k, "S3");
+        check(cb::symmetric_group(4), k, "S4");
+    }
+
+    // Hand-checked cycle index of C4: (1/4)(a1^4 + a2^2 + 2 a4).
+    Expr zc4 = cb::cycle_index(cb::cyclic_group(4));
+    Expr a1 = symbol("a1"), a2 = symbol("a2"), a4 = symbol("a4");
+    Expr expected = rational(1, 4) *
+                    (pow(a1, integer(4)) + pow(a2, integer(2)) + integer(2) * a4);
+    REQUIRE(zc4 == expected);
+
+    // Cycle index of S3: (1/6)(a1^3 + 3 a1 a2 + 2 a3).
+    Expr zs3 = cb::cycle_index(cb::symmetric_group(3));
+    Expr a3 = symbol("a3");
+    Expr expected_s3 = rational(1, 6) *
+                       (pow(a1, integer(3)) + integer(3) * a1 * a2 + integer(2) * a3);
+    REQUIRE(zs3 == expected_s3);
+}
+
+TEST_CASE("necklace inventory matches Burnside and SymPy", "[combinatorics][oracle]") {
+    // necklaces(n, k) = colorings_count(cyclic_group(n), k) and the closed form.
+    auto check = [&](int n, int k, const std::string& name) {
+        INFO(name);
+        Expr nk = cb::necklaces(n, k);
+        REQUIRE(nk == cb::colorings_count(cb::cyclic_group(n), k));
+        REQUIRE(nk->str() ==
+                comb_oracle({{"fn", "necklaces"}, {"n", n}, {"k", std::to_string(k)}}));
+    };
+    for (int n : {3, 4, 5, 6, 8}) {
+        for (int k : {2, 3}) check(n, k, "n=" + std::to_string(n));
+    }
+    // Hand values: 2-color necklaces of length 4 = 6; 3-color = 24.
+    REQUIRE(cb::necklaces(4, 2) == integer(6));
+    REQUIRE(cb::necklaces(4, 3) == integer(24));
+    REQUIRE(cb::necklaces(6, 2) == integer(14));
 }
 
 // BSGS-1: Schreier–Sims gives correct order/membership for LARGE groups that the
