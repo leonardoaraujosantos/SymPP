@@ -56,6 +56,13 @@ static void probe_group_theory(){
   want("D4 nilpotent", is_nilpotent(dihedral_group(4)));
   want("S3 not nilpotent", !is_nilpotent(symmetric_group(3)));
   want("C6 nilpotent", is_nilpotent(cyclic_group(6)));
+  want("A5 simple", is_simple(alternating_group(5)));
+  want("A4 not simple", !is_simple(alternating_group(4)));
+  want("C6 abelian_invariants={2,3}",
+       abelian_invariants(cyclic_group(6)) == std::vector<long>{2, 3});
+  want("D4 abelian_invariants={2,2}",
+       abelian_invariants(dihedral_group(4)) == std::vector<long>{2, 2});
+  want("A5 abelian_invariants={}", abelian_invariants(alternating_group(5)).empty());
 }
 #endif
 

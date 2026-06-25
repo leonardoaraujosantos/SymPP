@@ -35,6 +35,11 @@ demand with cost.
   (a/a†/N, `{a,a†}=1`), alongside the existing Jordan–Wigner fermions.
 - **Sylow p-subgroups** — `sylow_order(G, p)` and `sylow_subgroup(G, p)` (BFS
   p-closure to the exact prime-power order), validated on S₃/S₄/A₄/D₄.
+- **Simplicity & abelianization** — `normal_closure(G, gens)` (BFS conjugation +
+  subgroup closure), `is_simple(G)` (every nontrivial element's normal closure
+  is all of G; A₅ simple, A₄/S₃/S₄/D₄/C₆ not), and `abelian_invariants(G)` (the
+  prime-power invariant factors of G/G': C₆→[2,3], D₄→[2,2], S₃/S₄→[2], A₄→[3],
+  A₅→[] perfect), cross-checked against SymPy.
 - **hyperexpand squared-argument forms** — ₀F₁(;3/2;−z²/4)=sin(z)/z,
   ₀F₁(;1/2;−z²/4)=cos(z), ₂F₁(½,½;3/2;z²)=asin(z)/z, giving radical-free results
   where the generic √z forms would leave `sqrt(z²)` (HYPER-ELEM-1).
@@ -160,7 +165,7 @@ gains.
 | ✅ Geometry (Point/Line/Polygon) | `geometry/` | — | shipped (`geometry/geometry.hpp`) |
 | ✅ Vector calculus & differential geometry | `vector/`, `diffgeom/` | — | shipped (`vector/vector_calculus.hpp`; grad/div/curl/laplacian + Christoffel/Ricci) |
 | ✅ Tensor algebra (dense) | `tensor/` | — | shipped (`tensor/tensor.hpp`; product/contraction/raise/lower) |
-| 🟡 Combinatorics & group theory | `combinatorics/` | — | shipped (`combinatorics/combinatorics.hpp`): permutations (compose/inverse/sign/order/cyclic form), permutation groups (closure/order/membership/abelian), S/C/D/A standard groups, integer partitions, **Schreier–Sims BSGS** (order/membership/transitivity), **Sylow p-subgroups** (`sylow_order`/`sylow_subgroup`), and **Pólya enumeration** (cycle-index polynomial `Z(G)` + `necklaces(n,k)`). Remaining: full Schreier–Sims base optimization, general Burnside/Pólya weight inventories |
+| 🟡 Combinatorics & group theory | `combinatorics/` | — | shipped (`combinatorics/combinatorics.hpp`): permutations (compose/inverse/sign/order/cyclic form), permutation groups (closure/order/membership/abelian), S/C/D/A standard groups, integer partitions, **Schreier–Sims BSGS** (order/membership/transitivity), **Sylow p-subgroups** (`sylow_order`/`sylow_subgroup`), **conjugacy/center/derived series** (`conjugacy_classes`/`group_center`/`derived_subgroup`/`is_solvable`/`is_nilpotent`), **simplicity & abelianization** (`normal_closure`/`is_simple`/`abelian_invariants`), and **Pólya enumeration** (cycle-index polynomial `Z(G)` + `necklaces(n,k)`). Remaining: full Schreier–Sims base optimization, general Burnside/Pólya weight inventories |
 | ✅ Cryptography (RSA/DH/ElGamal/ECC) | `crypto/` | — | shipped (`crypto/crypto.hpp`): RSA, Diffie–Hellman, ElGamal, and **elliptic curves over 𝔽ₚ** (group law, scalar mul, ECDH, ECDSA) |
 | 🟡 Physics (mechanics, quantum, optics) | `physics/*` | 2 wk each | Medium | shipped (`physics/physics.hpp`): commutators/Pauli/ladder, **arbitrary-spin operators (Jx/Jy/Jz/J±/J²)**, **Wigner 3-j/6-j/9-j, Racah W, Gaunt + Clebsch–Gordan**, **Dirac γ-matrices**, **hydrogen E/R_nl**, **QHO E/ψ_n**, ABCD + Gaussian-beam optics, conjugate momentum + Hamiltonian, **second quantization (Jordan–Wigner fermions + single-mode bosonic `FockState` and fermionic `FermionState` ladder/number operators with the canonical [a,a†]/{a,a†} relations)**. Remaining: full continuum/relativistic mechanics, unit-bearing quantum states |
 

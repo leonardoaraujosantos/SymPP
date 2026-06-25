@@ -162,6 +162,31 @@ private:
 // Reference: sympy.combinatorics PermutationGroup.is_nilpotent.
 [[nodiscard]] SYMPP_EXPORT bool is_nilpotent(const PermutationGroup& g);
 
+// ----- Simplicity & abelianization -------------------------------------------
+// Normal closure of a set of generators in G: the smallest normal subgroup of G
+// containing all of `generators`. Built by BFS, closing under both group
+// multiplication and conjugation by the generators of G.
+//
+// Reference: sympy.combinatorics PermutationGroup.normal_closure.
+[[nodiscard]] SYMPP_EXPORT PermutationGroup normal_closure(
+    const PermutationGroup& g, const std::vector<Permutation>& generators);
+
+// Whether G is simple: it has no nontrivial proper normal subgroup. Tested for
+// these small groups by checking that for every non-identity element x the
+// normal closure of <x> is all of G (equivalently |normal_closure| == |G|).
+//
+// Reference: sympy.combinatorics PermutationGroup.is_simple.
+[[nodiscard]] SYMPP_EXPORT bool is_simple(const PermutationGroup& g);
+
+// Abelian invariants of G: the invariant-factor decomposition of the
+// abelianization G/G' (an abelian group of order |G|/|G'|). Returned as the
+// canonical invariant factors d₁ | d₂ | … | d_k (each > 1), so that
+// G/G' ≅ Z_{d₁} × … × Z_{d_k}. An empty vector means a trivial abelianization
+// (a perfect group, e.g. A₅).
+//
+// Reference: sympy.combinatorics PermutationGroup.abelian_invariants.
+[[nodiscard]] SYMPP_EXPORT std::vector<long> abelian_invariants(const PermutationGroup& g);
+
 // ----- Integer partitions ----------------------------------------------------
 // Partition function p(n): number of ways to write n as a sum of positive
 // integers (order-insensitive). Arbitrary precision.

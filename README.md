@@ -400,7 +400,10 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   membership for large groups — S₁₂ in milliseconds — plus abelian test), the standard symmetric / cyclic /
   dihedral / alternating groups, **group orbits** and **Pólya/Burnside**
   coloring counts (`colorings_count`), the **Pólya cycle-index polynomial**
-  (`cycle_index`) and the **necklace inventory** (`necklaces`), and integer
+  (`cycle_index`) and the **necklace inventory** (`necklaces`), **Sylow
+  p-subgroups**, **conjugacy classes / center / derived series** (with
+  `is_solvable` / `is_nilpotent`), **simplicity & abelianization**
+  (`is_simple`, `normal_closure`, `abelian_invariants`), and integer
   partitions (`partition_count`).
 - **Bessel functions** — `besselj`/`bessely`/`besseli`/`besselk` (special
   values, ±1/2 elementary closed forms, derivative recurrences).

@@ -367,3 +367,21 @@ TEST_CASE("permutation groups: solvable/nilpotent", "[combinatorics]") {
     REQUIRE_FALSE(cb::is_nilpotent(cb::alternating_group(4)));
     REQUIRE_FALSE(cb::is_nilpotent(cb::alternating_group(5)));
 }
+
+TEST_CASE("permutation groups: is_simple / abelian_invariants", "[combinatorics]") {
+    // Simplicity (SymPy-confirmed): only A₅ among these is simple.
+    REQUIRE(cb::is_simple(cb::alternating_group(5)));
+    REQUIRE_FALSE(cb::is_simple(cb::alternating_group(4)));
+    REQUIRE_FALSE(cb::is_simple(cb::symmetric_group(3)));
+    REQUIRE_FALSE(cb::is_simple(cb::symmetric_group(4)));
+    REQUIRE_FALSE(cb::is_simple(cb::dihedral_group(4)));
+    REQUIRE_FALSE(cb::is_simple(cb::cyclic_group(6)));
+
+    // Abelian invariants of G/G' as prime-power factors (SymPy-confirmed).
+    REQUIRE(cb::abelian_invariants(cb::cyclic_group(6)) == std::vector<long>{2, 3});
+    REQUIRE(cb::abelian_invariants(cb::dihedral_group(4)) == std::vector<long>{2, 2});
+    REQUIRE(cb::abelian_invariants(cb::symmetric_group(3)) == std::vector<long>{2});
+    REQUIRE(cb::abelian_invariants(cb::symmetric_group(4)) == std::vector<long>{2});
+    REQUIRE(cb::abelian_invariants(cb::alternating_group(4)) == std::vector<long>{3});
+    REQUIRE(cb::abelian_invariants(cb::alternating_group(5)).empty());  // perfect group
+}
