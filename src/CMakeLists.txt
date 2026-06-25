@@ -172,6 +172,24 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/hyperexpand.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/simplify/simplify.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/solvers/solve.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/rewrite.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/satask.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/lambdify.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/core/lambdify_llvm.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/codegen/autowrap.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/ntheory.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/functions/orthopolys.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/crypto/crypto.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/discrete/discrete.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/geometry/geometry.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/logic/logic.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/parsing/latex_parser.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/physics/physics.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/polys/domain_matrix.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/polys/zassenhaus.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/stats/stats.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/tensor/tensor.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/vector/vector_calculus.hpp
 )
 
 # When building the library itself we need to export symbols (Windows DLL).

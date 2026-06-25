@@ -8,8 +8,11 @@ parity.
 
 ## 📍 You are here — next-session pickup
 
-**Current position**: **v1.0.** 15 of 15 phases shipped; Phase 16
-(hardening, packaging, release) complete. A sustained
+**Current position**: **v1.1.** 15 of 15 phases shipped (Phase 13 code
+generation now complete: GLSL/Graphviz-dot/srepr printers, codegen AST with
+CSE, and `autowrap`); a 100-case Tier 1 + Tier 2 acceptance suite (`just
+parity`) is at SymPy parity. Phase 16 (hardening, packaging, release) complete.
+A sustained
 SymPy-parity push has since closed 300+ cross-validated gaps (see
 [docs/09-known-issues.md](09-known-issues.md)) across calculus, simplify,
 solvers, transforms, sets, assumptions, and core. Everyday CAS workflow coverage is now
@@ -64,7 +67,7 @@ Critical path forward: parallelizable.
 - Critical-path diagram: §[Critical path](#critical-path)
 - Parity-percentage breakdown: §[How far are we from SymPy?](#how-far-are-we-from-sympy)
 
-**Test surface to maintain**: 1554 cases / 5488 assertions (672
+**Test surface to maintain**: 1817 cases / 7702 assertions (764
 oracle-validated against SymPy 1.13+). Run:
 
 ```bash
@@ -80,8 +83,8 @@ oracle-validated against SymPy 1.13+). Run:
 ## Status snapshot
 
 ```
-1554 tests / 5488 assertions  all passing (672 oracle-validated vs SymPy)
-14 of 15 phases shipped (Phase 14 dropped — see below)
+1817 tests / 7702 assertions  all passing (764 oracle-validated vs SymPy)
+15 of 15 phases shipped (Phase 14 dropped — see below); v1.1
 ```
 
 | Phase | Title | Status |
@@ -99,7 +102,7 @@ oracle-validated against SymPy 1.13+). Run:
 | 10 | Equation solvers                       | ✅ shipped (`_invert` chain shipped — transcendental solveset; F4/F5 Gröbner + SAT deferred) |
 | 11 | ODE / PDE                              | ✅ shipped (variation of parameters shipped; full Lie + Pantelides deferred) |
 | 12 | Units                                  | ✅ shipped |
-| 13 | Code generation                        | 🟡 printers + function emission (lambdify deferred) |
+| 13 | Code generation                        | ✅ C/C++/Fortran/LaTeX/Octave/Rust/Julia/MathML/GLSL + Graphviz-dot + srepr printers, codegen AST (CSE), lambdify/lambdify_jit/autowrap |
 | 15 | Parser & MATLAB facade                 | ✅ shipped (extension: parsing / assumptions / solvers / ode / pde sub-headers under `sympp::matlab`) |
 | 16 | Hardening & v1.0                       | ✅ `find_package`/install/export, vcpkg + Conan, benchmark harness, Doxygen target, CI matrix — **v1.0** |
 
@@ -338,7 +341,7 @@ oz, gal, BTU) + time (min, hour, day, year), 12 physical constants
 with exact post-2019-redef values for c/h/k_B/e/N_A,
 `convert(qty, target)`, affine **temperature conversions** (C/F/K).
 
-### Phase 13 — Code generation · 🟡
+### Phase 13 — Code generation · ✅
 
 **Shipped**: `CodePrinter` visitor base, `ccode` / `cxxcode` /
 `fcode` / `latex` / `octave_code` / `rust_code` / `julia_code` /
@@ -558,7 +561,7 @@ the same scope-discipline as Phases 0–13.
 | 36 | NDim arrays (distinct from tensor algebra in Phase 18 — concrete n-dim storage) | `sympy.tensor.array` | 1 wk |
 | 37 | Unification (`sympy.unify`) — pattern-match driven by structural unification | `sympy.unify` | 1 wk |
 | 38 | Extra printers (MathML, GLSL, Rust, Julia, dot, repr) | `sympy.printing` | 1 wk |
-| 39 | Codegen AST nodes + Cython / autowrap bindings | `sympy.codegen.ast`, `sympy.utilities.autowrap` | 2 wk |
+| ✅ Codegen AST nodes + autowrap (C/dlopen) bindings | `sympy.codegen.ast`, `sympy.utilities.autowrap` | shipped |
 
 **Total category D**: roughly 26 developer-weeks.
 

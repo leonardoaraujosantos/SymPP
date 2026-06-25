@@ -6,7 +6,7 @@ import os
 
 class SymPPConan(ConanFile):
     name = "sympp"
-    version = "1.0.0"
+    version = "1.1.0"
     license = "BSD-3-Clause"
     author = "Leonardo Araujo dos Santos"
     url = "https://github.com/leonardoaraujosantos/SymPP"

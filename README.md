@@ -17,23 +17,25 @@ algorithms with SymPy itself wired in as the validation oracle.
 ```
 1817 tests / 7702 assertions  all passing
 764 cases (3915 assertions) oracle-validated against SymPy
-15 of 15 phases shipped (v1.0)
+15 of 15 phases shipped (v1.1)
 ```
 
-On textbook-shaped inputs (calculus, algebra, transforms, solvers, sets)
-SymPP and SymPy are now effectively interchangeable. The most recent parity push
-added Rust/Julia/MathML code printers, a `Naturals` set domain plus a complex-by-
-default `solveset`, Beta-integral binomial sums and definite `erf`/`erfc`
-integrals, cubic-and-higher bivariate Wang factorization, Pólya cycle-index +
-necklace enumeration, bosonic and fermionic Fock ladder operators (second
-quantization), squared-argument hyperexpand closed forms, competing infinity-
-power Gruntz limits, and Risch log-integrals with coefficiented power
-denominators. The remaining gaps are the deepest research-grade algorithms — the
-full Risch tower recursion (the exponential differential equation, logarithmic
-extension, and generalized-exponential self-derivative tower already ship), full
-Gruntz comparability (termination + practical MRV values already ship), and
-arbitrary-degree multivariate Wang factorization (bivariate up to cubic+ already
-ships) — plus the deeper tiers of a few large modules. See
+On textbook-shaped inputs (calculus, algebra, transforms, solvers, sets) SymPP
+and SymPy are now effectively interchangeable, and a **100-case Tier 1 + Tier 2
+acceptance suite** (`just parity`) is at SymPy parity, all oracle-validated. The
+v1.1 push completed code generation (GLSL / Graphviz-`dot` / `srepr` printers, a
+codegen AST with CSE, and `autowrap` compile-to-native — Phase 13 ✅) and
+deepened Tier 2: multivariate Wang up to 4 variables and a cyclotomic
+`factor(x^N−1)` fast path, a broad Risch integral table, hyperexpand through
+squared-argument and polylog `₃F₂` forms, gamma-ratio / competing-power / tower
+Gruntz limits, group theory (conjugacy/center/derived, `is_solvable`/
+`is_nilpotent`/`is_simple`/`abelian_invariants`, Pólya, Sylow), and single +
+multi-mode bosonic/fermionic second quantization with normal ordering. The
+remaining gaps are the deepest research-grade algorithms — the full Risch tower
+recursion + non-elementarity proofs (which SymPy does not do either),
+arbitrary-arity Wang with full Hensel lifting, Slater-complete `hyperexpand`
+(elliptic-K-valued `pFq`) — plus the low-priority large modules (F4/F5 Gröbner,
+holonomic functions, Galois tools). See
 [docs/04-roadmap.md](docs/04-roadmap.md#how-far-are-we-from-sympy) and
 [docs/10-parity-roadmap.md](docs/10-parity-roadmap.md) for the breakdown.
 
@@ -480,9 +482,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   `vpasolve` / `pdsolve` overloads under MATLAB-friendly names.
 - **SymPy oracle** — every numeric and structural assertion
   cross-checked against SymPy (1.13+) via a long-lived Python
-  subprocess; 740 oracle-validated test cases. New `hyperexpand` op
-  cross-validates SymPP's hypergeometric rewrites against SymPy's
-  reference implementation.
+  subprocess; 764 oracle-validated test cases. The `hyperexpand` and `srepr`
+  ops cross-validate SymPP's hypergeometric rewrites and constructor printing
+  against SymPy's reference implementation.
 
 ## Documentation
 

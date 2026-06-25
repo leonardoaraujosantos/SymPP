@@ -3,34 +3,53 @@
 All notable changes to SymPP. Format: [Keep a Changelog](https://keepachangelog.com/),
 versioning per [SemVer](https://semver.org/).
 
-## [Unreleased] — parity increments
+## [1.1.0] — 2026-06-25
 
-Post-1.0 parity push. 1772 tests / 7465 assertions, 757 oracle-validated against
-SymPy, all passing. These are increments toward SymPy parity, not full
-module completion.
+Parity push toward SymPy. 1817 tests / 7702 assertions, 764 oracle-validated,
+all passing. A 100-case Tier 1 + Tier 2 acceptance suite (`just parity`) is at
+SymPy parity. These are increments toward SymPy parity, not full module
+completion.
 
 ### Added
 
-- **Code printers**: `rust_code` (`.powi/.powf/.sqrt` method-call form,
-  `f64::consts::PI/E`), `julia_code` (`^` power, `MathConstants.e`), and
-  Presentation `mathml` (`<msup>/<mfrac>/<msqrt>`) join the existing
-  C/C++/Fortran/LaTeX/Octave printers (Phase 13).
-- **Sets / solvers**: `Naturals`/`Naturals0` set domain wired into the named-
-  domain lattice (ℕ ⊂ ℤ ⊂ ℝ ⊂ ℂ) and used to restrict `solveset` roots;
-  `solveset` with no domain now defaults to the complex domain (SymPy parity),
-  while an explicit `reals()` domain still drops complex roots.
+- **Code generation (Phase 13 complete)**: `rust_code`, `julia_code`, `mathml`,
+  **`glsl_code`** (GLSL shader syntax), **`dot`** (Graphviz expression-tree
+  digraph), and **`srepr`** (SymPy constructor form, oracle-validated) printers;
+  a structured **codegen AST** (`Assignment`/`CodeBlock`/`FunctionDefinition`
+  with CSE-based `emit_c`/`emit_cxx`); and **`autowrap`** — compile generated C
+  through the system toolchain into a `dlopen`'d native callable.
+- **Tooling**: a `justfile` task runner (build, unit vs. integration test split
+  via the `[oracle]` tag, examples, parity gate, bench, docs, ci); an
+  engineering-course example series under `examples/{calculus,algebra,linear_algebra}`.
+- **Sets / solvers**: `Naturals`/`Naturals0` domain (ℕ ⊂ ℤ ⊂ ℝ ⊂ ℂ); `solveset`
+  defaults to the complex domain (SymPy parity); explicit `reals()` still drops
+  complex roots.
 - **Integration**: Beta-integral binomial sums `Σ C(n,k)/(k+m)`; definite
-  erf/erfc integrals over [0,∞) (`∫₀^∞ erfc(ax)²`, `∫₀^∞ x·e^{−cx²}·erf(bx)`);
-  Risch log-integrals with coefficiented power denominators (`log(x)/(2x²)`).
-- **Polynomials**: cubic-and-higher bivariate Wang factorization via monomial-
-  root deflation (expand-verified).
-- **Combinatorics**: Pólya cycle-index polynomial `Z(G)` + `necklaces(n,k)`;
-  Sylow p-subgroups (`sylow_order`/`sylow_subgroup`).
-- **Physics**: single-mode bosonic `FockState` and fermionic `FermionState`
-  ladder/number operators (second quantization), with `[a,a†]`/`{a,a†}` checks.
-- **hyperexpand**: squared-argument elementary closed forms
-  (₀F₁(;3/2;−z²/4)=sin(z)/z, ₀F₁(;1/2;−z²/4)=cos(z), ₂F₁(½,½;3/2;z²)=asin(z)/z).
-- **Limits**: Gruntz competing infinity-power products (`xˣ/(x+1)ˣ → e⁻¹`).
+  erf/erfc integrals over [0,∞); Risch log-integrals with coefficiented power
+  denominators; a broad rational/log/special-function integral table.
+- **Polynomials**: multivariate Wang factorization up to 4 variables (content
+  extraction, linear-form roots, composite difference-of-squares); a cyclotomic
+  `factor(x^N−1) = ∏_{d|N} Φ_d(x)` fast path (x⁶⁰−1: >30 s → 6 ms).
+- **Summation**: Gosper's algorithm and Zeilberger creative telescoping
+  (`Σ k²C(n,k)`, `Σ C(2n,2k)`); symbolic `Product`.
+- **Combinatorics / group theory**: Pólya cycle index + `necklaces`; Sylow
+  p-subgroups; conjugacy classes, center, derived series, `is_solvable`/
+  `is_nilpotent`/`is_simple`/`abelian_invariants`.
+- **Physics**: single + multi-mode bosonic/fermionic Fock operators and
+  **normal ordering** of operator words (second quantization).
+- **hyperexpand**: squared-argument elementary forms and polylog `₃F₂`.
+- **Limits**: gamma-ratio asymptotics, competing infinity-power products, and
+  exp-of-exp tower values.
+- **rewrite**: `RewriteTarget::Gamma`/`Factorial` (factorial ⇄ Γ, binomial,
+  rising/falling factorial).
+
+### Fixed
+
+- Install the full public header set (18 module headers were missing from the
+  CMake `FILE_SET`), so the `find_package` consumer build no longer fails on
+  `sympp/core/rewrite.hpp` — fixes CI's consumer-build step.
+- A SIGFPE in limits (GMP exact-power overflow), a `solveset` non-expand bug,
+  and a Gosper hang on parametric summands.
 
 ## [1.0.0] — 2026-06-23
 
