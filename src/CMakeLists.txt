@@ -79,6 +79,7 @@ target_sources(sympp
         physics/units.cpp
         printing/printing.cpp
         codegen/codegen.cpp
+        codegen/autowrap.cpp
         polys/domain_matrix.cpp
         polys/poly.cpp
         polys/zassenhaus.cpp
@@ -196,6 +197,7 @@ target_link_libraries(sympp
     PRIVATE
         SymPP::warnings
         SymPP::sanitizers
+        ${CMAKE_DL_LIBS}
 )
 
 # Optional LLVM ORC-JIT backend for lambdify. Enabled automatically when LLVM

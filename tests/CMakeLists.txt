@@ -77,6 +77,7 @@ target_sources(sympp_tests
         printing/printing_test.cpp
         printing/pretty_test.cpp
         codegen/codegen_test.cpp
+        codegen/autowrap_test.cpp
         oracle/oracle_smoke_test.cpp
         oracle/oracle_crosscheck_test.cpp
         polys/poly_test.cpp
