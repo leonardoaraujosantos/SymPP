@@ -31,6 +31,24 @@ namespace {
     return static_cast<const Float&>(n);
 }
 
+// Largest exact integer/rational power we are willing to materialize, expressed
+// as a result bit-length cap. base^ne needs roughly ne·bitlen(base) bits; GMP
+// aborts with a hardware SIGFPE (via __gmp_overflow_in_mpz) when an mpz exceeds
+// its internal size limit, so an unbounded exact power on input like
+// (1000001/1000000)^(10^12) crashes the whole process. We cap the materialized
+// size and defer (return nullopt) when exceeded, leaving the power symbolic /
+// available to the float path instead of crashing. 2^27 bits ≈ 16 MB ≈ 40M
+// decimal digits — far beyond any sane exact result, far below GMP's limit.
+constexpr unsigned long kMaxPowResultBits = 1UL << 27;
+
+// True when materializing base^|ne| as an exact integer would stay within the
+// size cap. `base_bits` is the bit-length of the integer being raised.
+[[nodiscard]] bool pow_result_within_cap(size_t base_bits, unsigned long ne) noexcept {
+    if (base_bits == 0 || ne == 0) return true;  // 0/±1 base or exponent 0
+    // Avoid overflow in the product: compare ne against cap / base_bits.
+    return ne <= kMaxPowResultBits / base_bits;
+}
+
 // Normalize a binary numeric op so that if either operand is a Float, both are.
 // Returns the working precision (max of the two when both Float; otherwise the
 // Float's precision when only one is Float).
@@ -166,6 +184,9 @@ std::optional<Expr> number_pow(const Number& base, const Number& exp) {
         const auto& n = as_int(exp);
         if (!n.fits_long()) return std::nullopt;  // huge exponent — defer
         long ne = n.to_long();
+        size_t base_bits = mpz_sizeinbase(z.value().get_mpz_t(), 2);
+        unsigned long mag = static_cast<unsigned long>(ne >= 0 ? ne : -ne);
+        if (!pow_result_within_cap(base_bits, mag)) return std::nullopt;  // too big — defer
         if (ne >= 0) {
             mpz_class r;
             mpz_pow_ui(r.get_mpz_t(), z.value().get_mpz_t(), static_cast<unsigned long>(ne));
@@ -190,6 +211,13 @@ std::optional<Expr> number_pow(const Number& base, const Number& exp) {
         const auto& n = as_int(exp);
         if (!n.fits_long()) return std::nullopt;
         long ne = n.to_long();
+        unsigned long mag = static_cast<unsigned long>(ne >= 0 ? ne : -ne);
+        // Both numerator and denominator are raised to |ne|; bound by the larger.
+        size_t num_bits = mpz_sizeinbase(mpq_numref(q.value().get_mpq_t()), 2);
+        size_t den_bits = mpz_sizeinbase(mpq_denref(q.value().get_mpq_t()), 2);
+        if (!pow_result_within_cap(std::max(num_bits, den_bits), mag)) {
+            return std::nullopt;  // too big — defer
+        }
         mpq_class r;
         if (ne >= 0) {
             mpz_pow_ui(mpq_numref(r.get_mpq_t()), mpq_numref(q.value().get_mpq_t()),

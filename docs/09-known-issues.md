@@ -16,6 +16,40 @@ truth and links the issue number.
 
 ## Fixed
 
+### LIMIT-ROBUST-1 / POW-OVERFLOW-GUARD — SIGFPE on nested rational-base power times exp
+- **Input:** `limit(((x+1)/x)**(x**2) * exp(-x), x, oo)` and the `exp(x)`
+  variant (and the whole family `((x+a)/(x+b))**(x**2)·e^{cx}`).
+- **Was:** the process aborted with a hardware SIGFPE (floating-point
+  exception).
+- **Expected (SymPy):** `exp(-1)` family values — `exp(-1/2)` for the `e^{-x}`
+  variant, `oo` for the `e^{x}` variant. Cross-checked against SymPy.
+- **Cause:** the Gruntz log-exp reduction certifies a factor positive by
+  substituting a large sample (`x = 1000000`) into it. That turned the rational
+  base into `(1000001/1000000)^(10^12)`, an *exact* rational power; `number_pow`
+  materialized it eagerly via `mpz_pow_ui`, whose result (~10^12 digits)
+  overflowed GMP's internal mpz size limit. GMP signals such overflow with
+  `__gmp_overflow_in_mpz`, which raises SIGFPE and kills the process — there is
+  no exception to catch.
+- **Fix:** (1) `number_pow` now caps the materialized result of an exact
+  integer/rational power (`base^ne` needs ≈`ne·bitlen(base)` bits; cap = 2^27
+  bits) and returns `nullopt` (leaving the power symbolic / available to the
+  float path) when exceeded, so no input can drive GMP to overflow. (2) The
+  log-exp reduction normalizes a rational base that tends to a finite nonzero
+  constant with `apart` (`(x+1)/x → 1 + 1/x`) before taking its log, so the
+  asymptotic series resolves `x²·log(1+1/x) − x → −1/2` instead of returning an
+  unevaluated `nan` from the destroyed `log(x+1) − log(x)` cancellation.
+- **Regression tests:** `tests/calculus/series_limit_test.cpp`
+  — `LIMIT-ROBUST-1`; `tests/core/arithmetic_test.cpp` — `POW-OVERFLOW-GUARD`.
+- **Scope / still open (deep, left untouched):**
+  - `factor(x**100-1)` (and `x**30-1`, `x**60-1`, …) does not terminate in a
+    reasonable time — the cyclotomic factorization blows up super-linearly for
+    degrees with many divisors (`x**40-1` is fast, `x**50-1` takes ~27 s). No
+    crash, just very slow; needs a proper cyclotomic-factor algorithm.
+  - `limit(gamma(x+1)/gamma(x+1/2), x, oo)` returns `nan`; SymPy gives `oo`.
+    The gamma-ratio asymptotic only handles balanced (slope-cancelling) ratios;
+    an unbalanced ratio is deferred. `nan` is an honest unevaluated marker, not
+    a crash.
+
 ### FUNC-HARMONIC-DIFF-1 — harmonic-number derivative was left unevaluated
 - **Problem:** `diff(harmonic(x), x)` returned an unevaluated `Derivative`, even though the derivative has a
   closed form SymPP can represent.

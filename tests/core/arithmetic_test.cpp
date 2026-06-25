@@ -148,6 +148,31 @@ TEST_CASE("pow: Integer^negative-Integer becomes Rational", "[1][pow]") {
     REQUIRE(e->str() == "1/8");
 }
 
+// POW-OVERFLOW-GUARD: an astronomically large exact integer/rational power
+// (e.g. 2^(10^10) or (1000001/1000000)^(10^12)) used to be materialized
+// eagerly, overflowing GMP's mpz size limit and raising a hardware SIGFPE that
+// crashed the process. number_pow now caps the materialized result size and
+// leaves the power symbolic (a Pow node) instead of crashing. Small exact
+// powers must still fold to a Number as before.
+TEST_CASE("pow: huge exact power stays symbolic, no SIGFPE (POW-OVERFLOW-GUARD)",
+          "[1][pow][regression]") {
+    // Integer base, gigantic exponent — must not crash, must stay symbolic.
+    auto a = pow(integer(2), pow(integer(10), integer(10)));  // 2^(10^10)
+    REQUIRE(a->type_id() == TypeId::Pow);
+
+    // Rational base near 1, gigantic exponent — the limit-path SIGFPE trigger.
+    auto base = pow(integer(1000000), integer(-1));            // 1/1000000
+    auto frac = mul(integer(1000001), base);                   // 1000001/1000000
+    auto b = pow(frac, pow(integer(10), integer(12)));         // ^(10^12)
+    REQUIRE(b->type_id() == TypeId::Pow);
+
+    // Within-cap exact powers still fold to a concrete Number.
+    REQUIRE(pow(integer(2), integer(64))->type_id() == TypeId::Integer);
+    REQUIRE(pow(integer(2), integer(64))->str()
+            == "18446744073709551616");
+    REQUIRE(pow(rational(3, 2), integer(5))->str() == "243/32");
+}
+
 // Regression (POW-RAT): a^(p/q) of a perfect q-th power folds to an exact
 // value — 8^(2/3)=4, not just the 1/q roots. A non-exact root stays symbolic.
 TEST_CASE("pow: perfect rational power a^(p/q)", "[1][pow][regression]") {

@@ -2997,6 +2997,25 @@ struct Growth {
     if (f->type_id() == TypeId::Pow) {
         const Expr& base = f->args()[0];
         const Expr& e = f->args()[1];
+        // A rational base that tends to a finite nonzero constant (e.g.
+        // (x+1)/x → 1) carries the whole exponentiated factor's asymptotics in
+        // the *subleading* correction. Splitting its log into log(x+1)−log(x)
+        // destroys that cancellation and the e·log difference becomes an
+        // unresolved ∞−∞. apart() rewrites it as 1 + 1/x, whose log the
+        // asymptotic-series machinery expands as 1/x − 1/(2x²) + …, so e·log(…)
+        // (e.g. x²·log(1+1/x) − x → −1/2) resolves. Keep that log unexpanded.
+        if ((base->type_id() == TypeId::Mul || base->type_id() == TypeId::Pow)
+            && has(base, var)) {
+            Expr ap = apart(base, var);
+            if (ap->type_id() == TypeId::Add && !(ap == base)) {
+                Expr Lb = limit_impl(ap, var, S::Infinity(), depth + 1);
+                if (Lb->type_id() != TypeId::NaN
+                    && Lb->type_id() != TypeId::Infinity
+                    && is_positive(Lb) == std::optional<bool>{true}) {
+                    return mul(e, log(ap));
+                }
+            }
+        }
         std::optional<Expr> lb = expand_log_positive(base, var, depth + 1);
         if (!lb) {
             if (!sample_positive_inf(base, var)) return std::nullopt;

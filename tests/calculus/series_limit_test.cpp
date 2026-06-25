@@ -3940,3 +3940,63 @@ TEST_CASE("limit: product times a unit exponential difference (LIMIT-EXPUNITDIFF
     REQUIRE(limit(add(exp(add(x, emx)), mul(S::NegativeOne(), exp(x))), x, oo)
             == S::One());
 }
+
+// LIMIT-ROBUST-1: limit of a nested rational-base power times an exponential at
+// +∞, e.g. ((x+1)/x)^(x²)·e^{±x}. The log-exp reduction substitutes a large
+// sample into the factor to certify positivity; that sample turned the rational
+// base into (1000001/1000000)^(10^12), an exact rational power whose
+// materialization overflowed GMP's mpz and raised a hardware SIGFPE — crashing
+// the whole process. number_pow now caps the exact-power result size and defers
+// (keeps it symbolic / float) instead of overflowing, so the limit completes.
+// The base is additionally normalized with apart ((x+1)/x → 1 + 1/x) so the
+// asymptotic series resolves the value rather than returning nan.
+//   ((x+1)/x)^(x²)·e^{−x} → e^{−1/2},  ((x+1)/x)^(x²)·e^{x} → ∞.
+// Values cross-checked against SymPy.
+TEST_CASE("limit: no SIGFPE on nested power-times-exp (LIMIT-ROBUST-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto one = integer(1);
+    auto inv = [](const Expr& e) { return pow(e, S::NegativeOne()); };
+
+    // The kernel that crashed: ((x+1)/x)^(x²) — must complete without SIGFPE.
+    Expr base = mul(add(x, one), inv(x));
+    Expr kernel = pow(base, pow(x, integer(2)));
+
+    // e^{−x} variant → exp(−1/2).
+    REQUIRE(oracle.equivalent(
+        limit(mul(kernel, exp(mul(S::NegativeOne(), x))), x, oo)->str(),
+        "exp(-1/2)"));
+    // e^{x} variant → ∞.
+    REQUIRE(limit(mul(kernel, exp(x)), x, oo) == oo);
+
+    // Siblings of the same family (apart-normalized rational bases), all
+    // cross-checked against SymPy.
+    //   ((x−1)/x)^(x²)·e^{x} → exp(−1/2).
+    Expr base_m = mul(add(x, integer(-1)), inv(x));
+    REQUIRE(oracle.equivalent(
+        limit(mul(pow(base_m, pow(x, integer(2))), exp(x)), x, oo)->str(),
+        "exp(-1/2)"));
+    //   ((x+2)/(x+1))^(x²)·e^{−x} → exp(−3/2).
+    Expr base_2 = mul(add(x, integer(2)), inv(add(x, one)));
+    REQUIRE(oracle.equivalent(
+        limit(mul(pow(base_2, pow(x, integer(2))),
+                  exp(mul(S::NegativeOne(), x))),
+              x, oo)
+            ->str(),
+        "exp(-3/2)"));
+    //   (1+2/x)^(x²)·e^{−2x} → exp(−2).
+    Expr base_3 = add(one, mul(integer(2), inv(x)));
+    REQUIRE(oracle.equivalent(
+        limit(mul(pow(base_3, pow(x, integer(2))),
+                  exp(mul(integer(-2), x))),
+              x, oo)
+            ->str(),
+        "exp(-2)"));
+
+    // Pure exact-power overflow guard: a large finite exact power stays
+    // unevaluated (symbolic) instead of crashing the process.
+    Expr big = pow(mul(integer(3), inv(integer(2))), integer(100000000));
+    REQUIRE(big);  // (3/2)^(10^8) — no SIGFPE building it
+}
