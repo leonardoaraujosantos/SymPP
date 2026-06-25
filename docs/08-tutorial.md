@@ -400,8 +400,11 @@ std::cout << latex(e)        << "\n";  // x^{2} + \sin(x) \cdot y
 std::cout << octave_code(e)  << "\n";  // x.^2 + sin(x).*y
 std::cout << rust_code(e)    << "\n";  // x.powi(2) + x.sin()*y
 std::cout << julia_code(e)   << "\n";  // x^2 + sin(x)*y
+std::cout << glsl_code(e)    << "\n";  // pow(x, 2.0) + sin(x)*y  (float literals)
 std::cout << mathml(e)       << "\n";  // <math>...<msup><mi>x</mi>...
 std::cout << pretty(e)       << "\n";  // x**2 + sin(x)*y
+std::cout << dot(e)          << "\n";  // digraph { ... } expression tree
+std::cout << srepr(e)        << "\n";  // Add(Mul(...), Pow(Symbol('x'), Integer(2)))
 
 // Greek symbol auto-mapping in LaTeX
 std::cout << latex(symbol("alpha")) << "\n";    // \alpha

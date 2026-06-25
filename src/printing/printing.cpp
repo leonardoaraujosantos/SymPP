@@ -573,6 +573,81 @@ protected:
     }
 };
 
+// ---- GLSL printer ----
+// GLSL ES has no double: every numeric literal is a float (n.0), powers use
+// pow(b, e) with a float exponent, ^(1/2) → sqrt, ^(-1/2) → inversesqrt.
+// PI / E are emitted as named float constants the caller is expected to
+// #define (PI = 3.141592653589793, E = 2.718281828459045).
+class GlslPrinter final : public CodePrinter {
+protected:
+    std::string func_name(FunctionId id) const override {
+        static const std::map<FunctionId, std::string> table = {
+            {FunctionId::Sin, "sin"}, {FunctionId::Cos, "cos"},
+            {FunctionId::Tan, "tan"}, {FunctionId::Asin, "asin"},
+            {FunctionId::Acos, "acos"}, {FunctionId::Atan, "atan"},
+            {FunctionId::Atan2, "atan"},
+            {FunctionId::Sinh, "sinh"}, {FunctionId::Cosh, "cosh"},
+            {FunctionId::Tanh, "tanh"},
+            {FunctionId::Exp, "exp"}, {FunctionId::Log, "log"},
+            {FunctionId::Abs, "abs"}, {FunctionId::Sign, "sign"},
+            {FunctionId::Floor, "floor"}, {FunctionId::Ceiling, "ceil"},
+        };
+        auto it = table.find(id);
+        return it != table.end() ? it->second : "";
+    }
+    std::string format_pow(const std::string& base,
+                            const std::string& exp) const override {
+        return "pow(" + base + ", " + exp + ")";
+    }
+    std::string format_pi() const override { return "PI"; }
+    std::string format_e() const override { return "E"; }
+    std::string format_imaginary_unit() const override {
+        // GLSL has no complex type; emit a vec2(real, imag) convention.
+        return "vec2(0.0, 1.0)";
+    }
+    std::string format_integer(const std::string& s) const override {
+        return s + ".0";
+    }
+    std::string format_rational(const std::string& num,
+                                 const std::string& den) const override {
+        return num + ".0/" + den + ".0";
+    }
+
+    std::string walk(const Expr& e, Prec parent) override {
+        if (e && e->type_id() == TypeId::Pow) {
+            const auto& exp_e = e->args()[1];
+            if (exp_e->type_id() == TypeId::Rational) {
+                const auto& q = static_cast<const Rational&>(*exp_e);
+                // ^(1/2) → sqrt, ^(-1/2) → inversesqrt.
+                if (q.numerator() == 1 && q.denominator() == 2) {
+                    return "sqrt(" + walk(e->args()[0], Prec::None) + ")";
+                }
+                if (q.numerator() == -1 && q.denominator() == 2) {
+                    return "inversesqrt(" + walk(e->args()[0], Prec::None) + ")";
+                }
+            }
+            // Negative integer power → 1.0/pow(base, |n|.0).
+            if (exp_e->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*exp_e);
+                if (z.value() < 0) {
+                    mpz_class abs_exp = -z.value();
+                    std::string base_s = walk(e->args()[0], Prec::Pow);
+                    std::string den = (abs_exp == 1)
+                        ? base_s
+                        : format_pow(base_s, abs_exp.get_str() + ".0");
+                    std::string out = "1.0/" + den;
+                    if (parent > Prec::Mul) out = "(" + out + ")";
+                    return out;
+                }
+                // Positive integer power → pow(base, n.0) (float exponent).
+                std::string base_s = walk(e->args()[0], Prec::Pow);
+                return format_pow(base_s, z.value().get_str() + ".0");
+            }
+        }
+        return CodePrinter::walk(e, parent);
+    }
+};
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -1035,6 +1110,138 @@ Block render2d(const Expr& e) {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// srepr — SymPy's constructor form. Each node prints as Head(arg, arg, ...)
+// where Head is the SymPy class name (Add/Mul/Pow/Integer/Rational/Symbol/
+// function name). Argument order follows SymPp's canonical ordering, which
+// coincides with SymPy's srepr for the constructs cross-checked in the tests.
+// ---------------------------------------------------------------------------
+namespace {
+
+[[nodiscard]] std::string srepr_walk(const Expr& e) {
+    if (!e) return "Integer(0)";
+    switch (e->type_id()) {
+        case TypeId::Integer:
+            return "Integer(" + static_cast<const Integer&>(*e).value().get_str()
+                   + ")";
+        case TypeId::Rational: {
+            const auto& q = static_cast<const Rational&>(*e);
+            return "Rational(" + q.numerator().get_str() + ", "
+                   + q.denominator().get_str() + ")";
+        }
+        case TypeId::Float:
+            return "Float('" + static_cast<const Float&>(*e).str() + "')";
+        case TypeId::NumberSymbol: {
+            const auto& sym = static_cast<const NumberSymbol&>(*e);
+            switch (sym.kind()) {
+                case NumberSymbolKind::Pi: return "pi";
+                case NumberSymbolKind::E:  return "E";
+                default: return e->str();
+            }
+        }
+        case TypeId::ImaginaryUnit:
+            return "I";
+        case TypeId::Symbol:
+            return "Symbol('" + e->str() + "')";
+        case TypeId::Add:
+        case TypeId::Mul:
+        case TypeId::Pow: {
+            const char* head = e->type_id() == TypeId::Add ? "Add"
+                             : e->type_id() == TypeId::Mul ? "Mul" : "Pow";
+            std::string out = std::string(head) + "(";
+            const auto& args = e->args();
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                if (i > 0) out += ", ";
+                out += srepr_walk(args[i]);
+            }
+            return out + ")";
+        }
+        case TypeId::Function: {
+            const auto& fn = static_cast<const Function&>(*e);
+            std::string out = std::string(fn.name()) + "(";
+            const auto& args = e->args();
+            for (std::size_t i = 0; i < args.size(); ++i) {
+                if (i > 0) out += ", ";
+                out += srepr_walk(args[i]);
+            }
+            return out + ")";
+        }
+        default:
+            return e->str();
+    }
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// dot — Graphviz DOT digraph of the expression tree. One node per
+// subexpression (label = the head: Add/Mul/Pow/Symbol(x)/Integer(2)/function
+// name), directed parent->child edges. Node ids come from a depth-first
+// counter so the output is deterministic.
+// ---------------------------------------------------------------------------
+namespace {
+
+[[nodiscard]] std::string dot_label(const Expr& e) {
+    switch (e->type_id()) {
+        case TypeId::Integer:
+            return "Integer(" + static_cast<const Integer&>(*e).value().get_str()
+                   + ")";
+        case TypeId::Rational: {
+            const auto& q = static_cast<const Rational&>(*e);
+            return "Rational(" + q.numerator().get_str() + ", "
+                   + q.denominator().get_str() + ")";
+        }
+        case TypeId::Float:
+            return "Float(" + static_cast<const Float&>(*e).str() + ")";
+        case TypeId::NumberSymbol: {
+            const auto& sym = static_cast<const NumberSymbol&>(*e);
+            switch (sym.kind()) {
+                case NumberSymbolKind::Pi: return "pi";
+                case NumberSymbolKind::E:  return "E";
+                default: return e->str();
+            }
+        }
+        case TypeId::ImaginaryUnit: return "I";
+        case TypeId::Symbol:        return "Symbol(" + e->str() + ")";
+        case TypeId::Add:           return "Add";
+        case TypeId::Mul:           return "Mul";
+        case TypeId::Pow:           return "Pow";
+        case TypeId::Function:
+            return std::string(static_cast<const Function&>(*e).name());
+        default:                    return e->str();
+    }
+}
+
+class DotPrinter {
+public:
+    [[nodiscard]] std::string print(const Expr& e) {
+        std::string body;
+        walk(e, body);
+        return "digraph {\n" + body + "}\n";
+    }
+
+private:
+    int counter_ = 0;
+
+    // Emits the node declaration for e and edges to its children; returns the
+    // unique id assigned to e.
+    int walk(const Expr& e, std::string& body) {
+        int id = counter_++;
+        body += "    node" + std::to_string(id) + " [label=\""
+                + dot_label(e) + "\"];\n";
+        if (e) {
+            for (const auto& a : e->args()) {
+                int child = walk(a, body);
+                body += "    node" + std::to_string(id) + " -> node"
+                        + std::to_string(child) + ";\n";
+            }
+        }
+        return id;
+    }
+};
+
+}  // namespace
+
 // --- Public entry points ---
 
 std::string ccode(const Expr& e) { CPrinter p; return p.print(e); }
@@ -1044,8 +1251,11 @@ std::string latex(const Expr& e) { LatexPrinter p; return p.print(e); }
 std::string octave_code(const Expr& e) { OctavePrinter p; return p.print(e); }
 std::string rust_code(const Expr& e) { RustPrinter p; return p.print(e); }
 std::string julia_code(const Expr& e) { JuliaPrinter p; return p.print(e); }
+std::string glsl_code(const Expr& e) { GlslPrinter p; return p.print(e); }
 std::string mathml(const Expr& e) { MathMLPrinter p; return p.print(e); }
 std::string pretty(const Expr& e) { return render_pretty(e); }
+std::string dot(const Expr& e) { DotPrinter p; return p.print(e); }
+std::string srepr(const Expr& e) { return srepr_walk(e); }
 
 // --- Function emission ---
 

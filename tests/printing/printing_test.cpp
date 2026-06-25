@@ -1,6 +1,9 @@
 // Phase 13 — printing/codegen tests.
 
+#include <string>
+
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <sympp/core/integer.hpp>
 #include <sympp/core/operators.hpp>
@@ -12,6 +15,8 @@
 #include <sympp/functions/miscellaneous.hpp>
 #include <sympp/functions/trigonometric.hpp>
 #include <sympp/printing/printing.hpp>
+
+#include "oracle/oracle.hpp"
 
 using namespace sympp;
 using namespace sympp::printing;
@@ -358,4 +363,127 @@ TEST_CASE("c_function: multiple args", "[13][c_function]") {
     auto body = x * y + sin(x);
     auto out = c_function("foo", body, {x, y});
     REQUIRE(out.find("double foo(double x, double y)") != std::string::npos);
+}
+
+// ----- glsl_code ------------------------------------------------------------
+
+TEST_CASE("glsl: x^3 → pow with float exponent", "[13][glsl]") {
+    auto x = symbol("x");
+    REQUIRE(glsl_code(pow(x, integer(3))) == "pow(x, 3.0)");
+}
+
+TEST_CASE("glsl: sqrt(x)", "[13][glsl]") {
+    auto x = symbol("x");
+    REQUIRE(glsl_code(sqrt(x)) == "sqrt(x)");
+}
+
+TEST_CASE("glsl: ^(-1/2) → inversesqrt", "[13][glsl]") {
+    auto x = symbol("x");
+    REQUIRE(glsl_code(pow(x, rational(-1, 2))) == "inversesqrt(x)");
+}
+
+TEST_CASE("glsl: sin / exp are function calls", "[13][glsl]") {
+    auto x = symbol("x");
+    REQUIRE(glsl_code(sin(x)) == "sin(x)");
+    REQUIRE(glsl_code(exp(x)) == "exp(x)");
+}
+
+TEST_CASE("glsl: pi and e use named float constants", "[13][glsl]") {
+    REQUIRE(glsl_code(S::Pi()) == "PI");
+    REQUIRE(glsl_code(S::E()) == "E");
+}
+
+TEST_CASE("glsl: integer and rational literals are floats", "[13][glsl]") {
+    REQUIRE(glsl_code(integer(2)) == "2.0");
+    REQUIRE(glsl_code(rational(2, 3)) == "2.0/3.0");
+}
+
+TEST_CASE("glsl: 1/(1+x^2) uses division", "[13][glsl]") {
+    auto x = symbol("x");
+    auto e = integer(1) / (integer(1) + pow(x, integer(2)));
+    REQUIRE(glsl_code(e) == "1.0/(pow(x, 2.0) + 1.0)");
+}
+
+TEST_CASE("glsl: exp(-x^2/2)*sin(2*pi*x)", "[13][glsl]") {
+    auto x = symbol("x");
+    auto e = exp(rational(-1, 2) * pow(x, integer(2)))
+             * sin(integer(2) * S::Pi() * x);
+    REQUIRE(glsl_code(e) == "exp(-1.0/2.0*pow(x, 2.0))*sin(2.0*x*PI)");
+}
+
+// ----- dot ------------------------------------------------------------------
+
+TEST_CASE("dot: emits a digraph wrapper", "[13][dot]") {
+    auto x = symbol("x");
+    auto out = dot(x);
+    REQUIRE(out.find("digraph {") != std::string::npos);
+    REQUIRE(out.find("label=\"Symbol(x)\"") != std::string::npos);
+}
+
+TEST_CASE("dot: 2*x node labels and edge count", "[13][dot]") {
+    auto x = symbol("x");
+    auto out = dot(integer(2) * x);
+    // Three nodes: Mul (root), Integer(2), Symbol(x).
+    REQUIRE(out.find("label=\"Mul\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Integer(2)\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Symbol(x)\"") != std::string::npos);
+    // Two directed edges (root -> each child).
+    std::size_t edges = 0;
+    for (std::size_t p = out.find(" -> "); p != std::string::npos;
+         p = out.find(" -> ", p + 1)) {
+        ++edges;
+    }
+    REQUIRE(edges == 2);
+    // Deterministic: same expression prints identically.
+    REQUIRE(dot(integer(2) * x) == out);
+}
+
+TEST_CASE("dot: x^2 + 1 tree", "[13][dot]") {
+    auto x = symbol("x");
+    auto out = dot(pow(x, integer(2)) + integer(1));
+    REQUIRE(out.find("label=\"Add\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Pow\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Symbol(x)\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Integer(2)\"") != std::string::npos);
+    REQUIRE(out.find("label=\"Integer(1)\"") != std::string::npos);
+    // Edges: Add->Pow, Pow->x, Pow->2, Add->1  = 4.
+    std::size_t edges = 0;
+    for (std::size_t p = out.find(" -> "); p != std::string::npos;
+         p = out.find(" -> ", p + 1)) {
+        ++edges;
+    }
+    REQUIRE(edges == 4);
+}
+
+// ----- srepr ----------------------------------------------------------------
+
+TEST_CASE("srepr: cross-checked against SymPy", "[13][srepr][oracle]") {
+    auto& oracle = sympp::testing::Oracle::instance();
+    auto x = symbol("x");
+    auto y = symbol("y");
+
+    // (SymPP expr, SymPy sympify string) — chosen so arg ordering coincides.
+    REQUIRE(srepr(x + integer(1)) == oracle.srepr("x+1"));
+    REQUIRE(srepr(pow(x, integer(2))) == oracle.srepr("x**2"));
+    REQUIRE(srepr(integer(2) * x * y) == oracle.srepr("2*x*y"));
+    REQUIRE(srepr(rational(2, 3)) == oracle.srepr("Rational(2,3)"));
+    REQUIRE(srepr(sin(x)) == oracle.srepr("sin(x)"));
+}
+
+TEST_CASE("srepr: structural forms", "[13][srepr]") {
+    auto x = symbol("x");
+    REQUIRE(srepr(x + integer(1)) == "Add(Symbol('x'), Integer(1))");
+    REQUIRE(srepr(pow(x, integer(2))) == "Pow(Symbol('x'), Integer(2))");
+    REQUIRE(srepr(rational(2, 3)) == "Rational(2, 3)");
+    REQUIRE(srepr(sin(x)) == "sin(Symbol('x'))");
+    REQUIRE(srepr(S::Pi()) == "pi");
+    REQUIRE(srepr(S::E()) == "E");
+    // 1/(1+x^2) → reciprocal power of a sum.
+    REQUIRE(srepr(integer(1) / (integer(1) + pow(x, integer(2))))
+            == "Pow(Add(Pow(Symbol('x'), Integer(2)), Integer(1)), Integer(-1))");
+    // NOTE: SymPP's canonical Mul ordering places Symbol before the pi
+    // NumberSymbol, whereas SymPy's srepr is Mul(Integer(2), pi, Symbol('x')).
+    // The set of factors is identical; we assert SymPP's own stable form.
+    REQUIRE(srepr(integer(2) * S::Pi() * x)
+            == "Mul(Integer(2), Symbol('x'), pi)");
 }

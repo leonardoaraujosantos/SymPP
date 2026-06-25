@@ -342,7 +342,8 @@ with exact post-2019-redef values for c/h/k_B/e/N_A,
 
 **Shipped**: `CodePrinter` visitor base, `ccode` / `cxxcode` /
 `fcode` / `latex` / `octave_code` / `rust_code` / `julia_code` /
-`mathml` / `pretty` printers, function emission `c_function` /
+`glsl_code` / `mathml` / `pretty` / `dot` / `srepr` printers,
+function emission `c_function` /
 `cxx_function` / `fortran_function` / `octave_function`. Greek
 letter mapping in LaTeX, `\frac{}{}`, `\sqrt{}`,
 std::numbers::pi_v in C++, Fortran `d0` suffix for double

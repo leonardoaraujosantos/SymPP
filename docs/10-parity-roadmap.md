@@ -11,7 +11,8 @@ demand with cost.
 
 ## Recently shipped (this line of work)
 
-- **Extra code printers** — `rust_code`, `julia_code`, and Presentation `mathml`
+- **Extra code printers** — `rust_code`, `julia_code`, `glsl_code`, `dot`,
+  `srepr`, and Presentation `mathml`
   join the existing C/C++/Fortran/LaTeX/Octave set (`.powi/.powf/.sqrt`
   method-call form + `f64::consts` for Rust, `^`/`MathConstants.e` for Julia,
   `<msup>/<mfrac>/<msqrt>` MathML), each with exact-string regression tests.
@@ -185,7 +186,7 @@ gains.
 | ✅ LaTeX parser (round-trip) | `parsing.latex` | — | shipped (`parsing/latex_parser.hpp`) |
 | ✅ Discrete (FFT/NTT/convolution/Möbius) | `discrete` | — | shipped (`discrete/discrete.hpp`) |
 | ✅ DomainMatrix (fraction-free ℤ/ℚ matrices) | `polys.matrices` | — | shipped (`polys/domain_matrix.hpp`; Bareiss det, rank, rref) |
-| 🟡 Extra printers (MathML / Rust / Julia) | `sympy.printing` | — | shipped: `rust_code`, `julia_code`, Presentation `mathml` join the C/C++/Fortran/LaTeX/Octave set (Phase 13). Remaining printers: GLSL, dot, repr |
+| ✅ Extra printers (MathML / Rust / Julia / GLSL / dot / srepr) | `sympy.printing` | — | shipped: `rust_code`, `julia_code`, `glsl_code`, `dot`, `srepr`, Presentation `mathml` join the C/C++/Fortran/LaTeX/Octave set (Phase 13) |
 | Holonomic fns, algebraic number fields, Galois tools, quaternions, NDim arrays, unification, codegen AST/autowrap | various | ~12 wk | Low | |
 
 ---

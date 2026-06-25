@@ -10,8 +10,11 @@
 //   * octave_code(expr) — MATLAB / Octave (element-wise operators)
 //   * rust_code(expr)  — Rust (f64 literals, .powi/.powf, method-call funcs)
 //   * julia_code(expr) — Julia (^ for power, pi, MathConstants.e)
+//   * glsl_code(expr)  — GLSL shader (float literals, pow/sqrt, PI/E)
 //   * mathml(expr)     — Presentation MathML (<math>, <msup>, <mfrac>, ...)
 //   * pretty(expr)     — ASCII 2D pretty form
+//   * dot(expr)        — Graphviz DOT digraph of the expression tree
+//   * srepr(expr)      — SymPy constructor form (Add(...), Pow(...), ...)
 //
 // Plus higher-level function emission:
 //   c_function(name, expr, args)   — wrap as a C function
@@ -38,8 +41,17 @@ namespace sympp::printing {
 [[nodiscard]] SYMPP_EXPORT std::string octave_code(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string rust_code(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string julia_code(const Expr& e);
+[[nodiscard]] SYMPP_EXPORT std::string glsl_code(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string mathml(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string pretty(const Expr& e);
+
+// Graphviz DOT digraph of the expression tree (one node per subexpression,
+// directed parent->child edges). Deterministic output.
+[[nodiscard]] SYMPP_EXPORT std::string dot(const Expr& e);
+
+// SymPy's srepr: the constructor form, e.g. srepr(x+1) yields
+// "Add(Symbol('x'), Integer(1))".
+[[nodiscard]] SYMPP_EXPORT std::string srepr(const Expr& e);
 
 // --- Function emission ---
 // args is the parameter list (each arg should be a Symbol Expr).
