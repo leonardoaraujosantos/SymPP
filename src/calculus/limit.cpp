@@ -920,6 +920,68 @@ struct NumDen { Expr num; Expr den; };
     return xreplace(e, m);
 }
 
+// Split a power's exponent e into (coeff, kernel) where coeff is a leading
+// numeric factor and kernel is the rest (e = coeff·kernel). A bare numeric
+// exponent has kernel 1. Used to group factors b₁^(c₁·k)·b₂^(c₂·k) sharing a
+// common var-dependent kernel k.
+struct ExpSplit { Expr coeff; Expr kernel; };
+[[nodiscard]] ExpSplit split_exponent(const Expr& e) {
+    if (is_number(e)) return {e, S::One()};
+    if (e->type_id() == TypeId::Mul) {
+        Expr coeff = S::One();
+        std::vector<Expr> rest;
+        for (const auto& f : e->args()) {
+            if (is_number(f)) coeff = mul(coeff, f);
+            else rest.push_back(f);
+        }
+        if (rest.empty()) return {coeff, S::One()};
+        return {coeff, rest.size() == 1 ? rest[0] : mul(std::move(rest))};
+    }
+    return {S::One(), e};
+}
+
+// Combine product factors that share a common var-dependent exponent kernel:
+//   b₁^(c₁·k) · b₂^(c₂·k)  →  (b₁^c₁ · b₂^c₂)^k.
+// This turns an unresolved Mul of competing ∞^∞ powers — e.g. xˣ·(x+1)⁻ˣ — into
+// a single power (x/(x+1))ˣ that the 1^∞ power-form path resolves directly,
+// instead of spinning the L'Hôpital / dominant-term search to the call budget.
+// Only fires when two or more powers share a kernel that depends on var (so the
+// rewrite is targeted at the genuinely indeterminate ∞^∞ products).
+[[nodiscard]] Expr combine_common_exponent_powers(const Expr& e,
+                                                  const Expr& var) {
+    if (e->type_id() != TypeId::Mul) return e;
+    std::vector<Expr> others;          // factors that are not var-exponent powers
+    std::vector<std::pair<Expr, std::vector<Expr>>> groups;  // kernel → bases^coeff
+    bool combined = false;
+    for (const auto& f : e->args()) {
+        if (f->type_id() == TypeId::Pow && has(f->args()[1], var)) {
+            ExpSplit s = split_exponent(f->args()[1]);
+            if (has(s.kernel, var)) {
+                Expr based = pow(f->args()[0], s.coeff);
+                bool placed = false;
+                for (auto& g : groups) {
+                    if (g.first == s.kernel) {
+                        g.second.push_back(std::move(based));
+                        placed = true;
+                        combined = true;
+                        break;
+                    }
+                }
+                if (!placed) groups.push_back({s.kernel, {std::move(based)}});
+                continue;
+            }
+        }
+        others.push_back(f);
+    }
+    if (!combined) return e;
+    std::vector<Expr> factors = std::move(others);
+    for (auto& g : groups) {
+        Expr base = g.second.size() == 1 ? g.second[0] : mul(std::move(g.second));
+        factors.push_back(pow(base, g.first));
+    }
+    return factors.size() == 1 ? factors[0] : mul(std::move(factors));
+}
+
 // Number of gamma/factorial applications anywhere in e.
 [[nodiscard]] int count_gamma_factorial(const Expr& e) {
     int n = 0;
@@ -3797,6 +3859,13 @@ Expr limit_impl_core(const Expr& expr, const Expr& var, const Expr& target,
     if (depth < 14) {
         Expr fe = flatten_exp_powers(expr);
         if (!(fe == expr)) return limit_impl(fe, var, target, depth + 1);
+    }
+    // Merge competing ∞^∞ powers that share a var-dependent exponent kernel into
+    // one power of the product of their bases (xˣ·(x+1)⁻ˣ → (x/(x+1))ˣ), routing
+    // them into the 1^∞ power-form path instead of an unbounded L'Hôpital search.
+    if (depth < 14 && is_infinity(target)) {
+        Expr ce = combine_common_exponent_powers(expr, var);
+        if (!(ce == expr)) return limit_impl(ce, var, target, depth + 1);
     }
     // Reciprocal trig/hyperbolic functions are opaque to the limit machinery;
     // rewrite them as sin/cos ratios (cot x → cos x/sin x, …) and retry, so

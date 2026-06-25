@@ -307,6 +307,53 @@ TEST_CASE("limit: (1 + 2/x)^x at oo → exp(2)",
     REQUIRE(oracle.equivalent(v->str(), "exp(2)"));
 }
 
+// LIMIT-MRV-TOWER-1: products of competing ∞^∞ powers that share a var-dependent
+// exponent kernel — xˣ / (x+1)ˣ and friends. Written as a Mul of two separate
+// powers (rather than a single combined-base power), these used to fall through
+// the 1^∞ power-form path and spin the L'Hôpital / dominant-term search to the
+// call budget (hang). The engine now merges b₁^(c·k)·b₂^(c·k) → (b₁·b₂^…)^k up
+// front, routing them into the working power-form machinery. Each value is
+// cross-checked against SymPy.
+TEST_CASE("limit: comparability tower values (LIMIT-MRV-TOWER-1)",
+          "[6][limit][infinity][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+    auto one = integer(1);
+    auto inv = [](const Expr& e) { return pow(e, S::NegativeOne()); };
+
+    // xˣ / (x+1)ˣ = (x/(x+1))ˣ → e⁻¹.
+    REQUIRE(oracle.equivalent(
+        limit(pow(x, x) * inv(pow(x + one, x)), x, oo)->str(), "exp(-1)"));
+    // (x+1)ˣ / xˣ = ((x+1)/x)ˣ → e.
+    REQUIRE(oracle.equivalent(
+        limit(pow(x + one, x) * inv(pow(x, x)), x, oo)->str(), "E"));
+    // (x−1)ˣ / xˣ → e⁻¹.
+    REQUIRE(oracle.equivalent(
+        limit(pow(x + integer(-1), x) * inv(pow(x, x)), x, oo)->str(),
+        "exp(-1)"));
+    // (x+2)ˣ / (x+1)ˣ → e (a shifted pair, still e by the unit gap).
+    REQUIRE(oracle.equivalent(
+        limit(pow(x + integer(2), x) * inv(pow(x + one, x)), x, oo)->str(),
+        "E"));
+    // Doubled exponent kernel: x^(2x) / (x+1)^(2x) → e⁻².
+    REQUIRE(oracle.equivalent(
+        limit(pow(x, integer(2) * x) * inv(pow(x + one, integer(2) * x)), x, oo)
+            ->str(),
+        "exp(-2)"));
+    // Different leading coefficient on the base: (2x)ˣ / xˣ = 2ˣ → ∞.
+    REQUIRE(limit(pow(integer(2) * x, x) * inv(pow(x, x)), x, oo) == oo);
+    REQUIRE(limit(pow(x, x) * inv(pow(integer(2) * x, x)), x, oo)
+            == S::Zero());
+    // Quadratic bases a unit apart: (x²)ˣ / (x²+1)ˣ → 1.
+    REQUIRE(oracle.equivalent(
+        limit(pow(pow(x, integer(2)), x)
+                  * inv(pow(pow(x, integer(2)) + one, x)),
+              x, oo)
+            ->str(),
+        "1"));
+}
+
 // POLE-SIGN-1: at a finite pole, direct substitution yields zoo; resolve the
 // sign by sampling both sides. An even-order pole has matching signs on both
 // sides → ±oo (matching SymPy); an odd-order pole has opposite signs → the
