@@ -62,3 +62,4 @@ tests/matlab_regression/*/captured/
 # Claude Code session artifacts
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks.json
+parity-workspace/probe
