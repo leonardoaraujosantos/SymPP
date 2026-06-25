@@ -544,7 +544,7 @@ just examples     # build & run every example
 just example calculus_03_integration   # run one example
 just parity       # Tier 1 + Tier 2 acceptance probe (expects REMAINING=0)
 just bench        # build & run the benchmark harness
-just docs         # Doxygen API docs
+just docs         # Doxygen API docs (requires `doxygen`)
 just ci           # configure + build + full suite (the CI pipeline)
 just clean        # remove the build directory
 ```

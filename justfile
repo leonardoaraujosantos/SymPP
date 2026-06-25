@@ -107,8 +107,18 @@ bench:
 
 # Generate Doxygen API docs (output under build/docs/html; needs Doxygen).
 docs:
-    cmake -S . -B {{build_dir}} -DSYMPP_BUILD_DOCS=ON
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v doxygen >/dev/null 2>&1; then
+        echo "error: Doxygen not found — 'just docs' needs it to build the API docs."
+        echo "  install: apt-get install doxygen graphviz   # Debian/Ubuntu"
+        echo "           brew install doxygen graphviz       # macOS"
+        exit 1
+    fi
+    cmake -S . -B {{build_dir}} -DCMAKE_BUILD_TYPE={{build_type}} \
+        -DSYMPP_BUILD_TESTS=ON -DSYMPP_BUILD_EXAMPLES=ON -DSYMPP_BUILD_DOCS=ON
     cmake --build {{build_dir}} --target sympp_docs
+    echo "API docs generated at {{build_dir}}/docs/html/index.html"
 
 # Install the library + CMake package config to a prefix.
 install prefix="/usr/local": build
