@@ -1,6 +1,7 @@
 #include <sympp/polys/poly.hpp>
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <stdexcept>
 #include <string>
@@ -1198,6 +1199,48 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
 // Each candidate is accepted only when pp(r) expands to exactly zero, so a wrong
 // guess is never returned. This catches the textbook bivariate cubics whose
 // roots are simple monomials (x³−y³ has root y; x³+y·x²−x−y has roots ±1, −y).
+// Search for a root of `pp` (a polynomial in `var` with coefficients polynomial
+// in the variables `vars`) that is a LINEAR FORM r = a₀ + Σ cᵢ·vᵢ with small
+// integer coefficients aᵢ, cᵢ ∈ {−1, 0, 1}. This catches symmetric multivariate
+// factors such as x³ + y³ + z³ − 3xyz, whose root x = −(y+z) is a linear form in
+// {y, z} rather than a monomial. The search is bounded to coefficients in
+// {−1, 0, 1} over up to two variables (3³·3 ≈ 81 candidates), enough for the
+// symmetric cubic and similar textbook cases. A candidate is accepted only when
+// pp(r) expands to exactly zero, so a wrong guess is never returned.
+[[nodiscard]] static std::optional<Expr> find_linear_form_root(
+    const Poly& pp, const std::vector<Expr>& vars) {
+    if (pp.coeffs().size() < 2) return std::nullopt;
+    if (vars.empty() || vars.size() > 2) return std::nullopt;
+    const std::array<int, 3> choices{0, -1, 1};
+    // Enumerate constant term a₀ and one coefficient per variable.
+    for (int a0 : choices) {
+        std::vector<int> c(vars.size(), 0);
+        // Iterate the |choices|^|vars| grid of coefficient tuples.
+        long total = 1;
+        for (std::size_t i = 0; i < vars.size(); ++i) total *= 3;
+        for (long idx = 0; idx < total; ++idx) {
+            long t = idx;
+            bool all_zero = (a0 == 0);
+            for (std::size_t i = 0; i < vars.size(); ++i) {
+                c[i] = choices[static_cast<std::size_t>(t % 3)];
+                t /= 3;
+                if (c[i] != 0) all_zero = false;
+            }
+            if (all_zero) continue;  // r ≡ 0 is the trivial monomial case
+            std::vector<Expr> terms;
+            if (a0 != 0) terms.push_back(integer(a0));
+            for (std::size_t i = 0; i < vars.size(); ++i) {
+                if (c[i] == 0) continue;
+                terms.push_back(c[i] == 1 ? vars[i]
+                                          : mul(integer(c[i]), vars[i]));
+            }
+            Expr r = terms.size() == 1 ? terms[0] : add(std::move(terms));
+            if (expand(pp.eval(r)) == S::Zero()) return r;
+        }
+    }
+    return std::nullopt;
+}
+
 [[nodiscard]] static std::optional<Expr> find_bivariate_root(const Poly& pp,
                                                              const Expr& y) {
     const auto& cs = pp.coeffs();
@@ -1234,16 +1277,17 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
 }
 
 std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
-    // Restrict to bivariate: exactly one other free symbol y.
-    Expr y;
-    int others = 0;
+    // Collect the other free symbols. One other variable y enables the full
+    // bivariate path (content extraction + quadratic disc + monomial deflation);
+    // two enable the trivariate linear-form deflation (e.g. the symmetric cubic
+    // x³+y³+z³−3xyz, root x = −(y+z)). Beyond two we bail out.
+    std::vector<Expr> vars;
     for (const auto& s : free_symbols(expr)) {
-        if (!(s == var)) {
-            y = s;
-            ++others;
-        }
+        if (!(s == var)) vars.push_back(s);
     }
-    if (others != 1) return std::nullopt;
+    if (vars.empty() || vars.size() > 2) return std::nullopt;
+    const bool bivariate = (vars.size() == 1);
+    Expr y = bivariate ? vars[0] : Expr{};
 
     Expr ex = expand(expr);  // normalize so (x+1)²-style inputs parse as polynomials
     Poly f(ex, var);
@@ -1251,19 +1295,25 @@ std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
     const auto& cs = f.coeffs();
 
     // Content = gcd of the var-coefficients as polynomials in y; primitive part
-    // = the original with that content divided out of each coefficient.
-    Poly cont(cs[0], y);
-    for (std::size_t i = 1; i < cs.size(); ++i) cont = gcd(cont, Poly(cs[i], y));
-    Expr cont_e = cont.as_expr();
-    std::vector<Expr> ppc;
-    ppc.reserve(cs.size());
-    for (const auto& c : cs) ppc.push_back((Poly(c, y) / cont).as_expr());
+    // = the original with that content divided out of each coefficient. Content
+    // extraction needs a single other variable (univariate GCD); with two we
+    // treat the whole polynomial as already primitive.
+    Expr cont_e = S::One();
+    std::vector<Expr> ppc(cs.begin(), cs.end());
+    if (bivariate) {
+        Poly cont(cs[0], y);
+        for (std::size_t i = 1; i < cs.size(); ++i) cont = gcd(cont, Poly(cs[i], y));
+        cont_e = cont.as_expr();
+        ppc.clear();
+        ppc.reserve(cs.size());
+        for (const auto& c : cs) ppc.push_back((Poly(c, y) / cont).as_expr());
+    }
     Poly pp(ppc, var);
     Expr pp_e = pp.as_expr();
 
     // Factor the primitive part — currently the quadratic-in-var case.
     Expr pp_factored = pp_e;
-    if (f.degree() == 2) {
+    if (f.degree() == 2 && bivariate) {
         Expr a = ppc[2], b = ppc[1], c = ppc[0];
         Expr disc = expand(add(mul(b, b), mul(integer(-4), mul(a, c))));
         if (auto sopt = perfect_square_poly(disc, y)) {
@@ -1299,7 +1349,11 @@ std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
         // (var − r), and recurse on the (lower-degree) quotient. The linear
         // factor is denominator-cleared to (den·var − num) so it stays a
         // polynomial; the leftover numeric scale is folded into the quotient.
-        if (auto ropt = find_bivariate_root(pp, y)) {
+        // For a single other variable the root is sought among monomials ±(p/q)yᵏ;
+        // for two it is sought among small linear forms a₀+Σcᵢvᵢ.
+        std::optional<Expr> ropt = bivariate ? find_bivariate_root(pp, y)
+                                             : find_linear_form_root(pp, vars);
+        if (ropt) {
             NumerDenom nd = as_numer_denom(*ropt);
             Expr lin = expand(add(mul(nd.denom, var), mul(integer(-1), nd.numer)));
             mpq_class k = numeric_content(lin);

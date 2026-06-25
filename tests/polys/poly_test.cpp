@@ -1231,3 +1231,29 @@ TEST_CASE("factor: higher-degree bivariate (WANG-2)",
     Expr irr = P(x, 3) + x + y;  // x³ + x + y, irreducible over ℚ[y]
     REQUIRE(factor(irr, x)->str() == irr->str());
 }
+
+// WANG-3: trivariate symmetric cubic — the root of x³+y³+z³−3xyz in x is the
+// linear form x = −(y+z), not a monomial. factor() treats the input as a
+// univariate polynomial in x with coefficients in ℚ[y,z], searches candidate
+// roots that are small linear forms over {y,z}, deflates by (x − r), and
+// recurses on the irreducible quadratic quotient. Cross-checked against SymPy.
+TEST_CASE("factor: trivariate symmetric cubic (WANG-3)",
+          "[4][polys][factor][wang][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x"), y = symbol("y"), z = symbol("z");
+    auto P = [&](const Expr& b, int e) { return pow(b, integer(e)); };
+
+    // x³ + y³ + z³ − 3xyz → (x + y + z)(x² − xy − xz + y² − yz + z²)
+    Expr e = add({P(x, 3), P(y, 3), P(z, 3),
+                  mul(integer(-3), mul(x, mul(y, z)))});
+    Expr f = factor(e, x);
+    REQUIRE(oracle.equivalent(f->str(), e->str()));  // expands back to input
+    REQUIRE(oracle.equivalent(
+        f->str(),
+        "(x + y + z)*(x**2 - x*y - x*z + y**2 - y*z + z**2)"));  // SymPy form
+    REQUIRE(f->str() != e->str());                               // actually factored
+
+    // A trivariate cubic with no small linear-form root in x stays put.
+    Expr irr = add({P(x, 3), x, y, z});  // x³ + x + y + z
+    REQUIRE(factor(irr, x)->str() == irr->str());
+}
