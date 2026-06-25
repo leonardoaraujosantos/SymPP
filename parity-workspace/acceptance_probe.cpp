@@ -164,11 +164,28 @@ int main(){
   expr_is("e^x(e^(1/x)-1)->oo", limit(mul(exp(x),add({exp(P(x,-1)),I(-1)})),x,oo), "oo");
   expr_is("x^(1/log log x)->oo", limit(pow(x,pow(log(log(x)),I(-1))),x,oo), "oo");
 
+  std::cout<<"== T2#4d Wang (4-variable) ==\n";
+  factor_is("ab-ac+bd-cd", add({mul(symbol("a"),symbol("b")),mul(I(-1),mul(symbol("a"),symbol("c"))),mul(symbol("b"),symbol("d")),mul(I(-1),mul(symbol("c"),symbol("d")))}), symbol("a"), "(a+d)*(b-c)");
+  factor_is("wx+wy+zx+zy", add({mul(symbol("w"),x),mul(symbol("w"),y),mul(z,x),mul(z,y)}), symbol("w"), "(w+z)*(x+y)");
+  factor_is("x^2y^2-z^2w^2", P(mul(x,y),2)-P(mul(z,symbol("w")),2), x, "(x*y-w*z)*(x*y+w*z)");
+
+  std::cout<<"== T2#5c Risch residual ==\n";
+  integ_closed("x^2 e^{-x^2}", mul(P(x,2),exp(mul(I(-1),P(x,2)))), x);
+  integ_closed("1/(x log^2 x)", P(mul(x,P(log(x),2)),-1), x);
+  integ_closed("cos(x)/x -> Ci", mul(cos(x),P(x,-1)), x);
+  expr_is("x^2 e^{-x^2} 0..oo", integrate(mul(P(x,2),exp(mul(I(-1),P(x,2)))),x,I(0),oo), "sqrt(pi)/4");
+
+  std::cout<<"== T2#6d hyperexpand (polylog) ==\n";
+  expr_is("3F2(1,1,1;2,2;z)", hyperexpand(hyper({I(1),I(1),I(1)},{I(2),I(2)},x)), "polylog(2,x)/x");
+
 #ifdef PROBE_GROUP
   probe_group_theory();
 #endif
 #ifdef PROBE_PHYS
   probe_physics();
+#endif
+#ifdef PROBE_PERF
+  probe_perf();
 #endif
 
   std::cout<<"\nREMAINING="<<fail<<" / TOTAL="<<total<<"\n";

@@ -87,3 +87,13 @@ ACCEPTANCE (full Tier 1+2, build -DPROBE_GROUP -DPROBE_PHYS): REMAINING=0 / TOTA
 Suite: 7543 assertions / 1785 cases, all green. ALL OF TIER 2 finished on the
 79-case acceptance set (#4 Wang, #5 Risch, #6 hyperexpand, #7 Gruntz,
 #8 group theory, #9 physics). LOOP STOPPED.
+
+## Residual-depth pass
+Probe deepened to 87 cases. Baseline REMAINING=3 (all Wang 4-variable:
+ab-ac+bd-cd, wx+wy+zx+zy, x^2y^2-z^2w^2). Residual integrals (x^2 e^-x^2,
+1/(x log^2 x), cos/x->Ci, 0..oo x^2 e^-x^2=sqrt(pi)/4) and polylog 3F2 already pass.
+New-API targets: factor(x^N-1) cyclotomic perf (x^30-1 was >30s), group
+is_simple/abelian_invariants, physics normal-ordering.
+BLOCKED (documented, beyond a loop / need new infra): full Risch non-elementarity
+proofs (SymPy doesn't do them either), elliptic-K hyperexpand (needs elliptic
+functions), arbitrary-arity Wang general Hensel (multi-week).
