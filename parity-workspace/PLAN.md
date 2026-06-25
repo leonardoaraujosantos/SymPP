@@ -33,3 +33,13 @@ Loop protocol:
 ### Batch 0 (baseline)
 REMAINING=3 / TOTAL=22. Open: Wang trivariate (x^3+y^3+z^3-3xyz),
 hyperexpand 2F1(1/2,1;3/2;z^2)->atanh(z)/z, Gruntz Gamma(x+1)/Gamma(x+1/2)->oo.
+
+### Batch 5 (final) — DONE
+Closed all 3: trivariate Wang (linear-form roots; x^3+y^3+z^3-3xyz),
+hyperexpand 2F1(1/2,1;3/2;z^2)->atanh(z)/z, gamma-ratio limit
+Gamma(x+1)/Gamma(x+1/2)->oo (engine already correct; added oracle-checked test).
+Fixed a probe bug: oracle.equivalent can't certify oo (oo-oo=nan); expr_is now
+matches infinite values by string equality first.
+
+ACCEPTANCE: REMAINING=0 / TOTAL=22. Tier 1 + Tier 2 finished on the acceptance
+set. Suite: 7480 assertions / 1774 cases, all green. LOOP STOPPED.

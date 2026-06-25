@@ -29,7 +29,9 @@ static void integ_closed(const std::string&label,const Expr&e,const Expr&x){
 }
 // definite/expr equals expected closed form
 static void expr_is(const std::string&label,const Expr&got,const std::string&expected){
-  want(label, eqv(got->str(), expected));
+  // Direct string match first: oracle.equivalent computes a-b and cannot
+  // certify infinite values (oo - oo = nan), so compare those textually.
+  want(label, got->str()==expected || eqv(got->str(), expected));
 }
 int main(){
   auto x=symbol("x"),y=symbol("y"),z=symbol("z"),n=symbol("n");
