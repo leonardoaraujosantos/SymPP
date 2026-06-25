@@ -43,3 +43,11 @@ matches infinite values by string equality first.
 
 ACCEPTANCE: REMAINING=0 / TOTAL=22. Tier 1 + Tier 2 finished on the acceptance
 set. Suite: 7480 assertions / 1774 cases, all green. LOOP STOPPED.
+
+## Deep-completion pass (#4 Wang, hyperexpand, Gruntz, group theory)
+Expanded probe to 38 cases. Baseline REMAINING=2:
+- Wang (x+y)^2-z^2 [degree-2 multivariate, >1 other var]
+- hyperexpand 0F1(;1/2;z^2/4)->cosh(z)
+Gruntz towers all pass; hard bivariate quartic x^4+x^2y^2+y^4 already factors.
+Group theory: needs conjugacy_classes/center/derived_subgroup API + probe section
+(guarded by PROBE_GROUP).

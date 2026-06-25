@@ -70,6 +70,32 @@ int main(){
   expr_is("(1+1/x)^x->E", limit(pow(I(1)+P(x,-1),x),x,oo), "E");
   expr_is("x^x/(x+1)^x->1/E", limit(mul(pow(x,x),P(pow(x+I(1),x),-1)),x,oo), "exp(-1)");
 
+  std::cout<<"== T2#4b Wang (general multivariate) ==\n";
+  factor_is("x^2-y^2+x-y", add({P(x,2),mul(I(-1),P(y,2)),x,mul(I(-1),y)}), x, "(x-y)*(x+y+1)");
+  factor_is("x^2 y-x^2-y+1", add({mul(P(x,2),y),mul(I(-1),P(x,2)),mul(I(-1),y),I(1)}), x, "(x-1)*(x+1)*(y-1)");
+  factor_is("(x+y)^2-z^2", P(x+y,2)-P(z,2), x, "(x+y-z)*(x+y+z)");
+  factor_is("x^3-x y^2", P(x,3)-mul(x,P(y,2)), x, "x*(x-y)*(x+y)");
+  factor_is("x^2+2xy+y^2+2x+2y+1", add({P(x,2),mul({I(2),x,y}),P(y,2),mul(I(2),x),mul(I(2),y),I(1)}), x, "(x+y+1)**2");
+  factor_is("x^4+x^2 y^2+y^4", add({P(x,4),mul(P(x,2),P(y,2)),P(y,4)}), x, "(x**2-x*y+y**2)*(x**2+x*y+y**2)");
+
+  std::cout<<"== T2#6b hyperexpand ==\n";
+  expr_is("1F1(2;1;z)", hyperexpand(hyper({I(2)},{I(1)},x)), "(x+1)*exp(x)");
+  expr_is("1F1(-1;1;z)", hyperexpand(hyper({I(-1)},{I(1)},x)), "1-x");
+  expr_is("2F1(-2,1;1;z)", hyperexpand(hyper({I(-2),I(1)},{I(1)},x)), "(1-x)**2");
+  expr_is("1F1(2;3;z)", hyperexpand(hyper({I(2)},{I(3)},x)), "(2*x-2)*exp(x)/x**2+2/x**2");
+  expr_is("0F1(;1/2;z^2/4)", hyperexpand(hyper({},{rational(1,2)},mul(rational(1,4),P(x,2)))), "cosh(x)");
+
+  std::cout<<"== T2#7b Gruntz (towers) ==\n";
+  expr_is("log(x+e^x)/x->1", limit(mul(log(x+exp(x)),P(x,-1)),x,oo), "1");
+  expr_is("(e^2x+e^x)^(1/x)->e^2", limit(pow(add({exp(mul(I(2),x)),exp(x)}),P(x,-1)),x,oo), "exp(2)");
+  expr_is("x(e^(1/x)-1)->1", limit(mul(x,exp(P(x,-1))+I(-1)),x,oo), "1");
+  expr_is("log(log x)/log x->0", limit(mul(log(log(x)),P(log(x),-1)),x,oo), "0");
+  expr_is("e^(x^2)/(e^x)^x->1", limit(mul(exp(P(x,2)),P(pow(exp(x),x),-1)),x,oo), "1");
+
+#ifdef PROBE_GROUP
+  probe_group_theory();
+#endif
+
   std::cout<<"\nREMAINING="<<fail<<" / TOTAL="<<total<<"\n";
   return 0;
 }
