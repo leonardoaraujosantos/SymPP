@@ -349,3 +349,21 @@ TEST_CASE("permutation groups: conjugacy/center/derived", "[combinatorics]") {
     REQUIRE(cb::group_center(s4).is_subgroup(s4));
     REQUIRE(cb::derived_subgroup(s4).is_subgroup(s4));
 }
+
+TEST_CASE("permutation groups: solvable/nilpotent", "[combinatorics]") {
+    // Solvability (SymPy-confirmed): all small groups solvable except A₅.
+    REQUIRE(cb::is_solvable(cb::symmetric_group(3)));
+    REQUIRE(cb::is_solvable(cb::symmetric_group(4)));
+    REQUIRE(cb::is_solvable(cb::alternating_group(4)));
+    REQUIRE(cb::is_solvable(cb::dihedral_group(4)));
+    REQUIRE(cb::is_solvable(cb::cyclic_group(6)));
+    REQUIRE_FALSE(cb::is_solvable(cb::alternating_group(5)));  // simple non-abelian
+
+    // Nilpotency (SymPy-confirmed): D₄ and C₆ are nilpotent; S₃, S₄, A₄, A₅ not.
+    REQUIRE(cb::is_nilpotent(cb::dihedral_group(4)));
+    REQUIRE(cb::is_nilpotent(cb::cyclic_group(6)));
+    REQUIRE_FALSE(cb::is_nilpotent(cb::symmetric_group(3)));
+    REQUIRE_FALSE(cb::is_nilpotent(cb::symmetric_group(4)));
+    REQUIRE_FALSE(cb::is_nilpotent(cb::alternating_group(4)));
+    REQUIRE_FALSE(cb::is_nilpotent(cb::alternating_group(5)));
+}

@@ -48,6 +48,11 @@ static void probe_group_theory(){
   want("S4 derived=12", derived_subgroup(symmetric_group(4)).order()==12);
   want("A4 derived=4", derived_subgroup(alternating_group(4)).order()==4);
   want("D4 derived=2", derived_subgroup(dihedral_group(4)).order()==2);
+  want("S4 solvable", is_solvable(symmetric_group(4)));
+  want("A5 not solvable", !is_solvable(alternating_group(5)));
+  want("D4 nilpotent", is_nilpotent(dihedral_group(4)));
+  want("S3 not nilpotent", !is_nilpotent(symmetric_group(3)));
+  want("C6 nilpotent", is_nilpotent(cyclic_group(6)));
 }
 #endif
 
