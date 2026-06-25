@@ -946,8 +946,9 @@ namespace {
 
 }  // namespace
 
-// Bivariate Wang-style factorization (content extraction + quadratic-in-var via
-// a perfect-square discriminant), defined after as_numer_denom below.
+// Bivariate Wang-style factorization (content extraction; quadratic-in-var via
+// a perfect-square discriminant; cubic-and-higher via monomial-root deflation),
+// defined after as_numer_denom below.
 [[nodiscard]] std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var);
 
 Expr factor(const Expr& expr, const Expr& var) {
@@ -1190,6 +1191,48 @@ void accumulate_denom_factors(const Expr& d, long mult, FactorPowers& fp) {
     return r;
 }
 
+// Search for a closed-form root r(y) of a bivariate primitive polynomial pp in
+// `var` (coefficients polynomial in `y`), among the monomial/rational family
+//   r = ±(p/q)·yᵏ ,  p | content(constant term),  q | content(leading coeff),
+//                     k ∈ [0, deg].
+// Each candidate is accepted only when pp(r) expands to exactly zero, so a wrong
+// guess is never returned. This catches the textbook bivariate cubics whose
+// roots are simple monomials (x³−y³ has root y; x³+y·x²−x−y has roots ±1, −y).
+[[nodiscard]] static std::optional<Expr> find_bivariate_root(const Poly& pp,
+                                                             const Expr& y) {
+    const auto& cs = pp.coeffs();
+    if (cs.size() < 2) return std::nullopt;
+    long deg = static_cast<long>(pp.degree());
+
+    mpq_class cc = numeric_content(cs.front());        // constant-term content
+    mpq_class lc = numeric_content(cs.back());         // leading-coeff content
+    // Numerator candidates from |num(cc)·den(lc)|, denominator from |num(lc)·den(cc)|.
+    mpz_class num_src = cc.get_num() * lc.get_den();
+    mpz_class den_src = lc.get_num() * cc.get_den();
+    if (num_src == 0) num_src = 1;
+    if (den_src == 0) den_src = 1;
+    std::vector<mpz_class> nums = positive_divisors(num_src);
+    std::vector<mpz_class> dens = positive_divisors(den_src);
+    if (nums.empty()) nums.push_back(1);
+    if (dens.empty()) dens.push_back(1);
+
+    for (long k = 0; k <= deg; ++k) {
+        Expr yk = (k == 0) ? S::One() : pow(y, integer(k));
+        for (const auto& p : nums) {
+            for (const auto& q : dens) {
+                mpq_class mag(p, q);
+                mag.canonicalize();
+                for (int sign : {+1, -1}) {
+                    mpq_class v = sign > 0 ? mag : -mag;
+                    Expr r = (k == 0) ? mpq_to_expr(v) : mul(mpq_to_expr(v), yk);
+                    if (expand(pp.eval(r)) == S::Zero()) return r;
+                }
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
     // Restrict to bivariate: exactly one other free symbol y.
     Expr y;
@@ -1249,6 +1292,38 @@ std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
                 parts.push_back(lin[0]);
                 parts.push_back(lin[1]);
                 pp_factored = mul(parts);
+            }
+        }
+    } else if (f.degree() >= 3) {
+        // Cubic and higher in `var`: find one closed-form root r(y), deflate by
+        // (var − r), and recurse on the (lower-degree) quotient. The linear
+        // factor is denominator-cleared to (den·var − num) so it stays a
+        // polynomial; the leftover numeric scale is folded into the quotient.
+        if (auto ropt = find_bivariate_root(pp, y)) {
+            NumerDenom nd = as_numer_denom(*ropt);
+            Expr lin = expand(add(mul(nd.denom, var), mul(integer(-1), nd.numer)));
+            mpq_class k = numeric_content(lin);
+            if (!(k == 1)) {
+                lin = expand(mul(lin, mpq_to_expr(mpq_class(k.get_den(), k.get_num()))));
+            }
+            Poly lin_p(lin, var);
+            auto [quo_p, rem_p] = pp.divmod(lin_p);
+            if (rem_p.is_zero()) {
+                Expr quo_e = quo_p.as_expr();
+                // Recurse on the quotient: a cubic deflates to a quadratic that
+                // the disc path (or a further deflation) may split.
+                Expr quo_factored = quo_e;
+                if (auto qf = factor_multivariate(quo_e, var)) quo_factored = *qf;
+                Expr cand = expand(mul(lin, quo_factored));
+                if (expand(add(cand, mul(integer(-1), pp_e))) == S::Zero()) {
+                    std::vector<Expr> parts{lin};
+                    if (quo_factored->type_id() == TypeId::Mul) {
+                        for (const auto& a : quo_factored->args()) parts.push_back(a);
+                    } else {
+                        parts.push_back(quo_factored);
+                    }
+                    pp_factored = mul(parts);
+                }
             }
         }
     }

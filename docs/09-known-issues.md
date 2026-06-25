@@ -5030,6 +5030,33 @@ truth and links the issue number.
   Non-homogeneous multivariate (`x²−y²+x`, three or more variables) still needs
   the full Wang / multivariate-GCD port and is rejected by the self-check.
 
+### FACTOR-WANG-2 — `factor` left non-homogeneous higher-degree bivariate polynomials unfactored
+- **Input:** `factor(x**3 + y*x**2 - x - y, x)`, `factor(x**3 - y**2*x, x)`,
+  `factor(x**4 - y**4, x)`.
+- **Was:** the input unchanged (or only partially handled). `factor_multivariate`
+  covered the bivariate **quadratic** case (split via a perfect-square
+  discriminant) and the homogeneous path, but a non-homogeneous cubic such as
+  `x³+y·x²−x−y` is neither homogeneous nor quadratic, so it stayed unfactored.
+- **Expected (SymPy):** `(x - 1)*(x + 1)*(x + y)`, `x*(x - y)*(x + y)`,
+  `(x - y)*(x + y)*(x**2 + y**2)`.
+- **Fix (`src/polys/poly.cpp`):** a cubic-and-higher branch in
+  `factor_multivariate`. After content extraction, `find_bivariate_root`
+  searches the monomial/rational family `r = ±(p/q)·yᵏ` (`p | content(constant)`,
+  `q | content(leading)`, `k ∈ [0, deg]`) for a root with `pp(r) == 0`, deflates
+  the primitive part by the denominator-cleared linear factor `(den·x − num)`,
+  and **recurses** on the lower-degree quotient (so the quotient quadratic hits
+  the discriminant path, and a quartic deflates twice). The product is
+  **verified to expand back to the input**, so a cubic with no such root
+  (`x³+x+y`) is rejected rather than mis-factored.
+- **Verified against SymPy:** `x³−y³`, `x³+y·x²−x−y`, `x³−y²·x`,
+  `x³−y·x²+x−y → (x−y)(x²+1)` (irreducible quotient), `x⁴−y⁴`; `x³+x+y` stays
+  put, and univariate / quadratic factoring is unchanged.
+- **Regression test:** `tests/polys/poly_test.cpp`
+  — `[4][polys][factor][wang][oracle]` ("factor: higher-degree bivariate (WANG-2)").
+- **Scope:** bivariate polynomials with a closed-form **monomial** root in the
+  second variable. Roots that are non-monomial polynomials in `y`, and three or
+  more variables, still need the full Wang / multivariate-GCD port.
+
 ### LIMIT-EXP-1 / INT-DEF-1 — `0·∞` limits with a decaying exponential, and improper definite integrals
 - **Input:** `limit(x*exp(-x), x, oo)` (and `x²·e^(-x)`, …); the definite
   integrals `∫₀^∞ x^n·e^(-x) dx`.

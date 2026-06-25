@@ -1191,3 +1191,43 @@ TEST_CASE("factor: bivariate multivariate factorization (WANG-1)",
     Expr irr = P(x, 2) + mul(x, y) + integer(1);  // x²+xy+1 irreducible over ℚ[y]
     REQUIRE(factor(irr, x)->str() == irr->str());
 }
+
+// WANG-2: higher-degree (cubic and beyond) bivariate factorization — find a
+// closed-form monomial root r(y) of the primitive part, deflate by (x − r),
+// and recurse on the lower-degree quotient (the quadratic disc path or a
+// further deflation). Every result is verified to expand back to the input and
+// cross-checked against SymPy; a polynomial with no such root stays put.
+TEST_CASE("factor: higher-degree bivariate (WANG-2)",
+          "[4][polys][factor][wang][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x"), y = symbol("y");
+    auto P = [&](const Expr& b, int e) { return pow(b, integer(e)); };
+    auto check = [&](const Expr& e, const char* expected) {
+        Expr f = factor(e, x);
+        REQUIRE(oracle.equivalent(f->str(), e->str()));   // expands back
+        REQUIRE(oracle.equivalent(f->str(), expected));   // matches SymPy form
+        REQUIRE(f->str() != e->str());                    // actually factored
+    };
+
+    // x³ − y³ → (x − y)(x² + x·y + y²) : root r = y, deflated quotient quadratic.
+    check(P(x, 3) - P(y, 3), "(x - y)*(x**2 + x*y + y**2)");
+
+    // x³ + y·x² − x − y → (x − 1)(x + 1)(x + y) : root r = −y, then the
+    // quotient quadratic x² − 1 splits via the disc path.
+    check(P(x, 3) + mul(y, P(x, 2)) - x - y, "(x - 1)*(x + 1)*(x + y)");
+
+    // x³ − y²·x → x·(x − y)(x + y) : content x factored out, cubic primitive
+    // part x² − y² deflated.
+    check(P(x, 3) - mul(P(y, 2), x), "x*(x - y)*(x + y)");
+
+    // x³ − y·x² + x − y → (x − y)(x² + 1) : root r = y, quotient quadratic
+    // x² + 1 stays irreducible over ℚ (still a valid more-factored result).
+    check(P(x, 3) - mul(y, P(x, 2)) + x - y, "(x - y)*(x**2 + 1)");
+
+    // x⁴ − y⁴ → (x − y)(x + y)(x² + y²) : two successive deflations.
+    check(P(x, 4) - P(y, 4), "(x - y)*(x + y)*(x**2 + y**2)");
+
+    // A cubic with no rational/monomial root in y stays put (no false split).
+    Expr irr = P(x, 3) + x + y;  // x³ + x + y, irreducible over ℚ[y]
+    REQUIRE(factor(irr, x)->str() == irr->str());
+}

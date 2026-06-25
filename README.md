@@ -342,7 +342,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   ratios `∏(k²−1)`, telescoping `∏(k+1)/(k+2) → 2/(n+2)`), Padé, Euler-Lagrange,
   asymptotes.
 - **Polynomials** — div/gcd/sqf, factor over ℤ (univariate + homogeneous
-  bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials),
+  bivariate: `x²−y² → (x−y)(x+y)`, cubes, perfect-square trinomials; plus
+  higher-degree bivariate by monomial-root deflation: `x³−y³ → (x−y)(x²+xy+y²)`,
+  `x³+y·x²−x−y → (x−1)(x+1)(x+y)`),
   polynomial-time **Berlekamp–Zassenhaus** univariate factorization
   (`factor_zassenhaus`, with multifactor Hensel lifting), Cardano cubic,
   Ferrari quartic, `RootOf`, partial
