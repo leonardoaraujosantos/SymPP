@@ -434,6 +434,334 @@ protected:
     }
 };
 
+// ---- Rust printer ----
+// Method-call style: x.sin(), x.powi(2), x.powf(y), x.sqrt(), x.ln().
+// Integer/rational literals are f64 (n.0). pi/e from f64::consts.
+class RustPrinter final : public CodePrinter {
+protected:
+    std::string func_name(FunctionId id) const override {
+        // Used only as a fallback; method-call emission happens in walk().
+        static const std::map<FunctionId, std::string> table = {
+            {FunctionId::Sin, "sin"}, {FunctionId::Cos, "cos"},
+            {FunctionId::Tan, "tan"}, {FunctionId::Asin, "asin"},
+            {FunctionId::Acos, "acos"}, {FunctionId::Atan, "atan"},
+            {FunctionId::Atan2, "atan2"},
+            {FunctionId::Sinh, "sinh"}, {FunctionId::Cosh, "cosh"},
+            {FunctionId::Tanh, "tanh"},
+            {FunctionId::Exp, "exp"}, {FunctionId::Log, "ln"},
+            {FunctionId::Abs, "abs"}, {FunctionId::Floor, "floor"},
+            {FunctionId::Ceiling, "ceil"},
+        };
+        auto it = table.find(id);
+        return it != table.end() ? it->second : "";
+    }
+    std::string format_pow(const std::string& base,
+                            const std::string& exp) const override {
+        // Generic fallback (e.g. symbolic exponent): treat as real power.
+        return base + ".powf(" + exp + ")";
+    }
+    std::string format_pi() const override { return "f64::consts::PI"; }
+    std::string format_e() const override { return "f64::consts::E"; }
+    std::string format_imaginary_unit() const override {
+        return "Complex::new(0.0, 1.0)";
+    }
+    std::string format_integer(const std::string& s) const override {
+        // f64 literal.
+        return s + ".0";
+    }
+    std::string format_rational(const std::string& num,
+                                 const std::string& den) const override {
+        return num + ".0/" + den + ".0";
+    }
+
+    std::string walk(const Expr& e, Prec parent) override {
+        if (e && e->type_id() == TypeId::Pow) {
+            const auto& exp_e = e->args()[1];
+            std::string base_s = walk(e->args()[0], Prec::Atom);
+            // ^(1/2) → sqrt().
+            if (exp_e->type_id() == TypeId::Rational) {
+                const auto& q = static_cast<const Rational&>(*exp_e);
+                if (q.numerator() == 1 && q.denominator() == 2) {
+                    return base_s + ".sqrt()";
+                }
+            }
+            // Integer exponent → powi (i32 literal, no f64 suffix).
+            if (exp_e->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*exp_e);
+                if (z.value() < 0) {
+                    mpz_class abs_exp = -z.value();
+                    std::string den = (abs_exp == 1)
+                        ? base_s
+                        : base_s + ".powi(" + abs_exp.get_str() + ")";
+                    return "1.0/" + den;
+                }
+                return base_s + ".powi(" + z.value().get_str() + ")";
+            }
+            // Otherwise real power.
+            std::string exp_s = walk(exp_e, Prec::Atom);
+            return base_s + ".powf(" + exp_s + ")";
+        }
+        if (e && e->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*e);
+            std::string name = func_name(fn.function_id());
+            if (!name.empty() && e->args().size() == 1) {
+                std::string arg = walk(e->args()[0], Prec::Atom);
+                return arg + "." + name + "()";
+            }
+        }
+        return CodePrinter::walk(e, parent);
+    }
+};
+
+// ---- Julia printer ----
+// ^ for scalar power, function-call elementary functions, pi / MathConstants.e.
+class JuliaPrinter final : public CodePrinter {
+protected:
+    std::string func_name(FunctionId id) const override {
+        static const std::map<FunctionId, std::string> table = {
+            {FunctionId::Sin, "sin"}, {FunctionId::Cos, "cos"},
+            {FunctionId::Tan, "tan"}, {FunctionId::Asin, "asin"},
+            {FunctionId::Acos, "acos"}, {FunctionId::Atan, "atan"},
+            {FunctionId::Atan2, "atan"},
+            {FunctionId::Sinh, "sinh"}, {FunctionId::Cosh, "cosh"},
+            {FunctionId::Tanh, "tanh"},
+            {FunctionId::Exp, "exp"}, {FunctionId::Log, "log"},
+            {FunctionId::Abs, "abs"}, {FunctionId::Sign, "sign"},
+            {FunctionId::Floor, "floor"}, {FunctionId::Ceiling, "ceil"},
+        };
+        auto it = table.find(id);
+        return it != table.end() ? it->second : "";
+    }
+    std::string format_pow(const std::string& base,
+                            const std::string& exp) const override {
+        return base + "^" + exp;
+    }
+    std::string format_pi() const override { return "pi"; }
+    std::string format_e() const override { return "MathConstants.e"; }
+    std::string format_imaginary_unit() const override { return "im"; }
+
+    std::string walk(const Expr& e, Prec parent) override {
+        if (e && e->type_id() == TypeId::Pow) {
+            const auto& exp_e = e->args()[1];
+            // ^(1/2) → sqrt().
+            if (exp_e->type_id() == TypeId::Rational) {
+                const auto& q = static_cast<const Rational&>(*exp_e);
+                if (q.numerator() == 1 && q.denominator() == 2) {
+                    return "sqrt(" + walk(e->args()[0], Prec::None) + ")";
+                }
+            }
+            // Negative integer power → 1/base^|n| (division form).
+            if (exp_e->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*exp_e);
+                if (z.value() < 0) {
+                    mpz_class abs_exp = -z.value();
+                    std::string den;
+                    if (abs_exp == 1) {
+                        // 1/base — parenthesize compound bases.
+                        den = walk(e->args()[0], Prec::Mul);
+                    } else {
+                        std::string base_s = walk(e->args()[0], Prec::Pow);
+                        den = "(" + format_pow(base_s, abs_exp.get_str()) + ")";
+                    }
+                    std::string out = "1" + div_op() + den;
+                    if (parent > Prec::Mul) out = "(" + out + ")";
+                    return out;
+                }
+            }
+        }
+        return CodePrinter::walk(e, parent);
+    }
+};
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Presentation MathML printer.
+//
+// Emits the standard MathML element tree (<mrow>, <mi>, <mn>, <mo>, <msup>,
+// <mfrac>, <msqrt>), wrapped in a top-level <math> element. Mirrors the
+// CodePrinter recursive walk but produces nested tags instead of flat text.
+// ---------------------------------------------------------------------------
+namespace {
+
+class MathMLPrinter {
+public:
+    [[nodiscard]] std::string print(const Expr& e) {
+        return "<math>" + walk(e) + "</math>";
+    }
+
+private:
+    [[nodiscard]] static std::string mi(const std::string& s) {
+        return "<mi>" + s + "</mi>";
+    }
+    [[nodiscard]] static std::string mn(const std::string& s) {
+        return "<mn>" + s + "</mn>";
+    }
+    [[nodiscard]] static std::string mo(const std::string& s) {
+        return "<mo>" + s + "</mo>";
+    }
+    [[nodiscard]] static std::string mrow(const std::string& s) {
+        return "<mrow>" + s + "</mrow>";
+    }
+    [[nodiscard]] static std::string msup(const std::string& b,
+                                          const std::string& e) {
+        return "<msup>" + b + e + "</msup>";
+    }
+    [[nodiscard]] static std::string mfrac(const std::string& n,
+                                           const std::string& d) {
+        return "<mfrac>" + n + d + "</mfrac>";
+    }
+    [[nodiscard]] static std::string msqrt(const std::string& s) {
+        return "<msqrt>" + s + "</msqrt>";
+    }
+
+    [[nodiscard]] static std::string func_name(FunctionId id) {
+        static const std::map<FunctionId, std::string> table = {
+            {FunctionId::Sin, "sin"}, {FunctionId::Cos, "cos"},
+            {FunctionId::Tan, "tan"}, {FunctionId::Asin, "asin"},
+            {FunctionId::Acos, "acos"}, {FunctionId::Atan, "atan"},
+            {FunctionId::Atan2, "atan2"},
+            {FunctionId::Sinh, "sinh"}, {FunctionId::Cosh, "cosh"},
+            {FunctionId::Tanh, "tanh"},
+            {FunctionId::Exp, "exp"}, {FunctionId::Log, "log"},
+            {FunctionId::Abs, "abs"}, {FunctionId::Floor, "floor"},
+            {FunctionId::Ceiling, "ceil"},
+        };
+        auto it = table.find(id);
+        return it != table.end() ? it->second : "";
+    }
+
+    [[nodiscard]] std::string walk_pow(const Expr& e) {
+        const auto& exp_e = e->args()[1];
+        if (exp_e->type_id() == TypeId::Rational) {
+            const auto& q = static_cast<const Rational&>(*exp_e);
+            if (q.numerator() == 1 && q.denominator() == 2) {
+                return msqrt(walk(e->args()[0]));
+            }
+        }
+        // Negative integer power → 1 / base^|n| (fraction form).
+        if (exp_e->type_id() == TypeId::Integer) {
+            const auto& z = static_cast<const Integer&>(*exp_e);
+            if (z.value() < 0) {
+                mpz_class abs_exp = -z.value();
+                std::string den = (abs_exp == 1)
+                    ? walk(e->args()[0])
+                    : msup(walk(e->args()[0]), mn(abs_exp.get_str()));
+                return mfrac(mn("1"), mrow(den));
+            }
+        }
+        return msup(walk(e->args()[0]), walk(exp_e));
+    }
+
+    [[nodiscard]] std::string walk_mul(const Expr& e) {
+        // Split into numerator / denominator (negative integer powers) and
+        // accumulate the sign, mirroring the textual CodePrinter::Mul case.
+        std::vector<std::string> nums, dens;
+        std::string sign;
+        for (const auto& a : e->args()) {
+            if (a->type_id() == TypeId::Integer) {
+                const auto& z = static_cast<const Integer&>(*a);
+                if (z.value() == -1 && e->args().size() > 1) {
+                    sign = mo("-");
+                    continue;
+                }
+            }
+            if (a->type_id() == TypeId::Pow
+                && a->args()[1]->type_id() == TypeId::Integer) {
+                const auto& exp_int =
+                    static_cast<const Integer&>(*a->args()[1]);
+                if (exp_int.value() < 0) {
+                    mpz_class abs_exp = -exp_int.value();
+                    if (abs_exp == 1) {
+                        dens.push_back(walk(a->args()[0]));
+                    } else {
+                        dens.push_back(
+                            msup(walk(a->args()[0]),
+                                 mn(abs_exp.get_str())));
+                    }
+                    continue;
+                }
+            }
+            nums.push_back(walk(a));
+        }
+        std::string num_str = join(nums, mo("&#x2062;"), "1");
+        std::string body;
+        if (!dens.empty()) {
+            std::string den_str = join(dens, mo("&#x2062;"), "1");
+            body = mfrac(mrow(num_str), mrow(den_str));
+        } else {
+            body = num_str;
+        }
+        return mrow(sign + body);
+    }
+
+    [[nodiscard]] static std::string join(
+        const std::vector<std::string>& parts, const std::string& sep,
+        const std::string& empty) {
+        if (parts.empty()) return mn(empty);
+        std::string out;
+        for (std::size_t i = 0; i < parts.size(); ++i) {
+            if (i > 0) out += sep;
+            out += parts[i];
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::string walk(const Expr& e) {
+        if (!e) return mn("0");
+        switch (e->type_id()) {
+            case TypeId::Integer:
+                return mn(static_cast<const Integer&>(*e).value().get_str());
+            case TypeId::Rational: {
+                const auto& q = static_cast<const Rational&>(*e);
+                return mfrac(mn(q.numerator().get_str()),
+                             mn(q.denominator().get_str()));
+            }
+            case TypeId::Float:
+                return mn(static_cast<const Float&>(*e).str());
+            case TypeId::NumberSymbol: {
+                const auto& sym = static_cast<const NumberSymbol&>(*e);
+                switch (sym.kind()) {
+                    case NumberSymbolKind::Pi: return mi("&#x3C0;");
+                    case NumberSymbolKind::E:  return mi("e");
+                    default: return mi(e->str());
+                }
+            }
+            case TypeId::ImaginaryUnit:
+                return mi("i");
+            case TypeId::Symbol:
+                return mi(e->str());
+            case TypeId::Add: {
+                std::string out;
+                const auto& args = e->args();
+                for (std::size_t i = 0; i < args.size(); ++i) {
+                    if (i > 0) out += mo("+");
+                    out += walk(args[i]);
+                }
+                return mrow(out);
+            }
+            case TypeId::Mul:
+                return walk_mul(e);
+            case TypeId::Pow:
+                return walk_pow(e);
+            case TypeId::Function: {
+                const auto& fn = static_cast<const Function&>(*e);
+                std::string name = func_name(fn.function_id());
+                if (name.empty()) name = std::string(fn.name());
+                std::string args_str;
+                const auto& as = e->args();
+                for (std::size_t i = 0; i < as.size(); ++i) {
+                    if (i > 0) args_str += mo(",");
+                    args_str += walk(as[i]);
+                }
+                return mrow(mi(name) + mo("&#x2061;")
+                            + mrow(mo("(") + args_str + mo(")")));
+            }
+            default:
+                return mi(e->str());
+        }
+    }
+};
 
 }  // namespace
 
@@ -714,6 +1042,9 @@ std::string cxxcode(const Expr& e) { CXXPrinter p; return p.print(e); }
 std::string fcode(const Expr& e) { FPrinter p; return p.print(e); }
 std::string latex(const Expr& e) { LatexPrinter p; return p.print(e); }
 std::string octave_code(const Expr& e) { OctavePrinter p; return p.print(e); }
+std::string rust_code(const Expr& e) { RustPrinter p; return p.print(e); }
+std::string julia_code(const Expr& e) { JuliaPrinter p; return p.print(e); }
+std::string mathml(const Expr& e) { MathMLPrinter p; return p.print(e); }
 std::string pretty(const Expr& e) { return render_pretty(e); }
 
 // --- Function emission ---

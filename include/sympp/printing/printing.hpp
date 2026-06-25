@@ -8,6 +8,9 @@
 //   * fcode(expr)      — Fortran 90+ (** for power, intrinsic SIN/COS/EXP)
 //   * latex(expr)      — TeX (\sin{x}, \frac{n}{d}, \sqrt{x})
 //   * octave_code(expr) — MATLAB / Octave (element-wise operators)
+//   * rust_code(expr)  — Rust (f64 literals, .powi/.powf, method-call funcs)
+//   * julia_code(expr) — Julia (^ for power, pi, MathConstants.e)
+//   * mathml(expr)     — Presentation MathML (<math>, <msup>, <mfrac>, ...)
 //   * pretty(expr)     — ASCII 2D pretty form
 //
 // Plus higher-level function emission:
@@ -33,6 +36,9 @@ namespace sympp::printing {
 [[nodiscard]] SYMPP_EXPORT std::string fcode(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string latex(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string octave_code(const Expr& e);
+[[nodiscard]] SYMPP_EXPORT std::string rust_code(const Expr& e);
+[[nodiscard]] SYMPP_EXPORT std::string julia_code(const Expr& e);
+[[nodiscard]] SYMPP_EXPORT std::string mathml(const Expr& e);
 [[nodiscard]] SYMPP_EXPORT std::string pretty(const Expr& e);
 
 // --- Function emission ---

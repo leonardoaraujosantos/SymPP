@@ -398,6 +398,9 @@ std::cout << cxxcode(e)      << "\n";  // std::pow(x, 2) + std::sin(x)*y
 std::cout << fcode(e)        << "\n";  // x**2.0d0 + sin(x)*y
 std::cout << latex(e)        << "\n";  // x^{2} + \sin(x) \cdot y
 std::cout << octave_code(e)  << "\n";  // x.^2 + sin(x).*y
+std::cout << rust_code(e)    << "\n";  // x.powi(2) + x.sin()*y
+std::cout << julia_code(e)   << "\n";  // x^2 + sin(x)*y
+std::cout << mathml(e)       << "\n";  // <math>...<msup><mi>x</mi>...
 std::cout << pretty(e)       << "\n";  // x**2 + sin(x)*y
 
 // Greek symbol auto-mapping in LaTeX

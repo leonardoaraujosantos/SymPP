@@ -435,8 +435,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
 - **Units** — SI / CGS / US customary, prefixes, 12 physical
   constants with exact post-2019-redef values, affine
   temperature conversion.
-- **Code generation** — C / C++ / Fortran / LaTeX / Octave printers + function
-  emission, a 2D ASCII `pretty()` printer (stacked fractions, superscript
+- **Code generation** — C / C++ / Fortran / LaTeX / Octave / Rust / Julia /
+  MathML printers + function emission, a 2D ASCII `pretty()` printer
+  (stacked fractions, superscript
   powers, radicals), and **`lambdify`** — compile an expression to a native
   `std::function<double(...)>` (portable closure backend, plus an optional LLVM
   ORC-JIT backend `lambdify_jit` for hot numeric loops).

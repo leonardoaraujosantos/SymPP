@@ -341,11 +341,16 @@ with exact post-2019-redef values for c/h/k_B/e/N_A,
 ### Phase 13 — Code generation · 🟡
 
 **Shipped**: `CodePrinter` visitor base, `ccode` / `cxxcode` /
-`fcode` / `latex` / `octave_code` / `pretty` printers, function
-emission `c_function` / `cxx_function` / `fortran_function` /
-`octave_function`. Greek letter mapping in LaTeX, `\frac{}{}`,
-`\sqrt{}`, std::numbers::pi_v in C++, Fortran `d0` suffix for
-double precision, Octave `.* ./ .^` element-wise operators.
+`fcode` / `latex` / `octave_code` / `rust_code` / `julia_code` /
+`mathml` / `pretty` printers, function emission `c_function` /
+`cxx_function` / `fortran_function` / `octave_function`. Greek
+letter mapping in LaTeX, `\frac{}{}`, `\sqrt{}`,
+std::numbers::pi_v in C++, Fortran `d0` suffix for double
+precision, Octave `.* ./ .^` element-wise operators, Rust
+`.powi/.powf/.sqrt` method-call form with `f64::consts::PI`,
+Julia `^` power with `MathConstants.e`, and Presentation MathML
+(`<msup>`, `<mfrac>`, `<msqrt>`). Brings part of Phase 38's
+extra-printer set forward.
 
 **Deferred-deep**: `lambdify` (JIT compile expr to native function
 via LLVM ORC — heavy LLVM dependency), `autowrap` equivalent

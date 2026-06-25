@@ -138,6 +138,169 @@ TEST_CASE("octave: sin(x)", "[13][octave]") {
     REQUIRE(octave_code(sin(x)) == "sin(x)");
 }
 
+// ----- rust_code ------------------------------------------------------------
+
+TEST_CASE("rust: x^3 → x.powi(3)", "[13][rust]") {
+    auto x = symbol("x");
+    REQUIRE(rust_code(pow(x, integer(3))) == "x.powi(3)");
+}
+
+TEST_CASE("rust: x^y → x.powf(y)", "[13][rust]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    REQUIRE(rust_code(pow(x, y)) == "x.powf(y)");
+}
+
+TEST_CASE("rust: sqrt(x) → x.sqrt()", "[13][rust]") {
+    auto x = symbol("x");
+    REQUIRE(rust_code(sqrt(x)) == "x.sqrt()");
+}
+
+TEST_CASE("rust: integer literal is f64", "[13][rust]") {
+    REQUIRE(rust_code(integer(42)) == "42.0");
+}
+
+TEST_CASE("rust: rational is float division", "[13][rust]") {
+    REQUIRE(rust_code(rational(1, 2)) == "1.0/2.0");
+}
+
+TEST_CASE("rust: sin(x) → x.sin()", "[13][rust]") {
+    auto x = symbol("x");
+    REQUIRE(rust_code(sin(x)) == "x.sin()");
+}
+
+TEST_CASE("rust: exp/log are method calls", "[13][rust]") {
+    auto x = symbol("x");
+    REQUIRE(rust_code(exp(x)) == "x.exp()");
+    REQUIRE(rust_code(log(x)) == "x.ln()");
+}
+
+TEST_CASE("rust: pi and e from f64::consts", "[13][rust]") {
+    REQUIRE(rust_code(S::Pi()) == "f64::consts::PI");
+    REQUIRE(rust_code(S::E()) == "f64::consts::E");
+}
+
+TEST_CASE("rust: 1/(1+x^2) uses division", "[13][rust]") {
+    auto x = symbol("x");
+    auto e = integer(1) / (integer(1) + pow(x, integer(2)));
+    REQUIRE(rust_code(e) == "1.0/(x.powi(2) + 1.0)");
+}
+
+TEST_CASE("rust: x^3 + 2*x*y + 1", "[13][rust]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x, integer(3)) + integer(2) * x * y + integer(1);
+    REQUIRE(rust_code(e) == "2.0*x*y + x.powi(3) + 1.0");
+}
+
+TEST_CASE("rust: exp(-x^2/2)*sin(2*pi*x)", "[13][rust]") {
+    auto x = symbol("x");
+    auto e = exp(rational(-1, 2) * pow(x, integer(2)))
+             * sin(integer(2) * S::Pi() * x);
+    REQUIRE(rust_code(e)
+            == "(-1.0/2.0*x.powi(2)).exp()*(2.0*x*f64::consts::PI).sin()");
+}
+
+// ----- julia_code -----------------------------------------------------------
+
+TEST_CASE("julia: x^3 uses ^", "[13][julia]") {
+    auto x = symbol("x");
+    REQUIRE(julia_code(pow(x, integer(3))) == "x^3");
+}
+
+TEST_CASE("julia: sqrt(x)", "[13][julia]") {
+    auto x = symbol("x");
+    REQUIRE(julia_code(sqrt(x)) == "sqrt(x)");
+}
+
+TEST_CASE("julia: sin(x) is a function call", "[13][julia]") {
+    auto x = symbol("x");
+    REQUIRE(julia_code(sin(x)) == "sin(x)");
+}
+
+TEST_CASE("julia: pi and MathConstants.e", "[13][julia]") {
+    REQUIRE(julia_code(S::Pi()) == "pi");
+    REQUIRE(julia_code(S::E()) == "MathConstants.e");
+}
+
+TEST_CASE("julia: 1/(1+x^2) uses division", "[13][julia]") {
+    auto x = symbol("x");
+    auto e = integer(1) / (integer(1) + pow(x, integer(2)));
+    REQUIRE(julia_code(e) == "1/(x^2 + 1)");
+}
+
+TEST_CASE("julia: x^3 + 2*x*y + 1", "[13][julia]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x, integer(3)) + integer(2) * x * y + integer(1);
+    REQUIRE(julia_code(e) == "2*x*y + x^3 + 1");
+}
+
+TEST_CASE("julia: exp(-x^2/2)*sin(2*pi*x)", "[13][julia]") {
+    auto x = symbol("x");
+    auto e = exp(rational(-1, 2) * pow(x, integer(2)))
+             * sin(integer(2) * S::Pi() * x);
+    REQUIRE(julia_code(e) == "exp(-1/2*x^2)*sin(2*x*pi)");
+}
+
+// ----- mathml ---------------------------------------------------------------
+
+TEST_CASE("mathml: symbol", "[13][mathml]") {
+    auto x = symbol("x");
+    REQUIRE(mathml(x) == "<math><mi>x</mi></math>");
+}
+
+TEST_CASE("mathml: integer", "[13][mathml]") {
+    REQUIRE(mathml(integer(7)) == "<math><mn>7</mn></math>");
+}
+
+TEST_CASE("mathml: rational → mfrac", "[13][mathml]") {
+    REQUIRE(mathml(rational(1, 2))
+            == "<math><mfrac><mn>1</mn><mn>2</mn></mfrac></math>");
+}
+
+TEST_CASE("mathml: x^2 → msup", "[13][mathml]") {
+    auto x = symbol("x");
+    REQUIRE(mathml(pow(x, integer(2)))
+            == "<math><msup><mi>x</mi><mn>2</mn></msup></math>");
+}
+
+TEST_CASE("mathml: sqrt(x) → msqrt", "[13][mathml]") {
+    auto x = symbol("x");
+    REQUIRE(mathml(sqrt(x)) == "<math><msqrt><mi>x</mi></msqrt></math>");
+}
+
+TEST_CASE("mathml: sin(x)", "[13][mathml]") {
+    auto x = symbol("x");
+    REQUIRE(mathml(sin(x))
+            == "<math><mrow><mi>sin</mi><mo>&#x2061;</mo>"
+               "<mrow><mo>(</mo><mi>x</mi><mo>)</mo></mrow></mrow></math>");
+}
+
+TEST_CASE("mathml: pi", "[13][mathml]") {
+    REQUIRE(mathml(S::Pi()) == "<math><mi>&#x3C0;</mi></math>");
+}
+
+TEST_CASE("mathml: 1/(1+x^2) → mfrac", "[13][mathml]") {
+    auto x = symbol("x");
+    auto e = integer(1) / (integer(1) + pow(x, integer(2)));
+    REQUIRE(mathml(e)
+            == "<math><mfrac><mn>1</mn><mrow><mrow><msup><mi>x</mi>"
+               "<mn>2</mn></msup><mo>+</mo><mn>1</mn></mrow></mrow>"
+               "</mfrac></math>");
+}
+
+TEST_CASE("mathml: x^3 + 2*x*y + 1", "[13][mathml]") {
+    auto x = symbol("x");
+    auto y = symbol("y");
+    auto e = pow(x, integer(3)) + integer(2) * x * y + integer(1);
+    REQUIRE(mathml(e)
+            == "<math><mrow><mrow><mn>2</mn><mo>&#x2062;</mo><mi>x</mi>"
+               "<mo>&#x2062;</mo><mi>y</mi></mrow><mo>+</mo>"
+               "<msup><mi>x</mi><mn>3</mn></msup><mo>+</mo><mn>1</mn>"
+               "</mrow></math>");
+}
+
 // ----- pretty ---------------------------------------------------------------
 
 TEST_CASE("pretty: x + 2", "[13][pretty]") {
