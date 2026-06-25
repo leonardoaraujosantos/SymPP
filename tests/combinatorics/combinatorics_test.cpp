@@ -283,3 +283,38 @@ TEST_CASE("permutation groups: transitivity and subgroup tests", "[combinatorics
     // A4 is a subgroup of itself; the trivial group is a subgroup of anything.
     REQUIRE(cb::alternating_group(4).is_subgroup(cb::alternating_group(4)));
 }
+
+TEST_CASE("permutation groups: Sylow p-subgroups", "[combinatorics]") {
+    // sylow_order(G, p) = p^a, the largest power of p dividing |G|.
+    REQUIRE(cb::sylow_order(cb::symmetric_group(3), 3) == 3);
+    REQUIRE(cb::sylow_order(cb::symmetric_group(3), 2) == 2);
+    REQUIRE(cb::sylow_order(cb::symmetric_group(4), 2) == 8);
+    REQUIRE(cb::sylow_order(cb::symmetric_group(4), 3) == 3);
+    REQUIRE(cb::sylow_order(cb::alternating_group(4), 2) == 4);
+    REQUIRE(cb::sylow_order(cb::alternating_group(4), 3) == 3);
+    REQUIRE(cb::sylow_order(cb::dihedral_group(4), 2) == 8);
+    // p not dividing |G| → trivial Sylow order 1.
+    REQUIRE(cb::sylow_order(cb::cyclic_group(5), 2) == 1);
+
+    // sylow_subgroup returns a subgroup of G of order exactly p^a.
+    auto check = [&](const cb::PermutationGroup& g, int p, long expected,
+                     const std::string& name) {
+        INFO(name);
+        auto P = cb::sylow_subgroup(g, p);
+        REQUIRE(P.order() == expected);
+        REQUIRE(P.is_subgroup(g));
+        // Every element of the Sylow subgroup lies in G.
+        for (const auto& e : P.elements()) REQUIRE(g.contains(e));
+    };
+    check(cb::symmetric_group(3), 3, 3, "S3 Sylow-3");
+    check(cb::symmetric_group(4), 2, 8, "S4 Sylow-2");
+    check(cb::symmetric_group(4), 3, 3, "S4 Sylow-3");
+    check(cb::alternating_group(4), 2, 4, "A4 Sylow-2");
+    check(cb::alternating_group(4), 3, 3, "A4 Sylow-3");
+    check(cb::dihedral_group(4), 2, 8, "D4 Sylow-2");
+
+    // p ∤ |G| gives the trivial subgroup (order 1).
+    auto triv = cb::sylow_subgroup(cb::cyclic_group(5), 2);
+    REQUIRE(triv.order() == 1);
+    REQUIRE(triv.is_subgroup(cb::cyclic_group(5)));
+}

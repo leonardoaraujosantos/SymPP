@@ -104,6 +104,22 @@ private:
 [[nodiscard]] SYMPP_EXPORT PermutationGroup dihedral_group(int n);     // Dₙ, order 2n
 [[nodiscard]] SYMPP_EXPORT PermutationGroup alternating_group(int n);  // Aₙ, order n!/2
 
+// ----- Sylow theory ----------------------------------------------------------
+// Order of a Sylow p-subgroup of G: p^a, the largest power of the prime p that
+// divides |G|. Returns 1 when p does not divide |G|.
+[[nodiscard]] SYMPP_EXPORT long sylow_order(const PermutationGroup& g, int p);
+
+// A Sylow p-subgroup of G: a subgroup whose order is p^a = sylow_order(G, p).
+// Found by collecting the p-elements of G (those whose order is a power of p) and
+// growing a subgroup by BFS closure until its order reaches p^a. The returned
+// group is guaranteed to be a subgroup of G of order exactly p^a (asserted).
+//
+// Intended for the small groups the module enumerates (Sₙ, Aₙ, Cₙ, Dₙ for small
+// n); relies on full element enumeration.
+//
+// Reference: Sylow's theorems; sympy.combinatorics PermutationGroup.sylow_subgroup.
+[[nodiscard]] SYMPP_EXPORT PermutationGroup sylow_subgroup(const PermutationGroup& g, int p);
+
 // ----- Integer partitions ----------------------------------------------------
 // Partition function p(n): number of ways to write n as a sum of positive
 // integers (order-insensitive). Arbitrary precision.
