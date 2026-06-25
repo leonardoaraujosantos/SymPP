@@ -97,3 +97,19 @@ is_simple/abelian_invariants, physics normal-ordering.
 BLOCKED (documented, beyond a loop / need new infra): full Risch non-elementarity
 proofs (SymPy doesn't do them either), elliptic-K hyperexpand (needs elliptic
 functions), arbitrary-arity Wang general Hensel (multi-week).
+
+### Residual-depth pass — DONE
+Closed: Wang 4-variable (multivariate content + composite diff-of-squares),
+factor(x^N-1) cyclotomic perf (x^60-1: >30s -> 6ms; known issue fixed),
+group is_simple + abelian_invariants (A5 simple, C6->[2,3], D4->[2,2]),
+physics normal-ordering of bosonic/fermionic operator words.
+
+ACCEPTANCE (all guards -DPROBE_GROUP -DPROBE_PHYS -DPROBE_PERF): REMAINING=0 / TOTAL=100.
+Suite: 7616 assertions / 1796 cases, all green.
+
+REMAINING DEEP (documented, beyond a loop — need new infra / multi-week / N/A):
+- #5 Risch full multi-level tower recursion (~3 wk); formal non-elementarity
+  proofs are N/A (SymPy doesn't do them either).
+- #4 Wang arbitrary-arity (4+ vars general) + full Hensel lifting (~1.5 wk).
+- #6 hyperexpand elliptic-K pFq (needs an elliptic-function module).
+These are tracked but intentionally not looped on. LOOP STOPPED at 100/100.
