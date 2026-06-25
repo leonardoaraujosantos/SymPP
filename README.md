@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1817%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1796 tests / 7616 assertions  all passing
-762 cases (3908 assertions) oracle-validated against SymPy
+1817 tests / 7702 assertions  all passing
+764 cases (3915 assertions) oracle-validated against SymPy
 15 of 15 phases shipped (v1.0)
 ```
 
@@ -52,7 +52,7 @@ ships) — plus the deeper tiers of a few large modules. See
 | 10 | Equation solvers                       | ✅ |
 | 11 | ODE / PDE                              | ✅ |
 | 12 | Units                                  | ✅ |
-| 13 | Code generation                        | 🟡 printers + function emission |
+| 13 | Code generation                        | ✅ C/C++/Fortran/LaTeX/Octave/Rust/Julia/MathML/GLSL + Graphviz-dot + `srepr` printers, codegen AST (CSE), `lambdify`/`autowrap` |
 | 15 | Parser & MATLAB facade                 | ✅ |
 | 16 | Hardening & v1.0                       | ✅ `find_package`/install/export, vcpkg + Conan packaging, benchmark harness, Doxygen target, CI matrix — **v1.0** |
 
@@ -452,11 +452,15 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   constants with exact post-2019-redef values, affine
   temperature conversion.
 - **Code generation** — C / C++ / Fortran / LaTeX / Octave / Rust / Julia /
-  MathML printers + function emission, a 2D ASCII `pretty()` printer
-  (stacked fractions, superscript
-  powers, radicals), and **`lambdify`** — compile an expression to a native
-  `std::function<double(...)>` (portable closure backend, plus an optional LLVM
-  ORC-JIT backend `lambdify_jit` for hot numeric loops).
+  MathML / **GLSL** code printers, a **Graphviz-`dot`** expression-tree printer
+  and a SymPy-compatible **`srepr`** constructor printer, function emission
+  (`c_function`/…), a **structured codegen AST** (`Assignment` / `CodeBlock` /
+  `FunctionDefinition` with CSE-based `emit_c`/`emit_cxx`), a 2D ASCII
+  `pretty()` printer (stacked fractions, superscript powers, radicals),
+  **`lambdify`** — compile an expression to a native `std::function<double(...)>`
+  (portable closure backend, plus an optional LLVM ORC-JIT backend
+  `lambdify_jit`) — and **`autowrap`**, which compiles generated C through the
+  system toolchain into a `dlopen`'d native callable (SymPy's autowrap backend).
 - **Logic & boolean algebra** — `bool_and`/`bool_or`/`bool_not` (+ xor/implies/
   equivalent) connectives with `satisfiable`, `to_cnf`/`to_dnf`, and
   `simplify_logic` (Quine–McCluskey minimization).
