@@ -21,6 +21,29 @@ std::optional<bool> Integers::contains(const Expr& e) const {
     return is_integer(e);
 }
 
+// ---- Naturals --------------------------------------------------------------
+
+std::optional<bool> Naturals::contains(const Expr& e) const {
+    auto integral = is_integer(e);
+    if (integral == std::optional<bool>{false}) return false;
+    // Need both the integrality and the sign to decide membership.
+    if (integral != std::optional<bool>{true}) return std::nullopt;
+    if (is_positive(e) == std::optional<bool>{true}) return true;
+    if (with_zero_ && is_zero(e) == std::optional<bool>{true}) return true;
+    auto nonpos = with_zero_ ? is_negative(e) : is_positive(e);
+    if (with_zero_) {
+        // {0, 1, …}: out only when strictly negative.
+        if (nonpos == std::optional<bool>{true}) return false;
+    } else {
+        // {1, 2, …}: out unless strictly positive (i.e. ≤ 0).
+        if (is_negative(e) == std::optional<bool>{true}
+            || is_zero(e) == std::optional<bool>{true}) {
+            return false;
+        }
+    }
+    return std::nullopt;
+}
+
 // ---- Interval -------------------------------------------------------------
 
 Interval::Interval(Expr lo, Expr hi, bool left_open, bool right_open)
@@ -196,6 +219,8 @@ SetPtr empty_set() { return std::make_shared<EmptySet>(); }
 SetPtr reals() { return std::make_shared<Reals>(); }
 SetPtr complexes() { return std::make_shared<Complexes>(); }
 SetPtr integers() { return std::make_shared<Integers>(); }
+SetPtr naturals() { return std::make_shared<Naturals>(false); }
+SetPtr naturals0() { return std::make_shared<Naturals>(true); }
 SetPtr interval(const Expr& lo, const Expr& hi, bool left_open, bool right_open) {
     return std::make_shared<Interval>(lo, hi, left_open, right_open);
 }
@@ -204,6 +229,27 @@ SetPtr finite_set(std::vector<Expr> elements) {
     return std::make_shared<FiniteSet>(std::move(elements));
 }
 namespace {
+// Rank of a named number domain in the nesting Naturals ⊂ Integers ⊂ Reals ⊂
+// Complexes; non-domain kinds (intervals, finite sets, …) return nullopt.
+[[nodiscard]] std::optional<int> domain_rank(SetKind k) {
+    switch (k) {
+        case SetKind::Naturals:  return 0;
+        case SetKind::Integers:  return 1;
+        case SetKind::Reals:     return 2;
+        case SetKind::Complexes: return 3;
+        default:                 return std::nullopt;
+    }
+}
+
+// When a and b are both named number domains and one contains the other, return
+// the kind of the larger (superset). nullopt if either isn't a domain.
+[[nodiscard]] std::optional<SetKind> domain_superset(SetKind a, SetKind b) {
+    auto ra = domain_rank(a);
+    auto rb = domain_rank(b);
+    if (!ra || !rb) return std::nullopt;
+    return *ra >= *rb ? a : b;
+}
+
 // Order two endpoints: 1 if a > b, −1 if a < b, 0 if equal, nullopt if the
 // comparison can't be decided (symbolic bounds).
 [[nodiscard]] std::optional<int> endpoint_cmp(const Expr& a, const Expr& b) {
@@ -222,6 +268,11 @@ SetPtr set_union(SetPtr a, SetPtr b) {
     // Complexes is the universal domain: C ∪ X = C.
     if (a->kind() == SetKind::Complexes) return a;
     if (b->kind() == SetKind::Complexes) return b;
+    // Named number domains nest: Naturals ⊂ Integers ⊂ Reals ⊂ Complexes.
+    // The union of a domain with a subset of it is the larger domain.
+    if (auto super = domain_superset(a->kind(), b->kind())) {
+        return *super == a->kind() ? a : b;
+    }
     // Merge two overlapping / adjacent real intervals into one.
     if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
         const auto& ia = static_cast<const Interval&>(*a);
@@ -256,6 +307,11 @@ SetPtr set_intersection(SetPtr a, SetPtr b) {
     // Complexes is the universal domain: C ∩ X = X.
     if (a->kind() == SetKind::Complexes) return b;
     if (b->kind() == SetKind::Complexes) return a;
+    // Named number domains nest: Naturals ⊂ Integers ⊂ Reals ⊂ Complexes.
+    // The intersection of a domain with a subset of it is the smaller domain.
+    if (auto super = domain_superset(a->kind(), b->kind())) {
+        return *super == a->kind() ? b : a;
+    }
     // Intersect two real intervals: [max(los), min(his)].
     if (a->kind() == SetKind::Interval && b->kind() == SetKind::Interval) {
         const auto& ia = static_cast<const Interval&>(*a);

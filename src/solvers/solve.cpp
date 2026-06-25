@@ -2124,7 +2124,9 @@ SetPtr solveset_impl(const Expr& expr, const Expr& var, const SetPtr& domain) {
     }
     // Polynomial-only fallback. Must NOT call the public solve(), which would
     // re-enter solveset() for transcendental input and recurse without bound.
-    auto roots = solve_poly(expr, var);
+    // Expand first so an unexpanded product like (x−1)(x+2)(x−3) is seen as a
+    // polynomial (Poly does not expand its input).
+    auto roots = solve_poly(expand(expr), var);
     if (roots.empty()) return empty_set();
     std::vector<Expr> kept;
     kept.reserve(roots.size());

@@ -29,6 +29,7 @@ enum class SetKind : std::uint8_t {
     Reals,
     Complexes,
     Integers,
+    Naturals,
     Interval,
     FiniteSet,
     Union,
@@ -87,6 +88,25 @@ public:
     }
     [[nodiscard]] std::string str() const override { return "Integers"; }
     [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+};
+
+// The positive integers {1, 2, 3, …} (SymPy's Naturals). With with_zero set it
+// is {0, 1, 2, …} (SymPy's Naturals0). contains() decides membership only for
+// concrete integers; a symbolic element yields std::nullopt.
+class SYMPP_EXPORT Naturals final : public Set {
+public:
+    explicit Naturals(bool with_zero = false) : with_zero_(with_zero) {}
+    [[nodiscard]] SetKind kind() const noexcept override {
+        return SetKind::Naturals;
+    }
+    [[nodiscard]] std::string str() const override {
+        return with_zero_ ? "Naturals0" : "Naturals";
+    }
+    [[nodiscard]] std::optional<bool> contains(const Expr& e) const override;
+    [[nodiscard]] bool with_zero() const noexcept { return with_zero_; }
+
+private:
+    bool with_zero_;
 };
 
 // [a, b] / (a, b) / [a, b) / (a, b].
@@ -209,6 +229,8 @@ private:
 [[nodiscard]] SYMPP_EXPORT SetPtr reals();
 [[nodiscard]] SYMPP_EXPORT SetPtr complexes();
 [[nodiscard]] SYMPP_EXPORT SetPtr integers();
+[[nodiscard]] SYMPP_EXPORT SetPtr naturals();   // {1, 2, 3, …}
+[[nodiscard]] SYMPP_EXPORT SetPtr naturals0();  // {0, 1, 2, …}
 [[nodiscard]] SYMPP_EXPORT SetPtr interval(const Expr& lo, const Expr& hi,
                                               bool left_open = false,
                                               bool right_open = false);

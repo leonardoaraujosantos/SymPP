@@ -1243,6 +1243,56 @@ TEST_CASE("solveset: complex default domain (SOLVESET-COMPLEX-1)",
                     {integer(2), integer(-2)}));
 }
 
+// SOLVESET-NAT-1: the Naturals domain restricts roots to the positive integers
+// {1, 2, 3, …}, dropping zero, negatives and non-integers. naturals0() also
+// keeps 0. Set algebra nests Naturals ⊂ Integers ⊂ Reals ⊂ Complexes.
+TEST_CASE("solveset: Naturals domain (SOLVESET-NAT-1)", "[10][solveset]") {
+    auto x = symbol("x");
+    auto has_all = [](const SetPtr& s, const std::vector<Expr>& want) {
+        if (s->kind() != SetKind::FiniteSet) return false;
+        auto fs = std::static_pointer_cast<const FiniteSet>(s);
+        if (fs->size() != want.size()) return false;
+        for (const auto& w : want) {
+            if (s->contains(w) != std::optional<bool>{true}) return false;
+        }
+        return true;
+    };
+
+    // x² − 4 has roots ±2; only +2 is a natural number.
+    auto s1 = solveset(pow(x, integer(2)) - integer(4), x, naturals());
+    REQUIRE(s1->kind() == SetKind::FiniteSet);
+    REQUIRE(std::static_pointer_cast<const FiniteSet>(s1)->size() == 1);
+    REQUIRE(s1->contains(integer(2)) == std::optional<bool>{true});
+    REQUIRE(s1->contains(integer(-2)) == std::optional<bool>{false});
+
+    // (x−1)(x+2)(x−3): roots 1, −2, 3; the naturals are {1, 3}.
+    auto poly = mul({x - integer(1), x + integer(2), x - integer(3)});
+    auto s2 = solveset(poly, x, naturals());
+    REQUIRE(has_all(s2, {integer(1), integer(3)}));
+
+    // Zero is excluded by naturals() but kept by naturals0().
+    auto sq = mul(x, x - integer(2));  // roots 0, 2
+    REQUIRE(has_all(solveset(sq, x, naturals()), {integer(2)}));
+    REQUIRE(has_all(solveset(sq, x, naturals0()),
+                    {integer(0), integer(2)}));
+
+    // contains() membership semantics.
+    auto nat = naturals();
+    REQUIRE(nat->contains(integer(1)) == std::optional<bool>{true});
+    REQUIRE(nat->contains(integer(0)) == std::optional<bool>{false});
+    REQUIRE(nat->contains(integer(-5)) == std::optional<bool>{false});
+    REQUIRE(nat->contains(rational(1, 2)) == std::optional<bool>{false});
+    REQUIRE(naturals0()->contains(integer(0)) == std::optional<bool>{true});
+
+    // Set algebra: Naturals ⊂ Integers ⊂ Reals ⊂ Complexes.
+    REQUIRE(set_union(naturals(), integers())->kind() == SetKind::Integers);
+    REQUIRE(set_intersection(reals(), naturals())->kind()
+            == SetKind::Naturals);
+    REQUIRE(set_union(naturals(), complexes())->kind() == SetKind::Complexes);
+    REQUIRE(set_intersection(complexes(), naturals())->kind()
+            == SetKind::Naturals);
+}
+
 // ----- solveset: _invert chain (transcendental) -----------------------------
 
 #include <sympp/functions/hyperbolic.hpp>
