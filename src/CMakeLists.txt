@@ -78,6 +78,7 @@ target_sources(sympp
         parsing/parser.cpp
         physics/units.cpp
         printing/printing.cpp
+        codegen/codegen.cpp
         polys/domain_matrix.cpp
         polys/poly.cpp
         polys/zassenhaus.cpp
@@ -162,6 +163,7 @@ target_sources(sympp
             ${CMAKE_SOURCE_DIR}/include/sympp/parsing/parser.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/physics/units.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/printing/printing.hpp
+            ${CMAKE_SOURCE_DIR}/include/sympp/codegen/codegen.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/poly.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/polys/rootof.hpp
             ${CMAKE_SOURCE_DIR}/include/sympp/combinatorics/combinatorics.hpp
