@@ -77,3 +77,13 @@ Deepened probe to 70 cases (14 Risch integrals, Wang quartic-4-factor + biquadra
 hyperexpand degenerate 2F1(2,1;1;z), 4 adversarial Gruntz towers). Baseline:
 REMAINING=0/70 — all already pass. Remaining Tier 2 work needs NEW API:
 group is_solvable/is_nilpotent, physics multi-mode operators.
+
+### Tier 2 full-completion — DONE
+Added group is_solvable/is_nilpotent (S3/S4/A4/A5/D4/C6 vs SymPy) and multi-mode
+bosonic Fock operators ([a_i,a_j†]=δ_ij). Probe extended with PROBE_GROUP +
+PROBE_PHYS sections.
+
+ACCEPTANCE (full Tier 1+2, build -DPROBE_GROUP -DPROBE_PHYS): REMAINING=0 / TOTAL=79.
+Suite: 7543 assertions / 1785 cases, all green. ALL OF TIER 2 finished on the
+79-case acceptance set (#4 Wang, #5 Risch, #6 hyperexpand, #7 Gruntz,
+#8 group theory, #9 physics). LOOP STOPPED.
