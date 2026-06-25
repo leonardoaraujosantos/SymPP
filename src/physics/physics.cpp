@@ -1,6 +1,7 @@
 #include <sympp/physics/physics.hpp>
 
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <gmpxx.h>
@@ -131,6 +132,75 @@ FockState apply_boson_commutator(const FockState& s) {
     // Both terms (when nonzero) share occupation n; combine coefficients.
     Expr coeff = simplify(aad.coefficient - ada.coefficient);
     return FockState{s.occupation, coeff};
+}
+
+// ----- Second quantization: multi-mode bosonic Fock states -------------------
+
+bool MultiModeFockState::is_zero() const {
+    if (!coefficient) return true;  // default-constructed (null) coefficient
+    return simplify(coefficient) == S::Zero();
+}
+
+namespace {
+void check_mode(const MultiModeFockState& s, std::size_t mode, const char* who) {
+    if (mode >= s.occupation.size()) {
+        throw std::out_of_range(std::string(who) + ": mode index out of range");
+    }
+}
+}  // namespace
+
+MultiModeFockState apply_annihilation(const MultiModeFockState& s, std::size_t mode) {
+    check_mode(s, mode, "apply_annihilation");
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    if (s.occupation[mode] == 0) {
+        return MultiModeFockState{s.occupation, S::Zero()};  // aᵢ|…0…⟩ = 0
+    }
+    Expr factor = sqrt(integer(s.occupation[mode]));  // √nᵢ
+    MultiModeFockState out{s.occupation, simplify(c * factor)};
+    out.occupation[mode] -= 1;
+    return out;
+}
+
+MultiModeFockState apply_creation(const MultiModeFockState& s, std::size_t mode) {
+    check_mode(s, mode, "apply_creation");
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    Expr factor = sqrt(integer(s.occupation[mode] + 1));  // √(nᵢ+1)
+    MultiModeFockState out{s.occupation, simplify(c * factor)};
+    out.occupation[mode] += 1;
+    return out;
+}
+
+MultiModeFockState apply_number(const MultiModeFockState& s, std::size_t mode) {
+    check_mode(s, mode, "apply_number");
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    Expr factor = integer(s.occupation[mode]);  // nᵢ
+    return MultiModeFockState{s.occupation, simplify(c * factor)};
+}
+
+MultiModeFockState apply_boson_commutator(const MultiModeFockState& s, std::size_t i,
+                                          std::size_t j) {
+    // [aᵢ, aⱼ†] = aᵢ·aⱼ† − aⱼ†·aᵢ, applied to a state.
+    // Both terms (when nonzero) return to the original occupation vector, so the
+    // result is a multiple of |n⟩; for i=j the multiple is 1, else 0.
+    MultiModeFockState aad = apply_annihilation(apply_creation(s, j), i);  // aᵢ·aⱼ†
+    MultiModeFockState ada = apply_creation(apply_annihilation(s, i), j);  // aⱼ†·aᵢ
+    Expr ca = aad.coefficient ? aad.coefficient : S::Zero();
+    Expr cb = ada.coefficient ? ada.coefficient : S::Zero();
+    return MultiModeFockState{s.occupation, simplify(ca - cb)};
+}
+
+MultiModeFockState apply_annihilation_commutator(const MultiModeFockState& s, std::size_t i,
+                                                 std::size_t j) {
+    // [aᵢ, aⱼ] = aᵢ·aⱼ − aⱼ·aᵢ, applied to a state (always 0).
+    MultiModeFockState ij = apply_annihilation(apply_annihilation(s, j), i);  // aᵢ·aⱼ
+    MultiModeFockState ji = apply_annihilation(apply_annihilation(s, i), j);  // aⱼ·aᵢ
+    Expr ca = ij.coefficient ? ij.coefficient : S::Zero();
+    Expr cb = ji.coefficient ? ji.coefficient : S::Zero();
+    MultiModeFockState out{s.occupation, simplify(ca - cb)};
+    // Lowered occupation (both modes) for a clean representation of the result.
+    if (i < out.occupation.size() && out.occupation[i] > 0) out.occupation[i] -= 1;
+    if (j < out.occupation.size() && out.occupation[j] > 0) out.occupation[j] -= 1;
+    return out;
 }
 
 // ----- Second quantization: fermionic Fock states ----------------------------

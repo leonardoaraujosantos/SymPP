@@ -9,6 +9,7 @@
 #include <sympp/functions/hypergeometric.hpp>
 #include <sympp/simplify/hyperexpand.hpp>
 #include <sympp/combinatorics/combinatorics.hpp>
+#include <sympp/physics/physics.hpp>
 #include "oracle/oracle.hpp"
 using namespace sympp;
 static auto& O(){ return sympp::testing::Oracle::instance(); }
@@ -17,6 +18,7 @@ static bool eqv(const std::string&a,const std::string&b){ try{return O().equival
 static void want(const std::string&label,bool ok){
   ++total; if(!ok){++fail; std::cout<<"FAIL  "<<label<<"\n";} else std::cout<<"pass  "<<label<<"\n";
 }
+static bool coeff_eq_zero(const Expr&e){ return e && simplify(e)==S::Zero(); }
 // factor must equal expected AND differ from input
 static void factor_is(const std::string&label,const Expr&e,const Expr&var,const std::string&expected){
   std::string g; try{ g=factor(e,var)->str(); }catch(...){ g="THROW"; }
@@ -53,6 +55,23 @@ static void probe_group_theory(){
   want("D4 nilpotent", is_nilpotent(dihedral_group(4)));
   want("S3 not nilpotent", !is_nilpotent(symmetric_group(3)));
   want("C6 nilpotent", is_nilpotent(cyclic_group(6)));
+}
+#endif
+
+#ifdef PROBE_PHYS
+static void probe_physics(){
+  using namespace sympp::physics;
+  std::cout<<"== T2#9 multi-mode second quantization ==\n";
+  // [a_i, a_i^dagger] = 1 (same mode).
+  MultiModeFockState s{{2,5}, S::One()};
+  want("[a0,a0+]=1 same mode", coeff_eq_zero(apply_boson_commutator(s,0,0).coefficient - S::One()));
+  // [a_1, a_2^dagger] = 0 (cross mode commute).
+  want("[a0,a1+]=0 cross mode", apply_boson_commutator(s,0,1).is_zero());
+  // Number eigenvalue: N_1|2 5> = 5|2 5>.
+  want("N1|2 5>=5", coeff_eq_zero(apply_number(s,1).coefficient - integer(5)));
+  // Vacuum annihilation a_i|0> = 0.
+  MultiModeFockState vac{{0,0}, S::One()};
+  want("a0|0>=0 vacuum", apply_annihilation(vac,0).is_zero());
 }
 #endif
 

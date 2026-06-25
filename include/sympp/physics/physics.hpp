@@ -3,9 +3,10 @@
 // Symbolic physics — the reusable, self-contained pieces of sympy.physics.
 // (The deep submodules — full continuum mechanics, relativistic field theory —
 // remain genuinely multi-week ports. Second quantization is covered in part:
-// finite-dim ladder/number matrices, Jordan–Wigner fermions, and single-mode
-// bosonic / fermionic Fock states with apply_annihilation/creation/number
-// below.)
+// finite-dim ladder/number matrices, Jordan–Wigner fermions, single-mode
+// bosonic / fermionic Fock states, and multi-mode bosonic Fock states (an
+// occupation vector with per-mode ladder operators) with
+// apply_annihilation/creation/number below.)
 //
 //   * quantum     — commutators, Pauli matrices, ladder/number operators,
 //                   arbitrary-spin angular-momentum operators (Jx,Jy,Jz,J±,J²),
@@ -61,6 +62,36 @@ struct FockState {
 [[nodiscard]] SYMPP_EXPORT FockState apply_number(const FockState& s);
 // Commutator [a, a†] (c·|n⟩) = (a·a† − a†·a)(c·|n⟩) = c·|n⟩ (canonical relation).
 [[nodiscard]] SYMPP_EXPORT FockState apply_boson_commutator(const FockState& s);
+
+// ----- Second quantization: multi-mode bosonic Fock states -------------------
+// A multi-mode bosonic Fock state c·|n₀ n₁ … n_{M−1}⟩: an occupation vector over
+// M independent modes paired with a symbolic scalar coefficient c. Each mode
+// carries its own independent ladder operators aᵢ, aᵢ† satisfying
+//   [aᵢ, aⱼ†] = δᵢⱼ,  [aᵢ, aⱼ] = 0,  [aᵢ†, aⱼ†] = 0.
+// As for the single-mode case the zero vector is encoded by a zero coefficient.
+struct MultiModeFockState {
+    std::vector<int> occupation;  // (n₀, …, n_{M−1}), each nᵢ ≥ 0
+    Expr coefficient;             // scalar prefactor c (c·|n₀ … n_{M−1}⟩)
+
+    // Whether this represents the zero vector (coefficient simplifies to 0).
+    [[nodiscard]] SYMPP_EXPORT bool is_zero() const;
+};
+
+// Annihilation aᵢ (c·|…nᵢ…⟩) = c·√nᵢ·|…nᵢ−1…⟩;  aᵢ with nᵢ=0 gives 0.
+[[nodiscard]] SYMPP_EXPORT MultiModeFockState apply_annihilation(const MultiModeFockState& s,
+                                                                 std::size_t mode);
+// Creation aᵢ† (c·|…nᵢ…⟩) = c·√(nᵢ+1)·|…nᵢ+1…⟩.
+[[nodiscard]] SYMPP_EXPORT MultiModeFockState apply_creation(const MultiModeFockState& s,
+                                                             std::size_t mode);
+// Number Nᵢ (c·|…nᵢ…⟩) = c·nᵢ·|…nᵢ…⟩.
+[[nodiscard]] SYMPP_EXPORT MultiModeFockState apply_number(const MultiModeFockState& s,
+                                                           std::size_t mode);
+// Commutator [aᵢ, aⱼ†] applied to a state: (aᵢ·aⱼ† − aⱼ†·aᵢ)(c·|n⟩) = δᵢⱼ·c·|n⟩.
+[[nodiscard]] SYMPP_EXPORT MultiModeFockState apply_boson_commutator(const MultiModeFockState& s,
+                                                                     std::size_t i, std::size_t j);
+// Commutator [aᵢ, aⱼ] applied to a state: (aᵢ·aⱼ − aⱼ·aᵢ)(c·|n⟩) = 0.
+[[nodiscard]] SYMPP_EXPORT MultiModeFockState apply_annihilation_commutator(
+    const MultiModeFockState& s, std::size_t i, std::size_t j);
 
 // ----- Second quantization: fermionic Fock states ----------------------------
 // A single-mode fermionic Fock state c·|n⟩ with Pauli exclusion: the occupation
