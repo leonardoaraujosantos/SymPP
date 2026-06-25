@@ -96,6 +96,43 @@ Matrix number_operator(std::size_t n) {
     return N;
 }
 
+// ----- Second quantization: bosonic Fock states ------------------------------
+
+bool FockState::is_zero() const {
+    if (!coefficient) return true;  // default-constructed (null) coefficient
+    return simplify(coefficient) == S::Zero();
+}
+
+FockState apply_annihilation(const FockState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    if (s.occupation == 0) {
+        return FockState{0, S::Zero()};  // a|0⟩ = 0
+    }
+    Expr factor = sqrt(integer(static_cast<long>(s.occupation)));  // √n
+    return FockState{s.occupation - 1, simplify(c * factor)};
+}
+
+FockState apply_creation(const FockState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    Expr factor = sqrt(integer(static_cast<long>(s.occupation + 1)));  // √(n+1)
+    return FockState{s.occupation + 1, simplify(c * factor)};
+}
+
+FockState apply_number(const FockState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    Expr factor = integer(static_cast<long>(s.occupation));  // n
+    return FockState{s.occupation, simplify(c * factor)};
+}
+
+FockState apply_boson_commutator(const FockState& s) {
+    // [a, a†] = a·a† − a†·a, applied to a state.
+    FockState aad = apply_annihilation(apply_creation(s));  // a·a†|n⟩ = (n+1)|n⟩
+    FockState ada = apply_creation(apply_annihilation(s));  // a†·a|n⟩ = n|n⟩
+    // Both terms (when nonzero) share occupation n; combine coefficients.
+    Expr coeff = simplify(aad.coefficient - ada.coefficient);
+    return FockState{s.occupation, coeff};
+}
+
 // ----- Quantum computing -----------------------------------------------------
 
 Matrix ket0() { return Matrix{{integer(1)}, {integer(0)}}; }

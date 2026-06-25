@@ -407,7 +407,8 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   (hydrogen energies & radial wavefunctions, 1D
   harmonic-oscillator energies & wavefunctions), geometric optics (ABCD ray
   matrices + Gaussian-beam `q` propagation), **quantum computing** (qubit gates H/S/T/CNOT, Bell states, bra-ket),
-  **second quantization** (Jordan-Wigner fermionic operators), and classical
+  **second quantization** (Jordan-Wigner fermionic operators, single-mode
+  bosonic Fock states with annihilation/creation/number operators), and classical
   mechanics (conjugate momentum, Hamiltonian, multi-coordinate Lagrangian EOM).
 - **LaTeX parser** — `parse_latex` turns LaTeX math back into an `Expr`
   (inverse of `printing::latex`).

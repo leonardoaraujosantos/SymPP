@@ -1,8 +1,10 @@
 #pragma once
 
 // Symbolic physics — the reusable, self-contained pieces of sympy.physics.
-// (The deep submodules — second quantization, full continuum mechanics,
-// relativistic field theory — remain genuinely multi-week ports.)
+// (The deep submodules — full continuum mechanics, relativistic field theory —
+// remain genuinely multi-week ports. Second quantization is covered in part:
+// finite-dim ladder/number matrices, Jordan–Wigner fermions, and single-mode
+// bosonic Fock states with apply_annihilation/creation/number below.)
 //
 //   * quantum     — commutators, Pauli matrices, ladder/number operators,
 //                   arbitrary-spin angular-momentum operators (Jx,Jy,Jz,J±,J²),
@@ -37,6 +39,27 @@ namespace sympp::physics {
 [[nodiscard]] SYMPP_EXPORT Matrix annihilation_operator(std::size_t n);
 [[nodiscard]] SYMPP_EXPORT Matrix creation_operator(std::size_t n);
 [[nodiscard]] SYMPP_EXPORT Matrix number_operator(std::size_t n);
+
+// ----- Second quantization: bosonic Fock states ------------------------------
+// A single-mode bosonic Fock state c·|n⟩: an occupation number n ≥ 0 paired with
+// a symbolic scalar coefficient c. The vacuum / null result a|0⟩ = 0 is encoded
+// as a state with a zero coefficient (occupation is then irrelevant).
+struct FockState {
+    std::size_t occupation = 0;  // n in |n⟩
+    Expr coefficient;            // scalar prefactor c (c·|n⟩)
+
+    // Whether this represents the zero vector (coefficient simplifies to 0).
+    [[nodiscard]] SYMPP_EXPORT bool is_zero() const;
+};
+
+// Annihilation a (c·|n⟩) = c·√n·|n−1⟩;  a|0⟩ = 0 (zero coefficient).
+[[nodiscard]] SYMPP_EXPORT FockState apply_annihilation(const FockState& s);
+// Creation a† (c·|n⟩) = c·√(n+1)·|n+1⟩.
+[[nodiscard]] SYMPP_EXPORT FockState apply_creation(const FockState& s);
+// Number N (c·|n⟩) = c·n·|n⟩.
+[[nodiscard]] SYMPP_EXPORT FockState apply_number(const FockState& s);
+// Commutator [a, a†] (c·|n⟩) = (a·a† − a†·a)(c·|n⟩) = c·|n⟩ (canonical relation).
+[[nodiscard]] SYMPP_EXPORT FockState apply_boson_commutator(const FockState& s);
 
 // ----- Second quantization: fermionic ladder operators -----------------------
 // Jordan–Wigner representation of fermionic mode `p` (0-based) among `n` modes
