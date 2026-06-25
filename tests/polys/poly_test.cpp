@@ -1257,3 +1257,32 @@ TEST_CASE("factor: trivariate symmetric cubic (WANG-3)",
     Expr irr = add({P(x, 3), x, y, z});  // x³ + x + y + z
     REQUIRE(factor(irr, x)->str() == irr->str());
 }
+
+// WANG-4: degree-2 multivariate (>= 2 other free variables). The bivariate-only
+// quadratic-discriminant branch does not apply, so the linear-form deflation
+// path handles it — find a small linear-form root r(y, z), deflate by (x − r),
+// and recurse on the linear quotient. (x + y)² − z² has root x = −y + z (or
+// −y − z), both inside find_linear_form_root's {−1,0,1} coefficient grid.
+TEST_CASE("factor: degree-2 multivariate (WANG-4)",
+          "[4][polys][factor][wang][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x"), y = symbol("y"), z = symbol("z");
+    auto P = [&](const Expr& b, int e) { return pow(b, integer(e)); };
+    auto check = [&](const Expr& e, const char* expected) {
+        Expr f = factor(e, x);
+        REQUIRE(oracle.equivalent(f->str(), e->str()));   // expands back
+        REQUIRE(oracle.equivalent(f->str(), expected));   // matches SymPy form
+        REQUIRE(f->str() != e->str());                    // actually factored
+    };
+
+    // (x + y)² − z² → (x + y − z)(x + y + z)
+    check(P(add({x, y}), 2) - P(z, 2), "(x + y - z)*(x + y + z)");
+    // Expanded form: x² + 2xy + y² − z² → same factorization.
+    check(add({P(x, 2), mul(integer(2), mul(x, y)), P(y, 2),
+               mul(integer(-1), P(z, 2))}),
+          "(x + y - z)*(x + y + z)");
+
+    // A degree-2 trivariate quadratic with no small linear-form root stays put.
+    Expr irr = add({P(x, 2), mul(x, y), z, integer(1)});  // x² + xy + z + 1
+    REQUIRE(factor(irr, x)->str() == irr->str());
+}

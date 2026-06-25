@@ -1344,13 +1344,16 @@ std::optional<Expr> factor_multivariate(const Expr& expr, const Expr& var) {
                 pp_factored = mul(parts);
             }
         }
-    } else if (f.degree() >= 3) {
+    } else if (f.degree() >= 3 || (f.degree() == 2 && !bivariate)) {
         // Cubic and higher in `var`: find one closed-form root r(y), deflate by
         // (var − r), and recurse on the (lower-degree) quotient. The linear
         // factor is denominator-cleared to (den·var − num) so it stays a
         // polynomial; the leftover numeric scale is folded into the quotient.
         // For a single other variable the root is sought among monomials ±(p/q)yᵏ;
-        // for two it is sought among small linear forms a₀+Σcᵢvᵢ.
+        // for two it is sought among small linear forms a₀+Σcᵢvᵢ. The degree-2
+        // multivariate case (e.g. (x+y)²−z², two other free vars) also takes this
+        // linear-form path since the bivariate-only quadratic-disc branch above
+        // does not apply.
         std::optional<Expr> ropt = bivariate ? find_bivariate_root(pp, y)
                                              : find_linear_form_root(pp, vars);
         if (ropt) {
