@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1772%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1796%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,8 +15,8 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1772 tests / 7465 assertions  all passing
-757 cases (3850 assertions) oracle-validated against SymPy
+1796 tests / 7616 assertions  all passing
+762 cases (3908 assertions) oracle-validated against SymPy
 15 of 15 phases shipped (v1.0)
 ```
 
@@ -521,6 +521,31 @@ cmake --build build -j
 The test runner spawns a Python subprocess on demand for the oracle —
 SymPy must be importable from your `python3`. Tests with the `[oracle]`
 Catch2 tag exercise that path; everything else runs without Python.
+
+### Task runner (`just`)
+
+A [`justfile`](justfile) wraps the common workflows ([`just`](https://github.com/casey/just) ≥ 1.0):
+
+```bash
+just              # list all recipes
+just build        # configure + compile (library, tests, examples)
+just test         # full suite (unit + integration/oracle)
+just test-unit    # pure-C++ unit tests (no SymPy oracle)
+just test-integration   # SymPy-oracle-validated integration tests
+just test-filter "[polys]"   # any Catch2 tag/name filter
+just examples     # build & run every example
+just example calculus_03_integration   # run one example
+just parity       # Tier 1 + Tier 2 acceptance probe (expects REMAINING=0)
+just bench        # build & run the benchmark harness
+just docs         # Doxygen API docs
+just ci           # configure + build + full suite (the CI pipeline)
+just clean        # remove the build directory
+```
+
+Recipes accept inline overrides, e.g. `just build_type=Debug test`.
+The `[oracle]` tag splits the suite: `test-unit` runs the `~[oracle]`
+(pure-C++) tests, `test-integration` runs the `[oracle]` (SymPy-validated)
+tests.
 
 ### Use as a dependency
 
