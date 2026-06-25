@@ -51,3 +51,23 @@ Expanded probe to 38 cases. Baseline REMAINING=2:
 Gruntz towers all pass; hard bivariate quartic x^4+x^2y^2+y^4 already factors.
 Group theory: needs conjugacy_classes/center/derived_subgroup API + probe section
 (guarded by PROBE_GROUP).
+
+### Deep-completion pass — DONE
+Batch 6 closed all remaining: Wang degree-2 multivariate ((x+y)^2-z^2 via
+linear-form deflation), hyperexpand 0F1(;1/2;z^2/4)->cosh / 0F1(;3/2;z^2/4)->
+sinh(z)/z, and group theory (conjugacy_classes / num_conjugacy_classes /
+group_center / derived_subgroup, validated vs S3/S4/A4/D4). Probe extended with
+a PROBE_GROUP section.
+
+ACCEPTANCE (full set incl group, build with -DPROBE_GROUP): REMAINING=0 / TOTAL=48.
+Suite: 7503 assertions / 1776 cases, all green. #4 Wang, hyperexpand, Gruntz,
+group theory finished on the acceptance set. LOOP STOPPED.
+
+Probe rebuild+run:
+  g++ -std=c++20 -I include -I tests -I /tmp/deps/root/usr/include \
+    -I build/_deps/nlohmann_json-src/include -DPROBE_GROUP \
+    -DSYMPP_TEST_ORACLE_SCRIPT="\"$PWD/oracle/oracle.py\"" \
+    -DSYMPP_TEST_PYTHON_EXECUTABLE="\"python3\"" \
+    parity-workspace/acceptance_probe.cpp tests/oracle/oracle.cpp -o parity-workspace/probe \
+    build/src/libsympp.so -L<gmp-lib> -Wl,-rpath,<gmp-lib> -lgmpxx -lgmp -lmpfr
+  LD_LIBRARY_PATH=build/src:<gmp-lib> parity-workspace/probe
