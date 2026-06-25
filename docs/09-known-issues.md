@@ -805,6 +805,19 @@ truth and links the issue number.
   requires that and otherwise abstains. Gives `log(1+x²)/x² → π`, `log(1+4x²)/x² → 2π`,
   `log(1+2x²)/x² → √2·π`. Matches SymPy.
 
+### INT-ERF-1 — definite error-function integrals over [0, ∞) left unevaluated
+- **Problem:** `∫₀^∞ erfc(x)² dx = (2 − √2)/√π` and `∫₀^∞ x·e^{−x²}·erf(x) dx = √2/4` were returned as
+  unevaluated `Integral` markers. Their antiderivatives are non-elementary, so the Newton–Leibniz path
+  cannot reach them; SymPy evaluates both.
+- **Fix:** added `try_erf_definite`, a definite-only closed-form rule on `[0, ∞)`, wired into the
+  improper-integral dispatch. It recognizes two scaled families:
+  `∫₀^∞ erfc(a·x)² dx = (2 − √2)/(√π·a)` for `a > 0`, and
+  `∫₀^∞ x·e^{−c·x²}·erf(b·x) dx = b/(2·c·√(b² + c))` for `b, c > 0`. The first reduces to the standard
+  `∫₀^∞ erfc(t)² dt = (2 − √2)/√π` by `t = a·x`; the second is the Gaussian × erf moment. Each requires a
+  positive linear argument and positive Gaussian rate, otherwise abstains. Gives `erfc(x)² → (2 − √2)/√π`,
+  `erfc(2x)² → (2 − √2)/(2√π)`, `x·e^{−x²}·erf(x) → √2/4`, `x·e^{−3x²}·erf(2x) → 1/(3√7)`. Regression:
+  `INT-ERF-1`. Closed forms verified numerically against SymPy.
+
 ### SERIES-TAYLOR-CAP-1 — series of log(sin x/x) / log(tan x/x) took ~100 s
 - **Problem:** `series(log(sin x/x), x, 0, 6)` ran for ~119 s (and `log(tan x/x)` for ~162 s), only to
   return the correct result. `taylor_series` is tried before the composition path; for these removable

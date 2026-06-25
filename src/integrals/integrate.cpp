@@ -4570,6 +4570,126 @@ std::optional<Expr> try_algebraic_linear_sub(const Expr& expr, const Expr& var) 
     return simplify(value);
 }
 
+// Definite error-function integrals over [0, ∞) whose antiderivatives are
+// non-elementary, so Newton–Leibniz cannot reach them. Two families:
+//
+//   ∫₀^∞ erfc(a·x)²        dx = (2 − √2)/(√π·a)              (a > 0)
+//   ∫₀^∞ x·e^{−c·x²}·erf(b·x) dx = b / (2·c·√(b² + c))       (b, c > 0)
+//
+// Both are standard results (verified numerically against SymPy). The first
+// reduces to the known ∫₀^∞ erfc(t)² dt = (2 − √2)/√π by t = a·x; the second is
+// the Owen-style Gaussian × erf moment. Returns nullopt for any other shape.
+[[nodiscard]] std::optional<Expr> try_erf_definite(const Expr& expr,
+                                                   const Expr& var,
+                                                   const Expr& lower,
+                                                   const Expr& upper) {
+    if (!(lower == S::Zero()) || upper->type_id() != TypeId::Infinity) {
+        return std::nullopt;
+    }
+    auto fn_id = [](const Expr& e) {
+        return static_cast<const Function&>(*e).function_id();
+    };
+    auto is_fn = [&](const Expr& e, FunctionId id) {
+        return e->type_id() == TypeId::Function && fn_id(e) == id
+               && e->args().size() == 1;
+    };
+    // Linear argument g = a·var (no constant term); returns the positive a, or
+    // nullopt if g is not of that form / a is not a positive constant.
+    auto linear_coeff = [&](const Expr& g) -> std::optional<Expr> {
+        Expr a = simplify(mul(g, pow(var, S::NegativeOne())));
+        if (has(a, var) || is_positive(a) != std::optional<bool>{true}) {
+            return std::nullopt;
+        }
+        return a;
+    };
+
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+
+    // Family 1: coeff · erfc(a·var)² — i.e. Pow(erfc(a·var), 2) times constants.
+    {
+        bool found = false;
+        Expr a, coeff = S::One();
+        bool ok = true;
+        for (const auto& f : factors) {
+            if (!found && f->type_id() == TypeId::Pow && f->args()[1] == integer(2)
+                && is_fn(f->args()[0], FunctionId::Erfc)) {
+                if (auto aa = linear_coeff(f->args()[0]->args()[0])) {
+                    a = *aa;
+                    found = true;
+                    continue;
+                }
+            }
+            if (!has(f, var)) {
+                coeff = mul(coeff, f);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && found) {
+            Expr value = mul({coeff,
+                              add(integer(2), mul(S::NegativeOne(),
+                                                  pow(integer(2), rational(1, 2)))),
+                              pow(S::Pi(), rational(-1, 2)),
+                              pow(a, S::NegativeOne())});
+            return simplify(value);
+        }
+    }
+
+    // Family 2: coeff · var · e^{−c·var²} · erf(b·var).
+    {
+        bool has_x = false, has_exp = false, has_erf = false;
+        Expr b, c, coeff = S::One();
+        bool ok = true;
+        for (const auto& f : factors) {
+            if (!has_erf && is_fn(f, FunctionId::Erf)) {
+                if (auto bb = linear_coeff(f->args()[0])) {
+                    b = *bb;
+                    has_erf = true;
+                    continue;
+                }
+            }
+            if (!has_exp && is_fn(f, FunctionId::Exp)) {
+                Expr g = f->args()[0];
+                // exponent must be −c·var² with c a positive constant.
+                Expr cc = simplify(mul({S::NegativeOne(), g,
+                                        pow(var, integer(-2))}));
+                if (!has(cc, var)
+                    && is_positive(cc) == std::optional<bool>{true}) {
+                    c = cc;
+                    has_exp = true;
+                    continue;
+                }
+            }
+            if (!has_x && f == var) {
+                has_x = true;
+                continue;
+            }
+            if (!has(f, var)) {
+                coeff = mul(coeff, f);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if (ok && has_x && has_exp && has_erf) {
+            Expr value = mul({coeff, b,
+                              pow(mul({integer(2), c,
+                                       pow(add(pow(b, integer(2)), c),
+                                           rational(1, 2))}),
+                                  S::NegativeOne())});
+            return simplify(value);
+        }
+    }
+
+    return std::nullopt;
+}
+
 // ∫₀^∞ via the Meijer-G Mellin master formula — handles a bare Meijer-G
 // integrand directly, and a function recognized as a Meijer-G (to_meijerg).
 // Only the [0, ∞) interval is in scope; divergent results are rejected upstream.
@@ -4626,6 +4746,9 @@ Expr integrate(const Expr& expr, const Expr& var,
     if (auto r = try_sinh_integral(expr, var, lower, upper)) return *r;
     // ∫₀^∞ log(1+c·x²)/x² = π·√c for c > 0. Non-elementary antiderivative.
     if (auto r = try_log1px2_integral(expr, var, lower, upper)) return *r;
+    // ∫₀^∞ erfc(ax)² = (2−√2)/(√π·a) and ∫₀^∞ x·e^{−cx²}·erf(bx) = b/(2c√(b²+c)).
+    // Both have non-elementary antiderivatives.
+    if (auto r = try_erf_definite(expr, var, lower, upper)) return *r;
     // ∫₀^∞ of a Meijer-G (or a function recognized as one) via the Mellin master
     // formula — covers a bare meijerg integrand the antiderivative path can't.
     if (auto r = try_meijerg_integral(expr, var, lower, upper)) return *r;

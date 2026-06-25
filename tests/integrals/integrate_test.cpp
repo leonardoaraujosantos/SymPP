@@ -2465,6 +2465,61 @@ TEST_CASE("integrate: improper integrals over [0, oo) (INT-DEF-1)",
             == rational(1, 3));
 }
 
+// INT-ERF-1: definite error-function integrals over [0, ∞) whose
+// antiderivatives are non-elementary, so Newton–Leibniz cannot reach them.
+// Closed forms verified against SymPy's sympy.integrate(..., (x, 0, oo)).
+TEST_CASE("integrate: definite erf integrals (INT-ERF-1)",
+          "[7][integrate][definite][erf][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto oo = S::Infinity();
+
+    // ∫₀^∞ erfc(x)² dx = (2 − √2)/√π.
+    {
+        auto r = integrate(pow(erfc(x), integer(2)), x, S::Zero(), oo);
+        REQUIRE(r->str().find("Integral") == std::string::npos);
+        REQUIRE(oracle.equivalent(r->str(), "(2 - sqrt(2))/sqrt(pi)"));
+        REQUIRE(oracle.equivalent(r->str(),
+                                  "integrate(erfc(x)**2, (x, 0, oo))"));
+    }
+
+    // ∫₀^∞ x·e^{−x²}·erf(x) dx = √2/4.
+    {
+        auto integrand =
+            mul({x, exp(mul(S::NegativeOne(), pow(x, integer(2)))), erf(x)});
+        auto r = integrate(integrand, x, S::Zero(), oo);
+        REQUIRE(r->str().find("Integral") == std::string::npos);
+        REQUIRE(oracle.equivalent(r->str(), "sqrt(2)/4"));
+        REQUIRE(oracle.equivalent(
+            r->str(), "integrate(x*exp(-x**2)*erf(x), (x, 0, oo))"));
+    }
+
+    // Scaled family: ∫₀^∞ erfc(2x)² dx = (2 − √2)/(2√π).
+    {
+        auto r = integrate(pow(erfc(mul(integer(2), x)), integer(2)), x,
+                           S::Zero(), oo);
+        REQUIRE(oracle.equivalent(r->str(),
+                                  "integrate(erfc(2*x)**2, (x, 0, oo))"));
+    }
+
+    // Scaled family: ∫₀^∞ x·e^{−3x²}·erf(2x) dx = 2/(6·√7) = 1/(3√7).
+    {
+        auto integrand = mul({x, exp(mul(integer(-3), pow(x, integer(2)))),
+                              erf(mul(integer(2), x))});
+        auto r = integrate(integrand, x, S::Zero(), oo);
+        REQUIRE(oracle.equivalent(
+            r->str(), "integrate(x*exp(-3*x**2)*erf(2*x), (x, 0, oo))"));
+    }
+
+    // A finite upper bound must NOT trigger the recognizer (no closed form here):
+    // the [0, ∞) value (2 − √2)/√π ≈ 0.532 must not leak out.
+    {
+        auto r = integrate(pow(erfc(x), integer(2)), x, S::Zero(), integer(1));
+        REQUIRE(r->str().find("0.532") == std::string::npos);
+        REQUIRE(r->str().find("sqrt(2)") == std::string::npos);
+    }
+}
+
 // INT-POLYPROD-1: a product or power of polynomials — x³·(1−x)², x²·(1−x) — was
 // returned unevaluated (no handler expands a product of polynomial factors), so
 // the definite integral garbled. integrate() now expands such a product into a
