@@ -53,6 +53,11 @@ demand with cost.
   `Σ C(2n,2k)=2^{2n−1}`, found by exact recurrence discovery + `product()` solve,
   verified on held-out points; higher-order sums (Franel `Σ C(n,k)³`) stay
   unevaluated as in SymPy (SUM-ZEILBERGER-1).
+- **Beta-integral binomial sums** — `Σ_{k=0}^n C(n,k)/(k+m)` for a positive
+  integer `m`, whose value is order-2 P-recursive (mixes `2ⁿ` and a constant) and
+  so escapes the first-order Zeilberger solve: `Σ C(n,k)/(k+1)=(2^{n+1}−1)/(n+1)`,
+  `Σ C(n,k)/(k+2)=(2^{n+2}−1)/(n+2)−(2^{n+1}−1)/(n+1)`, from
+  `∫₀¹ x^{m−1}(1+x)ⁿ dx`, verified numerically (SUM-BINOM-RECIP-1).
 - **Cryptography** — RSA, Diffie–Hellman, ElGamal.
 - **Discrete transforms** — fft/ifft, ntt/intt, convolution, Möbius.
 - **General Jordan form** — chains of any length (reconstruction-verified).

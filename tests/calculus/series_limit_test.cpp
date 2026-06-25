@@ -11,6 +11,7 @@
 #include <sympp/core/singletons.hpp>
 #include <sympp/functions/miscellaneous.hpp>  // sign, abs
 #include <sympp/core/symbol.hpp>
+#include <sympp/core/traversal.hpp>  // subs
 #include <sympp/functions/combinatorial.hpp>
 #include <sympp/functions/exponential.hpp>
 #include <sympp/core/rational.hpp>
@@ -1477,6 +1478,41 @@ TEST_CASE("summation: Σ C(n,k)² = C(2n,n) (SUM-BINOM-SQ-1)",
                       integer(4))
                 ->str()
             != "binomial(2*n, n)");
+}
+
+// SUM-BINOM-RECIP-1: Σ_{k=0}^n C(n,k)/(k+m) for a positive integer m, via the
+// Beta-integral identity Σ C(n,k)/(k+m) = ∫₀¹ x^(m−1)(1+x)ⁿ dx. The value is
+// order-2 P-recursive (a sum of two hypergeometric terms mixing 2ⁿ and a
+// constant), which the first-order Zeilberger solve misses; it was previously
+// left unevaluated. The closed form is verified numerically before acceptance.
+TEST_CASE("summation: Σ C(n,k)/(k+m) Beta-integral identity (SUM-BINOM-RECIP-1)",
+          "[6][summation][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto k = symbol("k");
+    auto n = symbol("n");
+    auto recip = [&](const Expr& e) { return pow(e, integer(-1)); };
+
+    // Σ_{k=0}^n C(n,k)/(k+1) = (2^(n+1) − 1)/(n+1).
+    REQUIRE(oracle.equivalent(
+        summation(binomial(n, k) * recip(k + integer(1)), k, integer(0), n)
+            ->str(),
+        "(2**(n+1) - 1)/(n+1)"));
+    // Σ_{k=0}^n C(n,k)/(k+2) = (2^(n+2) − 1)/(n+2) − (2^(n+1) − 1)/(n+1).
+    REQUIRE(oracle.equivalent(
+        summation(binomial(n, k) * recip(k + integer(2)), k, integer(0), n)
+            ->str(),
+        "(2**(n+2) - 1)/(n+2) - (2**(n+1) - 1)/(n+1)"));
+    // Constant prefactor carries through.
+    REQUIRE(oracle.equivalent(
+        summation(integer(3) * binomial(n, k) * recip(k + integer(1)), k,
+                  integer(0), n)
+            ->str(),
+        "3*(2**(n+1) - 1)/(n+1)"));
+    // The symbolic closed form evaluates to the exact rational at n = 4:
+    // Σ_{k=0}^4 C(4,k)/(k+1) = 31/5.
+    Expr closed1 =
+        summation(binomial(n, k) * recip(k + integer(1)), k, integer(0), n);
+    REQUIRE(simplify(subs(closed1, n, integer(4))) == rational(31, 5));
 }
 
 // SUM-HARMONIC-1: Σ 1/kᵖ over a finite/symbolic range is a generalized harmonic

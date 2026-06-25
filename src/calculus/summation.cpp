@@ -4,6 +4,8 @@
 #include <utility>
 #include <vector>
 
+#include <gmpxx.h>
+
 #include <sympp/calculus/diff.hpp>
 #include <sympp/core/add.hpp>
 #include <sympp/core/expand.hpp>
@@ -576,6 +578,97 @@ namespace {
     return simplify(mul(coeff, binomial(mul(integer(2), hi), hi)));
 }
 
+// Σ_{k=0}^n C(n,k)/(k+m) for a fixed positive integer m, where n is exactly the
+// binomial's first argument. The value is order-2 P-recursive (a sum of two
+// hypergeometric terms mixing 2ⁿ and a constant), which the first-order
+// Zeilberger solve misses. It is obtained from the Beta-integral identity
+//   Σ_{k=0}^n C(n,k)/(k+m) = ∫₀¹ x^(m−1)(1+x)ⁿ dx
+//     = Σ_{j=0}^{m−1} C(m−1,j)·(−1)^(m−1−j)·(2^(n+j+1) − 1)/(n+j+1),
+// derived by integrating the binomial theorem Σ C(n,k)xᵏ = (1+x)ⁿ against x^(m−1)
+// (substitute u = 1+x and expand (u−1)^(m−1)). For m = 1 this is the classic
+// (2^(n+1) − 1)/(n+1). The closed form is verified numerically (exact rational)
+// on several n before being returned. A var-free prefactor carries through.
+[[nodiscard]] std::optional<Expr> sum_binomial_reciprocal_linear(
+    const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi) {
+    if (!(lo == S::Zero())) return std::nullopt;
+    // Symbolic upper bound only: a concrete n is folded directly elsewhere, and
+    // the held-out verification below substitutes into `hi`, which assumes it is
+    // the free parameter.
+    if (is_number(hi)) return std::nullopt;
+    std::vector<Expr> factors;
+    if (expr->type_id() == TypeId::Mul) {
+        for (const auto& f : expr->args()) factors.push_back(f);
+    } else {
+        factors.push_back(expr);
+    }
+    Expr coeff = S::One();
+    bool have_binom = false;
+    long m = 0;  // the reciprocal denominator is (var + m)
+    bool have_recip = false;
+    for (const auto& f : factors) {
+        if (!have_binom && f->type_id() == TypeId::Function) {
+            const auto& fn = static_cast<const Function&>(*f);
+            if (fn.function_id() == FunctionId::Binomial
+                && fn.args().size() == 2 && fn.args()[1] == var
+                && fn.args()[0] == hi) {
+                have_binom = true;
+                continue;
+            }
+        }
+        // (var + m)^(-1) with m a positive integer.
+        if (!have_recip && f->type_id() == TypeId::Pow
+            && f->args()[1] == S::NegativeOne()) {
+            Expr off = simplify(f->args()[0] + mul(S::NegativeOne(), var));
+            if (!has(off, var) && off->type_id() == TypeId::Integer
+                && static_cast<const Integer&>(*off).fits_long()) {
+                const long mm = static_cast<const Integer&>(*off).to_long();
+                if (mm >= 1) {
+                    m = mm;
+                    have_recip = true;
+                    continue;
+                }
+            }
+        }
+        if (!has(f, var)) {
+            coeff = mul(coeff, f);
+            continue;
+        }
+        return std::nullopt;  // an unrecognized var-dependent factor
+    }
+    if (!have_binom || !have_recip) return std::nullopt;
+    // Keep the basis small so discovery/verification stays cheap.
+    if (m > 8) return std::nullopt;
+
+    std::vector<Expr> terms;
+    for (long j = 0; j < m; ++j) {
+        Expr c = mul(binomial(integer(m - 1), integer(j)),
+                     pow(integer(-1), integer(m - 1 - j)));
+        Expr num = simplify(pow(integer(2), hi + integer(j + 1))
+                            + mul(S::NegativeOne(), S::One()));
+        Expr den = pow(hi + integer(j + 1), integer(-1));
+        terms.push_back(mul({c, num, den}));
+    }
+    Expr closed = simplify(add(std::move(terms)));
+
+    // Verify exactly on several concrete n: the closed form must reproduce
+    // S(n) = Σ_{k=0}^n C(n,k)/(k+m) as an exact rational. Reject on any mismatch.
+    for (long n0 = 1; n0 <= 6; ++n0) {
+        mpq_class acc(0);
+        for (long kk = 0; kk <= n0; ++kk) {
+            mpz_class c;
+            mpz_bin_uiui(c.get_mpz_t(), static_cast<unsigned long>(n0),
+                         static_cast<unsigned long>(kk));
+            acc += mpq_class(c) / mpq_class(kk + m);
+        }
+        Expr cv = simplify(subs(closed, hi, integer(n0)));
+        Expr want = rational(acc.get_num(), acc.get_den());
+        if (!(simplify(cv + mul(S::NegativeOne(), want)) == S::Zero())) {
+            return std::nullopt;
+        }
+    }
+    return simplify(mul(coeff, closed));
+}
+
 // Σ_{k=lo}^{hi} c·P(k)/(k+m)! for a polynomial P of degree ≥ 1 and integer m ≥ 0 —
 // Gosper's algorithm specialized to a factorial denominator. The antidifference, if
 // it exists, is g(k) = Q(k)/(k+m−1)! with P(k)/(k+m)! = g(k) − g(k+1); multiplying
@@ -963,6 +1056,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
 
     // Central-binomial identity Σ_{k=0}^n C(n,k)² = C(2n, n).
     if (auto bs = sum_binomial_square(expr, var, lo, hi)) return *bs;
+
+    // Σ_{k=0}^n C(n,k)/(k+m) (m a positive integer) via the Beta-integral
+    // identity — the value is order-2 P-recursive (mixes 2ⁿ and a constant), so
+    // the first-order Zeilberger solve below misses it. Verified numerically.
+    if (auto br = sum_binomial_reciprocal_linear(expr, var, lo, hi)) return *br;
 
     // Even/odd-index exponential series Σ z^(2k+b)/(2k+b)! → cosh/sinh/cos/sin.
     if (auto r = sum_cosh_sinh_series(expr, var, lo, hi)) return *r;
@@ -1554,10 +1652,11 @@ Expr summation(const Expr& expr, const Expr& var, const Expr& lo, const Expr& hi
     if (auto g = detail::gosper_summation(expr, var, lo, hi)) return *g;
 
     // Zeilberger creative telescoping: a parametric sum Σ_k F(n,k) whose value
-    // S(n) satisfies a first-order recurrence — e.g. Σ k²·C(n,k) = n(n+1)2^(n−2),
-    // Σ C(n,k)/(k+1) = (2^(n+1)−1)/(n+1). The recurrence is discovered by exact
-    // fitting over many integer n and the closed form is verified on held-out
-    // points before acceptance.
+    // S(n) satisfies a first-order recurrence — e.g. Σ k²·C(n,k) = n(n+1)2^(n−2).
+    // The recurrence is discovered by exact fitting over many integer n and the
+    // closed form is verified on held-out points before acceptance. (Order-2
+    // cases like Σ C(n,k)/(k+m), which mix 2ⁿ and a constant, are closed earlier
+    // by sum_binomial_reciprocal_linear.)
     if (auto z = detail::zeilberger_summation(expr, var, lo, hi)) return *z;
 
     // No closed form found — return the unevaluated Sum marker rather than the

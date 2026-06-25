@@ -1316,6 +1316,21 @@ truth and links the issue number.
   `Σ_{k=0}^5 C(5,k)² = 252`. A mismatched upper bound (≠ the binomial's `n`) is left unevaluated.
   Matches SymPy.
 
+### SUM-BINOM-RECIP-1 — Σ C(n,k)/(k+m) (Beta-integral binomial sum) was unevaluated
+- **Problem:** `Σ_{k=0}^n C(n,k)/(k+1) = (2^(n+1)−1)/(n+1)` and the related `Σ C(n,k)/(k+2)`
+  returned an unevaluated `Sum`. Their value is order-2 P-recursive — a sum of two
+  hypergeometric terms mixing `2ⁿ` and a constant — so the first-order Zeilberger fallback
+  (which solves a single first-order recurrence via `product()`) cannot reach it.
+- **Fix:** added a `sum_binomial_reciprocal_linear` detector. A summand `C·binomial(n,k)/(k+m)`
+  over `k = 0…n` (with `n` exactly the binomial's first argument and `m` a positive integer) is
+  closed by the Beta-integral identity `Σ C(n,k)/(k+m) = ∫₀¹ x^(m−1)(1+x)ⁿ dx
+  = Σ_{j=0}^{m−1} C(m−1,j)(−1)^(m−1−j)(2^(n+j+1)−1)/(n+j+1)`, derived by integrating the binomial
+  theorem `Σ C(n,k)xᵏ = (1+x)ⁿ` against `x^(m−1)`. The closed form is verified as an exact rational
+  on several concrete `n` before acceptance; a symbolic upper bound is required (concrete `n` is
+  folded elsewhere). Runs before the Zeilberger fallback. `Σ C(n,k)/(k+1) = (2^(n+1)−1)/(n+1)`,
+  `Σ C(n,k)/(k+2) = (2^(n+2)−1)/(n+2) − (2^(n+1)−1)/(n+1)`, constant prefactor carried through.
+  Matches SymPy. Regression: SUM-BINOM-RECIP-1.
+
 ### SUM-BINOM-K-1 — Σ k·C(n,k)·rᵏ binomial identity was unevaluated
 - **Problem:** `Σ_{k=0}^n k·C(n,k)` returned unevaluated where the closed form is `n·2^(n−1)`.
   The summation engine handled the plain binomial theorem `Σ C(n,k)·rᵏ = (1+r)ⁿ` but not a
