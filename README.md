@@ -4,7 +4,7 @@
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
-[![Tests](https://img.shields.io/badge/tests-1712%20passing-brightgreen)](#)
+[![Tests](https://img.shields.io/badge/tests-1772%20passing-brightgreen)](#)
 [![Oracle](https://img.shields.io/badge/oracle-SymPy%201.13%2B-3B5526?logo=python&logoColor=white)](https://www.sympy.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-lightgrey)](#)
 [![Last commit](https://img.shields.io/github/last-commit/leonardoaraujosantos/SymPP)](https://github.com/leonardoaraujosantos/SymPP/commits/main)
@@ -15,19 +15,25 @@ algorithms with SymPy itself wired in as the validation oracle.
 ## Status
 
 ```
-1712 tests / 7121 assertions  all passing
-740 cases (3599 assertions) oracle-validated against SymPy
+1772 tests / 7465 assertions  all passing
+757 cases (3850 assertions) oracle-validated against SymPy
 15 of 15 phases shipped (v1.0)
 ```
 
 On textbook-shaped inputs (calculus, algebra, transforms, solvers, sets)
-SymPP and SymPy are now effectively interchangeable. The remaining gaps are the
-deepest research-grade algorithms — the full Risch tower recursion (the
-exponential differential equation, logarithmic extension, and generalized-
-exponential self-derivative tower already ship), full Gruntz comparability
-(termination + practical MRV values already ship), and higher-degree multivariate
-Wang factorization (bivariate already ships) — plus the deeper tiers of a few
-large modules. See
+SymPP and SymPy are now effectively interchangeable. The most recent parity push
+added Rust/Julia/MathML code printers, a `Naturals` set domain plus a complex-by-
+default `solveset`, Beta-integral binomial sums and definite `erf`/`erfc`
+integrals, cubic-and-higher bivariate Wang factorization, Pólya cycle-index +
+necklace enumeration, bosonic and fermionic Fock ladder operators (second
+quantization), squared-argument hyperexpand closed forms, competing infinity-
+power Gruntz limits, and Risch log-integrals with coefficiented power
+denominators. The remaining gaps are the deepest research-grade algorithms — the
+full Risch tower recursion (the exponential differential equation, logarithmic
+extension, and generalized-exponential self-derivative tower already ship), full
+Gruntz comparability (termination + practical MRV values already ship), and
+arbitrary-degree multivariate Wang factorization (bivariate up to cubic+ already
+ships) — plus the deeper tiers of a few large modules. See
 [docs/04-roadmap.md](docs/04-roadmap.md#how-far-are-we-from-sympy) and
 [docs/10-parity-roadmap.md](docs/10-parity-roadmap.md) for the breakdown.
 

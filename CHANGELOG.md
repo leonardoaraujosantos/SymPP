@@ -3,6 +3,35 @@
 All notable changes to SymPP. Format: [Keep a Changelog](https://keepachangelog.com/),
 versioning per [SemVer](https://semver.org/).
 
+## [Unreleased] — parity increments
+
+Post-1.0 parity push. 1772 tests / 7465 assertions, 757 oracle-validated against
+SymPy, all passing. These are increments toward SymPy parity, not full
+module completion.
+
+### Added
+
+- **Code printers**: `rust_code` (`.powi/.powf/.sqrt` method-call form,
+  `f64::consts::PI/E`), `julia_code` (`^` power, `MathConstants.e`), and
+  Presentation `mathml` (`<msup>/<mfrac>/<msqrt>`) join the existing
+  C/C++/Fortran/LaTeX/Octave printers (Phase 13).
+- **Sets / solvers**: `Naturals`/`Naturals0` set domain wired into the named-
+  domain lattice (ℕ ⊂ ℤ ⊂ ℝ ⊂ ℂ) and used to restrict `solveset` roots;
+  `solveset` with no domain now defaults to the complex domain (SymPy parity),
+  while an explicit `reals()` domain still drops complex roots.
+- **Integration**: Beta-integral binomial sums `Σ C(n,k)/(k+m)`; definite
+  erf/erfc integrals over [0,∞) (`∫₀^∞ erfc(ax)²`, `∫₀^∞ x·e^{−cx²}·erf(bx)`);
+  Risch log-integrals with coefficiented power denominators (`log(x)/(2x²)`).
+- **Polynomials**: cubic-and-higher bivariate Wang factorization via monomial-
+  root deflation (expand-verified).
+- **Combinatorics**: Pólya cycle-index polynomial `Z(G)` + `necklaces(n,k)`;
+  Sylow p-subgroups (`sylow_order`/`sylow_subgroup`).
+- **Physics**: single-mode bosonic `FockState` and fermionic `FermionState`
+  ladder/number operators (second quantization), with `[a,a†]`/`{a,a†}` checks.
+- **hyperexpand**: squared-argument elementary closed forms
+  (₀F₁(;3/2;−z²/4)=sin(z)/z, ₀F₁(;1/2;−z²/4)=cos(z), ₂F₁(½,½;3/2;z²)=asin(z)/z).
+- **Limits**: Gruntz competing infinity-power products (`xˣ/(x+1)ˣ → e⁻¹`).
+
 ## [1.0.0] — 2026-06-23
 
 First tagged release. 1705 tests / 7032 assertions, 740 oracle-validated against
