@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <sympp/core/integer.hpp>
+#include <sympp/core/mul.hpp>
 #include <sympp/core/operators.hpp>
 #include <sympp/core/pow.hpp>
 #include <sympp/core/rational.hpp>
@@ -125,6 +126,51 @@ TEST_CASE("hyperexpand: ₂F₁ radical-argument closed forms",
     REQUIRE(oracle.equivalent(
         hyperexpand(hyper({rational(1, 2), rational(1, 2)}, {rational(3, 2)}, z))->str(),
         "asin(sqrt(z))/sqrt(z)"));
+}
+
+// ----- Elementary pFq closed forms (the five canonical identities) ----------
+
+TEST_CASE("hyperexpand: elementary pFq forms (HYPER-ELEM-1)",
+          "[5][hyperexpand][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto z = symbol("z");
+    auto half = rational(1, 2);
+    auto threehalf = rational(3, 2);
+    auto a = symbol("a");
+    auto b = symbol("b");
+
+    // (1) ₂F₁(1, 1; 2; z) = −log(1 − z)/z.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({integer(1), integer(1)}, {integer(2)}, z))->str(),
+        "-log(1 - z)/z"));
+
+    // (2) Degenerate upper/lower cancellation: ₂F₁(a, b; b; z) = (1 − z)^(−a).
+    //     Cancellation happens already in the hyper(...) factory.
+    REQUIRE(oracle.equivalent(hyper({a, b}, {b}, z)->str(), "(1 - z)**(-a)"));
+    //     ... and hyperexpand is idempotent on the already-reduced result.
+    REQUIRE(oracle.equivalent(hyperexpand(hyper({a, b}, {b}, z))->str(),
+                              "(1 - z)**(-a)"));
+
+    // (3) ₂F₁(1/2, 1/2; 3/2; z²) = asin(z)/z  (radical-free squared argument).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({half, half}, {threehalf}, pow(z, integer(2))))->str(),
+        "asin(z)/z"));
+    //     Generic argument still gives the √z form.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({half, half}, {threehalf}, z))->str(),
+        "asin(sqrt(z))/sqrt(z)"));
+
+    // (4) Degenerate confluent cancellation: ₁F₁(a; a; z) = exp(z).
+    REQUIRE(oracle.equivalent(hyper({a}, {a}, z)->str(), "exp(z)"));
+    REQUIRE(oracle.equivalent(hyperexpand(hyper({a}, {a}, z))->str(), "exp(z)"));
+
+    // (5) ₀F₁(; 3/2; −z²/4) = sin(z)/z.
+    auto arg = mul(rational(-1, 4), pow(z, integer(2)));
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {threehalf}, arg))->str(), "sin(z)/z"));
+    //     Bonus: ₀F₁(; 1/2; −z²/4) = cos(z).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {half}, arg))->str(), "cos(z)"));
 }
 
 // ----- Meijer-G via Slater's theorem (generic case) -------------------------

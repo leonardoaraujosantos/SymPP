@@ -121,6 +121,27 @@ namespace {
     return result;
 }
 
+// If `e` has the form base² (a Pow with exponent exactly 2), return base;
+// otherwise std::nullopt. Used to recognize radical-free closed forms such as
+// ₂F₁(1/2,1/2;3/2; w²) = asin(w)/w (vs. the generic asin(√z)/√z form).
+[[nodiscard]] std::optional<Expr> as_square(const Expr& e) {
+    if (e->type_id() != TypeId::Pow) return std::nullopt;
+    const auto& p = static_cast<const Pow&>(*e);
+    if (p.exp() == integer(2)) return p.base();
+    return std::nullopt;
+}
+
+// If `e` has the form −w²/4 = Mul(−1/4, Pow(w, 2)), return w; else nullopt.
+// Used for ₀F₁(;3/2; −w²/4) = sin(w)/w.
+[[nodiscard]] std::optional<Expr> as_neg_quarter_square(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return std::nullopt;
+    auto args = e->args();
+    if (args.size() != 2) return std::nullopt;
+    // Canonical Mul puts the numeric factor first.
+    if (args[0] != rational(-1, 4)) return std::nullopt;
+    return as_square(args[1]);
+}
+
 [[nodiscard]] bool both_match(const std::vector<Expr>& v,
                                   const std::vector<Expr>& target) {
     if (v.size() != target.size()) return false;
@@ -162,6 +183,14 @@ namespace {
 
     // ₀F₁ family (p == 0, q == 1): ₀F₁(; b; z) = Σ zᵏ/((b)ₖ k!).
     if (p == 0 && q == 1) {
+        // ₀F₁(; 3/2; −w²/4) = sin(w)/w   (radical-free; check before the √z form).
+        if (b[0] == threehalf) {
+            if (auto w = as_neg_quarter_square(z)) return sin(*w) / *w;
+        }
+        // ₀F₁(; 1/2; −w²/4) = cos(w).
+        if (b[0] == half) {
+            if (auto w = as_neg_quarter_square(z)) return cos(*w);
+        }
         // ₀F₁(; 1/2; z) = cosh(2√z).
         if (b[0] == half) return cosh(mul(two, sqz));
         // ₀F₁(; 3/2; z) = sinh(2√z)/(2√z).
@@ -189,6 +218,10 @@ namespace {
         // ₂F₁(1/2, 1; 3/2; z) = atanh(√z)/√z   (→ arctan(y)/y when z = −y²).
         if (both_match(a, {half, one}) && b[0] == threehalf) {
             return atanh(sqz) / sqz;
+        }
+        // ₂F₁(1/2, 1/2; 3/2; w²) = asin(w)/w  (radical-free; before the √z form).
+        if (both_match(a, {half, half}) && b[0] == threehalf) {
+            if (auto w = as_square(z)) return asin(*w) / *w;
         }
         // ₂F₁(1/2, 1/2; 3/2; z) = asin(√z)/√z  (→ arcsinh(y)/y when z = −y²).
         if (both_match(a, {half, half}) && b[0] == threehalf) {

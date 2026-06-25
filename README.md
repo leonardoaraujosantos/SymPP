@@ -362,8 +362,9 @@ and fails on any *new* divergence outside the whitelisted intentional set.
   combsimp, gammasimp, cse, nsimplify, `together` over the LCM of denominators
   (incl. nested compound fractions `1/(1+1/x) → x/(x+1)`),
   `hyperexpand` (₀F₀→exp, ₁F₀, ₁F₁/₂F₁ closed forms incl. radical-argument
-  cosh/sinh/erf/atanh/asin forms, parameter cancellation, and **Meijer-G via
-  Slater's theorem** — generic case).
+  cosh/sinh/erf/atanh/asin forms and squared-argument elementary forms
+  (₀F₁(;3/2;−z²/4)→sin z/z, ₀F₁(;1/2;−z²/4)→cos z, ₂F₁(1/2,1/2;3/2;z²)→asin z/z),
+  parameter cancellation, and **Meijer-G via Slater's theorem** — generic case).
 - **Meijer-G engine** (`sympp::integrals/meijerint`) — generic-case Slater
   reduction, Mellin transform (Gamma-ratio master formula), `∫₀^∞` via the
   transform at s=1, function→Meijer-G recognition with the η·xᶜ substitution, the
