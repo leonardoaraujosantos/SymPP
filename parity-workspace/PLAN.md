@@ -71,3 +71,9 @@ Probe rebuild+run:
     parity-workspace/acceptance_probe.cpp tests/oracle/oracle.cpp -o parity-workspace/probe \
     build/src/libsympp.so -L<gmp-lib> -Wl,-rpath,<gmp-lib> -lgmpxx -lgmp -lmpfr
   LD_LIBRARY_PATH=build/src:<gmp-lib> parity-workspace/probe
+
+## Tier 2 full-completion pass
+Deepened probe to 70 cases (14 Risch integrals, Wang quartic-4-factor + biquadratic,
+hyperexpand degenerate 2F1(2,1;1;z), 4 adversarial Gruntz towers). Baseline:
+REMAINING=0/70 — all already pass. Remaining Tier 2 work needs NEW API:
+group is_solvable/is_nilpotent, physics multi-mode operators.

@@ -110,8 +110,41 @@ int main(){
   expr_is("log(log x)/log x->0", limit(mul(log(log(x)),P(log(x),-1)),x,oo), "0");
   expr_is("e^(x^2)/(e^x)^x->1", limit(mul(exp(P(x,2)),P(pow(exp(x),x),-1)),x,oo), "1");
 
+  std::cout<<"== T2#5b Risch / integration ==\n";
+  integ_closed("log(x)^2/x", mul(P(log(x),2),P(x,-1)), x);
+  integ_closed("x log(x)^2", mul(x,P(log(x),2)), x);
+  integ_closed("tan(x)", tan(x), x);
+  integ_closed("sec(x)", sec(x), x);
+  integ_closed("x/sqrt(1-x^2)", mul(x,pow(I(1)-P(x,2),rational(-1,2))), x);
+  integ_closed("e^{2x} sin x", mul(exp(mul(I(2),x)),sin(x)), x);
+  integ_closed("(x-1)e^x/(x+1)^3", mul(mul(x-I(1),exp(x)),P(x+I(1),-3)), x);
+  integ_closed("1/(x^2-1)", P(P(x,2)-I(1),-1), x);
+  integ_closed("(x+1)/(x^2+2x+2)", mul(x+I(1),pow(add({P(x,2),mul(I(2),x),I(2)}),I(-1))), x);
+  integ_closed("atan(x)", atan(x), x);
+  integ_closed("e^{sqrt x}", exp(pow(x,rational(1,2))), x);
+  integ_closed("e^x cos x", mul(exp(x),cos(x)), x);
+  integ_closed("x^2 e^x", mul(P(x,2),exp(x)), x);
+  integ_closed("log(x^2+1)", log(P(x,2)+I(1)), x);
+
+  std::cout<<"== T2#4c Wang ==\n";
+  factor_is("x^4-5x^2y^2+4y^4", add({P(x,4),mul({I(-5),P(x,2),P(y,2)}),mul(I(4),P(y,4))}), x, "(x-2*y)*(x-y)*(x+y)*(x+2*y)");
+  factor_is("x^2y^2-x^2-y^2+1", add({mul(P(x,2),P(y,2)),mul(I(-1),P(x,2)),mul(I(-1),P(y,2)),I(1)}), x, "(x-1)*(x+1)*(y-1)*(y+1)");
+  factor_is("x^3+x^2-xy^2-y^2", add({P(x,3),P(x,2),mul(I(-1),mul(x,P(y,2))),mul(I(-1),P(y,2))}), x, "(x+1)*(x-y)*(x+y)");
+
+  std::cout<<"== T2#6c hyperexpand ==\n";
+  expr_is("2F1(2,1;1;z)", hyperexpand(hyper({I(2),I(1)},{I(1)},x)), "(1-x)**(-2)");
+
+  std::cout<<"== T2#7c Gruntz (adversarial) ==\n";
+  expr_is("e^e^x/e^(e^x+x)->0", limit(mul(exp(exp(x)),pow(exp(add({exp(x),x})),I(-1))),x,oo), "0");
+  expr_is("log(x)^(1/x)->1", limit(pow(log(x),P(x,-1)),x,oo), "1");
+  expr_is("e^x(e^(1/x)-1)->oo", limit(mul(exp(x),add({exp(P(x,-1)),I(-1)})),x,oo), "oo");
+  expr_is("x^(1/log log x)->oo", limit(pow(x,pow(log(log(x)),I(-1))),x,oo), "oo");
+
 #ifdef PROBE_GROUP
   probe_group_theory();
+#endif
+#ifdef PROBE_PHYS
+  probe_physics();
 #endif
 
   std::cout<<"\nREMAINING="<<fail<<" / TOTAL="<<total<<"\n";
