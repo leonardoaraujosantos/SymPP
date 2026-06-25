@@ -142,6 +142,17 @@ namespace {
     return as_square(args[1]);
 }
 
+// If `e` has the form +w²/4 = Mul(1/4, Pow(w, 2)), return w; else nullopt.
+// Used for ₀F₁(;1/2; w²/4) = cosh(w) and ₀F₁(;3/2; w²/4) = sinh(w)/w.
+[[nodiscard]] std::optional<Expr> as_quarter_square(const Expr& e) {
+    if (e->type_id() != TypeId::Mul) return std::nullopt;
+    auto args = e->args();
+    if (args.size() != 2) return std::nullopt;
+    // Canonical Mul puts the numeric factor first.
+    if (args[0] != rational(1, 4)) return std::nullopt;
+    return as_square(args[1]);
+}
+
 [[nodiscard]] bool both_match(const std::vector<Expr>& v,
                                   const std::vector<Expr>& target) {
     if (v.size() != target.size()) return false;
@@ -186,10 +197,14 @@ namespace {
         // ₀F₁(; 3/2; −w²/4) = sin(w)/w   (radical-free; check before the √z form).
         if (b[0] == threehalf) {
             if (auto w = as_neg_quarter_square(z)) return sin(*w) / *w;
+            // ₀F₁(; 3/2; w²/4) = sinh(w)/w   (radical-free).
+            if (auto w = as_quarter_square(z)) return sinh(*w) / *w;
         }
         // ₀F₁(; 1/2; −w²/4) = cos(w).
         if (b[0] == half) {
             if (auto w = as_neg_quarter_square(z)) return cos(*w);
+            // ₀F₁(; 1/2; w²/4) = cosh(w)   (radical-free).
+            if (auto w = as_quarter_square(z)) return cosh(*w);
         }
         // ₀F₁(; 1/2; z) = cosh(2√z).
         if (b[0] == half) return cosh(mul(two, sqz));

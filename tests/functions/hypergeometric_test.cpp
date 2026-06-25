@@ -172,6 +172,15 @@ TEST_CASE("hyperexpand: elementary pFq forms (HYPER-ELEM-1)",
     REQUIRE(oracle.equivalent(
         hyperexpand(hyper({}, {half}, arg))->str(), "cos(z)"));
 
+    // (5b) Positive-quarter-square siblings (radical-free hyperbolic forms).
+    auto pos_arg = mul(rational(1, 4), pow(z, integer(2)));
+    // ₀F₁(; 1/2; z²/4) = cosh(z).
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {half}, pos_arg))->str(), "cosh(z)"));
+    // ₀F₁(; 3/2; z²/4) = sinh(z)/z.
+    REQUIRE(oracle.equivalent(
+        hyperexpand(hyper({}, {threehalf}, pos_arg))->str(), "sinh(z)/z"));
+
     // (6) ₂F₁(1/2, 1; 3/2; z²) = atanh(z)/z  (radical-free squared argument).
     REQUIRE(oracle.equivalent(
         hyperexpand(hyper({half, integer(1)}, {threehalf}, pow(z, integer(2))))
