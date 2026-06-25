@@ -318,3 +318,34 @@ TEST_CASE("permutation groups: Sylow p-subgroups", "[combinatorics]") {
     REQUIRE(triv.order() == 1);
     REQUIRE(triv.is_subgroup(cb::cyclic_group(5)));
 }
+
+TEST_CASE("permutation groups: conjugacy/center/derived", "[combinatorics]") {
+    // Number of conjugacy classes (SymPy-confirmed).
+    REQUIRE(cb::num_conjugacy_classes(cb::symmetric_group(3)) == 3);
+    REQUIRE(cb::num_conjugacy_classes(cb::symmetric_group(4)) == 5);
+    REQUIRE(cb::num_conjugacy_classes(cb::alternating_group(4)) == 4);
+    REQUIRE(cb::num_conjugacy_classes(cb::dihedral_group(4)) == 5);
+
+    // The classes partition the group: sizes sum to |G|, and classes match the
+    // convenience count.
+    auto s4 = cb::symmetric_group(4);
+    auto classes = cb::conjugacy_classes(s4);
+    REQUIRE(static_cast<long>(classes.size()) == cb::num_conjugacy_classes(s4));
+    long covered = 0;
+    for (const auto& c : classes) covered += static_cast<long>(c.size());
+    REQUIRE(covered == s4.order());
+
+    // Center order.
+    REQUIRE(cb::group_center(cb::symmetric_group(3)).order() == 1);
+    REQUIRE(cb::group_center(cb::dihedral_group(4)).order() == 2);
+
+    // Derived (commutator) subgroup order.
+    REQUIRE(cb::derived_subgroup(cb::symmetric_group(3)).order() == 3);
+    REQUIRE(cb::derived_subgroup(cb::symmetric_group(4)).order() == 12);
+    REQUIRE(cb::derived_subgroup(cb::alternating_group(4)).order() == 4);
+    REQUIRE(cb::derived_subgroup(cb::dihedral_group(4)).order() == 2);
+
+    // Center and derived subgroup are subgroups of G.
+    REQUIRE(cb::group_center(s4).is_subgroup(s4));
+    REQUIRE(cb::derived_subgroup(s4).is_subgroup(s4));
+}

@@ -8,6 +8,7 @@
 #include <sympp/core/rewrite.hpp>
 #include <sympp/functions/hypergeometric.hpp>
 #include <sympp/simplify/hyperexpand.hpp>
+#include <sympp/combinatorics/combinatorics.hpp>
 #include "oracle/oracle.hpp"
 using namespace sympp;
 static auto& O(){ return sympp::testing::Oracle::instance(); }
@@ -33,6 +34,23 @@ static void expr_is(const std::string&label,const Expr&got,const std::string&exp
   // certify infinite values (oo - oo = nan), so compare those textually.
   want(label, got->str()==expected || eqv(got->str(), expected));
 }
+#ifdef PROBE_GROUP
+static void probe_group_theory(){
+  using namespace sympp::combinatorics;
+  std::cout<<"== T2#8 group theory (conjugacy/center/derived) ==\n";
+  want("S3 #conj=3", num_conjugacy_classes(symmetric_group(3))==3);
+  want("S4 #conj=5", num_conjugacy_classes(symmetric_group(4))==5);
+  want("A4 #conj=4", num_conjugacy_classes(alternating_group(4))==4);
+  want("D4 #conj=5", num_conjugacy_classes(dihedral_group(4))==5);
+  want("S3 center=1", group_center(symmetric_group(3)).order()==1);
+  want("D4 center=2", group_center(dihedral_group(4)).order()==2);
+  want("S3 derived=3", derived_subgroup(symmetric_group(3)).order()==3);
+  want("S4 derived=12", derived_subgroup(symmetric_group(4)).order()==12);
+  want("A4 derived=4", derived_subgroup(alternating_group(4)).order()==4);
+  want("D4 derived=2", derived_subgroup(dihedral_group(4)).order()==2);
+}
+#endif
+
 int main(){
   auto x=symbol("x"),y=symbol("y"),z=symbol("z"),n=symbol("n");
   auto oo=S::Infinity(); auto I=[&](int i){return integer(i);};
