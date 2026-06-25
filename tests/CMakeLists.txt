@@ -57,6 +57,7 @@ target_sources(sympp_tests
         physics/physics_fock_test.cpp
         physics/physics_multimode_fock_test.cpp
         physics/physics_fermion_test.cpp
+        physics/physics_normal_order_test.cpp
         stats/stats_test.cpp
         tensor/tensor_test.cpp
         vector/vector_calculus_test.cpp

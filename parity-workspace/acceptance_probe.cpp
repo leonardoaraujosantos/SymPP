@@ -80,6 +80,22 @@ static void probe_physics(){
   // Vacuum annihilation a_i|0> = 0.
   MultiModeFockState vac{{0,0}, S::One()};
   want("a0|0>=0 vacuum", apply_annihilation(vac,0).is_zero());
+
+  // Normal ordering of operator words.
+  auto coeff_of=[&](const std::vector<OperatorTerm>&ts,const OperatorWord&w)->Expr{
+    for(const auto&t:ts) if(t.word==w) return t.coefficient; return S::Zero();
+  };
+  LadderOp a0{0,false}, a0d{0,true}, a1d{1,true};
+  // Boson a a† = a† a + 1 — verify the +1 (identity) contraction term.
+  auto nb=normal_order({a0,a0d}, Statistics::Boson);
+  want("boson a a+ has +1 term", coeff_eq_zero(coeff_of(nb,{})-S::One()));
+  want("boson a a+ has a+ a term", coeff_eq_zero(coeff_of(nb,{a0d,a0})-S::One()));
+  // Fermion a† a† = 0.
+  want("fermion a+ a+ = 0", normal_order({a0d,a0d}, Statistics::Fermion).empty());
+  // Cross-mode a_0 a_1† = a_1† a_0 (commute, single ordered word, coeff +1).
+  auto nx=normal_order({a0,a1d}, Statistics::Boson);
+  want("cross-mode a0 a1+ commute",
+       nx.size()==1 && coeff_eq_zero(coeff_of(nx,{a1d,a0})-S::One()));
 }
 #endif
 

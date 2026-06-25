@@ -114,6 +114,43 @@ struct FermionState {
 // Anticommutator {a, a†} (c·|n⟩) = (a·a† + a†·a)(c·|n⟩) = c·|n⟩ (CAR).
 [[nodiscard]] SYMPP_EXPORT FermionState apply_fermion_anticommutator(const FermionState& s);
 
+// ----- Second quantization: normal ordering of operator words ----------------
+// An operator word is a product of single-particle ladder operators written
+// left-to-right. Each factor is a (mode, dagger?) pair: dagger=true is a
+// creation operator a_mode†, dagger=false an annihilation operator a_mode.
+//   e.g. {{0,false},{0,true}} represents  a₀ a₀†.
+struct LadderOp {
+    std::size_t mode = 0;  // single-particle mode index
+    bool dagger = false;   // true: creation a†, false: annihilation a
+
+    [[nodiscard]] bool operator==(const LadderOp& o) const {
+        return mode == o.mode && dagger == o.dagger;
+    }
+    [[nodiscard]] bool operator!=(const LadderOp& o) const { return !(*this == o); }
+};
+using OperatorWord = std::vector<LadderOp>;
+
+// A single normal-ordered term: a scalar coefficient times an operator word
+// whose creation operators all stand to the left of its annihilation operators.
+struct OperatorTerm {
+    Expr coefficient;   // scalar prefactor
+    OperatorWord word;  // normal-ordered factors (a†…a† a…a)
+};
+
+// The particle statistics used by normal_order.
+enum class Statistics { Boson, Fermion };
+
+// Normal-order a product of ladder operators, returning the equivalent linear
+// combination of normal-ordered words (creation operators moved to the left).
+// Uses the canonical (anti)commutation relations and accumulates contractions:
+//   bosons:   a_i a_j† = δ_ij + a_j† a_i             ([a_i,a_j†]=δ_ij)
+//   fermions: a_i a_j† = δ_ij − a_j† a_i             ({a_i,a_j†}=δ_ij)
+// For fermions a word with two equal adjacent operators vanishes after ordering
+// (a_i† a_i† = 0, a_i a_i = 0). Zero-coefficient terms are dropped; the empty
+// result {} denotes the operator 0, a term with an empty word the identity.
+[[nodiscard]] SYMPP_EXPORT std::vector<OperatorTerm> normal_order(const OperatorWord& word,
+                                                                  Statistics stats);
+
 // ----- Second quantization: fermionic ladder operators -----------------------
 // Jordan–Wigner representation of fermionic mode `p` (0-based) among `n` modes
 // on the 2ⁿ-dimensional Fock space: c_p = Z⊗…⊗Z⊗σ⁻⊗I⊗…⊗I (p copies of Z).

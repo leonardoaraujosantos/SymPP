@@ -243,6 +243,89 @@ FermionState apply_fermion_anticommutator(const FermionState& s) {
     return FermionState{s.occupation, coeff};
 }
 
+// ----- Second quantization: normal ordering of operator words ----------------
+
+namespace {
+
+bool same_op(const LadderOp& a, const LadderOp& b) {
+    return a.mode == b.mode && a.dagger == b.dagger;
+}
+
+// A word is normal-ordered when no annihilation operator precedes a creation
+// operator. Returns the index of the first offending pair (word[k] is an
+// annihilation directly followed by the creation word[k+1]), or word.size()
+// when the word is already ordered.
+std::size_t first_unordered_pair(const OperatorWord& w) {
+    for (std::size_t k = 0; k + 1 < w.size(); ++k) {
+        if (!w[k].dagger && w[k + 1].dagger) return k;
+    }
+    return w.size();
+}
+
+// Fermionic words vanish if any two adjacent factors are the identical operator
+// (a_i† a_i† = 0 or a_i a_i = 0).
+bool fermion_word_vanishes(const OperatorWord& w) {
+    for (std::size_t k = 0; k + 1 < w.size(); ++k) {
+        if (same_op(w[k], w[k + 1])) return true;
+    }
+    return false;
+}
+
+// Accumulate `term` into `out`, merging coefficients of equal words.
+void merge_term(std::vector<OperatorTerm>& out, OperatorTerm term) {
+    Expr c = simplify(term.coefficient);
+    if (c == S::Zero()) return;
+    for (auto& existing : out) {
+        if (existing.word == term.word) {
+            existing.coefficient = simplify(existing.coefficient + c);
+            return;
+        }
+    }
+    out.push_back(OperatorTerm{c, std::move(term.word)});
+}
+
+}  // namespace
+
+std::vector<OperatorTerm> normal_order(const OperatorWord& word, Statistics stats) {
+    const Expr swap_sign = (stats == Statistics::Boson) ? S::One() : S::NegativeOne();
+    std::vector<OperatorTerm> ordered;
+    std::vector<OperatorTerm> work;
+    work.push_back(OperatorTerm{S::One(), word});
+
+    while (!work.empty()) {
+        OperatorTerm cur = std::move(work.back());
+        work.pop_back();
+        if (simplify(cur.coefficient) == S::Zero()) continue;
+        if (stats == Statistics::Fermion && fermion_word_vanishes(cur.word)) continue;
+
+        std::size_t k = first_unordered_pair(cur.word);
+        if (k == cur.word.size()) {  // already normal-ordered
+            merge_term(ordered, std::move(cur));
+            continue;
+        }
+
+        // cur.word[k] = a_i (annihilation), cur.word[k+1] = a_j† (creation).
+        const LadderOp ann = cur.word[k];
+        const LadderOp cre = cur.word[k + 1];
+
+        // Swapped term: a_i a_j† -> (±1) a_j† a_i, leaving the rest in place.
+        OperatorWord swapped = cur.word;
+        std::swap(swapped[k], swapped[k + 1]);
+        work.push_back(OperatorTerm{simplify(cur.coefficient * swap_sign), std::move(swapped)});
+
+        // Contraction term δ_ij: drop both factors when the modes match.
+        if (ann.mode == cre.mode) {
+            OperatorWord contracted;
+            contracted.reserve(cur.word.size() - 2);
+            for (std::size_t p = 0; p < cur.word.size(); ++p) {
+                if (p != k && p != k + 1) contracted.push_back(cur.word[p]);
+            }
+            work.push_back(OperatorTerm{cur.coefficient, std::move(contracted)});
+        }
+    }
+    return ordered;
+}
+
 // ----- Quantum computing -----------------------------------------------------
 
 Matrix ket0() { return Matrix{{integer(1)}, {integer(0)}}; }

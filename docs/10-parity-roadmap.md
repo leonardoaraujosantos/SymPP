@@ -33,6 +33,11 @@ demand with cost.
 - **Second-quantization Fock operators** — single-mode bosonic `FockState`
   (a/a†/N, `[a,a†]=1`) and fermionic `FermionState` with Pauli exclusion
   (a/a†/N, `{a,a†}=1`), alongside the existing Jordan–Wigner fermions.
+- **Normal ordering** — `normal_order(word, Statistics)` rewrites a product of
+  (multi-mode) ladder operators into the equivalent linear combination of
+  normal-ordered words, moving creations to the left via `a_i a_j† = δ_ij +
+  a_j† a_i` (boson) / `δ_ij − a_j† a_i` (fermion) and accumulating contractions
+  (fermion words with a repeated factor vanish).
 - **Sylow p-subgroups** — `sylow_order(G, p)` and `sylow_subgroup(G, p)` (BFS
   p-closure to the exact prime-power order), validated on S₃/S₄/A₄/D₄.
 - **Simplicity & abelianization** — `normal_closure(G, gens)` (BFS conjugation +
