@@ -616,6 +616,55 @@ namespace {
     return {num, den};
 }
 
+// Distribute a numeric coefficient out of a Pow whose base is a Mul with a
+// numeric factor and whose exponent is an integer constant:
+//   (c·g)^n  →  c^n · g^n   (c numeric, n integer)
+// e.g. (2·x²)^(-1) → (1/2)·x^(-2). The integrand for ∫ log(x)/(2x²) is built as
+// Mul(Pow(Mul(2,x²),−1), log(x)); without this rewrite the rational-times-log
+// matchers never see the bare 1/x² factor and the integral is left unevaluated.
+// Returns nullopt when nothing distributes (so callers can guard against loops).
+[[nodiscard]] std::optional<Expr> try_distribute_pow_const(const Expr& expr) {
+    auto is_num = [](const Expr& e) {
+        const auto t = e->type_id();
+        return t == TypeId::Integer || t == TypeId::Rational
+               || t == TypeId::Float;
+    };
+    // Rewrite a single Pow factor in place if it matches (c·g)^n.
+    auto rewrite_pow = [&](const Expr& f) -> std::optional<Expr> {
+        if (f->type_id() != TypeId::Pow) return std::nullopt;
+        const Expr& base = f->args()[0];
+        const Expr& e = f->args()[1];
+        if (e->type_id() != TypeId::Integer) return std::nullopt;
+        if (base->type_id() != TypeId::Mul) return std::nullopt;
+        std::vector<Expr> num_factors;
+        std::vector<Expr> rest_factors;
+        for (const auto& bf : base->args()) {
+            if (is_num(bf)) num_factors.push_back(bf);
+            else rest_factors.push_back(bf);
+        }
+        if (num_factors.empty() || rest_factors.empty()) return std::nullopt;
+        Expr c = mul(std::move(num_factors));
+        Expr g = mul(std::move(rest_factors));
+        return mul(pow(c, e), pow(g, e));
+    };
+
+    if (auto r = rewrite_pow(expr)) return r;
+    if (expr->type_id() == TypeId::Mul) {
+        std::vector<Expr> out;
+        bool changed = false;
+        for (const auto& f : expr->args()) {
+            if (auto r = rewrite_pow(f)) {
+                out.push_back(*r);
+                changed = true;
+            } else {
+                out.push_back(f);
+            }
+        }
+        if (changed) return mul(std::move(out));
+    }
+    return std::nullopt;
+}
+
 // Risch differential equation for one exponential extension: integrate
 // R(x)·e^{a·x} (R rational, a a nonzero constant) by solving Q' + a·Q = R for a
 // rational Q = U/gcd(V,V') (V = denom R) via undetermined coefficients, giving
@@ -731,6 +780,16 @@ Expr integrate(const Expr& expr, const Expr& var) {
             terms.push_back(integrate(a, var));
         }
         return add(std::move(terms));
+    }
+
+    // Normalize compound power denominators: (c·g)^n → c^n·g^n (c numeric, n
+    // integer) so the elementary matchers see the bare g^n factor. Recurse only
+    // when the rewrite changed the form and actually closed the integral, so an
+    // already-normalized input cannot loop.
+    if (auto norm = try_distribute_pow_const(expr); norm.has_value()
+        && !(*norm == expr)) {
+        Expr r = integrate(*norm, var);
+        if (!contains_integral_marker(r)) return r;
     }
 
     if (auto r = integrate_term(expr, var); r.has_value()) {

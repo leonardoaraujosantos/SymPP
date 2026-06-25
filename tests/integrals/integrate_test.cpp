@@ -3594,3 +3594,40 @@ TEST_CASE("integrate: logarithmic-extension Risch (RISCH-LOG-1)",
     unevaluated(dv(L(x), pow(x, integer(2)) + integer(1)));  // dilog/Ti₂
     unevaluated(dv(integer(1), x + L(x)));                    // 1/(x+log x)
 }
+
+// INT-RLOG-1: rational-times-log integrands whose denominator carries a numeric
+// coefficient, e.g. log(x)/(2·x²). These are built as Mul(Pow(Mul(c, g), n),
+// log(x)) — the constant is folded into a compound power base, so the
+// elementary rational-times-log matchers never see the bare g^n factor and the
+// integral was left unevaluated even though log(x)/x² (no coefficient) solved
+// fine. Distributing (c·g)^n → c^n·g^n restores the closed form. Each result is
+// verified by differentiating back to the integrand via the oracle.
+TEST_CASE("integrate: rational-times-log family (INT-RLOG-1)",
+          "[7][integrate][oracle]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    auto L = [&](const Expr& a) { return log(a); };
+    auto dv = [&](const Expr& a, const Expr& b) { return mul(a, pow(b, integer(-1))); };
+    auto solves = [&](const Expr& f) {
+        Expr F = integrate(f, x);
+        REQUIRE(F->str().find("Integral") == std::string::npos);
+        REQUIRE(oracle.equivalent("diff(" + F->str() + ", x)", f->str()));
+    };
+    // log(x)/(2·x²): coefficient folded into the denominator power base.
+    solves(dv(L(x), mul(integer(2), pow(x, integer(2)))));
+    // log(x)/(3·x³).
+    solves(dv(L(x), mul(integer(3), pow(x, integer(3)))));
+    // log(x)/(2·x): reduces to ¼·log(x)².
+    solves(dv(L(x), mul(integer(2), x)));
+    // 1/(5·x²): pure rational with a compound power base (no log).
+    solves(dv(integer(1), mul(integer(5), pow(x, integer(2)))));
+    // log(x)²/(2·x²): nested log over a coefficiented power.
+    solves(dv(pow(L(x), integer(2)), mul(integer(2), pow(x, integer(2)))));
+    // (3·x²)^(-1)·log(x) written directly as a power with a Mul base.
+    solves(mul(pow(mul(integer(3), pow(x, integer(2))), integer(-1)), L(x)));
+
+    // Regression guard: the no-coefficient and integer-coefficient forms that
+    // already worked must keep working (and still differentiate back).
+    solves(dv(L(x), pow(x, integer(2))));            // log(x)/x²
+    solves(mul(integer(3), dv(L(x), pow(x, integer(2)))));  // 3·log(x)/x²
+}
