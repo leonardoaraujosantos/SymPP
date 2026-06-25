@@ -1,6 +1,7 @@
 # SymPP
 
 [![CI](https://github.com/leonardoaraujosantos/SymPP/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/leonardoaraujosantos/SymPP/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/leonardoaraujosantos/SymPP?label=release&color=blue&sort=semver)](https://github.com/leonardoaraujosantos/SymPP/releases/latest)
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](LICENSE)
 [![C++20](https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white)](https://en.cppreference.com/w/cpp/20)
 [![CMake](https://img.shields.io/badge/CMake-3.25%2B-064F8C?logo=cmake&logoColor=white)](https://cmake.org/)
@@ -592,6 +593,12 @@ cmake --build build --target sympp_bench -j
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE). Matches SymPy upstream.
+
+## Releases
+
+Latest: **[v1.1.0](https://github.com/leonardoaraujosantos/SymPP/releases/latest)**
+— source tarball (`sympp-1.1.0.tar.gz` + `.sha256`) attached, or clone `main`.
+See [CHANGELOG.md](CHANGELOG.md) for the full history.
 
 ## Repository
 
