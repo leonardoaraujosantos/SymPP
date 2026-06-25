@@ -1285,6 +1285,37 @@ TEST_CASE("limit: gamma/factorial at infinity (LIMIT-GAMMA-1)",
     REQUIRE(limit(pow(integer(2), x) / factorial(x), x, oo) == S::Zero());
 }
 
+// LIMIT-GAMMA-1 (ratio asymptotics): a ratio Γ(x+a)/Γ(x+b) of two gamma factors
+// with constant shifts behaves like x^(a−b) as x→∞ (Stirling), so the limit is
+// ∞ for a>b, 0 for a<b, 1 for a=b — including non-integer shifts where direct
+// substitution gives the indeterminate Γ(∞)/Γ(∞). Cross-checked against SymPy.
+TEST_CASE("limit: gamma-ratio asymptotics (LIMIT-GAMMA-1)",
+          "[6][limit][infinity][gamma][oracle][regression]") {
+    auto& oracle = Oracle::instance();
+    auto x = symbol("x");
+    const Expr oo = S::Infinity();
+    const Expr half = rational(1, 2);
+    // Each case: SymPP's limit must equal the constant we expect, and SymPy's
+    // limit op (via the oracle) must agree on the same value.
+    auto check = [&](const Expr& expr, const Expr& expected,
+                     std::string_view sympy_expr, std::string_view sympy_val) {
+        REQUIRE(limit(expr, x, oo) == expected);
+        REQUIRE(oracle.limit(sympy_expr, "x", "oo") == sympy_val);
+    };
+    // a > b: Γ(x+1)/Γ(x+1/2) ~ x^(1/2) → ∞ (the SymPy-confirmed acceptance case).
+    check(gamma(x + integer(1)) / gamma(x + half), oo,
+          "gamma(x + 1)/gamma(x + Rational(1,2))", "oo");
+    // a < b: Γ(x+1/2)/Γ(x+1) ~ x^(−1/2) → 0.
+    check(gamma(x + half) / gamma(x + integer(1)), S::Zero(),
+          "gamma(x + Rational(1,2))/gamma(x + 1)", "0");
+    // a > b, integer shifts: Γ(x+2)/Γ(x+1) ~ x → ∞.
+    check(gamma(x + integer(2)) / gamma(x + integer(1)), oo,
+          "gamma(x + 2)/gamma(x + 1)", "oo");
+    // a == b: Γ(x+1)/Γ(x+1) → 1.
+    check(gamma(x + integer(1)) / gamma(x + integer(1)), S::One(),
+          "gamma(x + 1)/gamma(x + 1)", "1");
+}
+
 // LIMIT-RECIPTRIG-1: reciprocal trig/hyperbolic functions (cot, csc, sec, coth,
 // csch, sech) were opaque to the limit engine, so 0·∞ forms like x·cot(x)
 // returned nan. The engine now rewrites them as sin/cos ratios before resolving.

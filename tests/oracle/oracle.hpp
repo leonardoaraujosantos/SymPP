@@ -49,6 +49,10 @@ public:
                                    std::string_view var,
                                    int order = 1);
     [[nodiscard]] std::string integrate(std::string_view expr, std::string_view var);
+    [[nodiscard]] std::string limit(std::string_view expr,
+                                    std::string_view var,
+                                    std::string_view to,
+                                    std::string_view dir = "+-");
     [[nodiscard]] std::string simplify(std::string_view expr);
     [[nodiscard]] std::string sympy_version();
 

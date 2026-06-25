@@ -236,6 +236,19 @@ std::string Oracle::integrate(std::string_view expr, std::string_view var) {
     return resp.result_str();
 }
 
+std::string Oracle::limit(std::string_view expr, std::string_view var,
+                          std::string_view to, std::string_view dir) {
+    auto resp = send({{"op", "limit"},
+                      {"expr", expr},
+                      {"var", var},
+                      {"to", to},
+                      {"dir", dir}});
+    if (!resp.ok) {
+        throw std::runtime_error("oracle limit failed: " + resp.error());
+    }
+    return resp.result_str();
+}
+
 std::string Oracle::simplify(std::string_view expr) {
     auto resp = send({{"op", "simplify"}, {"expr", expr}});
     if (!resp.ok) {
