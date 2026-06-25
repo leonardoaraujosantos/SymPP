@@ -4,7 +4,8 @@
 // (The deep submodules — full continuum mechanics, relativistic field theory —
 // remain genuinely multi-week ports. Second quantization is covered in part:
 // finite-dim ladder/number matrices, Jordan–Wigner fermions, and single-mode
-// bosonic Fock states with apply_annihilation/creation/number below.)
+// bosonic / fermionic Fock states with apply_annihilation/creation/number
+// below.)
 //
 //   * quantum     — commutators, Pauli matrices, ladder/number operators,
 //                   arbitrary-spin angular-momentum operators (Jx,Jy,Jz,J±,J²),
@@ -60,6 +61,27 @@ struct FockState {
 [[nodiscard]] SYMPP_EXPORT FockState apply_number(const FockState& s);
 // Commutator [a, a†] (c·|n⟩) = (a·a† − a†·a)(c·|n⟩) = c·|n⟩ (canonical relation).
 [[nodiscard]] SYMPP_EXPORT FockState apply_boson_commutator(const FockState& s);
+
+// ----- Second quantization: fermionic Fock states ----------------------------
+// A single-mode fermionic Fock state c·|n⟩ with Pauli exclusion: the occupation
+// number n is restricted to {0, 1}. As for the bosonic case, the zero vector is
+// encoded by a zero coefficient (occupation then irrelevant).
+struct FermionState {
+    std::size_t occupation = 0;  // n in |n⟩, must be 0 or 1
+    Expr coefficient;            // scalar prefactor c (c·|n⟩)
+
+    // Whether this represents the zero vector (coefficient simplifies to 0).
+    [[nodiscard]] SYMPP_EXPORT bool is_zero() const;
+};
+
+// Annihilation a (c·|1⟩) = c·|0⟩;  a|0⟩ = 0 (zero coefficient).
+[[nodiscard]] SYMPP_EXPORT FermionState apply_fermion_annihilation(const FermionState& s);
+// Creation a† (c·|0⟩) = c·|1⟩;  a†|1⟩ = 0 (Pauli exclusion).
+[[nodiscard]] SYMPP_EXPORT FermionState apply_fermion_creation(const FermionState& s);
+// Number N (c·|n⟩) = c·n·|n⟩ (eigenvalue n ∈ {0, 1}).
+[[nodiscard]] SYMPP_EXPORT FermionState apply_fermion_number(const FermionState& s);
+// Anticommutator {a, a†} (c·|n⟩) = (a·a† + a†·a)(c·|n⟩) = c·|n⟩ (CAR).
+[[nodiscard]] SYMPP_EXPORT FermionState apply_fermion_anticommutator(const FermionState& s);
 
 // ----- Second quantization: fermionic ladder operators -----------------------
 // Jordan–Wigner representation of fermionic mode `p` (0-based) among `n` modes

@@ -133,6 +133,46 @@ FockState apply_boson_commutator(const FockState& s) {
     return FockState{s.occupation, coeff};
 }
 
+// ----- Second quantization: fermionic Fock states ----------------------------
+
+bool FermionState::is_zero() const {
+    if (!coefficient) return true;  // default-constructed (null) coefficient
+    return simplify(coefficient) == S::Zero();
+}
+
+FermionState apply_fermion_annihilation(const FermionState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    if (s.occupation == 0) {
+        return FermionState{0, S::Zero()};  // a|0⟩ = 0
+    }
+    return FermionState{0, simplify(c)};  // a|1⟩ = |0⟩
+}
+
+FermionState apply_fermion_creation(const FermionState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    if (s.occupation >= 1) {
+        return FermionState{1, S::Zero()};  // a†|1⟩ = 0 (Pauli exclusion)
+    }
+    return FermionState{1, simplify(c)};  // a†|0⟩ = |1⟩
+}
+
+FermionState apply_fermion_number(const FermionState& s) {
+    Expr c = s.coefficient ? s.coefficient : S::One();
+    Expr factor = integer(static_cast<long>(s.occupation));  // n ∈ {0, 1}
+    return FermionState{s.occupation, simplify(c * factor)};
+}
+
+FermionState apply_fermion_anticommutator(const FermionState& s) {
+    // {a, a†} = a·a† + a†·a, applied to a state.
+    FermionState aad = apply_fermion_annihilation(apply_fermion_creation(s));
+    FermionState ada = apply_fermion_creation(apply_fermion_annihilation(s));
+    // Exactly one term is nonzero for a given n; both keep occupation n.
+    Expr ca = aad.coefficient ? aad.coefficient : S::Zero();
+    Expr cb = ada.coefficient ? ada.coefficient : S::Zero();
+    Expr coeff = simplify(ca + cb);
+    return FermionState{s.occupation, coeff};
+}
+
 // ----- Quantum computing -----------------------------------------------------
 
 Matrix ket0() { return Matrix{{integer(1)}, {integer(0)}}; }
