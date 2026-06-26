@@ -56,6 +56,10 @@ test-integration: build
 test-filter pattern: build
     {{build_dir}}/tests/sympp_tests "{{pattern}}"
 
+# Python-side oracle harness tests (protocol / clean shutdown).
+test-oracle-py:
+    python3 -m unittest discover -s oracle -p 'test_*.py' -v
+
 # ---- examples --------------------------------------------------------------
 
 # Build and run every example (quick-start + engineering-course series).

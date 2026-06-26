@@ -553,9 +553,16 @@ def main():
                 "detail": str(e),
                 "traceback": traceback.format_exc(),
             }
-        sys.stdout.write(json.dumps(resp) + "\n")
-        sys.stdout.flush()
+        # The C++ harness issues "shutdown" then closes the pipe without
+        # reading the reply, so stop here rather than writing into a closed
+        # read end (which would raise BrokenPipeError).
         if resp.get("_shutdown"):
+            break
+        try:
+            sys.stdout.write(json.dumps(resp) + "\n")
+            sys.stdout.flush()
+        except BrokenPipeError:
+            # Reader went away mid-stream — nothing left to answer.
             break
 
 
